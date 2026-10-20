@@ -515,223 +515,377 @@ extension OrbCanvas {
     }
     // MARK: Ocean
 
-    /// A sea at night filling the frame, in lines of light (Wave's ribbons laid on the water): each
-    /// line a row of the water at one distance, closing up toward the horizon, rising and falling
-    /// with the waves, its crests glowing, the moon's path a band of warm light across them; a dusk
-    /// glow on the horizon, the moon with its halo, a few stars. The waves are Gerstner waves (sharp
-    /// crests, long waves faster than short ones); the light is the moon reflected off each wave's
-    /// actual tilt, the sky's glow reflected more at grazing angles. At rest a low swell; a voice
-    /// raises it and lights it, low pitches the long waves, high pitches the short ones, the last
-    /// second of the voice travelling across the water: toward you while it speaks, away while you
-    /// speak. While it thinks the sea calms and a gentle rain falls, each drop ringing the water;
-    /// working, a lighthouse on the horizon sweeps its beam across the sea.
+    /// Open sea at dusk, painted as solid water: a sky from the last light on the horizon up to the
+    /// night, a few stars, the moon and its path of glitter, a low island with a lighthouse. The water
+    /// is rows of the surface closing up toward the horizon, far ones first, each filled and shaded
+    /// along its length by the slope of its waves (the sky and the moon reflected off each facet, the
+    /// deep colour under it, the light inside the crests, foam where a crest breaks), a haze toward the
+    /// horizon. The waves are Gerstner trains at fixed paces: a swell rolling from left to right across
+    /// the frame at rest. Listening, the swell quiets and your voice runs away from you in fine
+    /// ripples, lighting the near water; thinking, the swell gives way to ordered ranks and then a
+    /// lattice of peaks catching the moon; working, a wind raises whitecaps, the lighthouse sweeps its
+    /// beam, a ship's light crosses the horizon per running tool and each step rings the water; while
+    /// it speaks its voice rolls toward you (low pitches long waves, high pitches short), its crests
+    /// light up and break into foam on loud syllables.
     func drawOcean(_ gc: inout GraphicsContext, _ box: CGSize) {
+        drawOceanScene(&gc, box)
+    }
+
+    private func drawOceanScene(_ gc: inout GraphicsContext, _ box: CGSize) {
+        typealias G = OceanGeometry
+        typealias RGB = G.RGB
         let W = Double(box.width), H = Double(box.height)
-        let cx = W / 2, cy = H / 2
-        // The scene's units: the frame's half height (y) and half width (x).
-        func screen(_ sx: Double, _ sy: Double) -> CGPoint { CGPoint(x: cx + sx * W / 2, y: cy + sy * H / 2) }
-        let ax = W / H
+        guard W > 8, H > 8 else { return }
+        // The scene's units: half the frame's height, the same across and down; y down.
+        let u = H / 2, cx = W / 2, cy = H / 2, ax = W / H
+        func screen(_ sx: Double, _ sy: Double) -> CGPoint { CGPoint(x: cx + sx * u, y: cy + sy * u) }
         let ph = OrbPhases(engine)
-        let e = engine.engagement, th = ph.think, talk = engine.talking, hist = engine.history, busy = ph.work
-        // Working: a lighthouse on the horizon at the left, its beam sweeping the water (searching).
-        let beamA = 0.45 + 0.25 * sin(t * 0.9), lightX = -0.82
-        let hz = OceanGeometry.horizon, F = OceanGeometry.focal
-        let toward = 2 * talk - 1                                       // +1: the waves come toward you
-        let calm = 1 - 0.6 * th
-        let lowB = (engine.bands[0] + engine.bands[1]) / 2, midB = engine.bands[3], highB = engine.bands[6]
-        let moon = OceanGeometry.moon
-        let moonDir = OceanGeometry.moonDirection
-        let moonGlow = 0.9 + 0.08 * sin(t * 0.5) + 0.25 * engine.signal
-        let waves = OceanGeometry.waves
-        // The rain while it thinks: drops at their places on the water, in turn.
-        var drops: [(x: Double, d: Double, age: Double, fade: Double)] = []
-        if th > 0.01 {
-            let period = 1.8
-            for i in 0..<6 {
-                let shifted = t + Double(i) * period / 6
-                let n = Int(shifted / period), age = shifted - Double(n) * period
-                let seed = n * 7 + i * 13
-                drops.append((x: (OrbPoints.hash(seed, 31) - 0.5) * 3, d: 2.4 + 4 * OrbPoints.hash(seed, 37),
-                              age: age, fade: th * pow(1 - age / period, 2)))
+        let th = ph.think, busy = ph.work, hist = engine.history
+        let small = smoothstep(130, 50, H)                    // 1 in a picker tile
+        let F = G.focal, hz = G.horizon + 0.05 * small
+        let px = max(0.5, H / 190)
+        let light = G.Light(tint: look.color.map { G.rgb($0, gc.environment) })
+        let moonGlow = 0.92 + 0.08 * sin(t * 0.5) + 0.25 * engine.signal
+        let moon = (x: 0.5 * min(ax, 1.15), y: -0.68 + 0.08 * small, r: 0.075 + 0.06 * small)
+        let mDir: (x: Double, y: Double, z: Double) = {
+            let x = moon.x / F, y = (hz - moon.y) / F, l = (x * x + y * y + 1).squareRoot()
+            return (x / l, y / l, 1 / l)
+        }()
+        let bands = engine.bands
+        let lowB = (bands[0] + bands[1]) / 2, midB = (bands[3] + bands[4]) / 2, highB = (bands[6] + bands[7]) / 2
+        // The trains and their heights now; group 1 follows its voice along the way toward you, group 2
+        // yours away from you.
+        var trains: [(w: G.Train, a: Double, group: Int)] = []
+        let swell = (1 - 0.84 * th) * (1 - 0.5 * ph.listen) * (1 + 0.45 * busy + 0.25 * ph.speak)
+        for w in G.natural { trains.append((w, w.rest * swell, 0)) }
+        let ranks = smoothstep(0.0, 0.6, th), lattice = smoothstep(0.35, 1.0, th)
+        if th > 0.001 {
+            trains.append((G.ordered[0], G.ordered[0].rest * ranks, 0))
+            trains.append((G.ordered[1], G.ordered[1].rest * lattice, 0))
+        }
+        if ph.speak > 0.001 {
+            for (i, w) in G.voice.enumerated() { trains.append((w, w.rest * (0.3 + 1.9 * [lowB, midB, highB][i]), 1)) }
+        }
+        if ph.listen > 0.001 {
+            for (i, w) in G.ripples.enumerated() { trains.append((w, w.rest * (0.5 + 1.8 * [lowB, highB][i]), 2)) }
+        }
+        if busy > 0.001 {
+            for w in G.wind { trains.append((w, w.rest * busy, 0)) }
+        }
+        // The crests sharpen with the sea's steepness, never looping.
+        let steepness = trains.reduce(0) { $0 + $1.w.k * $1.a * ($1.group == 0 ? 1 : 1.6) }
+        let q = min(0.85, 0.9 / max(0.01, steepness))
+        // The voice along the way: its last 1.2 s, toward you while it speaks, away while you do.
+        func voiceHere(_ D: Double) -> (speak: Double, listen: Double) {
+            (ph.speak * hist.value(secondsAgo: min(1.2, max(0, (14 - D) / 10))),
+             ph.listen * hist.value(secondsAgo: min(1.2, max(0, (D - 1) / 8))))
+        }
+        // Each step of the work: a ring spreading on the water in front of you.
+        let rings = work.pulses.filter { $0.tone != .failure }.map { p in (r: 0.3 + p.age * 2.4, k: p.strength * max(0, 1 - p.age / 1.6)) }
+        let ringD = 6.0
+
+        struct Surface { var sx = 0.0, sy = 0.0, h = 0.0, amp = 0.0, steep = 0.0, D = 0.0, nx = 0.0, ny = 1.0, nz = 0.0, light = 0.0, heard = 0.0 }
+        /// The water at (X, D): where it is now on the screen, its height, normal and steepness.
+        /// `att`: each train's share at this distance (fine waves fade where the rows can't hold them).
+        func surface(_ X: Double, _ D: Double, _ att: [Double], _ env: (speak: Double, listen: Double)) -> Surface {
+            var s = Surface()
+            var dX = 0.0, dD = 0.0, gx = 0.0, gz = 0.0
+            for (i, tr) in trains.enumerated() {
+                let a = tr.a * att[i] * (tr.group == 1 ? env.speak : (tr.group == 2 ? env.listen : 1))
+                guard a > 1e-5 else { continue }
+                let w = tr.w
+                let p = w.k * (w.dx * X + w.dd * D) - w.omega * t + w.phase
+                let sn = sin(p), cs = cos(p), qa = q * a
+                dX -= qa * w.dx * sn; dD -= qa * w.dd * sn
+                s.h += a * cs; s.amp += a
+                gx -= a * w.k * w.dx * sn; gz -= a * w.k * w.dd * sn
+                s.steep += qa * w.k * cs
+            }
+            // Listening: rings spreading from you across the near water, each carrying your voice
+            // of a moment ago outward.
+            if ph.listen > 0.01, att[trains.count] > 0.01 {
+                let ez = D - 1.1, rho = max(0.05, (X * X + ez * ez).squareRoot())
+                let a = 0.018 * ph.listen * hist.value(secondsAgo: min(1.2, rho / 3)) * (1 - smoothstep(2.6, 4.5, rho)) * att[trains.count]
+                if a > 1e-5 {
+                    let p = 9 * rho - 4 * t
+                    s.h += a * cos(p)
+                    let dh = -a * 9 * sin(p)
+                    gx += dh * X / rho; gz += dh * ez / rho
+                    s.heard = a / 0.018 * pow(max(0, cos(p)), 6)
+                }
+            }
+            for ring in rings where ring.k > 0.01 {
+                let ex = X, ez = D - ringD, rho = max(0.05, (ex * ex + ez * ez).squareRoot())
+                let off = rho - ring.r, env = exp(-off * off / 0.18) * ring.k
+                guard env > 0.002 else { continue }
+                s.h += 0.024 * env * cos(off * 9)
+                let dh = -0.024 * env * 9 * sin(off * 9)
+                gx += dh * ex / rho; gz += dh * ez / rho
+                s.light += env
+            }
+            let Xw = X + dX, Dw = max(0.35, D + dD)
+            s.sx = Xw * F / Dw; s.sy = hz + F * (1 - s.h) / Dw; s.D = Dw
+            let nl = (gx * gx + (1 - s.steep) * (1 - s.steep) + gz * gz).squareRoot()
+            s.nx = -gx / nl; s.ny = (1 - s.steep) / nl; s.nz = -gz / nl
+            return s
+        }
+        /// Its colour: the sky and the moon reflected off the facet, the deep under it, the light in the crest.
+        func shade(_ s: Surface, _ env: (speak: Double, listen: Double)) -> (c: RGB, spec: Double, foam: Double, rim: Double) {
+            let X = s.sx * s.D / F
+            let vl = (X * X + (s.h - 1) * (s.h - 1) + s.D * s.D).squareRoot()
+            let vx = X / vl, vy = (s.h - 1) / vl, vz = s.D / vl
+            let vn = vx * s.nx + vy * s.ny + vz * s.nz
+            let rx = vx - 2 * vn * s.nx, ry = vy - 2 * vn * s.ny, rz = vz - 2 * vn * s.nz
+            let fres = 0.02 + 0.98 * pow(1 - min(1, max(0, -vn)), 5)
+            let e = ry / max(0.05, (rx * rx + rz * rz).squareRoot())
+            let md = max(0, rx * mDir.x + ry * mDir.y + rz * mDir.z)
+            let spec = (pow(md, 500) * 1.2 + pow(md, 60) * 0.16 + pow(md, 10) * 0.05) * moonGlow
+            let crest = s.amp > 1e-4 ? max(0, min(1, s.h / s.amp)) : 0
+            // Lit faces turned toward the moon and the last light, darker fronts turned to you.
+            let tilt = s.nx * mDir.x + s.ny * mDir.y + s.nz * mDir.z - mDir.y
+            let lit = smoothstep(-0.01, 0.14, tilt), shadow = 0.55 + 0.45 * smoothstep(-0.14, 0.02, tilt)
+            let near = 1 - smoothstep(4, 30, s.D)
+            var c = light.skyColor(e) * (fres * 0.92) + (light.deep + light.scatter * (0.025 + 0.14 * crest * crest)) * (1 - fres) * shadow
+            c = c + light.moon.mix(light.sky[1].c, 0.7) * (0.15 * lit * (0.3 + 0.7 * near)) + light.moon * spec
+            // Its voice lights the crests it raises, in its hues across the water; yours lights the near water.
+            c = c + light.voiceHue(s.sx / ax) * (0.7 * env.speak * crest * (0.25 + 0.75 * crest) * (0.5 + 0.5 * near))
+            let pool = exp(-(s.sx * s.sx) / (0.25 + 0.9 * env.listen) - pow(1.05 - s.sy, 2) / (0.12 + 0.5 * env.listen))
+            c = c + light.glow * ((0.3 * env.listen + 0.08 * ph.listen) * pool * (0.6 + 0.4 * lit))
+            c = c + light.glow * (0.6 * s.light + 0.3 * s.heard)
+            // Foam where the crest is steepest: loud syllables and the wind break it.
+            let start = 0.46 - 0.28 * busy - 0.3 * env.speak
+            let foam = smoothstep(start, start + 0.16, s.steep) * min(1, 0.2 + 1.4 * env.speak + 1.2 * busy) * (1 - smoothstep(14, 30, s.D))
+            c = c.mix(light.foam * (0.4 + 0.3 * crest), 0.3 * foam)
+            // The haze toward the horizon.
+            c = c.mix(light.haze, 0.75 * (1 - exp(-s.D / 40)))
+            // A crest's rim catching the light (sharp, over the soft water).
+            let rim = crest * crest * crest * (0.25 + lit) * near * (1 - smoothstep(6, 16, s.D)) + 0.6 * env.speak * crest * crest * near
+            return (c, spec, foam, rim)
+        }
+
+        // Soft edges: the frame dissolves into the night at the top and the bottom (and at the sides
+        // where the sea is not the page's whole width).
+        gc.clipToLayer { m in
+            m.fill(Path(CGRect(x: 0, y: 0, width: W, height: H)),
+                   with: .linearGradient(Gradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.1),
+                                                          .init(color: .black, location: 0.88), .init(color: .clear, location: 1)]),
+                                         startPoint: .zero, endPoint: CGPoint(x: 0, y: H)))
+        }
+        if ax < 1.05 {
+            gc.clipToLayer { m in
+                m.fill(Path(CGRect(x: 0, y: 0, width: W, height: H)),
+                       with: .linearGradient(Gradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.1),
+                                                              .init(color: .black, location: 0.9), .init(color: .clear, location: 1)]),
+                                             startPoint: .zero, endPoint: CGPoint(x: W, y: 0)))
             }
         }
-        let rows = max(8, min(34, Int(H / 9))), samples = max(20, min(64, Int(W / 6)))
-        let lw = max(0.6, H / 300)
-        // The water's lines: three groups by distance (finer far away), five levels of light each.
-        var water = [[Path]](repeating: [Path](repeating: Path(), count: 5), count: 3)
-        func rowY(_ f: Double) -> Double { hz + 0.012 + (1.04 - hz - 0.012) * pow(f, 1.7) }
-        for j in 0..<rows {
-            let f = Double(j) / Double(rows - 1)                         // 0 at the horizon … 1 near you
-            let y0 = rowY(f), D = F / (y0 - hz)
-            let group = f < 0.3 ? 0 : (f < 0.65 ? 1 : 2)
-            // The far rows lie close together: each fainter, so they don't pile up into a band.
-            let rowWeight = min(1, max(0.4, (y0 - rowY(max(0, f - 1 / Double(rows - 1)))) / 0.05))
-            // Where the voice now is on this row (the last 1.2 s along the way).
-            let ago = talk * min(1.2, max(0, (12 - D) / 9)) + (1 - talk) * min(1.2, max(0, (D - 1) / 9))
-            let v = e * hist.value(secondsAgo: ago)
-            var prev = CGPoint.zero, prevB = 0.0
-            for i in 0...samples {
-                let X = (-1.06 + 2.12 * Double(i) / Double(samples)) * D / F
-                var dx = 0.0, dd = 0.0, h = 0.0, sxSlope = 0.0, sdSlope = 0.0, squeeze = 0.0, A = 0.0
-                for w in waves {
-                    let gain = w.low * (0.6 + 1.6 * lowB) + w.mid * (0.6 + 1.6 * midB) + w.high * (0.6 + 1.6 * highB)
-                    let a = w.rest * calm * (1 + 5.5 * v * gain)
-                    let px = w.dirX, pd = -w.dirD * toward
-                    let phase = w.k * (px * X + pd * D) - w.omega * t + w.phase
-                    let c = cos(phase), s = sin(phase)
-                    let q = min(0.9, w.steep * 0.7)                      // the crests sharpen, never loop
-                    dx -= q * a * px * s; dd -= q * a * pd * s
-                    h += a * c; A += a
-                    sxSlope -= a * w.k * px * s; sdSlope -= a * w.k * pd * s
-                    squeeze += q * a * w.k * c
-                }
-                for drop in drops where drop.fade > 0.002 {
-                    let ddx = X - drop.x, ddd = (D - drop.d) * 0.8
-                    let dist = (ddx * ddx + ddd * ddd).squareRoot() - 0.6 * drop.age
-                    let k = exp(-pow(dist / 0.16, 2)) * drop.fade
-                    h += 0.04 * k * cos(dist * 22)
-                    sdSlope += 0.5 * k * sin(dist * 22)
-                }
-                let Xw = X + dx, Dw = max(0.5, D + dd)
-                let sx = Xw * F / Dw, sy = hz + F * (1 - h) / Dw
-                // Light: the view ray reflected off the wave's normal (the moon's path, the sky's glow).
-                let vl = (Xw * Xw + (h - 1) * (h - 1) + Dw * Dw).squareRoot()
-                let vx = Xw / vl, vy = (h - 1) / vl, vz = Dw / vl
-                let nl = (sxSlope * sxSlope + 1 + sdSlope * sdSlope).squareRoot()
-                let nx = -sxSlope / nl, ny = 1 / nl, nz = -sdSlope / nl
-                let vn = vx * nx + vy * ny + vz * nz
-                let rx = vx - 2 * vn * nx, ry = vy - 2 * vn * ny, rz = vz - 2 * vn * nz
-                let fresnel = 0.02 + 0.98 * pow(1 - min(1, max(0, -vn)), 5)
-                let skyGlow = 0.12 + 0.55 * exp(-max(0, ry) * 7)
-                let glitter = 0.55 + 0.45 * sin(37 * X + 11 * D - 2.3 * t)
-                let spec = pow(max(0, rx * moonDir.x + ry * moonDir.y + rz * moonDir.z), 50) * 1.05 * moonGlow * glitter
-                // The crests glow; the voice lights the water it raises.
-                let crest = A > 1e-5 ? smoothstep(0.1, 0.95, h / A) : 0
-                var b = 0.25 + 0.4 * fresnel * skyGlow + 0.28 * crest + spec + 0.45 * v * (0.4 + 0.6 * crest)
-                if squeeze > 0.55 { b += 0.6 * (squeeze - 0.55) * (0.3 + v) }          // foam on steep crests
-                // The moon's path: a column of glittering light under it, wider toward you.
-                b += 0.42 * moonGlow * exp(-pow((sx - moon.x) / (0.04 + 0.1 * f), 2)) * (0.35 + 0.65 * glitter) * (0.6 + 0.4 * crest)
-                for drop in drops where drop.age < 0.15 {
-                    let ddx = X - drop.x, ddd = D - drop.d
-                    b += 0.8 * exp(-(ddx * ddx + ddd * ddd) / 0.01) * drop.fade             // the splash
-                }
-                if busy > 0.01 {
-                    let a = atan2(sy - hz, sx - lightX)
-                    let inBeam = exp(-pow((a - beamA) / 0.12, 2)) * (1 - smoothstep(0.9, 3.0, hypot(sx - lightX, sy - hz)))
-                    b += busy * 0.65 * inBeam
-                }
-                // The frame's edges dissolve into the night; the countdown dims the edge clockwise.
-                let edge = (1 - smoothstep(0.9, 1.04, abs(sx))) * (1 - smoothstep(0.9, 1.02, sy))
-                b *= rowWeight * edge * countdownDim(sx * ax / 0.75, sy / 0.75)
-                let p = screen(sx, sy)
-                if i > 0 {
-                    let m = (b + prevB) / 2
-                    if m > 0.04 {
-                        let lv = min(4, max(0, Int(m * 5)))
-                        water[group][lv].move(to: prev); water[group][lv].addLine(to: p)
-                    }
-                }
-                prev = p; prevB = b
-            }
-        }
-        let tint = look.color
-        let hues: [Color] = tint.map { c in [c.opacity(0.7), c, c.opacity(0.85), c] }
-            ?? [Color(hex: 0x38bdf8), Color(hex: 0x6366f1), Color(hex: 0xa855f7), Color(hex: 0xf472b6), Color(hex: 0xfb923c)]
-        let hue = GraphicsContext.Shading.linearGradient(Gradient(colors: hues), startPoint: CGPoint(x: 0, y: cy), endPoint: CGPoint(x: W, y: cy))
-        let moonLight = tint == nil ? Color(hex: 0xfff0d4) : Color(white: 0.95)
+        gc.blendMode = .normal
         let horizonY = screen(0, hz).y
-        // The sky: dark above, a soft dusk glow down to the horizon.
-        let dusk = tint ?? Color(hex: 0xa855f7)
-        gc.fill(Path(CGRect(x: 0, y: 0, width: W, height: horizonY)),
-                with: .linearGradient(Gradient(stops: [.init(color: .clear, location: 0), .init(color: dusk.opacity(0.06), location: 0.45),
-                                                       .init(color: dusk.opacity(0.14), location: 0.8), .init(color: (tint ?? Color(hex: 0xf472b6)).opacity(0.2), location: 1)]),
-                                      startPoint: CGPoint(x: 0, y: 0), endPoint: CGPoint(x: 0, y: horizonY)))
-        // Stars, twinkling (three groups by their light now), fading while it rains.
+        // The sky.
+        var skyStops: [Gradient.Stop] = []
+        for k in 0...8 {
+            let loc = Double(k) / 8, sy = -1 + (hz + 1) * loc
+            skyStops.append(.init(color: light.skyColor((hz - sy) / F).color, location: loc))
+        }
+        gc.fill(Path(CGRect(x: 0, y: 0, width: W, height: horizonY + 2)),
+                with: .linearGradient(Gradient(stops: skyStops), startPoint: .zero, endPoint: CGPoint(x: 0, y: horizonY)))
+        gc.blendMode = .plusLighter
+        // Stars in the darker sky, twinkling.
         var stars = [Path](repeating: Path(), count: 3)
-        let starCount = max(8, Int(W * H / 5000))
+        let starCount = min(60, max(6, Int(W * H / 2600)))
         for k in 0..<starCount {
-            let sx = 2 * OrbPoints.hash(k, 51) - 1, sy = -1 + (hz + 1 - 0.08) * OrbPoints.hash(k, 52)
-            if (sx * ax - moon.x * ax) * (sx * ax - moon.x * ax) + (sy - moon.y) * (sy - moon.y) < 0.06 { continue }
-            let tw = 0.5 + 0.5 * sin(t * 1.3 + 6.3 * OrbPoints.hash(k, 53))
-            let lv = min(2, Int(tw * 3)), r = lw * (0.7 + 0.8 * OrbPoints.hash(k, 54))
+            let sx = (2 * OrbPoints.hash(k, 51) - 1) * ax, sy = -1 + (hz + 1) * pow(OrbPoints.hash(k, 52), 1.6) * 0.72
+            if pow(sx - moon.x, 2) + pow(sy - moon.y, 2) < pow(moon.r * 3.2, 2) { continue }
+            let tw = 0.5 + 0.5 * sin(t * (1 + OrbPoints.hash(k, 54)) + 6.3 * OrbPoints.hash(k, 53))
+            let lv = min(2, Int(tw * 3)), r = px * (0.35 + 0.45 * OrbPoints.hash(k, 55))
             let p = screen(sx, sy)
             stars[lv].addEllipse(in: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r))
         }
-        for (lv, a) in [(0, 0.25), (1, 0.5), (2, 0.85)] { gc.fill(stars[lv], with: .color(moonLight.opacity(a * (1 - 0.6 * th)))) }
-        // The moon: a soft disc in its halo, and its light on the water under it.
-        let mc = screen(moon.x, moon.y), mr = moon.r * H / 2
-        let halo = mr * 4.2
+        for (lv, a) in [(0, 0.22), (1, 0.45), (2, 0.8)] { gc.fill(stars[lv], with: .color(light.moon.color(a))) }
+        // The moon in its halo.
+        let mc = screen(moon.x, moon.y), mr = moon.r * u, halo = mr * 5
         gc.fill(Path(ellipseIn: CGRect(x: mc.x - halo, y: mc.y - halo, width: 2 * halo, height: 2 * halo)),
-                with: .radialGradient(Gradient(colors: [moonLight.opacity(0.28 * moonGlow), dusk.opacity(0.08), .clear]), center: mc, startRadius: mr * 0.8, endRadius: halo))
+                with: .radialGradient(Gradient(colors: [light.moon.color(0.3 * moonGlow), light.moon.color(0.06), .clear]),
+                                      center: mc, startRadius: mr * 0.9, endRadius: halo))
+        gc.blendMode = .normal
         gc.fill(Path(ellipseIn: CGRect(x: mc.x - mr, y: mc.y - mr, width: 2 * mr, height: 2 * mr)),
-                with: .radialGradient(Gradient(colors: [.white.opacity(0.95), moonLight.opacity(0.9), moonLight.opacity(0.75)]),
-                                      center: CGPoint(x: mc.x - mr * 0.3, y: mc.y - mr * 0.3), startRadius: 0, endRadius: mr * 1.2))
-        // Its path on the water: a soft column of light, a circle's gradient stretched down.
-        var glade = gc
-        let gr = mr * 2.4, stretch = (H - horizonY) / gr * 0.6
-        glade.translateBy(x: mc.x, y: horizonY)
-        glade.scaleBy(x: 1, y: stretch)
-        glade.fill(Path(CGRect(x: -gr, y: 0, width: 2 * gr, height: 2 * gr)),
-                   with: .radialGradient(Gradient(colors: [moonLight.opacity(0.12 * moonGlow), moonLight.opacity(0.04), .clear]),
-                                         center: CGPoint(x: 0, y: gr * 0.5), startRadius: 0, endRadius: gr))
-        // The horizon: a fine line of light.
-        var horizon = Path(); horizon.move(to: CGPoint(x: 0, y: horizonY)); horizon.addLine(to: CGPoint(x: W, y: horizonY))
-        gc.stroke(horizon, with: .linearGradient(Gradient(colors: [.clear, moonLight.opacity(0.3), moonLight.opacity(0.45), moonLight.opacity(0.3), .clear]),
-                                                 startPoint: CGPoint(x: 0, y: horizonY), endPoint: CGPoint(x: W, y: horizonY)), lineWidth: lw * 0.8)
-        // The water: a glow under its bright lines, the lines in the voice's hues, the brightest in
-        // the moon's light.
-        let widths = [0.55, 0.85, 1.2]
+                with: .radialGradient(Gradient(colors: [RGB(1, 0.99, 0.96).color, light.moon.color, light.moon.mix(light.sky[3].c, 0.25).color]),
+                                      center: CGPoint(x: mc.x - mr * 0.25, y: mc.y - mr * 0.3), startRadius: 0, endRadius: mr * 1.25))
+        // A low island on the horizon at the left, a lighthouse on it.
+        let isl = light.skyColor(0.01).mix(light.deep, 0.82)
+        var island = Path()
+        let i0 = -ax * 1.02, i1 = -ax * 0.42, ih = 0.045 - 0.01 * small
+        island.move(to: screen(i0, hz + 0.006))
+        for k in 0...10 {
+            let f = Double(k) / 10, x = i0 + (i1 - i0) * f
+            island.addLine(to: screen(x, hz - ih * pow(sin(.pi * pow(f, 0.8)), 0.7) * (0.75 + 0.25 * sin(f * 9))))
+        }
+        island.addLine(to: screen(i1, hz + 0.006)); island.closeSubpath()
+        let lampX = -ax * 0.76, lampTop = hz - ih * 0.9 - 0.035
+        let base = screen(lampX, hz - ih * 0.5), top = screen(lampX, lampTop)
+        island.move(to: CGPoint(x: base.x - px * 0.9, y: base.y)); island.addLine(to: CGPoint(x: top.x - px * 0.5, y: top.y))
+        island.addLine(to: CGPoint(x: top.x + px * 0.5, y: top.y)); island.addLine(to: CGPoint(x: base.x + px * 0.9, y: base.y)); island.closeSubpath()
+        gc.fill(island, with: .color(isl.color))
+
+        // The water, far rows first; each a filled band shaded along its length.
+        let rows = max(18, min(40, Int(H / 4.5))), samples = max(14, min(56, Int(W / 5)))
+        func rowSY(_ f: Double) -> Double { hz + 0.004 + (1.08 - hz) * pow(f, 1.55) }
+        var glow = [Path](repeating: Path(), count: 3)        // glitter, by its light
+        var waterRows: [(Path, Gradient, Double)] = []
+        waterRows.reserveCapacity(rows)
+        var foamLines = [Path(), Path()]                     // whitecaps: faint, bright
+        var rims = [Path(), Path()]                          // the crests' rims: faint, bright
+        var prevD = F / (rowSY(0) - hz) * 1.4
+        for j in 0..<rows {
+            let f = Double(j) / Double(rows - 1)
+            let sy0 = rowSY(f), D = F / (sy0 - hz)
+            let env = voiceHere(D)
+            let spanX = (ax + 0.14) * D / F, dXs = 2 * spanX / Double(samples), dDs = max(0.01, prevD - D)
+            // A train finer than the samples along the row fades out; one finer than the rows keeps a
+            // little of itself, so the far water shimmers in fine streaks rather than lying flat.
+            let att = trains.map { tr in
+                (0.3 + 0.7 * (1 - smoothstep(0.9, 2.2, tr.w.k * abs(tr.w.dd) * dDs))) * (1 - smoothstep(0.8, 1.8, tr.w.k * abs(tr.w.dx) * dXs))
+            } + [1 - smoothstep(1.0, 2.4, 9 * max(dDs, dXs))]
+            prevD = D
+            var poly: [CGPoint] = []
+            var stops: [Gradient.Stop] = []
+            poly.reserveCapacity(samples + 3); stops.reserveCapacity(samples + 1)
+            var lastLoc = -1.0, lastRim = 0.0
+            for i in 0...samples {
+                let X = -spanX + dXs * Double(i)
+                let s = surface(X, D, att, env)
+                let sh = shade(s, env), foam = sh.foam
+                if i > 0, f > 0.25, f < 0.9 {
+                    let r = (sh.rim + lastRim) / 2
+                    if r > 0.12 { rims[r > 0.32 ? 1 : 0].move(to: poly[i - 1]); rims[r > 0.32 ? 1 : 0].addLine(to: screen(s.sx, s.sy)) }
+                }
+                lastRim = sh.rim
+                let c = sh.c * countdownDim(s.sx / ax / 0.82, s.sy / 0.82)
+                let p = screen(s.sx, s.sy)
+                poly.append(p)
+                let loc = max(lastLoc + 0.0001, min(1, max(0, Double(p.x) / W)))
+                lastLoc = loc
+                stops.append(.init(color: c.color, location: min(1, loc)))
+                if foam > 0.15 {
+                    // Whitecaps: short streaks along the crest, drawn out by the wind.
+                    for k in 0..<2 {
+                        let hs = OrbPoints.hash(j * 131 + i * 7 + k, 81), hl = OrbPoints.hash(j * 131 + i * 7 + k, 82)
+                        let len = px * (0.8 + 2.4 * foam * hl + 4.5 * busy * hl) * (0.45 + 0.55 * f)
+                        let x0 = p.x + (hs - 0.5) * dXs * F / D * u, y0 = p.y + px * (0.2 + 0.8 * hl) * f
+                        foamLines[foam > 0.55 ? 1 : 0].move(to: CGPoint(x: x0 - len, y: y0))
+                        foamLines[foam > 0.55 ? 1 : 0].addLine(to: CGPoint(x: x0 + len * 0.5, y: y0))
+                    }
+                }
+            }
+            poly.append(CGPoint(x: poly[poly.count - 1].x, y: H + 2)); poly.append(CGPoint(x: poly[0].x, y: H + 2))
+            var band = Path(); band.addLines(poly); band.closeSubpath()
+            waterRows.append((band, Gradient(stops: stops), sy0))
+            // The moon's glitter on this row: facets that flash in turn.
+            let tries = small > 0.5 ? 2 : (sy0 - hz < 0.01 ? 3 : 7)
+            for c in 0..<tries {
+                let hsh = OrbPoints.hash(j * 17 + c, 71)
+                let gx = moon.x + (hsh - 0.5) * (0.1 + 0.8 * f)
+                let s = surface(gx * D / F, D, att, env)
+                let spec = shade(s, env).spec
+                let tw = pow(max(0, sin(t * (2.4 + 4 * OrbPoints.hash(j * 17 + c, 72)) + 6.3 * OrbPoints.hash(j * 17 + c, 73))), 6)
+                let b = spec * (0.25 + 0.75 * tw) * exp(-s.D / 60)
+                guard b > 0.06 else { continue }
+                let p = screen(s.sx, s.sy), w = px * (0.5 + 1.6 * f) * (0.7 + 0.5 * min(1, b)), hgt = w * (0.35 + 0.2 * f)
+                glow[min(2, Int(b * 2.2))].addEllipse(in: CGRect(x: p.x - w, y: p.y - hgt, width: 2 * w, height: 2 * hgt))
+            }
+        }
+        // The water, softened a touch so its rows read as one surface.
         gc.drawLayer { layer in
-            layer.addFilter(.blur(radius: lw * 2.2))
-            for g in 0..<3 {
-                layer.stroke(water[g][3], with: .color(moonLight.opacity(0.35)), lineWidth: lw * widths[g] * 2.5)
-                layer.stroke(water[g][4], with: .color(moonLight.opacity(0.55)), lineWidth: lw * widths[g] * 3)
-            }
+            layer.addFilter(.blur(radius: px * 0.35))
+            for (band, g, y) in waterRows { layer.fill(band, with: .linearGradient(g, startPoint: CGPoint(x: 0, y: y), endPoint: CGPoint(x: W, y: y))) }
         }
-        for g in 0..<3 {
-            for (lv, a) in [(0, 0.3), (1, 0.5), (2, 0.75)] {
-                gc.opacity = a
-                gc.stroke(water[g][lv], with: hue, style: StrokeStyle(lineWidth: lw * widths[g], lineCap: .round))
-            }
-            gc.opacity = 1
-            gc.stroke(water[g][3], with: .color(moonLight.opacity(0.8)), style: StrokeStyle(lineWidth: lw * widths[g], lineCap: .round))
-            gc.stroke(water[g][4], with: .color(.white.opacity(0.95)), style: StrokeStyle(lineWidth: lw * widths[g] * 1.1, lineCap: .round))
-        }
-        // The rain while it thinks: fine slow streaks, and the rings each drop leaves.
-        if th > 0.01 {
-            var rain = Path()
-            for k in 0..<max(10, Int(W / 14)) {
-                let fall = (t * 0.9 + OrbPoints.hash(k, 55)).truncatingRemainder(dividingBy: 1)
-                let sx = 2.1 * OrbPoints.hash(k, 56) - 1.05 + 0.05 * fall, sy = -1 + (hz + 1.25) * fall
-                rain.move(to: screen(sx, sy)); rain.addLine(to: screen(sx - 0.006, sy - 0.07))
-            }
-            gc.stroke(rain, with: .color(moonLight.opacity(0.35 * th)), style: StrokeStyle(lineWidth: lw * 0.7, lineCap: .round))
-            for drop in drops where drop.fade > 0.01 {
-                let rho = 0.08 + 0.6 * drop.age
-                let c = screen(drop.x * F / drop.d, hz + F / drop.d)
-                let rx = rho * F / drop.d * W / 2, ry = rho * F / (drop.d * drop.d) * H / 2
-                for (scale, a) in [(1.0, 0.32), (0.6, 0.18)] {
-                    gc.stroke(Path(ellipseIn: CGRect(x: c.x - rx * scale, y: c.y - ry * scale, width: 2 * rx * scale, height: 2 * ry * scale)),
-                              with: .color(moonLight.opacity(a * drop.fade)), lineWidth: lw * 0.6)
+        gc.blendMode = .plusLighter
+        // The haze lying on the horizon.
+        gc.fill(Path(CGRect(x: 0, y: horizonY - 0.12 * u, width: W, height: 0.3 * u)),
+                with: .linearGradient(Gradient(stops: [.init(color: .clear, location: 0), .init(color: light.haze.color(0.22), location: 0.4),
+                                                       .init(color: .clear, location: 1)]),
+                                      startPoint: CGPoint(x: 0, y: horizonY - 0.12 * u), endPoint: CGPoint(x: 0, y: horizonY + 0.18 * u)))
+        // Thinking: the lattice's peaks, each catching the light.
+        var peaks = Path()                                    // the lattice's peaks
+        if lattice > 0.02 {
+            let r0 = G.ordered[0], r1 = G.ordered[1]
+            let att = [Double](repeating: 1, count: trains.count + 1), env = voiceHere(5)
+            let n0 = Int(((1.2 * r0.k - r0.omega * t + r0.phase) / (2 * .pi)).rounded(.up))
+            for n in n0..<(n0 + 14) {
+                let D = (2 * .pi * Double(n) - r0.phase + r0.omega * t) / r0.k
+                guard D < 12 else { break }
+                let span = (ax + 0.1) * D / F
+                let m0 = Int(((-span * r1.k - r1.omega * t + r1.phase) / (2 * .pi)).rounded(.up))
+                var m = m0
+                while true {
+                    let X = (2 * .pi * Double(m) - r1.phase + r1.omega * t) / r1.k
+                    guard X < span else { break }
+                    m += 1
+                    let s = surface(X, D, att, env)
+                    let p = screen(s.sx, s.sy), w = px * (0.5 + 2.4 / D) * (0.6 + 0.4 * lattice), hgt = w * 0.45
+                    peaks.addEllipse(in: CGRect(x: p.x - w, y: p.y - hgt, width: 2 * w, height: 2 * hgt))
                 }
             }
         }
-        // The lighthouse while it works: its lamp on the horizon and its beam.
+        // Working: the lighthouse's lamp and its beam turning, a ship's light per running tool.
+        let lamp = screen(lampX, lampTop)
+        let turn = t * 0.85
+        let facing = cos(turn), side = sin(turn)
+        var lights = Path()
         if busy > 0.01 {
-            let lamp = screen(lightX, hz - 0.02)
+            let reach = (0.12 + 1.5 * abs(side)) * u, dir = side >= 0 ? 1.0 : -1.0
             var beam = Path()
-            beam.move(to: lamp)
-            for k in 0...8 {
-                let a = beamA - 0.12 + 0.24 * Double(k) / 8
-                beam.addLine(to: screen(lightX + 3 * cos(a), hz - 0.02 + 3 * sin(a)))
-            }
+            beam.move(to: CGPoint(x: lamp.x, y: lamp.y - px * 0.5))
+            beam.addLine(to: CGPoint(x: lamp.x + dir * reach, y: lamp.y - px * 0.5 - reach * 0.12))
+            beam.addLine(to: CGPoint(x: lamp.x + dir * reach, y: lamp.y + px * 0.5 + reach * 0.05))
+            beam.addLine(to: CGPoint(x: lamp.x, y: lamp.y + px * 0.5))
             beam.closeSubpath()
-            gc.fill(beam, with: .radialGradient(Gradient(colors: [moonLight.opacity(0.22 * busy), moonLight.opacity(0.05 * busy), .clear]),
-                                                center: lamp, startRadius: 0, endRadius: W * 0.9))
-            let lr = lw * 5
-            gc.fill(Path(ellipseIn: CGRect(x: lamp.x - lr, y: lamp.y - lr, width: 2 * lr, height: 2 * lr)),
-                    with: .radialGradient(Gradient(colors: [.white.opacity(busy), moonLight.opacity(0.5 * busy), .clear]), center: lamp, startRadius: 0, endRadius: lr))
+            gc.fill(beam, with: .linearGradient(Gradient(colors: [light.moon.color(0.42 * busy), light.moon.color(0.1 * busy), .clear]),
+                                                startPoint: lamp, endPoint: CGPoint(x: lamp.x + dir * reach, y: lamp.y)))
+            let flash = pow(max(0, facing), 6)
+            let lr = px * (1.6 + 4 * flash)
+            lights.addEllipse(in: CGRect(x: lamp.x - lr, y: lamp.y - lr, width: 2 * lr, height: 2 * lr))
+            // Its reflection under it on the water.
+            let rh = (0.1 + 0.3 * flash) * u
+            gc.fill(Path(CGRect(x: lamp.x - px * 1.2, y: horizonY + px, width: px * 2.4, height: rh)),
+                    with: .linearGradient(Gradient(colors: [light.moon.color(busy * (0.25 + 0.5 * flash)), .clear]),
+                                          startPoint: CGPoint(x: lamp.x, y: horizonY), endPoint: CGPoint(x: lamp.x, y: horizonY + rh)))
+            for i in 0..<min(4, work.satellites) {
+                let lane = Double(i)
+                let sx = -ax * 1.1 + (t * 0.03 * (1 + 0.25 * lane) + 0.31 + 0.37 * lane).truncatingRemainder(dividingBy: 1) * 2.2 * ax
+                let Dsh = 14 + 9 * lane
+                let p = screen(sx, hz + F * 0.985 / Dsh)
+                let sr = px * 1.1
+                lights.addEllipse(in: CGRect(x: p.x - sr, y: p.y - sr, width: 2 * sr, height: 2 * sr))
+                // Its reflection: a few broken dashes shimmering under it.
+                var dashes = Path()
+                for k in 0..<4 {
+                    let wob = sin(t * 3.1 + Double(k) * 1.9 + lane) * px * 0.8
+                    let w = px * (1.4 - 0.25 * Double(k)), y = p.y + sr + px * (1.2 + 2.2 * Double(k))
+                    dashes.addRect(CGRect(x: p.x - w / 2 + wob, y: y, width: w, height: px * 0.7))
+                }
+                gc.fill(dashes, with: .color(RGB(hex: 0xffd39a).color(0.5 * busy)))
+            }
         }
+        // The light on the water: glitter, foam, peaks and lamps, with one soft bloom under them.
+        gc.drawLayer { layer in
+            layer.addFilter(.blur(radius: px * 2.2))
+            layer.fill(glow[1], with: .color(light.moon.color(0.5)))
+            layer.fill(glow[2], with: .color(light.moon.color(0.9)))
+            layer.stroke(foamLines[1], with: .color(light.foam.color(0.4)), lineWidth: px * 2.4)
+            layer.fill(peaks, with: .color(light.glow.color(0.6 * lattice)))
+            layer.fill(lights, with: .color(RGB(hex: 0xffe2b0).color(0.9 * busy)))
+        }
+        let rimLight = light.moon.mix(light.sky[1].c, 0.45)
+        gc.stroke(rims[0], with: .color(rimLight.color(0.22)), style: StrokeStyle(lineWidth: px * 0.6, lineCap: .round))
+        gc.stroke(rims[1], with: .color(rimLight.color(0.36)), style: StrokeStyle(lineWidth: px * 0.7, lineCap: .round))
+        gc.fill(glow[0], with: .color(light.moon.color(0.35)))
+        gc.fill(glow[1], with: .color(light.moon.color(0.7)))
+        gc.fill(glow[2], with: .color(RGB(1, 1, 1).color(0.95)))
+        gc.stroke(foamLines[0], with: .color(light.foam.color(0.4)), style: StrokeStyle(lineWidth: px * 0.7, lineCap: .round))
+        gc.stroke(foamLines[1], with: .color(light.foam.color(0.85)), style: StrokeStyle(lineWidth: px * 0.9, lineCap: .round))
+        gc.fill(peaks, with: .color(light.moon.color(0.5 * lattice)))
+        gc.fill(lights, with: .color(RGB(1, 0.96, 0.9).color(busy)))
     }
 }
 // MARK: - Shared face pieces
@@ -1089,32 +1243,111 @@ enum RingGeometry {
 
 // MARK: - The ocean's geometry
 
-/// The sea's fixed geometry, in the frame's half-side units: the horizon and the camera's focal
-/// length (the camera one unit above the water), the moon, and the wave trains.
+/// The sea's fixed geometry and light: the camera (one unit above the water, its focal length),
+/// the wave trains (fixed numbers, directions and paces; only their heights change with the state),
+/// and the dusk's colours.
 enum OceanGeometry {
-    /// One wave train: its number, speed (deep water: long waves are faster), direction (toward the
-    /// viewer at 0), its height at rest, steepness, and which part of the voice raises it.
-    struct Wave {
-        let k: Double, omega: Double, dirX: Double, dirD: Double, rest: Double, steep: Double, phase: Double
-        let low: Double, mid: Double, high: Double
-    }
-    static let horizon = -0.36, focal = 1.36
-    static let moon = (x: 0.38, y: -0.72, r: 0.085)
-    /// From the water toward the moon.
-    static let moonDirection: (x: Double, y: Double, z: Double) = {
-        let x = moon.x / focal, y = (horizon - moon.y) / focal, z = 1.0
-        let l = (x * x + y * y + z * z).squareRoot()
-        return (x / l, y / l, z / l)
-    }()
-    static let waves: [Wave] = {
-        let spec: [(lambda: Double, angle: Double, low: Double, mid: Double, high: Double)] = [
-            (5.5, 0.0, 1, 0, 0), (3.4, 0.35, 1, 0.3, 0), (2.2, -0.42, 0.4, 1, 0),
-            (1.4, 0.75, 0, 1, 0.3), (0.85, -0.9, 0, 0.3, 1), (0.5, 0.25, 0, 0, 1),
-        ]
-        return spec.enumerated().map { i, s in
-            let k = 2 * Double.pi / s.lambda
-            return Wave(k: k, omega: 0.42 * (9.8 * k).squareRoot(), dirX: sin(s.angle), dirD: cos(s.angle),
-                        rest: 0.03 * s.lambda / (2 * .pi), steep: 0.03 * 6.5, phase: Double(i) * 1.7, low: s.low, mid: s.mid, high: s.high)
+    static let focal = 1.9
+    /// The horizon, in the frame's half heights from the centre (y down).
+    static let horizon = -0.3
+
+    /// One wave train: its wave number, angular speed (deep water: long waves travel faster, at a
+    /// fixed pace), direction on the water (`dx` to the right, `dd` away from you) and its height at
+    /// rest (`rest`, from a fixed steepness).
+    struct Train {
+        let k: Double, omega: Double, dx: Double, dd: Double, phase: Double, rest: Double
+        init(_ lambda: Double, _ degrees: Double, steep: Double, pace: Double = 0.42, phase: Double) {
+            k = 2 * .pi / lambda
+            omega = pace * (9.8 * k).squareRoot()
+            let a = degrees * .pi / 180
+            dx = sin(a); dd = cos(a)
+            self.phase = phase
+            rest = steep / k
         }
-    }()
+    }
+    /// The natural swell: a long swell rolling from left to right across the frame, a second one
+    /// crossing it, and a wind sea over them (0°: away from you, 90°: to the right).
+    static let natural: [Train] = [
+        Train(3.6, 68, steep: 0.1, phase: 0.3), Train(2.3, 46, steep: 0.08, phase: 2.1),
+        Train(1.5, 22, steep: 0.07, phase: 4.0), Train(0.9, -18, steep: 0.07, phase: 1.2),
+        Train(0.55, 30, steep: 0.07, phase: 5.1), Train(0.34, -28, steep: 0.065, phase: 3.3),
+        Train(0.22, 40, steep: 0.06, phase: 0.8),
+    ]
+    /// Thinking: the sea orders itself, first in parallel ranks rolling slowly away, then a second
+    /// regular train across them: a lattice of peaks drifting at a calm, fixed pace.
+    static let ordered: [Train] = [
+        Train(1.1, 0, steep: 0.13, pace: 0.3, phase: 0), Train(1.1, 90, steep: 0.13, pace: 0.3, phase: 0),
+    ]
+    /// Speaking: its voice's waves rolling toward you (low pitches long, high pitches short).
+    static let voice: [Train] = [
+        Train(2.6, 168, steep: 0.11, phase: 0.7), Train(1.3, 192, steep: 0.1, phase: 2.6), Train(0.6, 176, steep: 0.09, phase: 4.4),
+    ]
+    /// Listening: fine ripples running away from you with your voice.
+    static let ripples: [Train] = [
+        Train(0.45, 8, steep: 0.09, pace: 0.5, phase: 1.9), Train(0.25, -12, steep: 0.08, pace: 0.5, phase: 0.4),
+    ]
+    /// Working: a wind from the left raising a short, steep chop.
+    static let wind: [Train] = [
+        Train(0.7, 68, steep: 0.085, pace: 0.5, phase: 2.2), Train(0.4, 104, steep: 0.075, pace: 0.5, phase: 5.6),
+    ]
+
+    /// A colour as three sRGB components.
+    struct RGB {
+        var r: Double, g: Double, b: Double
+        init(_ r: Double, _ g: Double, _ b: Double) { self.r = r; self.g = g; self.b = b }
+        init(hex: UInt32) { self.init(Double((hex >> 16) & 255) / 255, Double((hex >> 8) & 255) / 255, Double(hex & 255) / 255) }
+        static func + (a: RGB, b: RGB) -> RGB { RGB(a.r + b.r, a.g + b.g, a.b + b.b) }
+        static func * (a: RGB, s: Double) -> RGB { RGB(a.r * s, a.g * s, a.b * s) }
+        func mix(_ o: RGB, _ f: Double) -> RGB { RGB(r + (o.r - r) * f, g + (o.g - g) * f, b + (o.b - b) * f) }
+        var luma: Double { 0.3 * r + 0.59 * g + 0.11 * b }
+        var color: Color { Color(.sRGB, red: min(1, max(0, r)), green: min(1, max(0, g)), blue: min(1, max(0, b)), opacity: 1) }
+        func color(_ a: Double) -> Color { Color(.sRGB, red: min(1, max(0, r)), green: min(1, max(0, g)), blue: min(1, max(0, b)), opacity: min(1, max(0, a))) }
+    }
+
+    /// The dusk's light: the sky from the horizon's last light up to the night, the moon, the deep
+    /// water, the light inside a crest, foam. An entity's colour becomes the light's colour.
+    struct Light {
+        /// The sky by elevation (the tangent of the angle above the horizon).
+        let sky: [(e: Double, c: RGB)]
+        let moon: RGB, deep: RGB, scatter: RGB, foam: RGB, haze: RGB, glow: RGB
+        init(tint: RGB?) {
+            var sky: [(e: Double, c: RGB)] = [
+                (0, RGB(hex: 0xffb27a)), (0.025, RGB(hex: 0xf08a86)), (0.07, RGB(hex: 0xb4639a)),
+                (0.14, RGB(hex: 0x5a3f8f)), (0.26, RGB(hex: 0x2b2f6e)), (0.42, RGB(hex: 0x1a2152)), (0.75, RGB(hex: 0x0e1336)), (1.3, RGB(hex: 0x070a1e)),
+            ]
+            var moon = RGB(hex: 0xfff1da), scatter = RGB(hex: 0x2cc7d8), glow = RGB(hex: 0x7dd3fc)
+            if let tint {
+                let tl = max(0.15, tint.luma)
+                sky = sky.map { s in (s.e, s.c.mix(tint * (s.c.luma / tl), 0.6)) }
+                moon = moon.mix(tint * (0.9 / tl), 0.3)
+                scatter = tint; glow = tint.mix(RGB(1, 1, 1), 0.35)
+            }
+            hues = tint.map { [$0.mix(RGB(1, 1, 1), 0.2), $0, $0.mix(RGB(1, 1, 1), 0.3)] }
+                ?? [RGB(hex: 0x38bdf8), RGB(hex: 0x6366f1), RGB(hex: 0xa855f7), RGB(hex: 0xf472b6), RGB(hex: 0xfb923c)]
+            self.sky = sky; self.moon = moon; self.scatter = scatter; self.glow = glow
+            deep = RGB(hex: 0x071026).mix(sky[4].c, 0.15)
+            foam = RGB(hex: 0xe9f1f7).mix(moon, 0.3)
+            haze = sky[1].c.mix(sky[3].c, 0.45)
+        }
+        /// Its voice's hues across the water (cyan, indigo, violet, rose, amber; an entity's own colour).
+        let hues: [RGB]
+        func voiceHue(_ x: Double) -> RGB {
+            let f = min(0.999, max(0, (x + 1) / 2)) * Double(hues.count - 1), i = Int(f)
+            return hues[i].mix(hues[i + 1], f - Double(i))
+        }
+        /// The sky's colour at elevation `e` (below the horizon: the horizon's own light, dimmer).
+        func skyColor(_ e: Double) -> RGB {
+            if e <= 0 { return sky[0].c * max(0.35, 1 + 4 * e) }
+            for i in 1..<sky.count where e < sky[i].e {
+                let a = sky[i - 1], b = sky[i]
+                return a.c.mix(b.c, (e - a.e) / (b.e - a.e))
+            }
+            return sky[sky.count - 1].c
+        }
+    }
+
+    static func rgb(_ c: Color, _ env: EnvironmentValues) -> RGB {
+        let r = c.resolve(in: env)
+        return RGB(Double(r.red), Double(r.green), Double(r.blue))
+    }
 }

@@ -8,6 +8,12 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Added
 
+- **Four more machines.** Hover (a small round floating robot, polite and brave, that drifts closer
+  to listen and unfolds its arms to work), Spark (a curious robot on tracks with shutter brows that
+  leans right in for input and flicks its eyes as it thinks), Cruiser (a sleek black car whose red
+  scanner sweeps as it thinks and whose dash shows three voice bars as it talks, the screen's whole
+  width on the talk page) and Android (a calm android in pale gold with amber eyes, a precise blink,
+  a tilt of the head and a raised brow as it thinks). Thirty-three styles in six families.
 - **Send while it listens.** While the orb listens, a Send button sits where the tools icon is at
   rest: what was said goes now (a noise that starts would keep the silence that sends from
   coming). It works from the first moment, before the microphone has even opened.
@@ -55,6 +61,19 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Changed
 
+- **Ocean is a real sea.** An evening sky over solid, shaded water lit by the slope of its waves,
+  a moon's path of glitter, whitecaps, a lighthouse on a low island; the swell travels across the
+  frame. Listening, rings carry your voice across the near water; thinking, the waves fall into
+  order (parallel ranks, then a lattice of lit peaks) and loosen again when it is done; working, a
+  wind raises chop while the lighthouse beam swings and a ship's light crosses for each running
+  tool; speaking, its voice's waves roll toward you with foam on loud syllables.
+- **The robots have characters.** Valet is a fussy, proper gilded valet with arms and hands (it
+  frets as it thinks, talks with its hands up); Retro a gentle giant of the fifties, slow and
+  deliberate, the works in its dome whirring as it thinks and neon tubes flickering as it talks;
+  Deco a serene, regal art-deco machine woman whose rings of light gather as she thinks and pulse
+  from her throat as she speaks; Rover a shy, curious little rover, far more animated (brows that
+  tilt on their own, a neck that stretches to listen, a claw tapping its chin as it thinks, a
+  wiggle as it talks).
 - **Every orb and avatar refined**, with Wave and Well as the reference: soft light, a gradient of
   hues, rounded friendly forms, each phase readable at a glance, smooth morphs, and less work per
   frame. The planets are shaded spheres of light with a soft limb; Halo's corona, Vortex's arms,

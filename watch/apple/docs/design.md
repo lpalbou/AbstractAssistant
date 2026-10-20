@@ -33,7 +33,7 @@ Orb styles: `../design/anim/orb-designs/`.
 | Screen | Purpose | Actions |
 |---|---|---|
 | Sign in | First launch, after Sign out, or when the gateway ends the session: the AbstractFramework mark, one field "Sign in with user or email" with the send arrow inside it, the server below (tap to change). A user name then asks for its token; an email gets an 8-digit code. | send · change · resend the code |
-| Choose your orb | First launch (and Settings → Orb style): the twenty-nine styles in six families (Orbs, Forms, Cosmos, Nature, Faces, Machines), each row a small live orb speaking, its name and a few words; a row opens its preview, which goes through listening, thinking, working and speaking (tap a phase to hold it), "Use this" at the bottom. | scroll · open · Use this |
+| Choose your orb | First launch (and Settings → Orb style): the thirty-three styles in six families (Orbs, Forms, Cosmos, Nature, Faces, Machines), each row a small live orb speaking, its name and a few words; a row opens its preview, which goes through listening, thinking, working and speaking (tap a phase to hold it), "Use this" at the bottom. | scroll · open · Use this |
 | Home | The orb (one tap starts a new conversation; an earlier one continues from Sessions), what needs you (only when something does), Sessions and Automations with a count: what is new in a filled badge, else how many, a spinner until they are read; "Connecting…" while the first tries are retried, and the gateway said unreachable only after 3 failed tries over 20 s; the gear opens Settings. | talk · open |
 | Ask | The orb fills the screen. At rest: "Assistant ⌄" below the orb (who answers), the keyboard icon top right and the tools icon bottom right (as far from the bottom as the keyboard from the top); while it listens, Send takes the tools icon's place (what was said goes now, before a noise keeps the silence that sends from coming); while it works or speaks, they hide. While it works: its steps live below the orb, a pulse per tool call, a satellite per tool running. Beside Back, the row follows what it does: Stop while it is busy (listening, thinking or working, speaking or paused), Share at rest; while it works after an Accept all, the amber shield beside it takes the permission back; the voice button (play, pause, hold to rewind) once there is an answer. A tap on the orb listens, sends, or pauses and resumes its voice; a 1.5 s hold on the orb (a ring closes round it) does what Stop does, and at rest reads the last answer aloud; let go before, nothing happens. The answer appears below with its images and recordings, spoken by the orb; "N steps · time" opens how it worked. | tap · hold to stop · stop · keyboard · tools · shield · share · voice button · choose who answers |
 | Conversation | Swiped to the left from the orb page of a conversation with at least one message: its title, its numbers (questions, tool calls, thinking steps, when it started, its last activity, its files, the questions spoken) and its files (what its turns made or were given, and what its assistant wrote into the conversation's folder), newest first, one card each (what it is, made or attached, its size and age) with its share button on the right; a tap opens its preview; Every exchange opens the conversation's exchanges. Swiped to the right, the orb page again. | swipe · open · share |
@@ -115,13 +115,13 @@ change between two phases is a blend, never a cut. The points glow (a soft bloom
 brightest), surfaces are sampled evenly (no grain) and lit from the upper left; the voice's shapes
 stay inside the orb's circle.
 
-Twenty-nine styles, chosen at first launch and in Settings → Orb style, in six families: **Orbs**
+Thirty-three styles, chosen at first launch and in Settings → Orb style, in six families: **Orbs**
 (Halo, Vortex, Nebula, Rings, Liquid, Galaxy), **Forms** (Lotus, Crystal, Eclipse, Synapse, Drop,
 Wave), **Cosmos** (Well, Black hole, Accretion), **Nature** (Ocean, Aurora, Murmuration), **Faces**
-(Face, Imprint, Contour, Membrane, Eye) and **Machines** (Lens, Dome, Valet, Retro, Deco, Rover). Five planets whose points answer
+(Face, Imprint, Contour, Membrane, Eye) and **Machines** (Lens, Dome, Valet, Retro, Deco, Rover, Hover, Spark, Cruiser, Android). Five planets whose points answer
 the voice: Halo (a radial voice histogram), Vortex (spiral arms), Nebula (a breathing cloud), Liquid
-(surface waves), Galaxy (a dense spiral with stars everywhere). Twenty-three scenes of their own
-(`OrbScenes`, `OrbConcepts`, `OrbCosmos`, `OrbNature`, `OrbAvatars`, `OrbLines`, `OrbRobots`). Every scene is a blend of the
+(surface waves), Galaxy (a dense spiral with stars everywhere). Twenty-seven scenes of their own
+(`OrbScenes`, `OrbConcepts`, `OrbCosmos`, `OrbNature`, `OrbAvatars`, `OrbLines`, `OrbRobots`, `OrbMachines`). Every scene is a blend of the
 five phases' shapes, each motion at a fixed pace (a phase changes how much of a motion shows, never
 its speed), so a change of state is always a smooth morph:
 
@@ -227,28 +227,68 @@ its speed), so a change of state is always a smooth morph:
     above. The dome looks around at rest, turns to face you to listen (its eye lighting with your
     voice), chatters with quick turns and light panels that follow the voice's bands, spins to
     think; working, its projector casts a small hologram.
-  - **Valet**: a gilded humanoid head with round glowing eyes, a slot of a mouth, ear discs, a
-    segmented neck and plated shoulders. It talks with its whole head (eyes and mouth glowing with
-    the voice), cocks its head to listen, turns aside with flickering eyes to think; a light scans
-    its eyes as it works.
-  - **Retro**: a glass-domed robot of the fifties, its works turning inside, antennae with spinning
-    discs, a grille of lights, a ribbed barrel chest with dials. The grille's columns follow the
-    voice's bands; the discs spin fast as it listens; the works spin and the grille runs a chase as
-    it thinks; the chest's lights blink as it works.
-  - **Deco**: an art-deco machine woman (a long serene face, a crest, a neck of rings, sculpted
-    shoulders, a sunburst). Rings of light pass around her: rising from her chest as she speaks,
-    coming down onto her head as she listens (her eyes open), sweeping up and down as she thinks;
-    the sunburst glows in turn as she works.
-  - **Rover**: two binocular eyes on a neck over a boxy body on tracks. Its lenses pulse and its eyes
-    bob as it speaks; they lift, lean in and widen as it listens; they look one way then the other
-    as it thinks, zoom rings turning; a light scans the lenses and its tracks roll as it works.
-- **Ocean**: a sea at night filling the frame (the screen's whole width on the talk and Read pages), the water as lines of light, each row rising and
-  falling with the waves (long waves faster than short ones), its crests glowing, a glittering moon
-  path widening toward you, a soft moon with its halo, a dusk glow at the horizon, stars. A voice
-  raises the long waves with its low pitches and the short ones with its high ones and lights the
-  water it raises; the last 1.2 s of the voice travel across the water, toward you while it speaks,
-  away while you do. While it thinks the sea calms and a gentle rain falls, each drop ringing the
-  water; while it works a lighthouse sweeps a soft beam.
+  - **Valet**: a fussy, well-mannered gilded valet, head, shoulders, arms and hands, stiff and
+    proper, its head moving in small servo steps. It surveys the room at rest; bows and cocks its
+    head to listen (ear lamps glowing with your voice, hands clasped); frets as it thinks (head
+    aside with a little shake, eyes dim and flickering, hands wringing); works precisely (a light
+    ticking across its eyes, its head snapping from task to task); talks with its hands up and its
+    head bobbing on the syllables, its mouth opening with the voice.
+  - **Retro**: a gentle giant of the fifties in grey-blue metal, slow and deliberate: a glass dome
+    with amber works turning inside (a spindle, a ticking cog, gyro rings), ear discs on antennae,
+    a grille face with seven neon tubes, ribbed arms with claws, a chest panel of dials and lamps.
+    The works tick slowly at rest and whirr as it thinks; the ear discs turn to you and glow as it
+    listens; claws tick, dials step and lamps chase as it works; each neon tube lights to a band of
+    its voice as it talks, with a slow nod on loud syllables.
+  - **Deco**: a serene art-deco machine woman in aged bronze and gold, regal and unhurried, with
+    cool rings of light passing around her. Two faint rings drift up her at rest; she inclines her
+    head graciously to listen, the rings drawing in and brightening with your voice; her eyelids
+    half close and the rings gather close as she thinks; six rings rise fast up her body as she
+    works; her eyes and crest glow with her voice as she speaks, the rings pulsing out from her
+    throat, her chin lifting.
+  - **Rover**: a shy, curious little rover: two binocular eye boxes that tilt on their own like
+    brows, lenses that zoom, a ringed neck that stretches, arms with paddle claws, a boxy body that
+    bumps along on its tracks. It looks about and lifts a brow at rest; stretches its neck and leans
+    in, eyes wide, to listen (a small flinch at a sudden loud sound); tilts its head, one eye up and
+    one down, a claw tapping its chin, as it thinks; scans and rolls fast as it works; bobs and
+    wiggles, brows up, a claw waving, as it talks.
+  - **Hover**: a small round floating robot, polite and brave: a cream and brass barrel under a
+    glossy dome, a dark red visor carrying two round red-amber eyes, stubby arms, three thrusters
+    whose light fades below it (it never touches the ground). It bobs and surveys at rest; drifts
+    closer and lower to listen, its eyes brightening with your voice; rises, turns aside and
+    narrows its eyes to think, a light circling its visor; unfolds its arms (a whirring bit, a fan
+    of light) to work, its thrusters flaring; pulses its eyes and dips on emphasis as it talks.
+  - **Spark**: a curious robot on tracks who wants input: two lens barrels on a long ribbed neck,
+    shutter plates that double as brows (they never frown), a torso with a blue core and a bar of
+    lights, a shoulder frame with grippers, an antenna with a blue tip, big tracks with rolling
+    treads. It glances eagerly and blinks at rest; leans right in, shutters wide and still, to
+    listen; half closes its shutters, tilts its head and flicks its eyes between spots as it thinks,
+    a spark running up its antenna; rolls its treads and scans as it works, its light bar counting;
+    flutters its eyes, bobs and flaps its brows as it talks, with a lightning glint on the first loud
+    syllable.
+  - **Cruiser**: a sleek black car seen from the front, read only by its light (the sky on its hood
+    and glass, lit edges, a shimmer), slim headlights, a red scanner sweeping in a slot on its nose,
+    a road glow beneath (the screen's whole width on the talk page). The scanner sweeps slowly at
+    rest; comes to the centre, narrows and pulses with your voice to listen, the headlights dimming
+    politely; sweeps faster and wider as it thinks, its dash glowing; lights its headlights and
+    edges, streaks past the horizon and races its scanner as it works; speaks through three
+    segmented red voice bars on its dash.
+  - **Android**: a calm android in pale gold skin with amber eyes, dark hair combed back from a high
+    forehead; composed and curious. A precise, slightly too regular blink; it turns to you and nods
+    politely to listen; tilts its head and raises a brow as it thinks, eyes up and aside; its eyes
+    dart rapidly and a shimmer crosses its face as it works; it speaks with precise mouth movements
+    and a hint of a smile.
+- **Ocean**: an evening sea filling the frame (the screen's whole width on the talk and Read pages):
+  a sky from amber to night with stars, a moon in its halo, a low island with a lighthouse, and
+  solid shaded water, each row lit by the slope of its waves (the sky reflected at grazing angles,
+  moonlit faces, lit crest edges, glitter on the moon's path, whitecaps on the steepest crests). The
+  swell travels across the frame, mostly left to right. Listening, the swell drops and rings spread
+  from the near water carrying your voice; thinking, the natural swell gives way to parallel ranks
+  of waves, then two regular trains crossing into a lattice of lit peaks, which dissolves back when
+  it is done; working, a wind raises chop and whitecaps, the lighthouse beam swings, a ship's light
+  crosses the horizon for each running tool and each step sends a ring across the water; speaking,
+  its voice's waves roll toward you (low pitches long waves, high pitches short ones), the last
+  1.2 s of the voice travelling from the horizon to your feet, crests lit in the app's hues, foam on
+  loud syllables.
 
 An entity's orb takes its colour and shape (planet, kitty, face, wave) from the gateway (with one of
 the scenes chosen, an entity keeps its own shape and answers the voice as Nebula does). The microphone is open only while the orb listens.

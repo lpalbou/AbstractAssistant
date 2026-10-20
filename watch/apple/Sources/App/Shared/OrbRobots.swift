@@ -10,8 +10,9 @@ import SwiftUI
 // shows, never its speed), so a change of state is a smooth morph. Units as the planet (1 = its
 // radius, y down), each robot drawn larger so it fills the frame.
 
-/// What the robot is doing now, from the engine and the work.
-private struct RobotState {
+/// What the robot is doing now, from the engine and the work. Shared with OrbMachines.swift, as are
+/// `Turn3`, `Ink`, `density`, `robotCanvas` and `robotPalette` (their signatures stay).
+struct RobotState {
     let th: Double, listen: Double, speak: Double, loud: Double, level: Double, busy: Double
     let spectrum: VoiceFeatures
     /// The voice's strength while it speaks (0 otherwise).
@@ -24,7 +25,7 @@ private struct RobotState {
 }
 
 /// A turn about the vertical axis (yaw), then a tilt toward the viewer (pitch), then a lean (roll).
-private struct Turn3 {
+struct Turn3 {
     private let cY: Double, sY: Double, cP: Double, sP: Double, cR: Double, sR: Double
     init(yaw: Double, pitch: Double, roll: Double = 0) {
         cY = cos(yaw); sY = sin(yaw); cP = cos(pitch); sP = sin(pitch); cR = cos(roll); sR = sin(roll)
@@ -54,7 +55,7 @@ private struct Turn3 {
 }
 
 /// Smooth light under a robot's points: lit metal, glowing eyes and lamps (a few fills per part).
-private struct Ink {
+struct Ink {
     let cx: Double, cy: Double, R: Double, px: Double
     let pal: [Color]
     init(_ d: DotCanvas, _ pal: [Color]) { cx = d.cx; cy = d.cy; R = d.R; px = d.px; self.pal = pal }
@@ -131,17 +132,17 @@ private struct Ink {
 
 extension OrbCanvas {
     /// Scales a part's point count to the orb's size (a small tile draws fewer).
-    private func density(_ box: CGSize) -> Double { Double(pointBudget(box)) / 1820 }
+    func density(_ box: CGSize) -> Double { Double(pointBudget(box)) / 1820 }
 
     /// The robot's canvas: the planet's units scaled by `scale` (a robot fills more of the frame than
     /// the planet), its centre moved down by `dy` (in halves of the frame).
-    private func robotCanvas(_ box: CGSize, scale: Double, dy: Double = 0) -> DotCanvas {
+    func robotCanvas(_ box: CGSize, scale: Double, dy: Double = 0) -> DotCanvas {
         let half = Double(min(box.width, box.height)) / 2
         return DotCanvas(cx: Double(box.width) / 2, cy: Double(box.height) / 2 + dy * half, R: half * 0.46 * scale, px: max(0.55, half / 95))
     }
 
     /// The robot's palette (an entity's colour wins).
-    private func robotPalette(_ tint: Color) -> [Color] { OrbPalette.colors(for: look.color ?? tint) }
+    func robotPalette(_ tint: Color) -> [Color] { OrbPalette.colors(for: look.color ?? tint) }
 
     // MARK: Lens
 
@@ -438,11 +439,36 @@ extension OrbCanvas {
 
     // MARK: Valet
 
-    /// A gilded humanoid robot, head and shoulders, polished metal: big round warm eyes that blink
-    /// now and then, a gentle smile, ear lamps, a ribbed neck, plated shoulders. Listening, it cocks
-    /// its head and its ear lamps glow with your voice; thinking, it turns aside and looks up, its
-    /// eyes dimming softly; working, a light scans across its eyes; speaking, its smile opens with
-    /// the voice and it talks with its whole head.
+    /// A servo's motion (Valet, Retro, Rover): it holds a pose, then moves to the next in a short
+    /// eased step (`move`: the share of each period spent moving). The poses (-1…1) are a fixed
+    /// sequence and the pace is fixed, so the motion never jumps.
+    private func servoStep(_ t: Double, period: Double, move: Double = 0.2, salt: Double) -> Double {
+        let x = t / period, n = x.rounded(.down), f = x - n
+        let k = Int(n.truncatingRemainder(dividingBy: 7919))
+        let a = 2 * OrbPoints.hash(k, salt) - 1, b = 2 * OrbPoints.hash((k + 1) % 7919, salt) - 1
+        let e = smoothstep(0, move, f)
+        return a + (b - a) * e
+    }
+
+    /// A line of lit metal with round ends (an arm, a finger): a base stroke, a highlight along its
+    /// lit side.
+    private func litStroke(_ gc: inout GraphicsContext, _ ink: Ink, _ path: Path, width: Double, _ a: Double, hi: Double = 0.55) {
+        let w = width * ink.R
+        gc.stroke(path, with: .color(ink.pal[1].opacity(min(1, a))), style: StrokeStyle(lineWidth: w, lineCap: .round, lineJoin: .round))
+        gc.stroke(path.offsetBy(dx: -0.12 * w, dy: -0.12 * w), with: .color(ink.pal[3].opacity(min(1, 0.6 * a))),
+                  style: StrokeStyle(lineWidth: 0.55 * w, lineCap: .round, lineJoin: .round))
+        gc.stroke(path.offsetBy(dx: -0.24 * w, dy: -0.24 * w), with: .color(ink.pal[4].opacity(min(1, 0.45 * hi * a))),
+                  style: StrokeStyle(lineWidth: 0.16 * w, lineCap: .round, lineJoin: .round))
+    }
+
+    /// A gilded, well-mannered protocol robot (head, shoulders and hands), stiff and upright, moving
+    /// in quick small servo steps (a pose held, then a short eased move). At rest it stands politely
+    /// still, surveying the room in small turns of the head, now and then a little tilt; listening,
+    /// it bows its head toward you and nods, its ear lamps glowing with your voice, its hands
+    /// clasped; thinking, it frets: a little "no, no" of the head turned aside, its eyes dim and
+    /// flickering, its hands wringing at its chest; working, a light ticks across its eyes as it
+    /// calculates and its head snaps neatly from task to task; speaking, it talks with its whole body:
+    /// its head bobs on the syllables, its mouth opens with the voice, its hands gesture, palms up.
     func drawValet(_ gc: inout GraphicsContext, _ box: CGSize) {
         var d = robotCanvas(box, scale: 1.2, dy: 0.04)
         let s = RobotState(engine, work)
@@ -450,19 +476,31 @@ extension OrbCanvas {
         let tint = Color(hex: 0xf0bd52)
         let ink = Ink(d, robotPalette(tint))
         let warm = look.color ?? Color(hex: 0xffe3a3), deep = look.color ?? Color(hex: 0xffa53a)
-        let yaw = 0.12 * sin(t * 0.27) + 0.32 * s.th + 0.1 * s.speak * sin(t * 1.3)
-        let pitch = 0.04 * sin(t * 0.21) - 0.12 * s.th + 0.05 * s.voice * sin(t * 5.2)
-        let roll = 0.04 * sin(t * 0.19) + 0.18 * s.listen + 0.08 * s.speak * sin(t * 1.7)
-        let head = Turn3(yaw: yaw, pitch: pitch, roll: roll), body = Turn3(yaw: 0.05 * sin(t * 0.2), pitch: 0.12)
+        let calm = max(0, 1 - s.listen - s.th - s.busy - s.speak)
+        let h1 = engine.history.value(secondsAgo: 0.1), h2 = engine.history.value(secondsAgo: 0.35)
+        let syllable = s.speak * min(1, 1.5 * h1)                          // its own voice a moment ago
+        // Each state's own motion, all at fixed paces; the pose is their blend.
+        let survey = servoStep(t, period: 2.9, move: 0.18, salt: 3.1)
+        let ohMy = max(0, servoStep(t, period: 4.7, move: 0.22, salt: 7.7))
+        let task = servoStep(t, period: 1.2, move: 0.12, salt: 5.3), taskTilt = servoStep(t, period: 1.2, move: 0.12, salt: 9.2)
+        let fret = smoothstep(-0.2, 0.5, sin(t * 0.9))                        // the "no, no" comes in bursts
+        let shake = fret * sin(t * 8.4)
+        let yaw = calm * 0.2 * survey + s.th * (0.3 + 0.09 * shake) + s.busy * 0.26 * task
+            + s.speak * (0.1 * sin(t * 1.3) + 0.05 * sin(t * 3.1))
+        let bow = s.listen * (0.17 + 0.05 * sin(t * 2.4)) + s.th * 0.07 + s.busy * 0.05 * taskTilt + s.speak * (0.1 * syllable - 0.05)
+        let roll = calm * (0.02 * sin(t * 0.3) + 0.11 * ohMy) + s.listen * 0.15 + s.th * (-0.08 + 0.025 * shake)
+            + s.busy * 0.05 * taskTilt + s.speak * (0.06 * sin(t * 1.7) + 0.12 * (h1 - h2))
+        let head = Turn3(yaw: yaw, pitch: -bow, roll: roll)
+        let body = Turn3(yaw: 0.04 * calm * survey + 0.05 * s.th + s.speak * 0.07 * sin(t * 1.1), pitch: 0.12 + 0.05 * syllable,
+                         roll: s.speak * 0.035 * sin(t * 0.9) + s.th * 0.02)
         let hy = -0.5, hw = 0.62, hh = 0.7, hd = 0.56
-        let scale = 1.0
-        func onScreen(_ p: (x: Double, y: Double, z: Double), _ cy: Double) -> (Double, Double) { (p.x * scale, (p.y + cy) * scale + 0.05) }
+        func onScreen(_ p: (x: Double, y: Double, z: Double), _ cy: Double) -> (Double, Double) { (p.x, p.y + cy + 0.05) }
         func surf(_ turn: Turn3, _ cy: Double, _ x: Double, _ y: Double, _ z: Double, _ nx: Double, _ ny: Double, _ nz: Double,
-                  _ tone: Double, _ dither: Double, shine: Double = 1.1) {
+                  _ tone: Double, _ dither: Double, shine: Double = 1.1) -> (Double, Double)? {
             let n = turn.apply(nx, ny, nz)
-            guard n.z > -0.02 else { return }
+            guard n.z > -0.02 else { return nil }
             let q = onScreen(turn.apply(x, y - cy, z), cy)
-            place(&d, q.0, q.1, tone * metal(n.x, n.y, n.z, shine: shine), dither, phase: x, lum: 0.7, size: 0.85)
+            return (q.0, q.1)
         }
         /// A point of the face (head coordinates) on the screen.
         func face(_ x: Double, _ y: Double, _ z: Double) -> (Double, Double) { onScreen(head.apply(x, y - hy, z), hy) }
@@ -472,6 +510,37 @@ extension OrbCanvas {
         }
         let facing = head.apply(0, 0, 1)                                   // the face's normal
         let squash = max(0.2, facing.z), faceAngle = atan2(facing.y, facing.x)
+        // The hands' poses (screen units): out of sight at rest, clasped as it listens, wringing at
+        // its chest as it frets, low and precise as it works, out and palms up as it speaks.
+        struct Hand { let x: Double, y: Double, a: Double, spread: Double, shoulder: (Double, Double), elbow: (Double, Double) }
+        let hands = [-1.0, 1.0].map { side -> Hand in
+            let wring = sin(t * 3.3 + (side > 0 ? 1.7 : 0))
+            let gesture = s.speak * min(1, 1.4 * engine.history.value(secondsAgo: side > 0 ? 0.08 : 0.3))
+            let busyStep = servoStep(t, period: 0.9, move: 0.16, salt: side > 0 ? 2.2 : 4.4)
+            let x = calm * side * 1.3 + s.listen * side * 0.17 + s.th * (side * 0.2 + 0.045 * wring)
+                + s.busy * side * (0.46 + 0.05 * busyStep) + s.speak * side * (1.06 + 0.06 * sin(t * 1.9 + side))
+            let y = calm * 2.3 + s.listen * 1.44 + s.th * (1.1 + 0.05 * side * wring) + s.busy * (1.5 - 0.06 * max(0, busyStep))
+                + s.speak * (1.02 - 0.3 * gesture)
+            let a = calm * side * 2.9 + s.listen * (-side * 1.2) + s.th * (-side * 0.5 + 0.3 * wring) + s.busy * (-side * 1.3 + 0.15 * busyStep)
+                + s.speak * side * (0.55 + 0.3 * gesture)
+            let ex = side * (1.36 * calm + 1.1 * s.listen + 1.06 * s.th + 1.2 * s.busy + 1.58 * s.speak)
+            let ey = 1.64 * calm + 1.74 * s.listen + 1.62 * s.th + 1.74 * s.busy + 1.5 * s.speak
+            let spread = 0.3 * s.listen + 0.5 * s.th + 0.2 * s.busy + 1.0 * s.speak
+            return Hand(x: x, y: y, a: a, spread: spread, shoulder: (side * 1.24, 1.04), elbow: (ex, ey))
+        }
+        /// Is a shoulder point hidden behind a hand or a forearm?
+        func behindHands(_ x: Double, _ y: Double) -> Bool {
+            func near(_ p: (Double, Double), _ q: (Double, Double), _ r: Double) -> Bool {
+                let ex = q.0 - p.0, ey = q.1 - p.1, l2 = max(1e-6, ex * ex + ey * ey)
+                let f = max(0, min(1, ((x - p.0) * ex + (y - p.1) * ey) / l2))
+                return pow(x - p.0 - f * ex, 2) + pow(y - p.1 - f * ey, 2) < r * r
+            }
+            for h in hands {
+                if near(h.shoulder, h.elbow, 0.13) || near(h.elbow, (h.x, h.y), 0.11) { return true }
+                if pow(x - h.x - 0.13 * sin(h.a), 2) + pow(y - h.y + 0.13 * cos(h.a), 2) < 0.05 { return true }
+            }
+            return false
+        }
         // Shoulders and chest: the top of a broad plated shell, fading into the dark below.
         let shoulders = (0...30).map { j -> (Double, Double) in
             let a = Double.pi + Double.pi * Double(j) / 30
@@ -480,7 +549,14 @@ extension OrbCanvas {
         let shell = ink.poly(shoulders)
         ink.metal(&gc, shell, hi: (-0.55, 0.72), reach: 1.6, 1.15, floor: 0)
         ink.rim(&gc, ink.poly(Array(shoulders.prefix(31)), closed: false), 0.4, width: 1.2)
-        // The neck: a lit column.
+        // The collar plate: a gilded band under the neck.
+        let collarL = onScreen(body.apply(-0.42, 0.56, 0.3), 0), collarR = onScreen(body.apply(0.42, 0.56, 0.3), 0)
+        let collarM = onScreen(body.apply(0, 0.7, 0.45), 0)
+        var collar = Path()
+        collar.move(to: ink.p(collarL.0, collarL.1))
+        collar.addQuadCurve(to: ink.p(collarR.0, collarR.1), control: ink.p(collarM.0, 2 * collarM.1 - (collarL.1 + collarR.1) / 2))
+        gc.stroke(collar, with: .color(ink.pal[3].opacity(0.5)), lineWidth: d.px * 1.3)
+        // The neck: a lit column of cables.
         let neckTop = onScreen(body.apply(0, 0.08, 0), 0), neckBottom = onScreen(body.apply(0, 0.56, 0), 0)
         let neck = ink.poly([(neckTop.0 - 0.17, neckTop.1), (neckTop.0 + 0.17, neckTop.1), (neckBottom.0 + 0.19, neckBottom.1), (neckBottom.0 - 0.19, neckBottom.1)])
         ink.metal(&gc, neck, hi: (neckTop.0 - 0.07, neckTop.1 + 0.1), reach: 0.55, 0.9)
@@ -490,99 +566,161 @@ extension OrbCanvas {
             let ny = sin(a), w = ny > 0 ? 1 - 0.25 * ny : 1
             let x = hw * w * cos(a), y = hh * ny
             let c = cos(roll), sn = sin(roll)
-            return ((x * c - y * sn) * scale + 0.5 * hd * sin(yaw) * 0.3, (x * sn + y * c + hy) * scale + 0.05)
+            return (x * c - y * sn + 0.5 * hd * sin(yaw) * 0.3, x * sn + y * c + hy + 0.05)
         }
         let headPath = ink.poly(outline)
         let hc = face(0, hy, 0)
         ink.metal(&gc, headPath, hi: (hc.0 - 0.24, hc.1 - 0.36), reach: 1.05, 1.25, floor: 0.6)
         ink.rim(&gc, headPath, 0.4, width: 1.1)
-        // Ears: discs at the sides, a lamp in each that glows as it listens.
+        // Ears: round discs at the sides, a lamp in each that glows as it listens.
         for side in [-1.0, 1.0] {
             let n = head.apply(side, 0, 0.2)
             let c = face(side * (hw + 0.015), -0.48, 0)
             let ear = ink.oval(c.0, c.1, 0.13 * max(0.15, abs(n.z) + 0.15), 0.13, angle: atan2(n.y, n.x))
             ink.metal(&gc, ear, hi: (c.0 - 0.04, c.1 - 0.05), reach: 0.2, 1.2)
             ink.rim(&gc, ear, 0.45)
-            ink.glow(&gc, c.0, c.1, 0.11, warm, 0.25 + 0.6 * s.listen * (0.3 + s.level))
+            ink.glow(&gc, c.0, c.1, 0.11 + 0.05 * s.listen * s.level, warm, 0.22 + 0.75 * s.listen * (0.3 + s.level) + 0.1 * s.th * fret)
         }
         // The head's surface in points (its seams left open).
-        for j in 0..<Int(760 * k) + 40 {
+        for j in 0..<Int(600 * k) + 40 {
             let u = 1 - 2 * evenPoint(j).0, a = 2 * Double.pi * evenPoint(j).1
             let r = (1 - u * u).squareRoot()
             let nx = r * cos(a), ny = u, nz = r * sin(a)
             if abs(nx - 0.62) < 0.025 || abs(nx + 0.62) < 0.025 || abs(ny + 0.45) < 0.02 { continue }
             let w = ny > 0 ? 1 - 0.25 * ny : 1
-            surf(head, hy, hw * nx * w, hy + hh * ny, hd * nz, nx, ny, nz, 0.75, OrbPoints.hash(j, 14))
+            let n = head.apply(nx, ny, nz)
+            guard n.z > -0.02 else { continue }
+            let q = face(hw * nx * w, hy + hh * ny, hd * nz)
+            place(&d, q.0, q.1, 0.75 * metal(n.x, n.y, n.z, shine: 1.1), OrbPoints.hash(j, 14), phase: nx, lum: 0.7, size: 0.85)
         }
-        // The eyes: big, round, warm (brighter as it speaks, dimming softly as it thinks, scanned as it works).
-        let soft = 1 - 0.15 * s.th * (0.5 + 0.5 * sin(t * 2.2))
-        let eyeGlow = (0.7 + 0.36 * s.voice + 0.18 * s.listen + 0.06 * sin(t * 1.1)) * soft
-        let scan = sin(t * 3)
-        let open = blink(t, 4.6)
+        // The brow: a fine ridge over the eyes.
+        let b0 = face(-0.44, -0.72, front(-0.44, -0.72)), b1 = face(0.44, -0.72, front(0.44, -0.72)), bm = face(0, -0.86, front(0, -0.8) + 0.02)
+        var brow = Path()
+        brow.move(to: ink.p(b0.0, b0.1)); brow.addQuadCurve(to: ink.p(b1.0, b1.1), control: ink.p(bm.0, bm.1))
+        gc.stroke(brow, with: .color(ink.pal[3].opacity(0.42)), lineWidth: d.px * 1.2)
+        // The eyes: big, round, warm; brighter as it speaks or listens, dim and flickering as it frets.
+        let flicker = 0.5 + 0.5 * sin(t * 11.3) * sin(t * 4.1)
+        let soft = 1 - s.th * (0.26 + 0.2 * flicker * fret)
+        let eyeGlow = (0.7 + 0.38 * s.voice + 0.24 * s.listen + 0.12 * s.busy + 0.06 * sin(t * 1.1)) * soft
+        let open = blink(t, 4.6) * (1 - 0.18 * s.th)
+        // Working: a light ticking across both eyes, from position to position as it calculates.
+        let tick = t * 3.4, tn = tick.rounded(.down)
+        let station = tn.truncatingRemainder(dividingBy: 7) + smoothstep(0, 0.35, tick - tn)
+        let stations = [-0.39, -0.31, -0.23, -0.15, 0.15, 0.23, 0.31, 0.39]   // it starts and ends its run off the eyes
+        let si = min(6, Int(station)), sf = station - Double(si)
+        let tickX = stations[si] + (stations[si + 1] - stations[si]) * sf
         for side in [-1.0, 1.0] {
             let ex = side * 0.23, ey = -0.55
             let c = face(ex, ey, front(ex, ey))
             ink.metal(&gc, ink.oval(c.0, c.1, 0.15 * squash, 0.15, angle: faceAngle), hi: (c.0 - 0.05, c.1 - 0.06), reach: 0.22, 0.9)
             ink.eye(&gc, c.0, c.1, 0.11, eyeGlow, warm: warm, deep: deep, squash: squash, angle: faceAngle, open: open)
-            if s.busy > 0.01 { ink.glow(&gc, c.0 + 0.07 * scan * squash, c.1, 0.06, .white, 0.7 * s.busy) }
+            let near = max(0, 1 - abs(tickX - ex) / 0.11)
+            if s.busy * near > 0.01 {
+                let p = face(tickX, ey, front(tickX, ey))
+                ink.glow(&gc, p.0, p.1, 0.055, .white, 0.95 * s.busy * near)
+            }
         }
-        // The smile: gentle at rest, opening with the voice.
-        let opening = 0.015 + 0.075 * s.voice
-        let left = face(-0.17, -0.2, front(-0.17, -0.2)), right = face(0.17, -0.2, front(0.17, -0.2))
-        let upperMid = face(0, -0.175, front(0, -0.18)), lowerMid = face(0, -0.15 + opening, front(0, -0.15))
+        // The mouth: a small slot that curves up a little, opening with the voice.
+        let opening = 0.012 + 0.07 * s.voice * (0.5 + 0.5 * min(1, 1.6 * s.loud))
+        let left = face(-0.13, -0.21, front(-0.13, -0.21)), right = face(0.13, -0.21, front(0.13, -0.21))
+        let upperMid = face(0, -0.2 - 0.03 * s.th, front(0, -0.2)), lowerMid = face(0, -0.18 + opening, front(0, -0.18))
         var mouth = Path()
         mouth.move(to: ink.p(left.0, left.1))
         mouth.addQuadCurve(to: ink.p(right.0, right.1), control: ink.p(2 * upperMid.0 - (left.0 + right.0) / 2, 2 * upperMid.1 - (left.1 + right.1) / 2))
         mouth.addQuadCurve(to: ink.p(left.0, left.1), control: ink.p(2 * lowerMid.0 - (left.0 + right.0) / 2, 2 * lowerMid.1 - (left.1 + right.1) / 2))
         mouth.closeSubpath()
-        let smile = 0.45 + 0.6 * s.voice
-        gc.fill(mouth, with: .color(warm.opacity(min(1, 0.55 * smile))))
-        gc.stroke(mouth, with: .color(warm.opacity(min(1, 0.7 * smile))), lineWidth: d.px * 1.1)
-        ink.glow(&gc, (left.0 + right.0) / 2, upperMid.1 + 0.02, 0.22, warm, 0.18 * smile)
-        // The neck's ribs and the shoulders' surface in points.
+        let speech = 0.45 + 0.65 * s.voice
+        gc.fill(mouth, with: .color(warm.opacity(min(1, 0.55 * speech))))
+        gc.stroke(mouth, with: .color(warm.opacity(min(1, 0.7 * speech))), lineWidth: d.px * 1.1)
+        ink.glow(&gc, (left.0 + right.0) / 2, upperMid.1 + 0.02, 0.2, warm, 0.16 * speech)
+        // The neck's cables and the shoulders' surface in points (none behind the hands).
         for j in 0..<Int(150 * k) + 10 {
             let a = 2 * Double.pi * evenPoint(j).0, y = 0.15 + 0.38 * evenPoint(j).1
             if abs(sin(y * 80)) < 0.3 { continue }
-            surf(body, 0, 0.18 * sin(a), y, 0.18 * cos(a), sin(a), 0, cos(a), 0.9, OrbPoints.hash(j, 14))
+            if let q = surf(body, 0, 0.18 * sin(a), y, 0.18 * cos(a), sin(a), 0, cos(a), 0, 0) {
+                let n = body.apply(sin(a), 0, cos(a))
+                place(&d, q.0, q.1, 0.9 * metal(n.x, n.y, n.z, shine: 1.1), OrbPoints.hash(j, 14), phase: a, lum: 0.7, size: 0.85)
+            }
         }
-        for j in 0..<Int(560 * k) + 30 {
+        for j in 0..<Int(420 * k) + 30 {
             let u = evenPoint(j).0, a = 2 * Double.pi * evenPoint(j).1
             let el = 0.15 + 1.25 * u
             let nx = cos(el) * cos(a), ny = -sin(el), nz = cos(el) * sin(a)
             let x = 1.5 * nx, y = 1.5 + 1.0 * ny, z = 0.6 * nz
             guard y > 0.5, y < 1.7 else { continue }
             if abs(abs(x) - 0.64) < 0.02 { continue }                          // plate seams
-            surf(body, 0, x, y, z, nx, ny * 1.4, nz, 0.85 * (1 - smoothstep(1.1, 1.65, y)), OrbPoints.hash(j, 14))
+            let n = body.apply(nx, ny * 1.4, nz)
+            guard n.z > -0.02 else { continue }
+            let q = onScreen(body.apply(x, y, z), 0)
+            if behindHands(q.0, q.1) { continue }
+            place(&d, q.0, q.1, 0.85 * (1 - smoothstep(1.1, 1.65, y)) * metal(n.x, n.y, n.z, shine: 1.1), OrbPoints.hash(j, 14), phase: x, lum: 0.7, size: 0.85)
         }
-        // The chest lamp: round and warm, pulsing while it works.
+        // The chest lamp: round and warm, pulsing as it frets, ticking as it works.
         let lamp = onScreen(body.apply(0, 0.92, 0.62), 0)
-        ink.eye(&gc, lamp.0, lamp.1, 0.085, 0.45 + 0.4 * s.busy * (0.5 + 0.5 * sin(t * 7)) + 0.3 * s.voice, warm: warm, deep: deep, catchlight: 0.6)
+        let tickPulse = 0.5 + 0.5 * cos(2 * Double.pi * (tick - tn))
+        ink.eye(&gc, lamp.0, lamp.1, 0.085, 0.45 + 0.3 * s.th * (0.5 + 0.5 * sin(t * 3.3)) + 0.35 * s.busy * tickPulse + 0.3 * s.voice,
+                warm: warm, deep: deep, catchlight: 0.6)
+        // The arms: an upper arm from the shoulder, a forearm, a palm and four fingers (fanned as it
+        // gestures); both arms' parts drawn together.
+        var uppers = Path(), forearms = Path(), cuffs = Path(), palms = Path(), fingers = Path(), joints = Path()
+        for (n, h) in hands.enumerated() {
+            let side = n == 0 ? -1.0 : 1.0
+            uppers.move(to: ink.p(h.shoulder.0, h.shoulder.1)); uppers.addLine(to: ink.p(h.elbow.0, h.elbow.1))
+            ink.metal(&gc, ink.circle(h.shoulder.0, h.shoulder.1, 0.15), hi: (h.shoulder.0 - 0.05, h.shoulder.1 - 0.06), reach: 0.22, 1.3, floor: 0.8)
+            joints.addPath(ink.circle(h.shoulder.0, h.shoulder.1, 0.15))
+            guard h.y < 2.05 else { continue }
+            let ux = sin(h.a), uy = -cos(h.a)                                // the fingers' way
+            let vx = cos(h.a), vy = sin(h.a)                                 // across the palm
+            forearms.move(to: ink.p(h.elbow.0, h.elbow.1)); forearms.addLine(to: ink.p(h.x - 0.02 * ux, h.y - 0.02 * uy))
+            cuffs.addPath(ink.oval(h.x, h.y, 0.1, 0.04, angle: h.a))
+            let pc = (h.x + 0.13 * ux, h.y + 0.13 * uy)
+            palms.addPath(ink.oval(pc.0, pc.1, 0.135, 0.14, angle: h.a))
+            for f in 0..<4 {
+                let off = (Double(f) - 1.5) * 0.062 * (1 + 0.25 * h.spread)
+                let fa = h.a + (Double(f) - 1.5) * 0.14 * h.spread, len = 0.155 - 0.018 * abs(Double(f) - 1.5)
+                let bx = pc.0 + 0.105 * ux + off * vx, by = pc.1 + 0.105 * uy + off * vy
+                fingers.move(to: ink.p(bx, by)); fingers.addLine(to: ink.p(bx + len * sin(fa), by - len * cos(fa)))
+            }
+            let ta = h.a - side * (1.0 + 0.3 * h.spread)                      // the thumb, on the inner side
+            let tb = (pc.0 - side * 0.1 * vx, pc.1 - side * 0.1 * vy)
+            fingers.move(to: ink.p(tb.0, tb.1)); fingers.addLine(to: ink.p(tb.0 + 0.12 * sin(ta), tb.1 - 0.12 * cos(ta)))
+        }
+        ink.rim(&gc, joints, 0.4)
+        litStroke(&gc, ink, uppers, width: 0.21, 0.95)
+        litStroke(&gc, ink, forearms, width: 0.18, 1)
+        gc.stroke(cuffs, with: .color(ink.pal[3].opacity(0.55)), lineWidth: d.px * 1.3)
+        gc.fill(palms, with: .linearGradient(Gradient(colors: [ink.pal[3].opacity(0.75), ink.pal[1].opacity(0.85)]),
+                                             startPoint: ink.p(0, 0.85), endPoint: ink.p(0, 1.75)))
+        ink.rim(&gc, palms, 0.5)
+        litStroke(&gc, ink, fingers, width: 0.06, 1, hi: 0.8)
         finish(&gc, d, tint: tint)
     }
-
     // MARK: Retro
 
-    /// A robot of the fifties: a glass dome with its works glowing inside, antennae with spinning
-    /// discs, a face plate with two round warm eyes over a grille of lights, a barrel chest with
-    /// dials. Listening, the discs spin and the works glow with your voice; thinking, the works spin
-    /// and the grille runs a chase; working, the chest's dials swing and its lamps pulse; speaking,
-    /// the grille's columns light with the voice's bands.
+    /// A gentle giant of the fifties, heavy and slow (nothing jerks): a glass dome over whirring
+    /// works, ear discs on rods, a face of dark grille with two small warm lamps and the neon tubes
+    /// of its voice, a barrel chest with a panel of dials and lights, ribbed arms ending in claws.
+    /// The works are its mind: at rest they tick slowly and its ear discs scan the room; listening,
+    /// the discs turn to face you and glow with your voice while the works quieten; thinking, the
+    /// works spin up, more of them turning at their own paces, its voice tubes dark; working, its
+    /// claws tick and the chest's lights run; speaking, each neon tube flickers with its band of the
+    /// voice and it gives a stately nod on the loud syllables.
     func drawRetro(_ gc: inout GraphicsContext, _ box: CGSize) {
-        var d = robotCanvas(box, scale: 1.26, dy: -0.04)
+        var d = robotCanvas(box, scale: 1.24, dy: -0.02)
         let s = RobotState(engine, work)
         let k = density(box)
-        let tint = Color(hex: 0x5be3b4)
+        let tint = Color(hex: 0x9fb6d3)
         let ink = Ink(d, robotPalette(tint))
-        let warm = look.color ?? Color(hex: 0xffdc8f), deep = look.color ?? Color(hex: 0xff9f45)
-        let turn = Turn3(yaw: 0.1 * sin(t * 0.23), pitch: 0.15)
-        let oy = -0.08
+        let warm = look.color ?? Color(hex: 0xffd88a), deep = look.color ?? Color(hex: 0xff9f45)
+        let neon = look.color ?? Color(hex: 0x9eeeff), neonCore = look.color.map { _ in Color.white } ?? Color(hex: 0xeefcff)
+        // A heavy, slow sway; the head nods on the voice's emphasis (its loudness a moment ago).
+        let emphasis = s.speak * min(1, 1.3 * engine.history.value(secondsAgo: 0.35))
+        let sway = 0.09 * sin(t * 0.21) + 0.03 * sin(t * 0.13)
+        let turn = Turn3(yaw: sway, pitch: 0.15)
+        let head = Turn3(yaw: sway * 1.2 + 0.04 * s.th * sin(t * 0.4), pitch: 0.15 + 0.05 * s.listen - 0.03 * s.th + 0.1 * emphasis - 0.03 * s.speak)
+        let oy = -0.08, pivot = -0.3
         func at(_ x: Double, _ y: Double, _ z: Double) -> (Double, Double) { let p = turn.apply(x, y, z); return (p.x, p.y + oy) }
-        func surf(_ x: Double, _ y: Double, _ z: Double, _ nx: Double, _ ny: Double, _ nz: Double, _ tone: Double, _ dither: Double, shine: Double = 0.7) {
-            let n = turn.apply(nx, ny, nz)
-            guard n.z > -0.02 else { return }
-            let p = turn.apply(x, y, z)
-            place(&d, p.x, p.y + oy, tone * metal(n.x, n.y, n.z, shine: shine), dither, phase: x, lum: 0.6, size: 0.8 + 0.3 * smoothstep(-1, 1, p.z))
-        }
+        func atH(_ x: Double, _ y: Double, _ z: Double) -> (Double, Double) { let p = head.apply(x, y - pivot, z); return (p.x, p.y + pivot + oy) }
         // The chest: a barrel, lit metal fading into the dark below, three grooves round it.
         func chestWidth(_ y: Double) -> Double { 0.86 + 0.18 * sin(min(1, (y - 0.1) / 1.2) * .pi * 0.9) }
         let left = stride(from: 0.12, through: 1.9, by: 0.12).map { y in at(-chestWidth(y), y, 0) }
@@ -592,68 +730,137 @@ extension OrbCanvas {
             let az = Double.pi / 2 - Double.pi * Double(j) / 16
             return at(w0 * sin(az), 0.12, 0.62 * w0 * cos(az))
         }
-        ink.metal(&gc, ink.poly(left + right + top), hi: (-0.42, 0.42), reach: 1.75, 1.2, floor: 0)
+        ink.metal(&gc, ink.poly(left + right + top), hi: (-0.42, 0.42), reach: 1.75, 1.45, floor: 0)
         ink.rim(&gc, ink.poly([at(-w0, 0.12, 0)] + top + [at(w0, 0.12, 0)], closed: false), 0.4)
-        for (n, gy) in [0.3, 1.05, 1.3].enumerated() {
+        var grooves = Path()
+        for gy in [1.1, 1.32] {
             let w = chestWidth(gy)
-            let groove = (0...20).map { j -> (Double, Double) in
+            grooves.addLines((0...20).map { j -> CGPoint in
                 let az = -Double.pi / 2 + Double.pi * Double(j) / 20
-                return at(w * sin(az), gy, 0.62 * w * cos(az))
-            }
-            gc.stroke(ink.poly(groove, closed: false), with: .color(ink.pal[3].opacity(0.32 - 0.08 * Double(n))), lineWidth: d.px)
+                let q = at(w * sin(az), gy, 0.62 * w * cos(az)); return ink.p(q.0, q.1)
+            })
         }
-        // The chest in points, its grooves left open.
-        for j in 0..<Int(320 * k) + 24 {
+        gc.stroke(grooves, with: .color(ink.pal[3].opacity(0.26)), lineWidth: d.px)
+        // The chest in points, its grooves and its panel left open.
+        for j in 0..<Int(260 * k) + 20 {
             let y = 0.16 + 1.4 * evenPoint(j).0, az = Double.pi * (evenPoint(j).1 - 0.5) * 0.92
             if abs(sin(y * 30)) < 0.16 { continue }
+            if y > 0.3, y < 1.0, abs(az) < 0.5 { continue }
             let w = chestWidth(y)
             let nx = sin(az), nz = cos(az)
-            surf(w * nx, y, 0.62 * w * nz, nx, 0, nz, 0.45 * (1 - smoothstep(1.0, 1.55, y)), OrbPoints.hash(j, 14))
+            let n = turn.apply(nx, 0, nz)
+            guard n.z > -0.02 else { continue }
+            let p = turn.apply(w * nx, y, 0.62 * w * nz)
+            place(&d, p.x, p.y + oy, 0.45 * (1 - smoothstep(1.0, 1.55, y)) * metal(n.x, n.y, n.z, shine: 0.7), OrbPoints.hash(j, 14),
+                  phase: nx, lum: 0.6, size: 0.8 + 0.3 * smoothstep(-1, 1, p.z))
         }
-        // The dials: rims, swinging needles, and a warm lamp under each (pulsing as it works).
-        for (n, dx) in [-0.32, 0.0, 0.32].enumerated() {
-            let c = at(dx, 0.58, 0.68)
-            ink.metal(&gc, ink.circle(c.0, c.1, 0.1), hi: (c.0 - 0.03, c.1 - 0.04), reach: 0.14, 1.1)
-            ink.rim(&gc, ink.circle(c.0, c.1, 0.1), 0.7, width: 1.1)
-            let needle = 0.8 * sin(t * (0.7 + 0.4 * Double(n)) + Double(n)) + 1.3 * s.busy * sin(t * 6 + Double(n))
-            var line = Path()
-            line.move(to: ink.p(c.0, c.1)); line.addLine(to: ink.p(c.0 + 0.08 * sin(needle), c.1 - 0.08 * cos(needle)))
-            gc.stroke(line, with: .color(ink.pal[4].opacity(0.85)), lineWidth: d.px * 1.1)
-            let pulse = 0.35 * (1 - s.busy) + s.busy * (0.55 + 0.45 * sin(t * 6 + 2 * Double(n)))
-            let l = at(dx, 0.84, 0.66)
-            ink.eye(&gc, l.0, l.1, 0.035, pulse, warm: warm, deep: deep, catchlight: 0)
+        // The chest panel: a dark plate, three dials (their needles swinging, briskly as it works)
+        // and a row of six warm lights that run while it works.
+        let panel = ink.poly([at(-0.46, 0.32, 0.66), at(0.46, 0.32, 0.66), at(0.46, 0.98, 0.64), at(-0.46, 0.98, 0.64)])
+        gc.fill(panel, with: .color(Color.black.opacity(0.45)))
+        ink.rim(&gc, panel, 0.35)
+        var dials = Path(), needles = Path()
+        for (n, dx) in [-0.27, 0.0, 0.27].enumerated() {
+            let c = at(dx, 0.54, 0.68)
+            dials.addPath(ink.circle(c.0, c.1, 0.1))
+            let a = 0.7 * sin(t * (0.5 + 0.23 * Double(n)) + Double(n)) + s.busy * 0.9 * servoStep(t, period: 0.7, move: 0.3, salt: 1.3 + Double(n))
+            needles.move(to: ink.p(c.0, c.1)); needles.addLine(to: ink.p(c.0 + 0.085 * sin(a), c.1 - 0.085 * cos(a)))
         }
-        // The face plate: a broad lit plate, two round warm eyes, the grille of lights.
-        let plate = at(0, -0.14, 0.66)
-        ink.metal(&gc, ink.oval(plate.0, plate.1, 0.54, 0.25), hi: (plate.0 - 0.2, plate.1 - 0.12), reach: 0.6, 1.2, floor: 0.6)
-        ink.rim(&gc, ink.oval(plate.0, plate.1, 0.54, 0.25), 0.45)
-        let eyeB = 0.85 + 0.4 * s.listen * s.level + 0.3 * s.voice + 0.1 * sin(t * 1.2)
+        gc.fill(dials, with: .color(ink.pal[1].opacity(0.55)))
+        gc.stroke(dials, with: .color(ink.pal[3].opacity(0.7)), lineWidth: d.px * 1.1)
+        gc.stroke(needles, with: .color(warm.opacity(0.9)), style: StrokeStyle(lineWidth: d.px * 1.2, lineCap: .round))
+        var litLamps = Path(), haloLamps = Path(), dimLamps = Path()
+        let run = fract(t * 1.6) * 6
+        for n in 0..<6 {
+            let l = at(-0.3 + 0.12 * Double(n), 0.82, 0.66)
+            let near = abs(Double(n) - run), on = 0.25 * (1 - s.busy) + s.busy * exp(-near * near / 0.5) + 0.25 * s.voice
+            if on > 0.45 { litLamps.addPath(ink.circle(l.0, l.1, 0.032)); haloLamps.addPath(ink.circle(l.0, l.1, 0.07)) }
+            else { dimLamps.addPath(ink.circle(l.0, l.1, 0.028)) }
+        }
+        gc.fill(haloLamps, with: .color(warm.opacity(0.25)))
+        gc.fill(litLamps, with: .color(warm.opacity(0.95)))
+        gc.fill(dimLamps, with: .color(deep.opacity(0.35)))
+        // The arms: ribbed, hanging heavy at its sides, claws that tick open and shut as it works.
+        let liftArms = s.speak * 0.12 * engine.history.value(secondsAgo: 0.5) + 0.03 * sin(t * 0.37)
+        var arms = Path(), ribs = Path(), claws = Path()
+        var wrists: [(Double, Double)] = []
         for side in [-1.0, 1.0] {
-            let e = at(side * 0.2, -0.22, 0.72)
-            ink.eye(&gc, e.0, e.1, 0.075, eyeB, warm: warm, deep: deep, open: blink(t, 6.1))
+            let sh = at(side * 1.0, 0.3, 0.05)
+            let swing = 0.04 * sin(t * 0.31 + side) + s.busy * 0.05 * servoStep(t, period: 1.1, move: 0.35, salt: side + 6)
+            let wr = at(side * (1.2 + swing), 1.28 - liftArms, 0.3 + liftArms)
+            arms.move(to: ink.p(sh.0, sh.1)); arms.addLine(to: ink.p(wr.0, wr.1))
+            let ax = wr.0 - sh.0, ay = wr.1 - sh.1, len = (ax * ax + ay * ay).squareRoot()
+            let ux = ax / len, uy = ay / len
+            for r in 1..<8 {
+                let f = Double(r) / 8, cx = sh.0 + ax * f, cy = sh.1 + ay * f
+                ribs.move(to: ink.p(cx - 0.1 * uy, cy + 0.1 * ux))
+                ribs.addQuadCurve(to: ink.p(cx + 0.1 * uy, cy - 0.1 * ux), control: ink.p(cx + 0.04 * ux, cy + 0.04 * uy))
+            }
+            // The claw: two curved fingers and a thumb.
+            let open = 0.25 + 0.1 * sin(t * 0.5 + side) + s.busy * 0.3 * (0.5 + 0.5 * servoStep(t, period: 0.8, move: 0.3, salt: side + 2))
+                + 0.15 * s.speak * engine.history.value(secondsAgo: 0.3)
+            for f in [-1.0, 1.0] {
+                let a = atan2(uy, ux) + f * open
+                let mid = (wr.0 + 0.15 * cos(a), wr.1 + 0.15 * sin(a))
+                let a2 = a - f * 0.7
+                claws.move(to: ink.p(wr.0, wr.1))
+                claws.addQuadCurve(to: ink.p(mid.0 + 0.1 * cos(a2), mid.1 + 0.1 * sin(a2)), control: ink.p(mid.0, mid.1))
+            }
+            wrists.append(wr)
         }
-        var lit = Path(), dim = Path(), glowPath = Path()
-        let columns = 7, chase = Int(t * 8) % columns
-        for c in 0..<columns {
-            let cx = -0.27 + 0.09 * Double(c)
-            let voice = s.speak * min(1, 1.6 * s.spectrum.band(at: Double(c) / Double(columns - 1)) + 0.3 * s.loud)
-            for r in 0..<3 {
-                let shown = voice > (2 - Double(r)) / 2 * 0.8 ? voice : 0
-                let on = 0.12 + 0.9 * shown + s.th * (chase == c ? 0.9 : 0) + 0.08 * sin(t * 0.8 + Double(c))
-                let g = at(cx, -0.06 + 0.06 * Double(r), 0.72)
-                if on > 0.5 { lit.addPath(ink.circle(g.0, g.1, 0.026)); glowPath.addPath(ink.circle(g.0, g.1, 0.06)) }
-                else { dim.addPath(ink.circle(g.0, g.1, 0.022)) }
+        litStroke(&gc, ink, arms, width: 0.2, 0.6, hi: 0.2)
+        gc.stroke(ribs, with: .color(ink.pal[0].opacity(0.9)), lineWidth: d.px * 1.3)
+        litStroke(&gc, ink, claws, width: 0.08, 0.75, hi: 0.3)
+        for wr in wrists { ink.metal(&gc, ink.circle(wr.0, wr.1, 0.075), hi: (wr.0 - 0.02, wr.1 - 0.03), reach: 0.11, 1.3) }
+        // The face: a dark grille, two small warm lamps, the neon tubes of its voice.
+        let plate = atH(0, -0.15, 0.66)
+        let plateShape = Path(roundedRect: CGRect(x: d.cx + (plate.0 - 0.52) * d.R, y: d.cy + (plate.1 - 0.22) * d.R, width: 1.04 * d.R, height: 0.44 * d.R),
+                              cornerRadius: 0.14 * d.R)
+        ink.metal(&gc, plateShape, hi: (plate.0 - 0.25, plate.1 - 0.15), reach: 0.7, 1.1, floor: 0.6)
+        ink.rim(&gc, plateShape, 0.45)
+        let grille = Path(roundedRect: CGRect(x: d.cx + (plate.0 - 0.33) * d.R, y: d.cy + (plate.1 - 0.15) * d.R, width: 0.66 * d.R, height: 0.3 * d.R),
+                          cornerRadius: 0.05 * d.R)
+        gc.fill(grille, with: .color(Color.black.opacity(0.6)))
+        var mesh = Path()
+        for r in 1..<6 {
+            let y = plate.1 - 0.15 + 0.05 * Double(r)
+            mesh.move(to: ink.p(plate.0 - 0.31, y)); mesh.addLine(to: ink.p(plate.0 + 0.31, y))
+        }
+        var tubes = Path(), lit = Path()
+        let flickerTick = Int((t * 22).truncatingRemainder(dividingBy: 9973))
+        for c in 0..<7 {
+            let x = plate.0 - 0.27 + 0.09 * Double(c), y0 = plate.1 + 0.11, y1 = plate.1 - 0.11
+            tubes.move(to: ink.p(x, y0)); tubes.addLine(to: ink.p(x, y1))
+            let band = s.spectrum.band(at: Double(c) / 6)
+            let flick = 0.7 + 0.3 * OrbPoints.hash(flickerTick + 37 * c, 5.1)
+            let v = min(1, s.speak * (0.12 + 1.5 * band + 0.25 * s.loud) * flick)
+            if v > 0.03 {
+                let half = 0.11 * v
+                lit.move(to: ink.p(x, plate.1 + half)); lit.addLine(to: ink.p(x, plate.1 - half))
             }
         }
-        gc.fill(glowPath, with: .color(warm.opacity(0.22)))
-        gc.fill(lit, with: .color(warm.opacity(0.95)))
-        gc.fill(dim, with: .color(ink.pal[2].opacity(0.4)))
+        // The tubes glow behind the grille: a wash of their light, the lit lengths, the mesh over them.
+        gc.stroke(tubes, with: .color(neon.opacity(0.12)), lineWidth: d.px * 2.2)
+        let voiceGlow = min(1, 0.4 + 0.8 * s.voice)
+        if s.speak > 0.02 {
+            gc.fill(grille, with: .radialGradient(Gradient(colors: [neon.opacity(min(1, 0.4 * s.speak * (0.3 + s.loud))), .clear]),
+                                                  center: ink.p(plate.0, plate.1), startRadius: 0, endRadius: 0.36 * d.R))
+        }
+        gc.stroke(lit, with: .color(neon.opacity(0.35 * voiceGlow)), lineWidth: d.px * 4.5)
+        gc.stroke(lit, with: .color(neonCore.opacity(0.95 * voiceGlow)), lineWidth: d.px * 1.6)
+        gc.stroke(mesh, with: .color(Color.black.opacity(0.55)), lineWidth: d.px * 1.2)
+        gc.stroke(mesh, with: .color(ink.pal[2].opacity(0.18)), lineWidth: d.px * 0.6)
+        let eyeB = (0.75 + 0.4 * s.listen * s.level + 0.2 * s.voice + 0.08 * sin(t * 1.2)) * (1 - 0.12 * s.th)
+        for side in [-1.0, 1.0] {
+            let e = atH(side * 0.42, -0.15, 0.7)
+            ink.eye(&gc, e.0, e.1, 0.058, eyeB, warm: warm, deep: deep, open: blink(t, 6.1), halo: 0.8)
+        }
         // The dome's collar: a metal band.
-        let collar = ink.poly([at(-0.7, -0.5, 0.0), at(0.7, -0.5, 0.0), at(0.7, -0.41, 0.0), at(-0.7, -0.41, 0.0)])
+        let collar = ink.poly([atH(-0.7, -0.5, 0), atH(0.7, -0.5, 0), atH(0.7, -0.4, 0), atH(-0.7, -0.4, 0)])
         ink.metal(&gc, collar, hi: (-0.3, -0.56), reach: 0.9, 1.3)
         ink.rim(&gc, collar, 0.5)
-        // The glass dome: clear in the middle, lit at its rim, two soft reflections.
-        let dc = at(0, -0.48, 0), dr = 0.64
+        // The glass dome: clear in the middle, lit at its rim.
+        let dc = atH(0, -0.48, 0), dr = 0.64
         let half = ink.poly((0...28).map { j -> (Double, Double) in
             let a = Double.pi + Double.pi * Double(j) / 28
             return (dc.0 + dr * cos(a), dc.1 + dr * sin(a))
@@ -661,58 +868,105 @@ extension OrbCanvas {
         let glassStops: [Gradient.Stop] = [.init(color: ink.pal[1].opacity(0.05), location: 0), .init(color: ink.pal[2].opacity(0.08), location: 0.6),
                                            .init(color: ink.pal[3].opacity(0.32), location: 0.94), .init(color: ink.pal[4].opacity(0.45), location: 1)]
         gc.fill(half, with: .radialGradient(Gradient(stops: glassStops), center: ink.p(dc.0, dc.1), startRadius: 0, endRadius: dr * d.R))
-        // The works inside: a warm core, two gyro rings turning round it.
-        let spin = engine.ringTurn * 3 + t * 0.6 + engine.swirl * 2.5
-        let coreB = 0.6 + 0.6 * s.listen * s.level + 0.4 * s.th + 0.2 * s.voice
-        let works = (x: dc.0, y: dc.1 - 0.32)
+        // The works inside: a spindle on a base, a ticking cog, two gyro rings, a warm core; thinking,
+        // two more discs and a scanner join in, each at its own pace.
+        let spin = engine.ringTurn * 3 + t * 0.4 - engine.swirl * 0.3                 // the voice slows them: attention
+        let quiet = 1 - 0.45 * s.listen                                         // listening, the works hush
+        let coreB = (0.55 + 0.5 * s.th + 0.2 * s.voice + 0.15 * s.busy) * quiet
+        let works = (x: dc.0, y: dc.1 - 0.3)
+        var base = Path()
+        base.addPath(ink.oval(dc.0, dc.1 - 0.06, 0.34, 0.05))
+        base.move(to: ink.p(dc.0, dc.1 - 0.06)); base.addLine(to: ink.p(works.x, works.y - 0.2))
+        gc.stroke(base, with: .color(ink.pal[3].opacity(0.45 * quiet)), lineWidth: d.px * 1.2)
+        // The cog ticks: a step at a time, its pace the structure's turn (faster as it thinks).
+        let ticks = engine.ringTurn * 7, tn = ticks.rounded(.down)
+        let cogA = Double.pi / 9 * (tn.truncatingRemainder(dividingBy: 18) + smoothstep(0, 0.35, ticks - tn))   // a whole turn in 18 ticks
+        var cog = Path()
+        let cogC = (dc.0, dc.1 - 0.15)
+        for n in 0..<9 {
+            let a = cogA + 2 * Double.pi * Double(n) / 9
+            let x0 = cogC.0 + 0.12 * cos(a), y0 = cogC.1 + 0.035 * sin(a), x1 = cogC.0 + 0.16 * cos(a), y1 = cogC.1 + 0.047 * sin(a)
+            guard sin(a) > -0.3 else { continue }
+            cog.move(to: ink.p(x0, y0)); cog.addLine(to: ink.p(x1, y1))
+        }
+        cog.addPath(ink.oval(cogC.0, cogC.1, 0.12, 0.035))
+        gc.stroke(cog, with: .color(warm.opacity(0.75 * quiet)), lineWidth: d.px * 1.3)
         for (n, (r, tilt)) in [(0.22, 0.4), (0.16, -0.9)].enumerated() {
             let ring = ink.oval(works.x, works.y, r, r * abs(cos(tilt + Double(n) * spin * 0.3)) * 0.5 + 0.02, angle: 0.2 * sin(spin * 0.5 + Double(n)))
-            gc.stroke(ring, with: .color(ink.pal[3].opacity(0.25)), lineWidth: d.px * 3.5)
-            gc.stroke(ring, with: .color(ink.pal[4].opacity(0.7)), lineWidth: d.px * 0.9)
+            gc.stroke(ring, with: .color(deep.opacity(0.25 * quiet)), lineWidth: d.px * 3.5)
+            gc.stroke(ring, with: .color(warm.opacity(0.75 * quiet)), lineWidth: d.px * 0.9)
             let a = spin * (n == 0 ? 1 : -1.3)
-            ink.glow(&gc, works.x + r * cos(a), works.y + r * sin(a) * abs(cos(tilt)) * 0.5, 0.05, ink.pal[4], 0.8)
+            ink.glow(&gc, works.x + r * cos(a), works.y + r * sin(a) * abs(cos(tilt)) * 0.5, 0.05, warm, 0.8 * quiet)
         }
-        ink.glow(&gc, works.x, works.y, 0.14, warm, 0.45 * coreB)
+        let busyWorks = max(s.th, 0.6 * s.busy)
+        if busyWorks > 0.02 {
+            for (n, (r, pace)) in [(0.3, 2.3), (0.11, -3.7)].enumerated() {
+                let y = works.y + (n == 0 ? 0.1 : -0.12)
+                gc.stroke(ink.oval(works.x, y, r, 0.22 * r), with: .color(warm.opacity(0.55 * busyWorks)), lineWidth: d.px)
+                let a = t * pace + Double(n)
+                ink.glow(&gc, works.x + r * cos(a), y + 0.22 * r * sin(a), 0.04, .white, 0.9 * busyWorks)
+            }
+            let sx = works.x + 0.42 * sin(t * 1.9)
+            var scanner = Path(); scanner.move(to: ink.p(sx, dc.1 - 0.1)); scanner.addLine(to: ink.p(sx, dc.1 - 0.85 * max(0, 0.36 - pow(sx - dc.0, 2)).squareRoot()))
+            gc.stroke(scanner, with: .color(neon.opacity(0.6 * busyWorks)), style: StrokeStyle(lineWidth: d.px * 1.5, lineCap: .round))
+        }
+        ink.glow(&gc, works.x, works.y, 0.15, warm, 0.45 * coreB)
         ink.glow(&gc, works.x, works.y, 0.045, .white, 0.8 * coreB)
         let shine = Gradient(colors: [Color.white.opacity(0.24), .clear])
         gc.fill(ink.oval(dc.0 - 0.3, dc.1 - 0.4, 0.2, 0.08, angle: -0.75),
                 with: .linearGradient(shine, startPoint: ink.p(dc.0 - 0.42, dc.1 - 0.52), endPoint: ink.p(dc.0 - 0.18, dc.1 - 0.28)))
         gc.fill(ink.oval(dc.0 + 0.4, dc.1 - 0.3, 0.035, 0.12, angle: 0.65), with: .color(.white.opacity(0.12)))
-        for j in 0..<Int(260 * k) + 20 {                                       // sparkle on the glass's rim
+        for j in 0..<Int(220 * k) + 20 {                                       // sparkle on the glass's rim
             let a = Double.pi + Double.pi * evenPoint(j).0
             let r = dr * (0.97 + 0.03 * evenPoint(j).1)
             place(&d, dc.0 + r * cos(a), dc.1 + r * sin(a), 0.32 + 0.4 * pow(max(0, -cos(a - 0.6)), 2), OrbPoints.hash(j, 14), phase: a, lum: 0.9, size: 0.85)
         }
-        // The antennae: rods, discs spinning (faster with your voice and as it thinks), warm tips.
-        let discSpin = t * 1.4 + engine.swirl * 7 + engine.ringTurn * 3
+        // The ear discs on their rods: scanning the room slowly, turned to face you as it listens.
         for side in [-1.0, 1.0] {
-            let base = at(side * 0.6, -0.72, 0), tip = at(side * 0.98, -1.02, 0)
+            let base = atH(side * 0.6, -0.72, 0), tip = atH(side * 0.98, -1.0, 0)
             var rod = Path(); rod.move(to: ink.p(base.0, base.1)); rod.addLine(to: ink.p(tip.0, tip.1))
-            gc.stroke(rod, with: .color(ink.pal[3].opacity(0.7)), lineWidth: d.px * 1.4)
-            let w = abs(cos(discSpin * side))
+            gc.stroke(rod, with: .color(ink.pal[3].opacity(0.7)), lineWidth: d.px * 1.6)
+            let scan = 1.25 * sin(t * 0.42 + side * 1.1) + 0.3 * s.th * sin(t * 0.9 + side)
+            let w = abs(cos(scan * (1 - s.listen)))
             let disc = ink.oval(tip.0, tip.1, 0.17 * max(0.08, w), 0.17)
             ink.metal(&gc, disc, hi: (tip.0 - 0.06 * w, tip.1 - 0.07), reach: 0.24, 1.2)
             ink.rim(&gc, disc, 0.6)
-            ink.eye(&gc, tip.0, tip.1, 0.04, 0.6 + 0.6 * s.listen * s.level + 0.3 * s.th, warm: warm, deep: deep, catchlight: 0)
+            let hear = 0.35 + 0.9 * s.listen * (0.3 + s.level)
+            ink.glow(&gc, tip.0, tip.1, 0.09 + 0.08 * s.listen * w, warm, hear * (0.4 + 0.6 * w))
         }
         finish(&gc, d, tint: tint)
     }
-
     // MARK: Deco
 
-    /// An art-deco machine woman: a long serene metal face (warm almond eyes, a fine nose, a small
-    /// smile), a crest over the head and rivets at the temples, a tall neck of rings, sculpted
-    /// shoulders and a sunburst on the chest. Rings of light pass around her: rising from her chest
-    /// as she speaks (brighter with the voice), coming down onto her head as she listens (her eyes
-    /// open wide), sweeping slowly up and down as she thinks; working, the sunburst glows in turn.
+    /// The radius of a hoop of light round Deco at height `y` (her units): wide round the shoulders,
+    /// close round the neck, the shape of her head above it.
+    private func decoHoop(_ y: Double) -> Double {
+        let head = 0.3 + 0.36 * max(0, 1 - pow((y + 0.6) / 0.8, 2)).squareRoot()
+        let body = 0.36 + (1.32 - 0.36) * smoothstep(0.25, 0.7, y)
+        return head + (body - head) * smoothstep(-0.2, 0.05, y)
+    }
+
+    /// An art-deco machine woman, poised and hieratic: a long serene metal face (almond eyes under
+    /// heavy lids, a fine nose, closed lips), a crest over the head, a tall neck of rings, sculpted
+    /// shoulders and a sunburst on the chest; rings of cool light pass round her, her signature.
+    /// At rest a few rings drift slowly up round her; listening, she inclines her head toward you,
+    /// her eyes soften and the rings draw in round her head, brighter with your voice; thinking,
+    /// her eyes lower, her head bows a little and the rings gather close and slow; working, the rings
+    /// multiply and rise fast up her body and her eyes light; speaking, her lips barely move but
+    /// her eyes and crest glow with the voice, rings pulse outward on its syllables, her chin lifts.
     func drawDeco(_ gc: inout GraphicsContext, _ box: CGSize) {
         var d = robotCanvas(box, scale: 1.12, dy: 0.02)
         let s = RobotState(engine, work)
         let k = density(box)
-        let tint = Color(hex: 0xe8d6a8)
+        let tint = Color(hex: 0xdcb878)
         let ink = Ink(d, robotPalette(tint))
-        let warm = look.color ?? Color(hex: 0xffe1a8), deep = look.color ?? Color(hex: 0xf3a55a)
-        let head = Turn3(yaw: 0.1 * sin(t * 0.21) + 0.06 * s.th, pitch: 0.03 * sin(t * 0.17) - 0.06 * s.th, roll: 0.03 * sin(t * 0.13))
+        let warm = look.color ?? Color(hex: 0xffe1a8), deep = look.color ?? Color(hex: 0xe8a050)
+        let cool = look.color ?? Color(hex: 0x9ccaff), coolCore = look.color.map { _ in Color.white } ?? Color(hex: 0xeef6ff)
+        let calm = max(0, 1 - s.listen - s.th - s.busy - s.speak)
+        let emphasis = s.speak * min(1, 1.4 * engine.history.value(secondsAgo: 0.2))
+        let bow = s.listen * 0.12 + s.th * 0.09 - s.speak * (0.05 + 0.05 * emphasis) - s.busy * 0.03
+        let head = Turn3(yaw: 0.05 * sin(t * 0.21) * (1 - s.th), pitch: 0.025 * sin(t * 0.17) - bow,
+                         roll: 0.02 * sin(t * 0.13) + 0.13 * s.listen)
         let hy = -0.6, hw = 0.45, hh = 0.64, hd = 0.46
         func sc(_ x: Double, _ y: Double) -> (Double, Double) { (x * 1.2, y * 1.2 + 0.1) }
         func onHead(_ x: Double, _ y: Double, _ z: Double) -> (x: Double, y: Double, z: Double) {
@@ -731,39 +985,54 @@ extension OrbCanvas {
         }
         let facing = head.apply(0, 0, 1)
         let squash = max(0.2, facing.z), faceAngle = atan2(facing.y, facing.x)
-        // The rings of light around her: behind her first (dim), in front of her last.
-        var rings: [(y: Double, b: Double)] = []
-        let rest = fract(t * 0.15)
-        rings.append((1.5 - 3.0 * rest, 0.3 * max(0, 1 - s.speak - s.listen - s.th) * sin(Double.pi * rest)))
-        for n in 0..<3 {
-            let f = fract(t * 0.45 + Double(n) / 3)
-            rings.append((1.4 - 2.6 * f, s.speak * (0.2 + 0.9 * engine.history.value(secondsAgo: f * 1.0)) * sin(Double.pi * f)))
-            rings.append((-1.2 + 1.0 * f, s.listen * (0.25 + 0.8 * s.level) * (1 - f * 0.6) * min(1, 6 * f)))
-            rings.append((0.2 + 1.1 * sin(t * 0.6 + Double(n) * 2.1), s.th * 0.7))
+        // The rings of light round her, each state's own family at its own fixed pace (a change of
+        // state fades one family out and the next in): behind her first (dim), in front last.
+        var rings: [(y: Double, r: Double, b: Double)] = []
+        for n in 0..<2 where calm > 0.02 {                                   // rest: two, drifting slowly up
+            let f = fract(t * 0.055 + Double(n) / 2), y = 1.5 - 2.9 * f
+            rings.append((y, 1.12 * decoHoop(y), calm * 0.55 * sin(Double.pi * f)))
         }
-        func ring(_ r: (y: Double, b: Double), frontHalf: Bool) {
+        for n in 0..<3 where s.listen > 0.02 {                                // listening: drawing in round her head
+            let f = fract(t * 0.3 + Double(n) / 3), y = n == 2 ? 0.1 : -1.0 + 0.08 * f
+            rings.append((y, (n == 2 ? 0.42 : 0.56) + 1.0 * pow(1 - f, 1.5), s.listen * (0.35 + 0.9 * s.level) * smoothstep(0, 0.3, f) * (1 - smoothstep(0.8, 1, f))))
+        }
+        for n in 0..<3 where s.th > 0.02 {                                    // thinking: close round her, slow
+            let y = [-1.02, 0.1, 0.3][n] + 0.05 * sin(t * 0.33 + 2.1 * Double(n))
+            rings.append((y, 1.04 * decoHoop(y) + 0.02 * sin(t * 0.5 + Double(n)), s.th * (0.5 + 0.15 * sin(t * 0.45 + Double(n)))))
+        }
+        for n in 0..<6 where s.busy > 0.02 {                                  // working: many, rising fast up her body
+            let f = fract(t * 0.42 + Double(n) / 6), y = 1.6 - 3.0 * f
+            rings.append((y, 1.1 * decoHoop(y), s.busy * 0.95 * pow(sin(Double.pi * f), 0.6)))
+        }
+        for n in 0..<3 where s.speak > 0.02 {                                 // speaking: pulsing outward on the syllables
+            let f = fract(t * 0.55 + Double(n) / 3)
+            rings.append((0.06 + 0.12 * f, 0.4 + 1.35 * f, s.speak * (0.15 + 1.1 * engine.history.value(secondsAgo: min(1.2, f / 0.55))) * (1 - f) * smoothstep(0, 0.12, f)))
+        }
+        func ring(_ r: (y: Double, r: Double, b: Double), frontHalf: Bool) {
             guard r.b > 0.02 else { return }
-            let rx = r.y > 0.2 ? 1.25 : 0.66, ry = 0.12 * rx
-            let arc = (0...24).map { j -> (Double, Double) in
-                let a = (frontHalf ? 0 : Double.pi) + Double.pi * Double(j) / 24
-                return sc(rx * cos(a), r.y + ry * sin(a))
+            let ry = 0.12 * r.r
+            let arc = (0...20).map { j -> (Double, Double) in
+                let a = (frontHalf ? 0 : Double.pi) + Double.pi * Double(j) / 20
+                return sc(r.r * cos(a), r.y + ry * sin(a))
             }
             let path = ink.poly(arc, closed: false)
             let a = r.b * (frontHalf ? 1 : 0.35)
-            gc.stroke(path, with: .color(warm.opacity(min(1, 0.3 * a))), lineWidth: d.px * 5)
-            gc.stroke(path, with: .color(ink.pal[4].opacity(min(1, 0.9 * a))), lineWidth: d.px * 1.1)
+            if frontHalf { gc.stroke(path, with: .color(cool.opacity(min(1, 0.24 * a))), style: StrokeStyle(lineWidth: d.px * 4.2, lineCap: .round)) }
+            gc.stroke(path, with: .color(coolCore.opacity(min(1, 0.95 * a))), style: StrokeStyle(lineWidth: d.px * 1.2, lineCap: .round))
         }
         for r in rings { ring(r, frontHalf: false) }
         // The shoulders: sculpted plates between three arcs each side; the sunburst on her chest.
+        var arcs = [Path(), Path(), Path()]
         for side in [-1.0, 1.0] {
             let upper = (0...16).map { j -> (Double, Double) in let f = Double(j) / 16; return sc(side * (0.22 + 1.2 * f), 0.42 + 0.42 * f * f) }
             let lower = (0...16).reversed().map { j -> (Double, Double) in let f = Double(j) / 16; return sc(side * (0.22 + 1.2 * f), 0.6 + 0.42 * f * f) }
             ink.metal(&gc, ink.poly(upper + lower), hi: sc(side * 0.45, 0.42), reach: 1.4, 1.0, floor: 0)
             for arc in 0..<3 {
                 let line = (0...16).map { j -> (Double, Double) in let f = Double(j) / 16; return sc(side * (0.22 + 1.2 * f), 0.42 + 0.09 * Double(arc) + 0.42 * f * f) }
-                gc.stroke(ink.poly(line, closed: false), with: .color(ink.pal[3].opacity(0.55 - 0.15 * Double(arc))), lineWidth: d.px * 1.1)
+                arcs[arc].addPath(ink.poly(line, closed: false))
             }
         }
+        for (n, arc) in arcs.enumerated() { gc.stroke(arc, with: .color(ink.pal[3].opacity(0.55 - 0.15 * Double(n))), lineWidth: d.px * 1.1) }
         // The chest plate: a fan under the neck, carrying the sunburst.
         let fan = [sc(-0.24, 0.4), sc(0.24, 0.4), sc(0.8, 1.6), sc(-0.8, 1.6)]
         ink.metal(&gc, ink.poly(fan), hi: sc(-0.08, 0.5), reach: 1.3, 0.85, floor: 0)
@@ -784,12 +1053,13 @@ extension OrbCanvas {
         ink.metal(&gc, ink.oval(collar.0, collar.1, 0.34 * 1.2, 0.075 * 1.2), hi: (collar.0 - 0.12, collar.1 - 0.05), reach: 0.45, 1.2)
         ink.rim(&gc, ink.oval(collar.0, collar.1, 0.34 * 1.2, 0.075 * 1.2), 0.55)
         // The neck: rings, lit in front.
+        var neckRings = Path()
         for n in 0..<6 {
             let y = -0.02 + 0.075 * Double(n), r = 0.15 + 0.012 * Double(n)
             let c = sc(0, y)
-            let o = ink.oval(c.0, c.1, r * 1.2, 0.024 * 1.2)
-            gc.stroke(o, with: .color(ink.pal[3].opacity(0.55)), lineWidth: d.px * 1.2)
+            neckRings.addPath(ink.oval(c.0, c.1, r * 1.2, 0.024 * 1.2))
         }
+        gc.stroke(neckRings, with: .color(ink.pal[3].opacity(0.55)), lineWidth: d.px * 1.2)
         let neckTop = sc(0, -0.06), neckBottom = sc(0, 0.38)
         ink.metal(&gc, ink.poly([(neckTop.0 - 0.15, neckTop.1), (neckTop.0 + 0.15, neckTop.1), (neckBottom.0 + 0.18, neckBottom.1), (neckBottom.0 - 0.18, neckBottom.1)]),
                   hi: (neckTop.0 - 0.06, neckTop.1 + 0.1), reach: 0.5, 0.8)
@@ -814,12 +1084,19 @@ extension OrbCanvas {
             putHead(hw * nx * w, hy + hh * ny, hd * nz, 0.1 + 0.3 * light + 0.6 * pow(light, 12), OrbPoints.hash(j, 14), a)
         }
         // The crest over the head and the rivets at the temples.
-        let crest = (0...20).map { j -> (Double, Double) in
-            let a = -Double.pi / 2 + (Double(j) / 20 - 0.5) * 1.6
+        let crest = (0...14).map { j -> (Double, Double) in
+            let a = -Double.pi / 2 - 0.1 + 0.95 * Double(j) / 14
             let p = onHead(0, hy + hh * 1.005 * sin(a), hd * 1.005 * cos(a)); return (p.x, p.y)
         }
-        gc.stroke(ink.poly(crest, closed: false), with: .linearGradient(Gradient(colors: [ink.pal[4].opacity(0.55), ink.pal[3].opacity(0.05)]),
-                                                                      startPoint: ink.p(crest[10].0, crest[10].1), endPoint: ink.p(crest[20].0, crest[20].1)),
+        // The crest down her forehead, glowing with her voice.
+        let crestGlow = 0.35 * s.voice + 0.12 * s.busy
+        let ridge = Gradient(colors: [ink.pal[3].opacity(0.05), ink.pal[4].opacity(min(1, 0.5 + 0.5 * s.voice)), ink.pal[3].opacity(0.1)])
+        if crestGlow > 0.02 {
+            gc.stroke(ink.poly(crest, closed: false), with: .linearGradient(Gradient(colors: [.clear, warm.opacity(min(1, crestGlow)), .clear]),
+                                                                          startPoint: ink.p(crest[0].0, crest[0].1), endPoint: ink.p(crest[14].0, crest[14].1)),
+                      style: StrokeStyle(lineWidth: d.px * 4, lineCap: .round))
+        }
+        gc.stroke(ink.poly(crest, closed: false), with: .linearGradient(ridge, startPoint: ink.p(crest[0].0, crest[0].1), endPoint: ink.p(crest[14].0, crest[14].1)),
                   lineWidth: d.px * 1.1)
         for side in [-1.0, 1.0] {
             let p = onHead(side * hw * 0.97, -0.62, 0.05)
@@ -827,8 +1104,9 @@ extension OrbCanvas {
             ink.rim(&gc, ink.oval(p.x, p.y, 0.05 * 1.2 * 0.5, 0.06 * 1.2), 0.6)
         }
         // Her eyes: warm almonds, open and calm (wider as she listens), a soft blink now and then.
-        let lid = (0.72 + 0.28 * s.listen + 0.12 * s.speak) * blink(t, 5.7)
-        let eyeB = 0.8 + 0.35 * s.voice + 0.3 * s.listen * s.level + 0.06 * sin(t * 1.3)
+        // Heavy lids: calm, softer as she listens, lowered as she thinks, open and lit as she works.
+        let lid = (0.74 * calm + 0.66 * s.listen + 0.34 * s.th + 0.98 * s.busy + 0.86 * s.speak) * blink(t, 5.7)
+        let eyeB = 0.8 + 0.5 * s.voice + 0.25 * s.listen * s.level + 0.4 * s.busy - 0.2 * s.th + 0.06 * sin(t * 1.3)
         for side in [-1.0, 1.0] {
             let ex = side * 0.16, ey = -0.62, ez = front(ex, ey)
             let inner = onHead(ex - side * 0.095, ey + 0.005, ez), outer = onHead(ex + side * 0.095, ey - 0.012, ez)
@@ -855,7 +1133,7 @@ extension OrbCanvas {
         let n0 = onHead(0, -0.54, front(0, -0.54) + 0.01), n1 = onHead(0, -0.39, front(0, -0.39) + 0.03)
         var nose = Path(); nose.move(to: ink.p(n0.x, n0.y)); nose.addLine(to: ink.p(n1.x, n1.y))
         gc.stroke(nose, with: .color(ink.pal[3].opacity(0.45)), lineWidth: d.px)
-        let open = 0.01 + 0.035 * s.voice
+        let open = 0.008 + 0.014 * s.voice
         let ml = onHead(-0.085, -0.3, front(-0.085, -0.3)), mr = onHead(0.085, -0.3, front(0.085, -0.3))
         let mu = onHead(0, -0.29, front(0, -0.29)), md = onHead(0, -0.27 + 2 * open, front(0, -0.27))
         var mouth = Path()
@@ -863,19 +1141,23 @@ extension OrbCanvas {
         mouth.addQuadCurve(to: ink.p(mr.x, mr.y), control: ink.p(mu.x, mu.y))
         mouth.addQuadCurve(to: ink.p(ml.x, ml.y), control: ink.p(md.x, md.y))
         mouth.closeSubpath()
-        gc.fill(mouth, with: .color(warm.opacity(0.4 + 0.5 * s.voice)))
-        gc.stroke(mouth, with: .color(warm.opacity(0.6 + 0.3 * s.voice)), lineWidth: d.px)
+        gc.fill(mouth, with: .color(warm.opacity(0.4 + 0.3 * s.voice)))
+        gc.stroke(mouth, with: .color(warm.opacity(0.6 + 0.2 * s.voice)), lineWidth: d.px)
         for r in rings { ring(r, frontHalf: true) }
         finish(&gc, d, tint: tint)
     }
 
     // MARK: Rover
 
-    /// A little rover, seen a little from the side: two binocular eyes (lit boxes with big round warm
-    /// lenses) on a neck over a boxy body on tracks. Its eyes do the talking: listening, they lift,
-    /// lean in and tilt toward each other, lenses wide; thinking, they look one way then the other,
-    /// zoom rings turning; working, a light scans across the lenses and its tracks roll; speaking,
-    /// its lenses pulse with the voice and its eyes bob.
+    /// A shy, curious little rover, seen a little from the side: binocular eyes (lit boxes with big
+    /// round warm lenses) on a neck that stretches and shrinks, a boxy body on tracks, two little
+    /// arms with claws. Its eyes do the talking: each box tilts on its own like an eyebrow, the
+    /// lenses zoom in and out. At rest it looks about, tilts its head, shifts a track and now and
+    /// then zooms; listening, it stretches its neck and leans in, eyes wide and lifted, claws clasped
+    /// shyly, very still (a little flinch on a sudden loud sound); thinking, its head tilts, one eye
+    /// up and one down, its lenses zoom, a claw scratches its head; working, its tracks roll and
+    /// bump, its head scans left and right, its lenses focus in quick steps and its meter runs;
+    /// speaking, it bobs and wiggles happily, brows up, lenses pulsing with the voice.
     func drawRover(_ gc: inout GraphicsContext, _ box: CGSize) {
         var d = robotCanvas(box, scale: 1.2, dy: -0.18)
         let s = RobotState(engine, work)
@@ -883,22 +1165,27 @@ extension OrbCanvas {
         let tint = Color(hex: 0xffb347)
         let ink = Ink(d, robotPalette(tint))
         let warm = look.color ?? Color(hex: 0xffe2a6), deep = look.color ?? Color(hex: 0xff9a3a)
-        let view = Turn3(yaw: 0.32 + 0.06 * sin(t * 0.2), pitch: -0.2)
-        let lift = -0.12 * s.listen + 0.04 * s.voice * sin(t * 6) + 0.015 * sin(t * 0.9)
-        // Thinking: a look one way, then the other (a smooth swing, never a jump).
-        let look = 0.06 * sin(t * 0.35) * (1 - s.th) + s.th * 0.1 * max(-1, min(1, 3 * sin(t * 0.9)))
-        let aperture = 0.1 + 0.035 * s.listen - 0.025 * s.voice + 0.01 * sin(t * 0.7)
-        let zoom = engine.ringTurn * 4
-        let scan = sin(t * 2.6)
+        let calm = max(0, 1 - s.listen - s.th - s.busy - s.speak)
+        let h1 = engine.history.value(secondsAgo: 0.08)
+        let bounce = s.speak * min(1, 1.5 * h1)                                // its own voice, a moment ago
+        // A sudden loud sound as it listens: now louder than a moment ago (smoothed, so never a jump).
+        let flinch = s.listen * smoothstep(0.3, 0.7, s.loud - engine.history.value(secondsAgo: 1.0))
+        // The tracks: two paces, blended; the body bumps as the treads pass under it.
+        let paceSlow = 0.12, paceFast = 1.5
+        let bump = 0.012 * (1 - s.busy) * abs(sin(Double.pi * 7 * t * paceSlow)) + 0.028 * s.busy * abs(sin(Double.pi * 7 * t * paceFast))
+        let rock = 0.05 * s.busy * sin(t * 1.3) + 0.04 * s.speak * sin(t * 2.6)
+        let view = Turn3(yaw: 0.32 + 0.06 * sin(t * 0.2) + 0.05 * s.speak * sin(t * 1.9), pitch: -0.2, roll: 0.035 * s.speak * sin(t * 4.1))
         let sc = 1.05, oy = 0.1
-        func at(_ x: Double, _ y: Double, _ z: Double) -> (Double, Double) { let p = view.apply(x, y, z); return (p.x * sc, p.y * sc + oy) }
+        func at(_ x: Double, _ y: Double, _ z: Double) -> (Double, Double) {
+            let p = view.apply(x + rock, y - bump, z); return (p.x * sc, p.y * sc + oy)
+        }
         func surf(_ x: Double, _ y: Double, _ z: Double, _ nx: Double, _ ny: Double, _ nz: Double, _ tone: Double, _ dither: Double) {
             let n = view.apply(nx, ny, nz)
             guard n.z > -0.02 else { return }
             let q = at(x, y, z)
             place(&d, q.0, q.1, tone * metal(n.x, n.y, n.z, shine: 0.5), dither, phase: x, lum: 0.6, size: 0.8)
         }
-        /// A box: its three faces we see (front, top, the right side) in lit metal, a texture of points.
+        /// A box: its three faces we see (front, top, a side) in lit metal, a texture of points.
         func block(_ cx: Double, _ cy: Double, _ cz: Double, _ w: Double, _ h: Double, _ dp: Double, tilt: Double = 0,
                    points: Int, seed: Int, tone: Double = 1) {
             let ct = cos(tilt), st = sin(tilt)
@@ -930,9 +1217,8 @@ extension OrbCanvas {
                 surf(cx + rx, cy + ry, cz + z, nx * ct - ny * st, nx * st + ny * ct, nz, 0.6 * tone, OrbPoints.hash(seed + j, 14))
             }
         }
-        // The tracks: lit plates, their treads rolling (faster while it works: two paces, blended).
+        // The tracks: rounded belts, their treads rolling down their faces (a track shifts now and then at rest).
         for side in [-1.0, 1.0] {
-            // A track: a rounded belt (wider at its foot), its treads rolling down its face.
             let top = 1.02, bottom = 1.78
             func edge(_ y: Double, _ out: Double) -> (Double, Double) {
                 let f = (y - top) / (bottom - top), half = 0.12 + 0.11 * f
@@ -942,10 +1228,11 @@ extension OrbCanvas {
             let belt = ink.poly(ys.map { edge($0, -1) } + ys.reversed().map { edge($0, 1) })
             ink.metal(&gc, belt, hi: edge(top, -0.6), reach: 0.95, 1.0)
             gc.stroke(belt, with: .color(ink.pal[3].opacity(0.55)), style: StrokeStyle(lineWidth: d.px * 1.6, lineJoin: .round))
-            for (pace, w) in [(0.35, 1 - s.busy), (1.6, s.busy)] where w > 0.02 {
+            let shift = 0.35 * calm * servoStep(t, period: 4.3, move: 0.3, salt: side + 11)
+            for (pace, w) in [(paceSlow, 1 - s.busy), (paceFast, s.busy)] where w > 0.02 {
                 var treads = Path()
                 for n in 0..<7 {
-                    let y = top + (bottom - top) * fract(t * pace + Double(n) / 7)
+                    let y = top + (bottom - top) * fract(t * pace + Double(n) / 7 + shift)
                     let a = edge(y, -0.8), b = edge(y, 0.8)
                     treads.move(to: ink.p(a.0, a.1)); treads.addLine(to: ink.p(b.0, b.1))
                 }
@@ -954,17 +1241,20 @@ extension OrbCanvas {
             let hub = edge(top + 0.1, 0)
             ink.metal(&gc, ink.circle(hub.0, hub.1, 0.07), hi: (hub.0 - 0.02, hub.1 - 0.03), reach: 0.1, 1.4)
         }
-        // The body: a box with a lamp; the neck, its joint.
-        block(0, 1.05, 0, 1.9, 1.45, 1.1, points: Int(300 * k) + 30, seed: 6000)
+        // The body: a box with a hatch and a lamp.
+        block(0, 1.05, 0, 1.9, 1.45, 1.1, points: Int(250 * k) + 30, seed: 6000)
         let hatch = [at(-0.55, 0.98, 0.56), at(0.6, 0.98, 0.56), at(0.6, 1.62, 0.56), at(-0.55, 1.62, 0.56)]
         gc.stroke(ink.poly(hatch), with: .color(ink.pal[3].opacity(0.4)), style: StrokeStyle(lineWidth: d.px * 1.1, lineJoin: .round))
-        // Its meter: five lights that rise with your voice as it listens and with its own as it speaks.
-        let meter = min(1, s.listen * (0.15 + 1.1 * s.level) + s.speak * (0.15 + 1.1 * s.loud) + 0.12 * (1 - s.listen - s.speak))
+        // Its meter: five lights that rise with your voice as it listens, with its own as it speaks,
+        // and run as it works.
+        let level = min(1, s.listen * (0.15 + 1.1 * s.level) + s.speak * (0.15 + 1.1 * s.loud) + 0.12 * calm + 0.12 * s.th)
+        let runner = fract(t * 1.7) * 6 - 0.5
         var onBars = Path(), offBars = Path()
         for n in 0..<5 {
             let x0 = -0.42 + 0.2 * Double(n)
             let bar = ink.poly([at(x0, 0.62, 0.56), at(x0 + 0.15, 0.62, 0.56), at(x0 + 0.15, 0.8, 0.56), at(x0, 0.8, 0.56)])
-            if meter > Double(n) / 5 + 0.04 { onBars.addPath(bar) } else { offBars.addPath(bar) }
+            let lit = (1 - s.busy) * (level > Double(n) / 5 + 0.04 ? 1 : 0) + s.busy * (abs(Double(n) - runner) < 0.75 ? 1 : 0)
+            if lit > 0.5 { onBars.addPath(bar) } else { offBars.addPath(bar) }
         }
         gc.fill(onBars, with: .color(warm.opacity(0.9)))
         gc.stroke(onBars, with: .color(warm.opacity(0.22)), style: StrokeStyle(lineWidth: d.px * 4, lineJoin: .round))
@@ -972,32 +1262,99 @@ extension OrbCanvas {
         let lampOn = 0.35 * (1 - s.busy) + s.busy * (0.55 + 0.45 * sin(t * 7)) + 0.1 * sin(t)
         let lampAt = at(-0.75, 0.5, 0.56)
         ink.eye(&gc, lampAt.0, lampAt.1, 0.05, lampOn, warm: warm, deep: deep, catchlight: 0)
-        let neckTop = at(0, -0.55 + lift, 0), neckBottom = at(0, 0.33, 0)
+        // The head's pose: each state's own motion at a fixed pace, blended.
+        let peek = servoStep(t, period: 3.3, move: 0.3, salt: 2.7)             // rest: looking about
+        let curious = servoStep(t, period: 5.1, move: 0.25, salt: 8.1)
+        let scanX = sin(t * 1.5)                                               // working: scanning
+        let stretch = 0.3 * s.listen * (1 - 0.5 * flinch) - 0.08 * flinch + 0.06 * s.th + 0.1 * s.busy + 0.12 * s.speak
+            + 0.13 * bounce + 0.02 * sin(t * 0.9) + 0.04 * calm * max(0, curious)
+        let neckBase = (x: 0.0, y: 0.33), neckLen = 0.88 + stretch
+        let lean = 0.34 * s.listen * (1 - 0.5 * flinch) + 0.06 * s.speak                       // toward you
+        let hx = calm * 0.1 * peek + s.busy * 0.2 * scanX + s.th * 0.05 + s.speak * 0.04 * sin(t * 2.1)
+        let hy = neckBase.y - neckLen
+        let roll = calm * (0.06 * curious + 0.02 * sin(t * 0.7)) + s.th * 0.2 + s.speak * 0.08 * sin(t * 2.3) + s.busy * 0.04 * scanX
+        let grow = 1 + 0.1 * s.listen * (1 - 0.5 * flinch) + 0.03 * bounce
+        let lookX = calm * 0.07 * peek + s.busy * 0.09 * scanX + s.th * 0.05 * sin(t * 0.6) + s.listen * 0.02
+        // Its arms: hanging at rest, claws clasped shyly as it listens, one up scratching its head
+        // as it thinks, both busy as it works, waving as it speaks.
+        var arms = Path(), claws = Path()
+        var shoulders: [(Double, Double)] = []
+        for side in [-1.0, 1.0] {
+            let sh = (side * 0.97, 0.95, 0.25)
+            let scratch = 0.05 * sin(t * 9) * s.th
+            let thinker = side > 0 ? 1.0 : 0.0
+            let waver = side > 0 ? 1.0 : 0.0
+            let busyA = sin(t * 3.4 + (side > 0 ? 0 : 2.2))
+            var cx = calm * side * 1.04 + s.listen * side * 0.52 + s.busy * side * (1.02 + 0.06 * busyA) + s.speak * side * (1.12 + 0.05 * waver)
+            var cy = calm * (1.4 + 0.03 * sin(t * 0.8 + side)) + s.listen * 0.98 + s.busy * (1.32 + 0.1 * busyA) + s.speak * (1.05 - 0.45 * waver - 0.1 * bounce)
+            var cz = calm * 0.8 + s.listen * 1.0 + s.busy * (0.65 + 0.16 * busyA) + s.speak * 0.6
+            cx += s.th * (thinker * (hx + 0.34 + 0.6 * scratch) + (1 - thinker) * side * 1.06)
+            cy += s.th * (thinker * (hy + 0.42 + scratch) + (1 - thinker) * 1.48)
+            cz += s.th * (thinker * (lean + 0.4) + (1 - thinker) * 0.6)
+            cy -= s.speak * waver * 0.1 * sin(t * 4.6)
+            let a = at(sh.0, sh.1, sh.2), c = at(cx, cy, cz)
+            arms.move(to: ink.p(a.0, a.1)); arms.addLine(to: ink.p(c.0, c.1))
+            shoulders.append(a)
+            // The claw: two paddles, opening as it waves, shut as it clasps.
+            let dir = atan2(c.1 - a.1, c.0 - a.0)
+            let open = 0.35 + 0.25 * s.speak + 0.2 * s.busy * (0.5 + 0.5 * busyA) - 0.25 * s.listen
+            for f in [-1.0, 1.0] {
+                let fa = dir + f * open
+                claws.move(to: ink.p(c.0, c.1)); claws.addLine(to: ink.p(c.0 + 0.14 * cos(fa), c.1 + 0.14 * sin(fa)))
+            }
+        }
+        litStroke(&gc, ink, arms, width: 0.12, 0.6, hi: 0.2)
+        for a in shoulders { ink.metal(&gc, ink.circle(a.0, a.1, 0.1), hi: (a.0 - 0.03, a.1 - 0.03), reach: 0.14, 1.3) }
+        litStroke(&gc, ink, claws, width: 0.095, 0.75, hi: 0.3)
+        // The neck: a column that stretches and shrinks, its joint at the base.
+        let neckTop = at(hx, hy + 0.05, lean * 0.8), neckBottom = at(0, neckBase.y, 0)
         var neck = Path(); neck.move(to: ink.p(neckTop.0, neckTop.1)); neck.addLine(to: ink.p(neckBottom.0, neckBottom.1))
         gc.stroke(neck, with: .linearGradient(Gradient(colors: [ink.pal[3].opacity(0.75), ink.pal[2].opacity(0.4)]),
                                               startPoint: ink.p(neckTop.0 - 0.06, 0), endPoint: ink.p(neckTop.0 + 0.06, 0)), lineWidth: 0.11 * sc * d.R)
+        var rungs = Path()
+        for n in 1..<4 {
+            let f = Double(n) / 4, x = neckTop.0 + (neckBottom.0 - neckTop.0) * f, y = neckTop.1 + (neckBottom.1 - neckTop.1) * f
+            rungs.move(to: ink.p(x - 0.065, y)); rungs.addLine(to: ink.p(x + 0.065, y))
+        }
+        gc.stroke(rungs, with: .color(ink.pal[1].opacity(0.8)), lineWidth: d.px * 1.2)
         let joint = at(0, 0.33, 0.02)
         ink.metal(&gc, ink.circle(joint.0, joint.1, 0.09), hi: (joint.0 - 0.03, joint.1 - 0.04), reach: 0.13, 1.3)
-        // The eyes: lit boxes, big round warm lenses (a zoom ring, the aperture, a glint).
+        // The bracket that carries both eyes, on top of the neck.
+        let b0 = at(hx - 0.15 * grow * cos(roll), hy - 0.15 * grow * sin(roll), lean), b1 = at(hx + 0.15 * grow * cos(roll), hy + 0.15 * grow * sin(roll), lean)
+        var bracket = Path(); bracket.move(to: ink.p(b0.0, b0.1)); bracket.addLine(to: ink.p(b1.0, b1.1))
+        gc.stroke(bracket, with: .color(ink.pal[3].opacity(0.7)), style: StrokeStyle(lineWidth: 0.1 * d.R, lineCap: .round))
+        // The eyes: lit boxes that tilt like eyebrows, big round warm lenses that zoom.
+        let zoomTurn = engine.ringTurn * 4
         for side in [-1.0, 1.0] {
-            let tilt = side * (-0.08 * (1 - s.listen) * (1 - s.th) + 0.22 * s.listen) + s.th * 0.18 * sin(t * 0.9 + side)
-            let ex = side * 0.45, ey = -0.62 + lift, ez = 0.0
-            block(ex, ey, ez, 0.62, 0.5, 0.44, tilt: tilt, points: Int(110 * k) + 16, seed: side > 0 ? 1000 : 3000)
+            // Its brows: sweet (inner ends up) at rest, now and then one lifted in curiosity; lifted
+            // as it listens; one up and one down, puzzled, as it thinks; up and happy as it speaks.
+            let lift1 = calm * 0.06 * max(0, curious * side) + s.listen * 0.06 + s.th * 0.08 * side + s.speak * (0.05 + 0.05 * bounce)
+            let outerUp = calm * (-0.13 + 0.12 * max(0, curious * side)) + s.listen * 0.1 + s.th * 0.22 * side + s.speak * 0.16 - s.busy * 0.02
+            let tilt = roll - side * outerUp
+            let cr = cos(roll), sr = sin(roll)
+            let ox = side * 0.45 * grow, oyE = -lift1
+            let ex = hx + ox * cr - oyE * sr, ey = hy + ox * sr + oyE * cr, ez = lean
+            block(ex, ey, ez, 0.62 * grow, 0.5 * grow, 0.44 * grow, tilt: tilt, points: Int(100 * k) + 14, seed: side > 0 ? 1000 : 3000)
             let ct = cos(tilt), st = sin(tilt)
-            let lx = look * 0.6
-            let c = at(ex + lx * ct, ey + lx * st, ez + 0.225)
+            let lx = lookX * grow
+            let c = at(ex + lx * ct, ey + lx * st, ez + 0.225 * grow)
             let n = view.apply(0, 0, 1)
             let squash = n.z, angle = atan2(n.y, n.x)
-            ink.metal(&gc, ink.oval(c.0, c.1, 0.215 * squash, 0.215, angle: angle), hi: (c.0 - 0.07, c.1 - 0.08), reach: 0.3, 1.2)
-            ink.rim(&gc, ink.oval(c.0, c.1, 0.215 * squash, 0.215, angle: angle), 0.7, width: 1.2)
-            let lensB = 0.62 + 0.4 * s.voice + 0.35 * s.listen * s.level + 0.05 * sin(t * 1.4 + side)
-            ink.eye(&gc, c.0, c.1, 0.175, lensB, warm: warm, deep: deep, squash: squash, angle: angle, open: blink(t, 6.7))
-            // The zoom ring (turning as it thinks) and the aperture (wider as it listens).
-            let ring = ink.oval(c.0, c.1, 0.155 * squash, 0.155, angle: angle)
-            gc.stroke(ring, with: .color(ink.pal[4].opacity(0.25 + 0.4 * s.th)),
-                      style: StrokeStyle(lineWidth: d.px * 1.4, dash: [CGFloat(0.05 * d.R), CGFloat(0.04 * d.R)], dashPhase: CGFloat(zoom * side * 0.09 * d.R)))
+            // The zoom: wide as it listens, in and out as it thinks, quick focusing steps as it works.
+            let zoom = 1 + 0.08 * s.listen + 0.14 * s.th * sin(t * 1.25 + side * 0.9) + 0.09 * s.busy * servoStep(t, period: 0.55, move: 0.3, salt: side + 4)
+                + 0.05 * calm * smoothstep(0.6, 1, sin(t * 0.37)) + 0.06 * bounce
+            let rr = 0.215 * grow
+            ink.metal(&gc, ink.oval(c.0, c.1, rr * squash, rr, angle: angle), hi: (c.0 - 0.07, c.1 - 0.08), reach: 0.3, 1.2)
+            ink.rim(&gc, ink.oval(c.0, c.1, rr * squash, rr, angle: angle), 0.7, width: 1.2)
+            let lensB = 0.62 + 0.45 * s.voice + 0.35 * s.listen * (0.4 + s.level) + 0.12 * s.busy + 0.05 * sin(t * 1.4 + side)
+            ink.eye(&gc, c.0, c.1, 0.175 * grow * min(1.08, zoom), lensB, warm: warm, deep: deep, squash: squash, angle: angle, open: blink(t, 6.7))
+            // The zoom ring (turning as it zooms) and the aperture.
+            let ring = ink.oval(c.0, c.1, 0.155 * grow * squash, 0.155 * grow, angle: angle)
+            gc.stroke(ring, with: .color(ink.pal[4].opacity(0.25 + 0.35 * s.th + 0.25 * s.busy)),
+                      style: StrokeStyle(lineWidth: d.px * 1.4, dash: [CGFloat(0.05 * d.R), CGFloat(0.04 * d.R)],
+                                         dashPhase: CGFloat((zoomTurn + 3 * (zoom - 1)) * side * 0.09 * d.R)))
+            let aperture = (0.1 + 0.03 * s.listen - 0.02 * s.voice) * (2 - zoom) * grow
             gc.stroke(ink.oval(c.0, c.1, aperture * squash, aperture, angle: angle), with: .color(Color.white.opacity(0.35 + 0.3 * s.voice)), lineWidth: d.px)
-            if s.busy > 0.01 { ink.glow(&gc, c.0 + 0.12 * scan * squash, c.1, 0.07, .white, 0.7 * s.busy) }
         }
         finish(&gc, d, tint: tint)
     }

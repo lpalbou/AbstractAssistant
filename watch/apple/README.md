@@ -58,7 +58,7 @@ approval can be allowed or denied from the notification itself.
 
 **Make it yours.** Settings has Connection (the gateway and account you use), Tools (the defaults
 for new conversations), Voice (the speaking voice, its speed and the transcription model), Read
-aloud, Orb style (twenty-nine styles in six families: Orbs, Forms, Cosmos, Nature, Faces and Machines, each previewed live through listening, thinking, working and speaking) and About.
+aloud, Orb style (thirty-three styles in six families: Orbs, Forms, Cosmos, Nature, Faces and Machines, each previewed live through listening, thinking, working and speaking) and About.
 
 ## Sign in
 

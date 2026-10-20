@@ -27,12 +27,18 @@ final class OrbStyleUITests: XCTestCase {
             shot("o1-\(name)")
             _ = lastY; lastY = row.frame.minY
         }
-        // The last style, on screen at the end of the list: its preview.
-        let rover = app.buttons["orb.Rover"].firstMatch
-        for _ in 0..<8 where !rover.exists { app.nudgeUp() }
-        for _ in 0..<3 where !rover.isHittable { app.nudgeUp() }
-        XCTAssertTrue(rover.exists, app.debugDescription)
-        rover.tap()
+        // The four newest machines are there, then the last style, on screen at the end of the
+        // list: its preview.
+        for name in ["Hover", "Spark", "Cruiser"] {
+            let row = app.buttons["orb.\(name)"].firstMatch
+            for _ in 0..<12 where !row.exists { app.nudgeUp() }
+            XCTAssertTrue(row.exists, "no \(name) row:\n\(app.debugDescription)")
+        }
+        let android = app.buttons["orb.Android"].firstMatch
+        for _ in 0..<8 where !android.exists { app.nudgeUp() }
+        for _ in 0..<3 where !android.isHittable { app.nudgeUp() }
+        XCTAssertTrue(android.exists, app.debugDescription)
+        android.tap()
         // The preview: the phases in turn.
         let phase = app.staticTexts["orb.phase"].firstMatch
         XCTAssertTrue(phase.waitForExistence(timeout: 10), app.debugDescription)
@@ -46,7 +52,7 @@ final class OrbStyleUITests: XCTestCase {
         let settings = app.buttons["Settings"].firstMatch
         XCTAssertTrue(settings.waitForExistence(timeout: 10), app.debugDescription)
         settings.tap()
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS 'Orb style' AND label CONTAINS 'Rover'")).firstMatch
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS 'Orb style' AND label CONTAINS 'Android'")).firstMatch
             .waitForExistence(timeout: 10), app.debugDescription)
         shot("o3-settings")
     }

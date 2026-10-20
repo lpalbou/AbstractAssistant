@@ -11,7 +11,8 @@ enum OrbDesign: String, CaseIterable, Identifiable {
     case t = "T", y = "Y", z = "Z"
     case g = "G", i = "I", contour = "CT", membrane = "MB", k = "K"
     case aurora = "AU", murmuration = "MU"
-    case l = "L", m = "M", n = "N", o = "O", p = "P", q = "Q", h = "H"
+    case l = "L", m = "M", n = "N", o = "O", p = "P", q = "Q"
+    case hover = "HV", spark = "SP", cruiser = "CR", android = "AN", h = "H"
     var id: String { rawValue }
     var name: String {
         switch self {
@@ -43,6 +44,10 @@ enum OrbDesign: String, CaseIterable, Identifiable {
         case .o: "Retro"
         case .p: "Deco"
         case .q: "Rover"
+        case .hover: "Hover"
+        case .spark: "Spark"
+        case .cruiser: "Cruiser"
+        case .android: "Android"
         case .h: "Ocean"
         }
     }
@@ -72,11 +77,15 @@ enum OrbDesign: String, CaseIterable, Identifiable {
         case .k: "one friendly eye: its iris glows with its voice, it opens wide to listen"
         case .l: "a glowing red camera eye; its core flares as it speaks"
         case .m: "a dome-headed droid: it turns to face you, chatters with its lights, spins to think"
-        case .n: "a gilded robot head: glowing eyes, it talks with its whole head"
-        case .o: "a glass-domed robot of the fifties: its grille of lights follows its voice"
-        case .p: "an art-deco machine woman with rings of light passing around her"
-        case .q: "a little rover with binocular eyes that lean in to listen"
-        case .h: "a sea at night whose waves rise with the voice; rain falls while it thinks"
+        case .n: "a fussy gilded valet, stiff and proper: it frets as it thinks and talks with its hands"
+        case .o: "a gentle giant of the fifties, slow and deliberate: the works in its dome whirr as it thinks, neon tubes flicker as it talks"
+        case .p: "a serene art-deco machine woman, regal and unhurried, rings of light passing around her"
+        case .q: "a shy, curious little rover on tracks: its eyes lean in to listen, tilt when puzzled, bob when it talks"
+        case .hover: "a round floating robot, polite and brave: its red eyes glow with its voice, it drifts closer to listen"
+        case .spark: "a curious robot on tracks with shutter eyes: it leans in for input and its eyes flick while it thinks"
+        case .cruiser: "a sleek black car: its red scanner sweeps while it thinks, its dash lights up with its voice"
+        case .android: "a pale gold android with amber eyes: a tilt of the head while it thinks, a precise blink"
+        case .h: "a sea at dusk whose swell rises with its voice; while it thinks the waves fall into order"
         }
     }
     /// The family it belongs to (the picker's sections).
@@ -87,7 +96,7 @@ enum OrbDesign: String, CaseIterable, Identifiable {
         case .t, .y, .z: .cosmos
         case .h, .aurora, .murmuration: .nature
         case .g, .i, .contour, .membrane, .k: .faces
-        case .l, .m, .n, .o, .p, .q: .machines
+        case .l, .m, .n, .o, .p, .q, .hover, .spark, .cruiser, .android: .machines
         }
     }
     /// What it is, in a few words (the picker's rows).
@@ -108,7 +117,7 @@ enum OrbDesign: String, CaseIterable, Identifiable {
         case .t: "Space bending round a mass"
         case .y: "A ring round a shadow"
         case .z: "A solar system forming"
-        case .h: "A sea at night"
+        case .h: "A sea at dusk"
         case .g: "A sculpted face"
         case .i: "A face pressed on glass"
         case .contour: "A face in lines of light"
@@ -118,10 +127,14 @@ enum OrbDesign: String, CaseIterable, Identifiable {
         case .k: "One watchful eye"
         case .l: "A red camera eye"
         case .m: "A dome-headed droid"
-        case .n: "A gilded humanoid"
-        case .o: "A fifties robot"
-        case .p: "An art-deco machine"
-        case .q: "Binocular eyes on tracks"
+        case .n: "A fussy gilded valet"
+        case .o: "A gentle giant of the fifties"
+        case .p: "A serene art-deco machine"
+        case .q: "A shy little rover on tracks"
+        case .hover: "A floating robot"
+        case .spark: "A curious robot on tracks"
+        case .cruiser: "A car with a scanning light"
+        case .android: "An android with amber eyes"
         }
     }
     static let storageKey = "orb.design"
@@ -224,7 +237,7 @@ struct Orb: View {
     /// The sea takes the screen's whole width where the orb is the page (the talk and Read pages),
     /// not on Home or in a small tile.
     private func fillsWidth(_ d: OrbDesign) -> Bool {
-        [.h, .x, .t, .contour, .membrane, .aurora, .murmuration].contains(d) && look.shape == .planet && size > 0.6 * WKInterfaceDevice.current().screenBounds.width
+        [.h, .x, .t, .contour, .membrane, .aurora, .murmuration, .cruiser].contains(d) && look.shape == .planet && size > 0.6 * WKInterfaceDevice.current().screenBounds.width
     }
 
     private var label: String {
@@ -380,6 +393,10 @@ struct OrbCanvas: View {
             case .o: drawRetro(&gc, box); return
             case .p: drawDeco(&gc, box); return
             case .q: drawRover(&gc, box); return
+            case .hover: drawHover(&gc, box); return
+            case .spark: drawSpark(&gc, box); return
+            case .cruiser: drawCruiser(&gc, box); return
+            case .android: drawAndroid(&gc, box); return
             case .r: drawLotus(&gc, box); return
             case .s: drawCrystal(&gc, box); return
             case .u: drawEclipse(&gc, box); return
@@ -620,7 +637,7 @@ struct OrbCanvas: View {
                         tx = x * scale; ty = y * scale
                         glow = 0.3 + 2.0 * max(0, f) + 0.2 * now
                         th2 = min(1, max(0, hue + 2.2 * f))
-                    case .g, .h, .i, .k, .l, .m, .n, .o, .p, .q, .r, .s, .u, .v, .w, .x, .t, .y, .z, .contour, .membrane, .aurora, .murmuration:   // scenes of their own
+                    case .g, .h, .i, .k, .l, .m, .n, .o, .p, .q, .hover, .spark, .cruiser, .android, .r, .s, .u, .v, .w, .x, .t, .y, .z, .contour, .membrane, .aurora, .murmuration:   // scenes of their own
                         break
                     case .f:   // Galaxy: a continuous disc of stars, densest at the core, crowded along two arms
                         let lh = 0.5 * hist.value(secondsAgo: 0.1 + 0.4 * p.reach) + 0.6 * band(0.15)
@@ -1354,7 +1371,7 @@ enum OrbIcon {
                     engine.step(t: t - 1.5 + Double(k) / 30, voice: v, engaged: engaged, thinking: thinking, speaking: speaking, working: working)
                 }
                 // The sea as on the talk page: the screen's width over 90% of it (208 × 187 pt).
-                let w: CGFloat = [.h, .x, .t, .contour, .membrane, .aurora, .murmuration].contains(design) ? 440 : 396
+                let w: CGFloat = [.h, .x, .t, .contour, .membrane, .aurora, .murmuration, .cruiser].contains(design) ? 440 : 396
                 let art = ZStack {
                     Color(hex: 0x000000)
                     OrbCanvas(t: t, engine: engine, design: design, look: .assistant,
@@ -1394,7 +1411,7 @@ enum OrbIcon {
                     engine.step(t: t, voice: v, engaged: st.1, thinking: st.3, speaking: st.2, working: st.4)
                     let since = Double(f) / 30
                     guard k > 0, marks.contains(where: { abs($0 - since) < 0.017 }) else { continue }
-                    let w: CGFloat = [.h, .x, .t, .contour, .membrane, .aurora, .murmuration].contains(design) ? 440 : 396
+                    let w: CGFloat = [.h, .x, .t, .contour, .membrane, .aurora, .murmuration, .cruiser].contains(design) ? 440 : 396
                     let art = ZStack {
                         Color(hex: 0x000000)
                         OrbCanvas(t: t, engine: engine, design: design, look: .assistant,
