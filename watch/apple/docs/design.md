@@ -172,7 +172,8 @@ its speed), so a change of state is always a smooth morph:
     two by two into planets that clear their lanes; speaking, each ring glows with one band of the
     voice, a spiral wave runs through the disk and the star flares.
 - **Rings**: a geodesic structure of six rigid rings on the great circles that cross at the corners
-  of an icosidodecahedron, turning slowly as one body. Each ring is driven by its own band of the
+  of an icosidodecahedron, each a glowing line running through the hues of light (brighter in front)
+  with soft beads on it, turning slowly as one body. Each ring is driven by its own band of the
   voice (low pitches the first, high the last): its size follows that band (a quiet harmonic draws
   its ring in, a loud one pushes it out, so the voice's harmonics show as rings of different sizes),
   it sways about its own diameter and its beads spin faster; silence lets the structure settle back.
@@ -218,10 +219,10 @@ its speed), so a change of state is always a smooth morph:
   of your voice ripple in; thinking, it looks up and aside, its lids lower and its iris turns slowly.
 - **Robots**, six classic ways of picturing a talking machine, each in its own colour (an entity's
   colour wins), each showing rest, listening, speaking, thinking and working (tools running):
-  - **Lens**: a red camera eye (a brushed bezel, layers of dark glass, a red glow with a hot core,
-    a soft reflection); only the core runs white. Its core and glow swell and faint rings ripple
-    through the glass as it speaks; its glow gathers in and brightens with your voice; a red arc
-    sweeps the bezel as it thinks; the bezel's ticks light in turn as it works.
+  - **Lens**: a warm amber-red camera lens (a brushed bezel, dark glass with a reflection and a
+    glint, a soft glowing core with fine iris fibres); only the core runs white. Soft waves of
+    light leave the core as it speaks and come in to it with your voice; a soft arc sweeps the
+    glass as it thinks; a light runs round the bezel as it works.
   - **Dome**: a droid with a panelled dome on a barrel body and side legs, seen from a little
     above. The dome looks around at rest, turns to face you to listen (its eye lighting with your
     voice), chatters with quick turns and light panels that follow the voice's bands, spins to
@@ -241,13 +242,13 @@ its speed), so a change of state is always a smooth morph:
   - **Rover**: two binocular eyes on a neck over a boxy body on tracks. Its lenses pulse and its eyes
     bob as it speaks; they lift, lean in and widen as it listens; they look one way then the other
     as it thinks, zoom rings turning; a light scans the lenses and its tracks roll as it works.
-- **Ocean**: a sea at night filling the frame (the screen's whole width on the talk and Read pages), the water in rows that close up toward the horizon,
-  a moon and its glade, a few stars. Gerstner waves (sharp crests, long waves faster than short
-  ones), lit by the moon reflected off each wave's tilt and the sky's glow reflected more at grazing
-  angles, foam on steep crests. A voice raises the long waves with its low pitches and the short
-  ones with its high ones; the last 1.2 s of the voice travel across the water, toward you while it
-  speaks, away while you do. While it thinks the sea calms and rain falls, each drop ringing the
-  water.
+- **Ocean**: a sea at night filling the frame (the screen's whole width on the talk and Read pages), the water as lines of light, each row rising and
+  falling with the waves (long waves faster than short ones), its crests glowing, a glittering moon
+  path widening toward you, a soft moon with its halo, a dusk glow at the horizon, stars. A voice
+  raises the long waves with its low pitches and the short ones with its high ones and lights the
+  water it raises; the last 1.2 s of the voice travel across the water, toward you while it speaks,
+  away while you do. While it thinks the sea calms and a gentle rain falls, each drop ringing the
+  water; while it works a lighthouse sweeps a soft beam.
 
 An entity's orb takes its colour and shape (planet, kitty, face, wave) from the gateway (with one of
 the scenes chosen, an entity keeps its own shape and answers the voice as Nebula does). The microphone is open only while the orb listens.

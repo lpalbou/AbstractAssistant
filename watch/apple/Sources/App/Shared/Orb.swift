@@ -400,20 +400,122 @@ struct OrbCanvas: View {
         let spectrum = VoiceFeatures(level: now, bands: engine.bands)
         /// The voice's spectrum at 0…1 across its bands (low → high pitch).
         func band(_ x: Double) -> Double { spectrum.band(at: x) }
-        // The turn: the planet spins on a 23° tilted axis (one turn ≈ 50 s, 4× while thinking);
-        // a kitty or a face turns its head gently instead; the wave is seen from a fixed pitch.
+        func wrap(_ v: Double) -> Double { v - v.rounded(.down) }
+        let tau = 2 * Double.pi
+        // The turn: the planet spins on a 23° tilted axis (one turn ≈ 50 s, ~4× while thinking: an
+        // accumulated phase, so the faster turn never jumps); a kitty or a face turns its head gently
+        // instead; the wave is seen from a fixed pitch.
         let spinning = look.shape == .planet
-        let yaw: Double = spinning ? t * (0.125 + 0.4 * th) : (look.shape == .wave ? 0.2 * sin(t * 0.08) : 0.45 * sin(t * 0.25))
+        let yaw: Double = spinning ? 0.08 * t + 0.36 * engine.ringTurn : (look.shape == .wave ? 0.2 * sin(t * 0.08) : 0.45 * sin(t * 0.25))
         let tilt: Double = look.shape == .planet ? 0.41 : (look.shape == .wave ? 0.6 : 0.12)
         let cY = cos(yaw), sY = sin(yaw), cT = cos(tilt), sT = sin(tilt)
         let sun = (x: -0.55, y: -0.35, z: 0.76)
-        let px = max(0.55, half / 95)
         let contract = 1 - 0.08 * th
         let phases = OrbPhases(engine)
         let swirlBase = engine.swirl
-        var moving = [Path](repeating: Path(), count: 5)
+        let voiced = phases.listen + phases.speak
+        /// How much of the voice shape is the listening one (light drawn in) vs. the speaking one (sent out).
+        let inward = voiced > 1e-3 ? phases.listen / voiced : 0.5
+        var d = hueDots(box)
+        let n = Int(Double(min(2000, OrbPoints.count(half: half) * 11 / 10)) * pointScale)
+        // Once a frame: Halo's corona, sampled round the rim. Seven broad streamers whose lengths
+        // vary smoothly round it: with the voice (its spectrum, low pitches at the top, mirrored, and
+        // its last second), turning slowly as a crown while it thinks, steady while it works. Each
+        // phase has its own shape; the light blends them by the phases' weights.
+        let coronaN = 72
+        // Per phase: the corona's reach at each angle, and where its streamers are (0…1). A streamer
+        // is broad at its foot and narrows outward (its profile sharpens with the distance out).
+        var coronaV = [Double](repeating: 0, count: coronaN + 1), coronaVS = coronaV, coronaVB = coronaV
+        var coronaT = coronaV, coronaTS = coronaV, coronaTB = coronaV, coronaW = coronaV, coronaWS = coronaV
+        /// Where the streamers are round the rim at angle a (0…1): five broad ones and three finer,
+        /// so they are uneven, as in a photograph, never a comb.
+        func streamersAt(_ a: Double) -> Double {
+            0.5 + 0.5 * (0.62 * cos(5 * a) + 0.38 * cos(8 * a + 1.7))
+        }
+        if design == .a {
+            for j in 0...coronaN {
+                let a = tau * Double(j) / Double(coronaN)
+                let shapeVar = 1 + 0.3 * sin(3 * a + 1.3) + 0.15 * sin(5 * a - 0.4)
+                if e > 0.001 {
+                    let sv = streamersAt(a - 0.03 * t)
+                    let pos = abs(atan2(cos(a), -sin(a))) / .pi
+                    let v = min(1.2, 0.35 * hist.value(secondsAgo: pos * 0.8) + 0.85 * band(pos))
+                    coronaV[j] = (0.35 + 1.1 * v) * shapeVar; coronaVS[j] = sv
+                    coronaVB[j] = (0.35 + 0.55 * v) * (0.5 + 0.5 * sv)
+                }
+                if phases.think > 0.003 {
+                    let st = streamersAt(a - 0.25 * t)
+                    let lit = pow(0.5 + 0.5 * cos(a - 1.57 * t), 3)
+                    coronaT[j] = 0.72 * shapeVar * (0.75 + 0.25 * lit); coronaTS[j] = st
+                    coronaTB[j] = (0.25 + 0.8 * lit) * (0.5 + 0.5 * st)
+                }
+                if phases.work > 0.003 {
+                    coronaW[j] = 0.85 * shapeVar; coronaWS[j] = streamersAt(a)
+                }
+            }
+        }
+        /// The corona's reach at a streamer's place `sv` and distance out `g` (0 its foot, 1 its tip).
+        func reach(_ base: Double, _ sv: Double, _ g: Double) -> Double { base * (0.2 + 0.8 * pow(sv, 0.6 + 2.2 * g)) }
+        /// A corona sample at angle a (linear between the samples).
+        func corona(_ arr: [Double], _ a: Double) -> Double {
+            var u = a / tau; u -= u.rounded(.down)
+            let f = u * Double(coronaN), i = min(coronaN - 1, Int(f))
+            return arr[i] + (arr[i + 1] - arr[i]) * (f - Double(i))
+        }
+        /// Halo thinking and working: the points in the crown's streamers (static, the crown turning
+        /// through them) or flowing out along the steady ones.
+        func haloMotif(_ p: OrbPoints.P, _ x: Double, _ y: Double, _ working: Bool) -> (x: Double, y: Double, b: Double, h: Double) {
+            let a = atan2(y, x)
+            if !working {
+                let g = p.dither, r = 0.97 + reach(corona(coronaT, a), corona(coronaTS, a), g) * pow(g, 1.4)
+                return (r * cos(a), r * sin(a), corona(coronaTB, a) * pow(1 - g, 2) + 0.25 * pow(1 - g, 6), 0.12 + 0.8 * g)
+            }
+            let g = wrap(p.dither + t * (0.55 + 0.3 * p.reach)), lw = reach(corona(coronaW, a), corona(coronaWS, a), g)
+            let r = 0.97 + lw * pow(g, 1.3)
+            return (r * cos(a), r * sin(a), (0.2 + 0.8 * lw) * pow(1 - g, 2) + 0.25 * pow(1 - g, 6), 0.12 + 0.8 * g)
+        }
+        let liquidAmp = (0..<Self.liquidWaves.count).map { k in
+            0.12 * hist.value(secondsAgo: Double(k) * 0.12) + 0.2 * band(Double(k) / 2)
+        }
+        /// Liquid's surface lift at a point of the sphere (screen axes): smooth travelling waves.
+        func liquidLift(_ x: Double, _ y: Double, _ z: Double) -> Double {
+            var f = 0.0
+            for (k, wv) in Self.liquidWaves.enumerated() {
+                f += liquidAmp[k] * sin(wv.f * (wv.x * x + wv.y * y + wv.z * z) - wv.pace * t + wv.o)
+            }
+            return f
+        }
+        /// Vortex's arm at s (0 at the core, 1 at its tip): radius and angle.
+        func vortexArm(_ s: Double, _ arm: Double) -> (r: Double, a: Double, lh: Double) {
+            let lh = min(1.2, 0.5 * hist.value(secondsAgo: s * 0.8) + 0.6 * band(s))
+            // Listening draws them in, wound tighter; speaking lets them out.
+            let rr = 0.55 + (0.75 + 0.5 * lh) * s * (1 - 0.18 * inward)
+            let wind = 3.0 - 1.4 * min(1, lh) + 0.9 * inward
+            return (rr, arm * .pi + wind * log(rr / 0.55) + swirlBase * 0.6 + t * 0.12, lh)
+        }
+        /// Nebula's cloud, as in a photograph: a bright soft core, three lobes (indigo, violet, rose)
+        /// breathing outward each with its own part of the voice, two wisps of filament, and a dark
+        /// lane crossing it. Its parts, once a frame.
+        let nebulaLh = min(1.2, 0.5 * hist.value(secondsAgo: 0.25) + 0.6 * band(0.5))
+        let nebulaCore = 0.24 * (1 + 0.3 * nebulaLh)
+        let lobes: [(x: Double, y: Double, a: Double, size: Double)] = (0..<3).map { j in
+            let lh = min(1.2, 0.5 * hist.value(secondsAgo: 0.15 + 0.2 * Double(j)) + 0.6 * band(Double(j) / 2))
+            let a = tau * Double(j) / 3 + 0.5 + 0.03 * t + 0.08 * sin(0.4 * t + Double(j))
+            let c = 0.42 * (1 + 0.55 * lh)
+            return (c * cos(a), c * sin(a), a, 0.3 * (1 + 0.4 * lh))
+        }
+        func filament(_ k: Int, _ u: Double) -> (x: Double, y: Double) {
+            let r = 0.3 + 0.95 * u * (1 + 0.25 * nebulaLh), a = 2.3 + 3.1 * Double(k) + 0.03 * t + 1.9 * u
+            return (r * cos(a), r * sin(a))
+        }
+        let lane = (x: 1.05 * cos(2.6 + 0.03 * t), y: 1.05 * sin(2.6 + 0.03 * t), r: 0.95)
+        /// How much of a point's light the dark lane leaves (it crosses the cloud near its core).
+        func laneLight(_ x: Double, _ y: Double) -> Double {
+            let dl = abs(((x - lane.x) * (x - lane.x) + (y - lane.y) * (y - lane.y)).squareRoot() - lane.r)
+            return 0.25 + 0.75 * smoothstep(0.03, 0.13, dl)
+        }
 
-        for p in OrbPoints.points(for: look.shape, count: Int(Double(OrbPoints.count(half: half)) * pointScale)) {
+        for p in OrbPoints.points(for: look.shape, count: n) {
             var px0 = p.x, py0 = p.y, pz0 = p.z
             if look.shape == .wave && !p.feature {
                 // Rolling ocean: the surface height is computed now, so the waves travel.
@@ -429,49 +531,80 @@ struct OrbCanvas: View {
             let workLight = workEffect(&x, &y, phase: p.phase)
             // 2. Light: the sun, the night side, depth (the far side fades), a rim.
             let lit = max(0.0, x * sun.x + y * sun.y + z * sun.z)
-            var bright = (0.18 + 0.82 * lit) * p.lum
-            bright *= 0.2 + 0.8 * smoothstep(-0.25, 0.15, z)
-            if p.surface { bright += 0.35 * pow(1 - min(1, abs(z)), 3) * p.lum }
+            var bright = (0.22 + 0.68 * lit) * p.lum
+            bright *= 0.22 + 0.78 * smoothstep(-0.25, 0.15, z)
+            if p.surface { bright += 0.3 * pow(1 - min(1, abs(z)), 3) * p.lum }
             bright += 1.6 * workLight * (0.45 + 0.55 * p.lum) * smoothstep(-0.4, 0.2, z)
-            // 3. The voice. Each style defines where a point goes at full strength (its displacement
-            //    D); how far it goes is its participation w, a smoothstep of its mobility m (its
+            // Its hue: the lit side cyan, the terminator indigo, the night side violet, a touch of
+            // rose low on the far limb.
+            var hue = min(1, 0.08 + 0.5 * (1 - lit) + 0.28 * smoothstep(0.1, 1.1, 0.5 * x + 0.85 * y) + 0.12 * smoothstep(0, -0.8, z))
+            // The anchored sixth stays home in every phase and glows a little brighter while the rest
+            // are away, so the sphere always reads.
+            if p.anchored { bright *= 1 + 0.4 * (1 - phases.rest) }
+            // 3. The voice. Each style defines where a point goes at full strength (its target);
+            //    how far it goes is its participation w, a smoothstep of its mobility m (its
             //    distance from the centre on screen, plus a little chance) against a threshold that
             //    moves inward as the signal s grows: a weak voice moves only the outer band (the
             //    buffer zone), a stronger one draws in more and more points. The anchored sixth
-            //    follows at most 15%, so the shape breathes with the voice yet stays.
+            //    follows at most 15%, so the shape breathes with the voice yet stays. Every target
+            //    keeps the point's own direction where the style allows (rays, a cloud, a surface),
+            //    so a point on its way is still on the shape's line, never in a fog.
             if e > 0.001 {
                 let r0 = max(1e-3, (x * x + y * y).squareRoot())
+                let a0 = atan2(y, x)
                 let m = min(1, 0.72 * r0 + 0.28 * p.dither)
                 let theta = 1 - 1.05 * engine.signal
-                var w = e * smoothstep(theta - 0.2, theta + 0.2, m)
+                var w = e * smoothstep(theta - 0.16, theta + 0.16, m)
                 if p.anchored { w *= 0.15 }
                 if w > 0.002 {
-                    let sw = swirlBase * (0.15 + 0.35 * p.reach)
-                    let cs = cos(sw), sn = sin(sw)
-                    let sx = x * cs - y * sn, sy = x * sn + y * cs
-                    let r = max(1e-3, (sx * sx + sy * sy).squareRoot())
-                    var tx = sx, ty = sy, glow = 0.0
+                    var tx = x, ty = y, glow = 0.0, th2 = hue
+                    let s = (p.reach - 0.45) / 0.55                        // 0…1, the point's own place along its line
                     switch design {
-                    case .a:   // Halo: the voice's spectrum around the circle (low pitches at the top),
-                               // mirrored around the vertical (no seam), with its last second as a trail
-                        let ang = abs(atan2(sx, -sy)) / .pi
-                        let lh = hist.value(secondsAgo: ang * 1.0)
-                        let v = min(1.2, 0.4 * lh + 0.8 * band(ang))
-                        let d = 0.35 + 1.0 * v * (0.3 + 0.7 * p.reach)
-                        tx += sx / r * d; ty += sy / r * d; glow = 0.8 * v
-                    case .b:   // Vortex: arms leave the planet's edge; what reaches further trails further around
-                        let lh = 0.5 * hist.value(secondsAgo: (1 - min(1, r)) * 0.6) + 0.6 * band(abs(atan2(sy, sx)) / .pi)
-                        let ext = (0.25 + 0.9 * lh) * p.reach
-                        let rr = 0.85 + 0.25 * r + ext
-                        let na = atan2(sy, sx) + ext * 3.2 + swirlBase * 0.5 * p.reach
-                        tx = cos(na) * rr; ty = sin(na) * rr; glow = 0.6 * lh
-                    case .c:   // Nebula: breathes outward, turbulent with loudness
-                        let lh = 0.5 * hist.value(secondsAgo: 0.15 + 0.25 * p.reach) + 0.6 * band(Double(p.band % 8) / 7)
-                        let push = (0.35 + 0.9 * lh) * p.reach
-                        let amp = 0.08 + 0.3 * now
-                        tx += sx * push + amp * sin(p.x * 4.1 + t * 1.3 + p.phase)
-                        ty += sy * push + amp * sin(p.y * 3.7 - t * 1.1 + p.phase * 1.7)
-                        glow = 0.5 * lh
+                    case .a:   // Halo: a soft corona round the planet, its streamers as long as the
+                               // voice at their angle; light flows in along them as you speak, out
+                               // as it speaks (two fixed paces, blended), densest at their feet.
+                        let fIn = wrap(s - t * 0.4), fOut = wrap(s + t * 0.4)
+                        let g = inward * fIn + (1 - inward) * fOut
+                        let rr = 0.97 + reach(corona(coronaV, a0), corona(coronaVS, a0), g) * pow(g, 1.5)
+                        tx = rr * cos(a0); ty = rr * sin(a0)
+                        glow = corona(coronaVB, a0) * pow(1 - g, 2) + 0.25 * pow(1 - g, 6)
+                        th2 = 0.12 + 0.8 * g
+                    case .b:   // Vortex: two clean arms out of the planet's heart, winding up when the
+                               // voice is quiet and unwinding, reaching out, as it grows louder.
+                        let arm = vortexArm(s, Double(p.band % 2))
+                        let width = (p.dither - 0.5) * 0.24 * (1 - 0.5 * s)
+                        let na = arm.a + 0.5 * width / arm.r, r2 = arm.r + 0.5 * width
+                        tx = cos(na) * r2; ty = sin(na) * r2
+                        glow = (0.25 + 0.45 * arm.lh) * (1 - 0.5 * s) * (1 - 2.5 * abs(width))
+                        th2 = 0.08 + 0.87 * s
+                    case .c:   // Nebula: the points gather into the cloud's core, its lobes and wisps
+                               // (gaussian about each), a few soft stars round it.
+                        let g = (-2 * log(1 - 0.84 * p.dither)).squareRoot()   // a gaussian radius (its tail cut)
+                        let gx = g * cos(p.phase), gy = g * sin(p.phase)
+                        if p.band <= 1 || (p.band == 8 && p.reach < 0.7) {
+                            tx = nebulaCore * gx; ty = nebulaCore * gy
+                            glow = 0.15 + 0.7 * exp(-g * g / 2)
+                            th2 = 0.03 + 0.12 * g
+                        } else if p.band <= 6 {
+                            let j = p.band % 3, lb = lobes[j]
+                            let ca = cos(lb.a), sa = sin(lb.a)
+                            let rad = gy * lb.size, tan = gx * lb.size * 1.5
+                            tx = lb.x + rad * ca - tan * sa; ty = lb.y + rad * sa + tan * ca
+                            glow = 0.04 + 0.48 * exp(-g * g / 2)
+                            th2 = [0.36, 0.62, 0.86][j] + 0.1 * min(1, g / 2)
+                        } else if p.band == 7 {
+                            let fl = filament(p.phase > .pi ? 1 : 0, s)
+                            tx = fl.x + 0.04 * gx; ty = fl.y + 0.04 * gy
+                            glow = 0.32 * (1 - 0.6 * s)
+                            th2 = 0.5 + 0.35 * s
+                        } else {
+                            // The stars: few, soft, twinkling.
+                            let rr = 1.05 + 0.6 * p.dither
+                            tx = rr * cos(a0); ty = rr * sin(a0)
+                            glow = 0.12 + 0.2 * pow(max(0, sin(t * 1.7 + p.phase * 9)), 4)
+                            th2 = p.dither
+                        }
+                        if p.band != 8 { glow *= laneLight(tx, ty) }
                     case .d:   // Rings: three tilted orbits that pulse
                         let ring = p.band % 3
                         let lh = 0.5 * hist.value(secondsAgo: Double(ring) * 0.3) + 0.6 * band(Double(ring) / 2)
@@ -479,20 +612,18 @@ struct OrbCanvas: View {
                         let a = p.phase + swirlBase * (0.8 + 0.3 * Double(ring)) * (ring == 1 ? -1 : 1) + t * 0.15
                         tx = cos(a) * rr; ty = sin(a) * rr * cos(Self.ringTilt[ring]) * 0.35 + 0.02 * (p.reach - 0.5)
                         glow = 0.7 * lh
-                    case .e:   // Liquid: standing waves on the surface, driven by the last second
-                        let a = atan2(sy, sx)
-                        var wv = 0.0
-                        for k in 1...3 {
-                            let amp = 0.4 * hist.value(secondsAgo: Double(k) * 0.15) + 0.8 * band(Double(k - 1) / 2)
-                            wv += amp * sin(Double(k + 2) * a + Double(k) * t * 0.9) / Double(k)
-                        }
-                        let d = 0.3 + 1.0 * wv * p.reach + 0.4 * now
-                        tx += sx * d; ty += sy * d; glow = 0.6 * now
+                    case .e:   // Liquid: the sphere's surface rolls in smooth waves (travelling waves
+                               // of low order across the sphere, so its outline is always round), each
+                               // one a band of the voice, rising with it.
+                        let f = liquidLift(x, y, z)
+                        let scale = 1.12 + 0.22 * now + f
+                        tx = x * scale; ty = y * scale
+                        glow = 0.3 + 2.0 * max(0, f) + 0.2 * now
+                        th2 = min(1, max(0, hue + 2.2 * f))
                     case .g, .h, .i, .k, .l, .m, .n, .o, .p, .q, .r, .s, .u, .v, .w, .x, .t, .y, .z, .contour, .membrane, .aurora, .murmuration:   // scenes of their own
                         break
                     case .f:   // Galaxy: a continuous disc of stars, densest at the core, crowded along two arms
                         let lh = 0.5 * hist.value(secondsAgo: 0.1 + 0.4 * p.reach) + 0.6 * band(0.15)
-                        let v = (p.reach - 0.45) / 0.55                         // 0…1, the star's own chance
                         var gr: Double, ga: Double
                         if p.band == 0 {
                             // The bulge: a dense, bright, slightly round core.
@@ -507,7 +638,7 @@ struct OrbCanvas: View {
                             } else {
                                 // Around one of two log-spiral arms: densest at the arm, thinning
                                 // away from it (a soft, wide spread, not a line).
-                                let off = (v - 0.5) * (0.35 + 4.4 * (v - 0.5) * (v - 0.5))
+                                let off = (s - 0.5) * (0.35 + 4.4 * (s - 0.5) * (s - 0.5))
                                 ga = Double(p.band % 2) * .pi + 2.3 * log(gr + 0.08) + off
                                 glow = 0.35 + 0.45 * lh * (1 - abs(off))
                             }
@@ -517,15 +648,18 @@ struct OrbCanvas: View {
                         ga -= swirlBase * (0.8 / (0.3 + gr)) + t * 0.04
                         tx = cos(ga) * gr
                         ty = sin(ga) * gr * 0.6 + 0.03 * (p.dither - 0.5)      // seen at a slant, a thin disc
+                        th2 = p.band == 0 ? 0 : 0.1 + 0.8 * smoothstep(0.15, 1.6, gr) + (p.band <= 2 ? 0.1 : 0)
                     }
-                    // The clouds' voice shapes held close to the orb (a defined shape, not a fog); the
-                    // structured ones (arms, rings, a galaxy) keep their reach.
-                    let hold = design == .a || design == .c || design == .e ? 0.6 : 1.0
-                    x += (tx - x) * w * hold; y += (ty - y) * w * hold
+                    if design == .b || design == .f || design == .d || design == .c {
+                        // The structured shapes: a point is home or on its arm, briefly on its way.
+                        w = w * w * (3 - 2 * w)
+                    }
+                    x += (tx - x) * w; y += (ty - y) * w
+                    hue += (th2 - hue) * w
                     // A moving point lights up as it travels (wherever it came from, even the night
                     // side), so the shape the voice draws is clearly lit.
-                    let voiceLight = (0.55 + 0.45 * glow) * (0.75 + 0.25 * p.lum)
-                    bright += (max(bright, voiceLight) - bright) * w
+                    let voiceLight = ((design == .c || design == .a ? 0.12 : 0.3) + 0.75 * glow) * (0.75 + 0.25 * p.lum)
+                    bright += (voiceLight - bright) * w
                 }
             }
             // The countdown: the outer edge dims clockwise from the top, softly.
@@ -538,10 +672,11 @@ struct OrbCanvas: View {
             // cloud, a lava lamp, a galaxy; and its work), the points blending into it.
             if (phases.think > 0.01 || phases.work > 0.01) && !p.anchored {
                 for (weight, working) in [(phases.think, false), (phases.work, true)] where weight > 0.01 {
-                    let m = planetMotif(design, p, x, y, working: working)
+                    let m = design == .a ? haloMotif(p, x, y, working) : planetMotif(design, p, x, y, working: working)
                     let w = weight * weight * (3 - 2 * weight)
                     x += (m.x - x) * w; y += (m.y - y) * w
                     bright += (m.b - bright) * w
+                    hue += (m.h - hue) * w
                 }
             }
             // Never off screen: the voice's reach stays inside the orb's circle (beyond 70% of the
@@ -552,19 +687,206 @@ struct OrbCanvas: View {
                 let soft = knee + (lim - knee) * (1 - exp(-(rr - knee) / (lim - knee)))
                 x *= soft / rr; y *= soft / rr
             }
-            guard bright > 0.03 * p.dither else { continue }
-            let b = min(4, max(0, Int(bright * 5 + p.dither - 0.5)))
-            moving[b].addRect(CGRect(x: cx + x * R - px / 2, y: cy + y * R - px / 2, width: px, height: px))
+            d.dot(x, y, bright, hue, p.dither, p.phase / tau)
         }
-        let pal = OrbPalette.colors(for: look.color)
-        drawWaves(&gc, cx: cx, cy: cy, R: R, pal: pal)
-        paintDots(&gc, moving, pal, px: px)
-        drawSatellites(&gc, cx: cx, cy: cy, R: R, px: px, pal: pal)
+        // Light under the points, blurred with their bloom: the planet's body (a shaded disc of
+        // light, its limb soft), and each style's own shapes of light. Their outlines are blends of
+        // the phases' shapes, so they morph with the points.
+        let hues = OrbPalette.hues(for: look.color)
+        let away = 1 - phases.rest
+        let busy = phases.think + phases.work
+        func bodyRadius(_ a: Double) -> Double {
+            switch design {
+            case .e:
+                let c = (cos(a), sin(a))
+                return phases.rest * contract + voiced * (1.12 + 0.22 * now + liquidLift(c.0, c.1, 0))
+                    + phases.think * (1 + 0.2 * sin(3 * a + t * 0.8) + 0.1 * sin(5 * a - t * 1.3)) * contract + phases.work * contract
+            case .c:
+                return phases.rest * contract + voiced * 0.75 * (1 + 0.3 * nebulaLh) + phases.think * 0.62 + phases.work * 0.42
+            case .f: return phases.rest * contract + away * 0.42
+            case .b: return phases.rest * contract + away * 0.7
+            default: return contract
+            }
+        }
+        let bodyLight: Double = {
+            switch design {
+            case .e: return 1 - 0.4 * phases.work
+            case .c: return phases.rest + 0.3 * voiced + 0.95 * phases.think + 0.45 * phases.work
+            case .f: return phases.rest + 0.75 * away
+            case .a: return phases.rest + 0.7 * away
+            default: return phases.rest + 0.45 * away
+            }
+        }()
+        var body = Path()
+        if design == .e || design == .c {
+            for j in 0..<48 {
+                let a = tau * Double(j) / 48, r = bodyRadius(a) * R
+                let pt = CGPoint(x: cx + r * cos(a), y: cy + r * sin(a))
+                if j == 0 { body.move(to: pt) } else { body.addLine(to: pt) }
+            }
+            body.closeSubpath()
+        } else {
+            let rb = bodyRadius(0) * R, flat = design == .f ? 1 - 0.4 * away : 1
+            body.addEllipse(in: CGRect(x: cx - rb, y: cy - rb * flat, width: 2 * rb, height: 2 * rb * flat))
+        }
+        let bodyR = max(0.3, design == .c || design == .e ? bodyRadius(0.7) : bodyRadius(0)) * R
+        let bodyShade = GraphicsContext.Shading.radialGradient(
+            Gradient(stops: [.init(color: hues[0][4].opacity(0.36 * bodyLight), location: 0),
+                             .init(color: hues[0][3].opacity(0.36 * bodyLight), location: 0.2),
+                             .init(color: hues[1][2].opacity(0.3 * bodyLight), location: 0.5),
+                             .init(color: hues[2][2].opacity(0.26 * bodyLight), location: 0.8),
+                             .init(color: hues[3][1].opacity(0.22 * bodyLight), location: 1)]),
+            center: CGPoint(x: cx - 0.3 * bodyR, y: cy - 0.25 * bodyR), startRadius: 0, endRadius: bodyR * 1.45)
+        let outward = GraphicsContext.Shading.radialGradient(
+            Gradient(stops: [.init(color: hues[0][3].opacity(0.85), location: 0), .init(color: hues[1][2].opacity(0.65), location: 0.3),
+                             .init(color: hues[2][2].opacity(0.42), location: 0.6), .init(color: hues[3][2].opacity(0.16), location: 0.85),
+                             .init(color: .clear, location: 1)]),
+            center: CGPoint(x: cx, y: cy), startRadius: 0.8 * R, endRadius: 1.85 * R)
+        /// A point of a light shape, kept inside the frame as the points are.
+        func spot(_ r: Double, _ a: Double) -> CGPoint {
+            let lim = half * 0.84 / R, knee = half * 0.7 / R
+            let rr = r > knee ? knee + (lim - knee) * (1 - exp(-(r - knee) / (lim - knee))) : r
+            return CGPoint(x: cx + rr * cos(a) * R, y: cy + rr * sin(a) * R)
+        }
+        // An entity seen as a wave (a surface, not a body) has no body of light or atmosphere.
+        let solid = look.shape != .wave
+        let light: (inout GraphicsContext) -> Void = { layer in
+            if solid { layer.fill(body, with: bodyShade) }
+            switch design {
+            case .a where voiced + busy > 0.01:
+                // The corona: three nested soft shells following the streamers' outline (a glow at
+                // their feet, fading out along them), the phases' shapes blended.
+                for (out, alpha) in [(0.25, 0.85), (0.55, 0.55), (1.0, 0.3)] {
+                    var shell = Path()
+                    for j in 0..<coronaN {
+                        let a = tau * Double(j) / Double(coronaN)
+                        let l = voiced * reach(coronaV[j], coronaVS[j], out) + phases.think * reach(coronaT[j], coronaTS[j], out)
+                            + phases.work * reach(coronaW[j], coronaWS[j], out)
+                        let pt = spot(0.95 + l * pow(out, 1.2), a)
+                        if j == 0 { shell.move(to: pt) } else { shell.addLine(to: pt) }
+                    }
+                    shell.closeSubpath()
+                    // A ring (the planet's disc left to its body's own light).
+                    let inner = 0.92 * R
+                    shell.addEllipse(in: CGRect(x: cx - inner, y: cy - inner, width: 2 * inner, height: 2 * inner))
+                    var c = layer
+                    c.opacity = alpha * min(1, voiced + busy)
+                    c.fill(shell, with: outward, style: FillStyle(eoFill: true))
+                }
+            case .b where voiced + busy > 0.01:
+                // The arms, drawn as soft strokes of light along their curves: the voice's two,
+                // thinking's whirlpool of three, working's four.
+                var c = layer
+                for (weight, count) in [(voiced, 2), (phases.think, 3), (phases.work, 4)] where weight > 0.01 {
+                    var arms = Path()
+                    for arm in 0..<count {
+                        for j in 2...28 {
+                            let u = Double(j) / 28
+                            let pt: CGPoint
+                            switch count {
+                            case 2:
+                                let a = vortexArm(u, Double(arm)); pt = spot(a.r, a.a)
+                            case 3:
+                                let r = 1.45 * pow(u, 1.25) + 0.04
+                                pt = spot(r, Double(arm) * tau / 3 + 2.8 * log(r + 0.1) + t * 0.9)
+                            default:
+                                let r = 0.08 + 1.42 * u
+                                pt = spot(r, Double(arm) * tau / 4 - 2.1 * log(r + 0.1) - t * 2.2)
+                            }
+                            if j == 2 { arms.move(to: pt) } else { arms.addLine(to: pt) }
+                        }
+                    }
+                    c.opacity = weight * (count == 2 ? 1 : 0.6)
+                    c.stroke(arms, with: outward, style: StrokeStyle(lineWidth: 0.2 * R, lineCap: .round, lineJoin: .round))
+                    c.stroke(arms, with: outward, style: StrokeStyle(lineWidth: 0.07 * R, lineCap: .round, lineJoin: .round))
+                }
+            case .c where voiced + phases.work > 0.01:
+                // The cloud's light: the lobes as soft elongated glows, the wisps, the bright core,
+                // and the dark lane carved out of their light. Working, its four clumps.
+                if voiced > 0.01 {
+                    for (j, lb) in lobes.enumerated() {
+                        var c = layer
+                        let c0 = spot((lb.x * lb.x + lb.y * lb.y).squareRoot(), atan2(lb.y, lb.x))
+                        c.translateBy(x: c0.x, y: c0.y); c.rotate(by: .radians(lb.a)); c.scaleBy(x: 1, y: 1.5)
+                        let rb = lb.size * 2.6 * R
+                        c.fill(Path(ellipseIn: CGRect(x: -rb, y: -rb, width: 2 * rb, height: 2 * rb)),
+                               with: .radialGradient(Gradient(stops: [.init(color: hues[j + 1][3].opacity(0.75 * voiced), location: 0),
+                                                                      .init(color: hues[j + 1][2].opacity(0.36 * voiced), location: 0.4),
+                                                                      .init(color: hues[j + 1][1].opacity(0.08 * voiced), location: 0.75),
+                                                                      .init(color: .clear, location: 1)]),
+                                                     center: .zero, startRadius: 0, endRadius: rb))
+                    }
+                    var wisps = Path()
+                    for k in 0..<2 {
+                        for j in 0...20 {
+                            let fl = filament(k, Double(j) / 20), pt = spot((fl.x * fl.x + fl.y * fl.y).squareRoot(), atan2(fl.y, fl.x))
+                            if j == 0 { wisps.move(to: pt) } else { wisps.addLine(to: pt) }
+                        }
+                    }
+                    var c = layer
+                    c.opacity = 0.3 * voiced
+                    c.stroke(wisps, with: .color(hues[2][3]), style: StrokeStyle(lineWidth: 0.1 * R, lineCap: .round))
+                    let rc = nebulaCore * 4 * R
+                    layer.fill(Path(ellipseIn: CGRect(x: cx - rc, y: cy - rc, width: 2 * rc, height: 2 * rc)),
+                               with: .radialGradient(Gradient(stops: [.init(color: hues[0][4].opacity(0.85 * voiced), location: 0),
+                                                                      .init(color: hues[0][3].opacity(0.45 * voiced), location: 0.25),
+                                                                      .init(color: hues[1][2].opacity(0.14 * voiced), location: 0.6),
+                                                                      .init(color: .clear, location: 1)]),
+                                                     center: CGPoint(x: cx, y: cy), startRadius: 0, endRadius: rc))
+                    var carve = layer
+                    carve.blendMode = .destinationOut
+                    let lr = lane.r * R, lc = CGPoint(x: cx + lane.x * R, y: cy + lane.y * R)
+                    carve.stroke(Path(ellipseIn: CGRect(x: lc.x - lr, y: lc.y - lr, width: 2 * lr, height: 2 * lr)),
+                                 with: .color(.black.opacity(0.75 * voiced)), lineWidth: 0.2 * R)
+                }
+                for c in 0..<4 where phases.work > 0.01 {
+                    let c0 = spot(0.78, Double(c) * tau / 4 + t * 0.75), rb = 0.3 * R
+                    layer.fill(Path(ellipseIn: CGRect(x: c0.x - rb, y: c0.y - rb, width: 2 * rb, height: 2 * rb)),
+                               with: .radialGradient(Gradient(colors: [hues[0][3].opacity(0.45 * phases.work), .clear]),
+                                                     center: c0, startRadius: 0, endRadius: rb))
+                }
+            case .f where away > 0.01:
+                // The disc's own faint glow, seen at a slant.
+                var c = layer
+                c.translateBy(x: cx, y: cy); c.scaleBy(x: 1, y: 0.6)
+                let rd = 1.6 * R
+                c.fill(Path(ellipseIn: CGRect(x: -rd, y: -rd, width: 2 * rd, height: 2 * rd)),
+                       with: .radialGradient(Gradient(stops: [.init(color: hues[0][3].opacity(0.3 * away), location: 0),
+                                                              .init(color: hues[1][2].opacity(0.14 * away), location: 0.3),
+                                                              .init(color: hues[2][1].opacity(0.08 * away), location: 0.65),
+                                                              .init(color: .clear, location: 1)]),
+                                             center: .zero, startRadius: 0, endRadius: rd))
+            default: break
+            }
+        }
+        // A soft atmosphere round the limb (outside the bloom: it is soft already).
+        let air = 0.5 + 0.5 * phases.rest, sky = R * 1.4
+        if solid {
+            gc.fill(Path(ellipseIn: CGRect(x: cx - sky, y: cy - sky, width: 2 * sky, height: 2 * sky)),
+                    with: .radialGradient(Gradient(stops: [.init(color: .clear, location: 0.62),
+                                                            .init(color: hues[2][2].opacity(0.14 * air), location: 0.72),
+                                                            .init(color: hues[1][1].opacity(0.05 * air), location: 0.83),
+                                                            .init(color: .clear, location: 1)]),
+                                          center: CGPoint(x: cx, y: cy), startRadius: 0, endRadius: sky))
+        }
+        finishHue(&gc, d, hues: hues, light: light)
     }
+
+    /// Liquid's travelling waves over the sphere: a direction, a frequency, a pace, an offset.
+    private static let liquidWaves: [(x: Double, y: Double, z: Double, f: Double, pace: Double, o: Double)] = [
+        (0.8, -0.6, 0.0, 2.4, 1.1, 0.0), (-0.3, -0.7, 0.65, 3.0, 1.4, 1.7), (0.45, 0.55, -0.7, 3.6, 1.8, 3.1),
+    ]
 
     /// Where a planet's point goes while it thinks or works, and its light: each style's own motif.
     /// Units of the planet's radius, on screen.
-    private func planetMotif(_ design: OrbDesign, _ p: OrbPoints.P, _ x: Double, _ y: Double, working: Bool) -> (x: Double, y: Double, b: Double) {
+    private func planetMotif(_ design: OrbDesign, _ p: OrbPoints.P, _ x: Double, _ y: Double, working: Bool) -> (x: Double, y: Double, b: Double, h: Double) {
+        let m = motifPlace(design, p, x, y, working: working)
+        // Its hue by how far out it is: cyan at the heart, indigo, violet, rose at the edge.
+        let r = (m.x * m.x + m.y * m.y).squareRoot()
+        return (m.x, m.y, m.b, 0.08 + 0.87 * smoothstep(0.35, 1.65, r))
+    }
+
+    private func motifPlace(_ design: OrbDesign, _ p: OrbPoints.P, _ x: Double, _ y: Double, working: Bool) -> (x: Double, y: Double, b: Double) {
         let f = p.dither, tau = 2 * Double.pi
         func wrap(_ v: Double, _ n: Double) -> Double { let m = v.truncatingRemainder(dividingBy: n); return m < 0 ? m + n : m }
         switch design {
@@ -572,15 +894,15 @@ struct OrbCanvas: View {
             let rays = 36.0, k = (p.phase / tau * rays).rounded(.down)
             if !working {
                 // A crown of rays turning slowly, lit one after another round the circle.
-                let a = tau * k / rays + 0.25 * t
+                let a = tau * k / rays + 0.25 * t + (p.reach - 0.72) * 0.12 * (1.1 - f)
                 let r = 1.02 + 0.42 * f
                 let d = wrap(k - t * 9, rays)
                 let lit = exp(-d / 5)
-                return (r * cos(a), r * sin(a), 0.25 + 0.95 * lit * (1 - 0.5 * f))
+                return (r * cos(a), r * sin(a), 0.2 + 0.85 * lit * (1 - 0.6 * f))
             }
             // Light flowing outward along every ray, each ray at its own pace.
-            let a = tau * k / rays
             let s = wrap(f + t * (0.9 + 0.8 * OrbPoints.hash(Int(k), 41)), 1)
+            let a = tau * k / rays + (p.reach - 0.72) * 0.12 * (1.1 - s)
             let r = 0.98 + 0.62 * s
             return (r * cos(a), r * sin(a), 0.2 + 0.95 * (1 - s) * (1 - s))
         case .b:   // Vortex
@@ -620,10 +942,10 @@ struct OrbCanvas: View {
                 return (x * k, y * k, 0.2 + 0.7 * smoothstep(0.6, 1.1, r0 * k))
             }
             // Droplets thrown off the surface, arcing and falling back; the rest rippling.
-            if p.band < 3 {
+            if p.band < 1 {
                 let s = wrap(f + t * 0.7, 1)
                 let da = p.phase
-                let lx = cos(da) * (1 + 0.9 * s), ly = sin(da) * (1 + 0.9 * s) + 1.1 * s * s - 0.6 * s
+                let lx = cos(da) * (1 + 0.5 * s), ly = sin(da) * (1 + 0.5 * s) + 0.7 * s * s - 0.35 * s
                 return (lx, ly, 0.9 * (1 - s) + 0.15)
             }
             let ripple = 1 + 0.06 * sin(9 * r0 - t * 6)
@@ -709,6 +1031,39 @@ struct OrbCanvas: View {
         for b in 0..<5 { gc.fill(paths[b], with: .color(pal[b])) }
     }
 
+    /// The planets' and forms' canvas: points sorted by hue and brightness (`HueDots`).
+    func hueDots(_ box: CGSize) -> HueDots {
+        let half = Double(min(box.width, box.height)) / 2
+        return HueDots(cx: Double(box.width) / 2, cy: Double(box.height) / 2, R: half * 0.46, px: max(0.55, half / 95))
+    }
+
+    /// The work's waves under the points, the points in their hues with their bloom, the running
+    /// tools' satellites over them (an entity's colour wins over the hues).
+    func finishHue(_ gc: inout GraphicsContext, _ d: HueDots, hues: [[Color]]? = nil, bloom: Double = 1,
+                   light: ((inout GraphicsContext) -> Void)? = nil) {
+        let hs = look.color == nil ? (hues ?? OrbPalette.hues(for: nil)) : OrbPalette.hues(for: look.color)
+        let pal = OrbPalette.colors(for: look.color)
+        drawWaves(&gc, cx: d.cx, cy: d.cy, R: d.R, pal: look.color == nil ? hs[0] : pal)
+        paintHueDots(&gc, d.paths, hs, px: d.px, bloom: bloom, light: light)
+        drawSatellites(&gc, cx: d.cx, cy: d.cy, R: d.R, px: d.px, pal: look.color == nil ? hs[0] : pal)
+    }
+
+    /// Points in four hues × five levels: one bloom under all of them (they fuse into a body of
+    /// light), then the fine points themselves.
+    /// `light`: soft shapes of light drawn in the same blurred layer, under the points.
+    func paintHueDots(_ gc: inout GraphicsContext, _ paths: [Path], _ hues: [[Color]], px: Double, bloom: Double = 1,
+                      light: ((inout GraphicsContext) -> Void)? = nil) {
+        let glow = [0, 0.3, 0.45, 0.6, 0.8]
+        gc.drawLayer { layer in
+            layer.addFilter(.blur(radius: px * 2.6))
+            light?(&layer)
+            for i in 0..<20 where i % 5 > 0 && !paths[i].isEmpty {
+                layer.fill(paths[i], with: .color(hues[i / 5][i % 5].opacity(min(1, glow[i % 5] * bloom))))
+            }
+        }
+        for i in 0..<20 where !paths[i].isEmpty { gc.fill(paths[i], with: .color(hues[i / 5][i % 5])) }
+    }
+
     /// Each tool running now circles the planet on a tilted orbit, a bright point with a fading
     /// trail, dimmed while it passes behind.
     func drawSatellites(_ gc: inout GraphicsContext, cx: Double, cy: Double, R: Double, px: Double, pal: [Color]) {
@@ -728,15 +1083,24 @@ struct OrbCanvas: View {
             gc.fill(Path(ellipseIn: CGRect(x: s.x - g, y: s.y - g, width: 2 * g, height: 2 * g)),
                     with: .radialGradient(fill, center: CGPoint(x: s.x, y: s.y), startRadius: 0, endRadius: g))
         }
+        // The trails in five levels of light and the heads in two (one fill each, not one per bead).
+        var trail = [Path](repeating: Path(), count: 5), heads = [Path](repeating: Path(), count: 2)
         for i in 0..<n {
             for k in stride(from: 16, through: 0, by: -1) {
                 let s = spot(i, k)
                 let size = px * (k == 0 ? 4.2 : 2.4 - 0.1 * Double(k))
-                let alpha = (k == 0 ? 1 : 0.7 * (1 - Double(k) / 17)) * (s.behind ? 0.3 : 1)
-                gc.fill(Path(ellipseIn: CGRect(x: s.x - size / 2, y: s.y - size / 2, width: size, height: size)),
-                        with: .color((k == 0 ? pal[4] : pal[3]).opacity(alpha)))
+                let bead = CGRect(x: s.x - size / 2, y: s.y - size / 2, width: size, height: size)
+                if k == 0 {
+                    heads[s.behind ? 1 : 0].addEllipse(in: bead)
+                } else {
+                    let alpha = 0.7 * (1 - Double(k) / 17) * (s.behind ? 0.3 : 1)
+                    trail[min(4, Int(alpha / 0.7 * 5))].addEllipse(in: bead)
+                }
             }
         }
+        for b in 0..<5 where !trail[b].isEmpty { gc.fill(trail[b], with: .color(pal[3].opacity(0.7 * (Double(b) + 0.5) / 5))) }
+        gc.fill(heads[0], with: .color(pal[4]))
+        if !heads[1].isEmpty { gc.fill(heads[1], with: .color(pal[4].opacity(0.3))) }
     }
 }
 
@@ -751,6 +1115,42 @@ enum OrbPalette {
                     Color(hex: 0x22d3ee).opacity(0.85), Color(hex: 0xcffafe).opacity(0.95)]
         }
         return [tint.opacity(0.28), tint.opacity(0.45), tint.opacity(0.65), tint.opacity(0.85), Color.white.opacity(0.85)]
+    }
+
+    /// Four hues of five levels each, the gradient the planets and forms are painted with: cyan,
+    /// indigo, violet, rose (Wave's ribbons). An entity's colour is its one hue.
+    static func hues(for tint: Color?) -> [[Color]] {
+        guard let tint else { return defaultHues }
+        let c = colors(for: tint)
+        return [c, c, c, c]
+    }
+
+    static func levels(_ a: UInt32, _ b: UInt32, _ c: UInt32, _ d: UInt32, _ e: UInt32) -> [Color] {
+        [Color(hex: a).opacity(0.4), Color(hex: b).opacity(0.55), Color(hex: c).opacity(0.7), Color(hex: d).opacity(0.85), Color(hex: e).opacity(0.95)]
+    }
+
+    static let defaultHues: [[Color]] = [
+        levels(0x0369a1, 0x0284c7, 0x38bdf8, 0x7dd3fc, 0xe0f2fe),     // cyan
+        levels(0x3730a3, 0x4f46e5, 0x6366f1, 0x8b9cf8, 0xdbe1ff),     // indigo
+        levels(0x6b21a8, 0x9333ea, 0xa855f7, 0xc084fc, 0xeedcff),     // violet
+        levels(0x9d174d, 0xdb2777, 0xf472b6, 0xf9a8d4, 0xffdcea),     // rose
+    ]
+}
+
+/// Points sorted by hue (four: `OrbPalette.hues`) and brightness (five levels), placed in units of
+/// `R` from the centre; the hue and the level are dithered, so a gradient reads smooth.
+struct HueDots {
+    var paths = [Path](repeating: Path(), count: 20)
+    let cx: Double, cy: Double, R: Double, px: Double
+    /// The points' size against the canvas's pixel unit (finer than `DotCanvas`'s, the bloom fills between).
+    var fine = 0.85
+
+    mutating func dot(_ x: Double, _ y: Double, _ bright: Double, _ hue: Double, _ dither: Double, _ dither2: Double, size: Double = 1) {
+        guard bright > 0.03 * dither else { return }
+        let b = min(4, max(0, Int(bright * 5 + dither - 0.5)))
+        let h = min(3, max(0, Int(hue * 3 + dither2)))
+        let s = px * fine * size
+        paths[h * 5 + b].addRect(CGRect(x: cx + x * R - s / 2, y: cy + y * R - s / 2, width: s, height: s))
     }
 }
 
@@ -779,13 +1179,20 @@ enum OrbPoints {
         var k = 0
         while out.count < n && k < n * 4 {
             defer { k += 1 }
-            let u = hash(k, 1), v = hash(k, 2), w = hash(k, 3)
+            // The planet's points spread evenly (no clumps or holes: a body, not grain).
+            var (u, v) = shape == .planet ? evenPoint(k) : (hash(k, 1), hash(k, 2))
+            if shape == .planet {
+                // A little jitter, under a point's spacing, so no rows show.
+                let j = 0.7 / Double(max(1, n)).squareRoot()
+                u = min(1, max(0, u + (hash(k, 15) - 0.5) * j)); v += (hash(k, 16) - 0.5) * j
+            }
+            let w = hash(k, 3)
             var (x, y, z) = spherePoint(u, v)
             var r = hash(k, 4) < 0.88 ? 1.0 : 0.55 + 0.4 * w        // mostly surface, some depth
             if hash(k, 5) < 0.04 { r = 1.05 + 0.1 * w }               // a thin atmosphere
             // Two or three continents: low-frequency land, thresholded, so the turn reads.
             let land = 0.5 + 0.5 * sin(1.9 * x + 1.0 * sin(1.4 * z)) * cos(1.6 * y + 0.8 * x)
-            var lum = smoothstep(0.45, 0.6, land) * 0.75 + 0.25
+            var lum = smoothstep(0.45, 0.6, land) * 0.6 + 0.4
             var feature = false
             var rad = 0.0, ang = 0.0
             switch shape {

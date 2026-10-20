@@ -5145,6 +5145,17 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Changed
 
+- **Every orb and avatar refined**, with Wave and Well as the reference: soft light, a gradient of
+  hues, rounded friendly forms, each phase readable at a glance, smooth morphs, and less work per
+  frame. The planets are shaded spheres of light with a soft limb; Halo's corona, Vortex's arms,
+  Nebula's cloud and Liquid's waves are coherent shapes; Lotus, Crystal, Synapse and Drop are
+  larger and brighter; Eclipse is a soft gold corona. The faces are warm portraits in light (a
+  smooth skin, open friendly eyes, a smile; Imprint stays a whole face while it thinks; Contour's
+  head is round and its words leave as ribbons; Membrane keeps the face while thinking); Eye has
+  lashes and a warm iris; Rings are glowing lines through the hues. The robots have lit metal
+  bodies and warm round eyes, Lens a warm glowing lens. Well, Black hole, Accretion, Aurora and
+  Murmuration are softer; Ocean is a sea of lines of light with a moon path, rain while it thinks
+  and a lighthouse while it works.
 - **Home's orb starts a new conversation** every time; an earlier conversation continues from
   Sessions (the orb used to reopen the last one).
 - **The faces speak and listen.** The face's relief is more anatomical (the nose's bridge and wings,

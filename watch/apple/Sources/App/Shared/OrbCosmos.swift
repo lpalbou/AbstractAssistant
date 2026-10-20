@@ -21,6 +21,13 @@ private struct Mix {
 /// A rough normal deviate from three uniform ones (mean 0, deviation about 0.5).
 @inline(__always) private func spread(_ a: Double, _ b: Double, _ c: Double) -> Double { a + b + c - 1.5 }
 
+/// A soft disc of light at `c` (points), radius `r`, fading out from its centre.
+private func glowDisc(_ gc: inout GraphicsContext, _ c: CGPoint, _ r: Double, _ stops: [Gradient.Stop]) {
+    guard r > 0.2 else { return }
+    gc.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)),
+            with: .radialGradient(Gradient(stops: stops), center: c, startRadius: 0, endRadius: r))
+}
+
 extension OrbCanvas {
 
     // MARK: Well
@@ -105,21 +112,32 @@ extension OrbCanvas {
             let f = 2.8 / (2.8 + deep)
             return (CGPoint(x: cx + x * f * S, y: cy - 0.02 * H - up * f * S * 0.92), (1 - deep) / 2)
         }
-        let lines = 13, samples = 56
-        var paths: [(Path, Double)] = []
+        // The grid's lines, cut into bands of nearness: each band stroked once, its light fading
+        // softly toward the far edge (a few strokes for the whole fabric, not one per line).
+        let lines = 13, samples = 56, bands = 7
+        func band(_ near: Double) -> Int { min(bands - 1, max(0, Int((near + 0.2) / 1.4 * Double(bands)))) }
+        var paths = [Path](repeating: Path(), count: bands)
         for dir in 0..<2 {
             for k in 0..<lines {
                 let c = -1.2 + 2.4 * Double(k) / Double(lines - 1)
-                var path = Path(), near = 0.0
+                var last: (p: CGPoint, near: Double)? = nil, current = -1
                 for i in 0...samples {
                     let s = -1.2 + 2.4 * Double(i) / Double(samples)
                     let (u, v) = dir == 0 ? (s, c) : (c, s)
                     let pr = project(u, v, height(u, v))
-                    if i == 0 { path.move(to: pr.p) } else { path.addLine(to: pr.p) }
-                    near += pr.near
+                    if let l = last {
+                        let b = band((l.near + pr.near) / 2)
+                        if b != current { paths[b].move(to: l.p); current = b }
+                        paths[b].addLine(to: pr.p)
+                    }
+                    last = pr
                 }
-                paths.append((path, near / Double(samples + 1)))
             }
+        }
+        /// How much light a band of the grid shows: as before near us, fading out toward the far edge.
+        func light(_ b: Int) -> Double {
+            let near = -0.2 + 1.4 * (Double(b) + 0.5) / Double(bands)
+            return smoothstep(-0.3, 0.42, near)
         }
         // Light gathers at the bottom of the well and fades toward the grid's edges.
         let bottom = project(0, 0, height(0, 0)).p
@@ -129,11 +147,16 @@ extension OrbCanvas {
         let lw = max(0.6, min(W, H) / 230)
         gc.drawLayer { layer in
             layer.addFilter(.blur(radius: lw * 4))
-            for (p, near) in paths { layer.opacity = 0.25 + 0.5 * near; layer.stroke(p, with: shading, lineWidth: lw * 2) }
+            for b in 0..<bands {
+                let near = -0.2 + 1.4 * (Double(b) + 0.5) / Double(bands)
+                layer.opacity = (0.25 + 0.5 * max(0, near)) * light(b)
+                layer.stroke(paths[b], with: shading, style: StrokeStyle(lineWidth: lw * 2, lineCap: .round, lineJoin: .round))
+            }
         }
-        for (p, near) in paths {
-            gc.opacity = 0.35 + 0.6 * near
-            gc.stroke(p, with: shading, lineWidth: lw)
+        for b in 0..<bands {
+            let near = -0.2 + 1.4 * (Double(b) + 0.5) / Double(bands)
+            gc.opacity = (0.35 + 0.6 * max(0, near)) * light(b)
+            gc.stroke(paths[b], with: shading, style: StrokeStyle(lineWidth: lw, lineCap: .round, lineJoin: .round))
         }
         gc.opacity = 1
         // The masses, glowing at the bottom of the well (brighter as it speaks).
@@ -141,13 +164,18 @@ extension OrbCanvas {
         func body(_ u: Double, _ v: Double, _ size: Double, _ bright: Double) {
             let p = project(u, v, height(u, v)).p
             let g = S * size
-            let halo = Gradient(colors: [Color.white.opacity(min(1, 0.9 * bright)), (look.color ?? Color(hex: 0xc084fc)).opacity(0.5 * bright), .clear])
+            let tone = look.color ?? Color(hex: 0xc084fc)
+            let wide = g * 2.6
+            let aura = Gradient(colors: [tone.opacity(0.32 * bright), tone.opacity(0.1 * bright), .clear])
+            gc.fill(Path(ellipseIn: CGRect(x: p.x - wide, y: p.y - wide, width: 2 * wide, height: 2 * wide)),
+                    with: .radialGradient(aura, center: p, startRadius: 0, endRadius: wide))
+            let halo = Gradient(colors: [Color.white.opacity(min(1, 0.95 * bright)), tone.opacity(0.55 * bright), .clear])
             gc.fill(Path(ellipseIn: CGRect(x: p.x - g, y: p.y - g, width: 2 * g, height: 2 * g)),
                     with: .radialGradient(halo, center: p, startRadius: 0, endRadius: g))
         }
         let split = min(1, (ox * ox + oy * oy).squareRoot() / 0.08)
-        body(ox, oy, 0.09 * glow, 1)
-        body(-ox, -oy, 0.09 * glow * (0.55 + 0.45 * split), split)
+        body(ox, oy, 0.1 * glow, 1)
+        body(-ox, -oy, 0.1 * glow * (0.55 + 0.45 * split), split)
         if tools > 0, busy > 0.002 {
             for k in 0..<tools {
                 let a = t * 0.9 + 2 * Double.pi * Double(k) / Double(tools)
@@ -191,7 +219,7 @@ extension OrbCanvas {
             let rr = ringR * swell + blur * g
             let doppler = pow((1 + cos(a - brightA)) / 2, 1.6)
             let flare = ph.speak * loud * 1.3 * exp(-pow(remainder(a - spot, 2 * .pi) / 0.28, 2))
-            let ringB = (0.22 + 0.9 * doppler) * exp(-g * g * 1.6) * (1 + 0.6 * ph.listen * level + 0.6 * ph.speak * loud) + flare
+            let ringB = (0.18 + 0.72 * doppler) * exp(-g * g * 1.6) * (1 + 0.6 * ph.listen * level + 0.6 * ph.speak * loud) + flare
             let ring = (x: rr * cos(a), y: rr * sin(a))
             // The disk, its far side hidden by the shadow.
             let dx = rd * cos(th), dy = rd * sin(th) * 0.15
@@ -213,7 +241,7 @@ extension OrbCanvas {
             case 14..<18:
                 // Rest: a faint halo; listening: gas spiralling in along three streams.
                 let ha = a * 0.9 + 0.3, hr = 0.85 + 0.6 * h4
-                mx.add(ph.rest, hr * cos(ha), hr * sin(ha), 0.08 + 0.12 * h5)
+                mx.add(ph.rest, hr * cos(ha), hr * sin(ha), 0.05 + 0.07 * h5)
                 let s = fract(h4 + t * 0.28)
                 let fr = 1.6 - 0.9 * s
                 let fa = 2 * Double.pi * (Double(Int(h5 * 3)) / 3) + 2.4 / fr + 0.12 * (h3 - 0.5)
@@ -226,7 +254,7 @@ extension OrbCanvas {
                 let sx = 3.2 * h1 - 1.6, sy = 3.2 * h4 - 1.6
                 let sr = max(0.05, (sx * sx + sy * sy).squareRoot())
                 let pushed = sr + 0.09 / sr
-                let starB = pushed < shadow + 0.08 ? 0 : 0.1 + 0.22 * h5 * (0.7 + 0.3 * sin(t * 1.7 + h3 * 40))
+                let starB = pushed < shadow + 0.08 ? 0 : 0.04 + 0.13 * h5 * h5 * (0.7 + 0.3 * sin(t * 1.7 + h3 * 40))
                 mx.add(1 - ph.work, sx / sr * pushed, sy / sr * pushed, starB)
                 let side: Double = h3 < 0.5 ? -1 : 1
                 let s = fract(h2 + t * 0.55)
@@ -240,11 +268,11 @@ extension OrbCanvas {
                 let r = (mx.x * mx.x + mx.y * mx.y).squareRoot()
                 mx.b *= smoothstep(shadow * 0.85, shadow * 1.02, r)
             }
-            place(&d, mx.x * 1.2, mx.y * 1.2, mx.b, OrbPoints.hash(i, 26), phase: a, lum: min(1, mx.b))
+            place(&d, mx.x * 1.2, mx.y * 1.2, mx.b, OrbPoints.hash(i, 26), phase: a, lum: min(1, mx.b), size: role >= 18 ? 0.7 : 0.85)
         }
         // Under the points: the soft glow of the photographs, brightest where the gas comes toward
         // us; with the disk, a thin sharp photon ring round the shadow.
-        let soft = 0.75 * (ph.rest + ph.listen + ph.speak) + 0.3 * (ph.think + ph.work)
+        let soft = 0.95 * (ph.rest + ph.listen + ph.speak) + 0.35 * (ph.think + ph.work)
         let stops = (0...24).map { k -> Gradient.Stop in
             let a = 2 * Double.pi * Double(k) / 24
             let dop = pow((1 + cos(a - brightA)) / 2, 1.6)
@@ -253,11 +281,22 @@ extension OrbCanvas {
             return .init(color: Color(hex: 0xf08a2c).opacity(min(1, alpha)), location: Double(k) / 24)
         }
         let center = CGPoint(x: d.cx, y: d.cy), glowR = ringR * 1.2 * d.R
+        let ringPath = Path(ellipseIn: CGRect(x: center.x - glowR, y: center.y - glowR, width: 2 * glowR, height: 2 * glowR))
+        let conic = GraphicsContext.Shading.conicGradient(Gradient(stops: stops), center: center, angle: .zero)
         gc.drawLayer { layer in
-            layer.addFilter(.blur(radius: d.R * 0.11))
-            layer.stroke(Path(ellipseIn: CGRect(x: center.x - glowR, y: center.y - glowR, width: 2 * glowR, height: 2 * glowR)),
-                         with: .conicGradient(Gradient(stops: stops), center: center, angle: .zero), lineWidth: d.R * 0.24)
+            layer.addFilter(.blur(radius: d.R * 0.16))
+            layer.opacity = 0.55
+            layer.stroke(ringPath, with: conic, lineWidth: d.R * 0.5)
+            layer.opacity = 1
+            layer.stroke(ringPath, with: conic, lineWidth: d.R * 0.22)
         }
+        // A faint warm haze round it all, as the photographs' light spills past the ring.
+        let hazeR = glowR * 1.75
+        gc.fill(Path(ellipseIn: CGRect(x: center.x - hazeR, y: center.y - hazeR, width: 2 * hazeR, height: 2 * hazeR)),
+                with: .radialGradient(Gradient(stops: [.init(color: .clear, location: 0.3),
+                                                       .init(color: Color(hex: 0xe0661a).opacity(0.1 * soft), location: 0.5),
+                                                       .init(color: .clear, location: 1)]),
+                                      center: CGPoint(x: center.x, y: center.y + glowR * 0.1), startRadius: 0, endRadius: hazeR))
         let photon = 0.47 * 1.2 * d.R, crisp = 0.55 * (ph.think + ph.work)
         if crisp > 0.01 {
             gc.stroke(Path(ellipseIn: CGRect(x: center.x - photon, y: center.y - photon, width: 2 * photon, height: 2 * photon)),
@@ -314,8 +353,8 @@ extension OrbCanvas {
                 // The young star: a dense bright core that flares as it speaks.
                 let r = 0.07 * h2, a = 2 * Double.pi * h1
                 let p = screen(r * cos(a), 0.6 * r * sin(a), 0)
-                let b = 1.1 + 0.6 * ph.speak * loud + 0.3 * ph.listen * level
-                place(&d, p.x * 1.15, p.y * 1.15, b, h3, phase: a, lum: 1, size: 1.6)
+                let b = 0.7 + 0.5 * ph.speak * loud + 0.25 * ph.listen * level
+                place(&d, p.x * 1.15, p.y * 1.15, b, h3, phase: a, lum: 1, size: 0.8)
                 continue
             }
             // The disk: bright rings with dark lanes between them, sharper as planets clear the
@@ -369,10 +408,10 @@ extension OrbCanvas {
                     let r0 = rr * wob
                     let a = theta + cw * remainder(ta - theta, 2 * .pi)
                     let r = r0 + cw * (tr - r0)
-                    let blob = cw * (0.1 * (1 - pw) + 0.03 * pw)
+                    let blob = cw * (0.12 * (1 - pw) + 0.035 * pw)
                     let pos = screen(r * cos(a) + blob * g1, thick * (1 - cw) + blob * g3, r * sin(a) + blob * g2)
                     let nearC = 0.7 + 0.3 * smoothstep(-1.2, 1.2, -r * sin(a))
-                    let b = (1 - pw) * (0.55 + 0.35 * (1 - abs(g1))) * nearC + pw * (1.0 + 0.2 * h2)
+                    let b = (1 - pw) * (0.38 + 0.25 * (1 - abs(g1))) * nearC + pw * (0.22 + 0.1 * h2)
                     mx.x = pos.x; mx.y = pos.y                     // the other phases' place is this at cw = 0
                     mx.b += cw * b; mx.size += cw * (1 + 0.5 * pw)
                 }
@@ -383,6 +422,59 @@ extension OrbCanvas {
             let size = mx.size > 0 ? mx.size / max(0.001, ph.rest + ph.listen + ph.think + ph.work + ph.speak) : 1
             place(&d, mx.x * 1.15, mx.y * 1.15, mx.b, OrbPoints.hash(i, 36), phase: theta, lum: min(1, mx.b), size: max(1, size))
         }
+        // Under the dust: each ring's warm glow (brighter with its band as it speaks), the clumps'
+        // soft round clouds (thinking), the planets, round and lit by the star (working), and the
+        // star's soft bloom.
+        let custom = look.color
+        let ember = custom ?? Color(hex: 0xf08a3c), gold = custom ?? Color(hex: 0xffc878)
+        func onScreen(_ x: Double, _ z: Double) -> CGPoint {
+            let p = screen(x, 0, z)
+            return CGPoint(x: d.cx + p.x * 1.15 * d.R, y: d.cy + p.y * 1.15 * d.R)
+        }
+        gc.drawLayer { layer in
+            layer.addFilter(.blur(radius: d.R * 0.05))
+            for (k, r) in rings.enumerated() {
+                var path = Path()
+                for j in 0...36 {
+                    let a = 2 * Double.pi * Double(j) / 36
+                    let q = onScreen(r * cos(a), r * sin(a))
+                    if j == 0 { path.move(to: q) } else { path.addLine(to: q) }
+                }
+                let band = spectrum.band(at: Double(k) / Double(rings.count - 1))
+                let alpha = (0.2 + 0.1 * Double(rings.count - k) / Double(rings.count)) * (1 + 0.4 * ph.listen * level + 1.2 * ph.speak * band)
+                let width = 0.06 * (1 + 0.25 * Double(k)) * (1.9 - 0.95 * lane) * 1.15 * d.R * 1.6
+                layer.stroke(path, with: .color(ember.opacity(min(0.85, alpha))), lineWidth: width)
+            }
+        }
+        let thinkGlow = ph.think, workGlow = ph.work
+        if thinkGlow > 0.01 {
+            for c in clumps {
+                glowDisc(&gc, onScreen(c.x, c.z), 0.13 * 1.15 * d.R, [.init(color: gold.opacity(0.45 * thinkGlow), location: 0),
+                                                                     .init(color: ember.opacity(0.2 * thinkGlow), location: 0.5),
+                                                                     .init(color: .clear, location: 1)])
+            }
+        }
+        if workGlow > 0.01 {
+            let sizes = [0.055, 0.07, 0.065, 0.05]
+            for (k, p) in planets.enumerated() {
+                let c = onScreen(p.x, p.z), r = sizes[k] * 1.15 * d.R
+                glowDisc(&gc, c, r * 3, [.init(color: gold.opacity(0.3 * workGlow), location: 0), .init(color: .clear, location: 1)])
+                // Lit on the side facing the star.
+                let toStar = CGPoint(x: d.cx - c.x, y: d.cy - c.y), m = max(1, (toStar.x * toStar.x + toStar.y * toStar.y).squareRoot())
+                let lit = CGPoint(x: c.x + toStar.x / m * r * 0.45, y: c.y + toStar.y / m * r * 0.45)
+                gc.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)),
+                        with: .radialGradient(Gradient(stops: [.init(color: Color(hex: 0xfff6e0).opacity(workGlow), location: 0),
+                                                               .init(color: gold.opacity(0.9 * workGlow), location: 0.45),
+                                                               .init(color: ember.opacity(0.55 * workGlow), location: 1)]),
+                                              center: lit, startRadius: 0, endRadius: r * 1.5))
+            }
+        }
+        let star = 0.75 + 0.45 * ph.speak * loud + 0.2 * ph.listen * level
+        glowDisc(&gc, CGPoint(x: d.cx, y: d.cy), 0.42 * 1.15 * d.R * (1 + 0.2 * ph.speak * loud),
+                 [.init(color: Color(hex: 0xfff6e0).opacity(min(1, 0.85 * star)), location: 0),
+                  .init(color: gold.opacity(0.45 * star), location: 0.18),
+                  .init(color: ember.opacity(0.14 * star), location: 0.5),
+                  .init(color: .clear, location: 1)])
         // Dust lit by a young star, as the disk round HL Tauri was photographed: rose-brown in the
         // dim levels, orange rings, a white-gold peak.
         finish(&gc, d, palette: [Color(hex: 0x4a1c2e).opacity(0.55), Color(hex: 0x9a3a1c).opacity(0.72), Color(hex: 0xe0782e).opacity(0.84),
