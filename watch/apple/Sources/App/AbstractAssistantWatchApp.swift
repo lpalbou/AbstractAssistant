@@ -116,10 +116,11 @@ struct AbstractAssistantWatchApp: App {
             #if DEBUG
             print("scene \(Date().formatted(date: .omitted, time: .standard)) \(phase)")
             #endif
-            // Poll while the app is on screen, including the dimmed wrist-down state (.inactive):
-            // cancelling there killed a first poll that takes 10-15 s over the watch's radio.
-            // Background stops it.
-            if phase == .background { model.stopPolling(); AnswerNotifier.shared.scheduleRefresh() } else { model.startPolling() }
+            // Polls while someone looks (active); the dimmed wrist-down state (.inactive) lets the
+            // poll in flight finish (a first one takes 10-15 s over the watch's radio) and stops
+            // there; background stops at once and asks for a refresh later.
+            model.scene(phase)
+            if phase == .background { AnswerNotifier.shared.scheduleRefresh() }
         }
     }
 }

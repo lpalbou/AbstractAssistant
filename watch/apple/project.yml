@@ -52,6 +52,9 @@ targets:
       configs:
         Debug:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+          # The build deployed to the watch is Debug (scripts/deploy-watch.sh): optimised, so the
+          # orbs' per-frame maths does not run several times slower than the release.
+          SWIFT_OPTIMIZATION_LEVEL: "-O"
 
   # UI checks that need a real tap (e.g. a text field opens with its current text). Own scheme:
   # the app's scheme, CI and the release archive do not build it.

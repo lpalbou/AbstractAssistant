@@ -404,12 +404,31 @@ final class AppModel: ObservableObject {
                 guard let self else { return }
                 let keepGoing = await self.refresh()
                 if !keepGoing { break }
+                // The screen dimmed (wrist down, always on): this poll ends, no next one. A poll in
+                // flight is never cut (a first one takes 10-15 s over the watch's radio).
+                guard self.onScreen, !Task.isCancelled else { break }
                 try? await Task.sleep(for: self.failures > 0 && !self.unreachable ? Self.retryInterval : Self.pollInterval)
             }
+            self?.pollTask = nil
         }
     }
 
     func stopPolling() { pollTask?.cancel(); pollTask = nil }
+
+    /// Someone is looking at the screen (the scene is active): polls go on; otherwise the running
+    /// one finishes and none follows.
+    private(set) var onScreen = false
+
+    /// The scene's phase: active polls; inactive (dimmed, wrist down) lets the poll in flight finish
+    /// and stops there; background stops at once.
+    func scene(_ phase: ScenePhase) {
+        switch phase {
+        case .active: onScreen = true; startPolling()
+        case .inactive: onScreen = false
+        case .background: onScreen = false; stopPolling()
+        @unknown default: onScreen = false
+        }
+    }
 
     /// Signed in (the sign-in page): saves it, replaces the client, clears the cached state, polls.
     func connect(_ signIn: SavedSignIn) {
@@ -779,7 +798,8 @@ final class AppModel: ObservableObject {
 
     /// Reads each listed conversation's latest question (a new turn has a new run id: read again).
     func loadTitles() async {
-        let missing = sessions.filter { latestPrompts[$0.latest.runId] == nil }.prefix(40)
+        // Never read again what has no readable question (it used to be fetched on every poll).
+        let missing = sessions.filter { latestPrompts[$0.latest.runId] == nil && !unreadablePrompts.contains($0.latest.runId) }.prefix(40)
         guard !missing.isEmpty else { return }
         let found: [(String, String?)] = await withTaskGroup(of: (String, String?).self) { group in
             for s in missing {

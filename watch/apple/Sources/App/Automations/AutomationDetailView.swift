@@ -8,6 +8,7 @@ import WatchKit
 struct AutomationDetailView: View {
     let automation: AutomationSummary
     @EnvironmentObject private var model: AppModel
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var progress = RunProgress()
     /// Full answers are heavy on a public gateway (measured 2026-10-17: 1 run 3 s, 5 runs 7 s,
     /// 30 runs 17 s): the latest first, then it and 5 earlier ones, older on demand.
@@ -106,6 +107,10 @@ struct AutomationDetailView: View {
         }
         .task { _ = try? await model.definition(of: automation.id) }   // beside the results, never before
         .onDisappear { watcher?.cancel(); watcher = nil; progress.stop(); AnswerNotifier.shared.setShowing(nil) }
+        // Leaving the app while it runs: its end is followed in the background, to be posted.
+        .onChange(of: scenePhase) { _, p in
+            if p == .background, let id = runId, !model.client.isMock { AnswerNotifier.shared.watch(runId: id, title: title, prompt: "") }
+        }
     }
 
     /// The instructions, whole.
@@ -182,10 +187,7 @@ struct AutomationDetailView: View {
                         if runId == nil, let id = occ.runId {
                             runId = id
                             progress.follow(runId: id, client: model.client)
-                            if !model.client.isMock {
-                                AnswerNotifier.shared.watch(runId: id, title: title, prompt: "")
-                                AnswerNotifier.shared.setShowing(id)
-                            }
+                            if !model.client.isMock { AnswerNotifier.shared.setShowing(id) }
                         }
                     } else if seenRunning || Date().timeIntervalSince(begun) > 45 {
                         break   // finished (or never seen running: a very short run, or refused)
@@ -199,6 +201,7 @@ struct AutomationDetailView: View {
     }
 
     private func finished() async {
+        if let id = runId { AnswerNotifier.shared.unwatch(runId: id) }
         progress.stop(); watcher = nil; runId = nil
         if let one = try? await model.client.occurrences(automationId: automation.id, limit: 1), !one.isEmpty {
             model.keep(results: one + occurrences.filter { $0.index != one.first?.index }, of: automation.id)

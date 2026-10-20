@@ -41,6 +41,13 @@ final class Speaker: NSObject, ObservableObject {
     private var task: Task<Void, Never>?
     /// This speaker's keep-awake hold (one per speaker: two screens never release each other's).
     private let holder = "speak-" + UUID().uuidString
+
+    /// A player dropped with its view (a page replaced under it) lets go of the watch too: a hold
+    /// left behind kept every later keep-awake session running its full ten minutes.
+    deinit {
+        let holder = holder
+        Task { @MainActor in RuntimeKeeper.shared.release(holder) }
+    }
     /// The one voice playing: starting another stops it.
     private static weak var current: Speaker?
     /// The stream broke after some audio: once what arrived has played, the reading says so.
@@ -54,16 +61,43 @@ final class Speaker: NSObject, ObservableObject {
 
     override init() {
         super.init()
-        #if DEBUG
+        // The system can stop the player underneath (an interruption, the app suspended with the
+        // wrist down, the keep-awake session gone) and says so only through these; the player's
+        // "finished" callback never comes for a chunk stopped that way, so the reading would stay
+        // "speaking" over silence until a tap. An interruption pauses honestly and resumes when the
+        // system says so; the app coming back to the front picks the voice up where it stopped.
         let center = NotificationCenter.default
-        center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { note in
-            let type = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt ?? 99
-            print("speaker interruption type \(type) (1 began, 0 ended) \(note.userInfo ?? [:])")
+        center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
+            let type = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            let options = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.trace("interruption \(type == 1 ? "began" : type == 0 ? "ended" : "?"), options \(options)")
+                if type == AVAudioSession.InterruptionType.began.rawValue { self.pause() }
+                else if type == AVAudioSession.InterruptionType.ended.rawValue,
+                        AVAudioSession.InterruptionOptions(rawValue: options).contains(.shouldResume), self.state == .paused { self.resume() }
+            }
         }
+        center.addObserver(forName: WKApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.ensurePlaying() }
+        }
+        #if DEBUG
         center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { note in
             print("speaker route change \(note.userInfo?[AVAudioSessionRouteChangeReasonKey] ?? "?")")
         }
         #endif
+    }
+
+    /// The invariant of a reading: while it is speaking, something plays. A player the system
+    /// stopped underneath plays on from where it stopped; no player, the next chunk starts.
+    private func ensurePlaying() {
+        guard state == .speaking else { return }
+        guard let p = player else { advanceIfIdle(); return }
+        guard !p.isPlaying else { return }
+        trace("the voice had stopped at \(String(format: "%.2f", p.currentTime)) s of this chunk: playing on")
+        try? AVAudioSession.sharedInstance().setActive(true)
+        RuntimeKeeper.shared.hold(holder)
+        if !p.play() { state = .failed("The watch stopped the voice."); stop() }
     }
 
     var isActive: Bool { state == .preparing || state == .speaking }
@@ -88,7 +122,8 @@ final class Speaker: NSObject, ObservableObject {
         if let player {
             state = .speaking
             trace("resuming at \(String(format: "%.2f", player.currentTime)) s of this chunk")
-            player.play()
+            try? AVAudioSession.sharedInstance().setActive(true)    // off since the pause, maybe
+            if !player.play() { state = .failed("The watch stopped the voice."); stop() }
         } else {
             state = pausedFromPreparing ? .preparing : .speaking
             advanceIfIdle()
@@ -296,8 +331,11 @@ final class Speaker: NSObject, ObservableObject {
         advanceIfIdle()
     }
 
+    /// Lets go of the watch and, when this is the voice playing, of the audio session (a player
+    /// that never spoke, stopped as its row leaves the screen, must not cut another one's voice).
     private func release() {
         RuntimeKeeper.shared.release(holder)
+        guard Self.current === self else { return }
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 

@@ -83,8 +83,14 @@ final class Listener: ObservableObject {
         }
     }
 
-    /// Ends the turn now (the orb was tapped): sends what was said, if anything.
-    func send() { end() }
+    /// Ends the turn now (Send, or a tap on the orb): sends what was said, if anything. Before the
+    /// microphone has opened, there is nothing to send and the turn ends with nothing heard.
+    func send() {
+        if isListening { end(); return }
+        guard finish != nil else { return }
+        stop(deliver: false, keepCallback: true)
+        deliver(.nothingHeard)
+    }
 
     /// Discards the recording.
     func cancel() { stop(deliver: false) }

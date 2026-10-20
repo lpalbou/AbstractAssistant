@@ -210,11 +210,12 @@ struct GlassIcon: View {
         case "speaker.wave.2.fill": return CGSize(width: 0.6 * k, height: 0)
         case "checkmark.shield.fill": return CGSize(width: 0, height: 0.3 * k)
         case "play.fill": return CGSize(width: 0.3 * k, height: 0)
+        case "paperplane.fill": return CGSize(width: -0.4 * k, height: 0.4 * k)
         default: return .zero
         }
     }
     static let symbols = ["chevron.left", "square.and.arrow.up", "stop.fill", "play.fill", "pause.fill", "backward.fill",
-                          "keyboard", "wrench.and.screwdriver", "pencil", "speaker.wave.2.fill", "checkmark.shield.fill"]
+                          "keyboard", "wrench.and.screwdriver", "pencil", "speaker.wave.2.fill", "checkmark.shield.fill", "paperplane.fill"]
     var body: some View {
         Image(systemName: symbol)
             .font(.system(size: size * 0.45, weight: .semibold))
@@ -315,8 +316,10 @@ extension View {
 /// "Loading" with three dots that fill in turn: what a line says until its information is in.
 struct LoadingText: View {
     var text = "Loading"
+    @Environment(\.isLuminanceReduced) private var dimmed
+    @Environment(\.scenePhase) private var scenePhase
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.4)) { ctx in
+        TimelineView(.animation(minimumInterval: 0.4, paused: dimmed || scenePhase != .active)) { ctx in
             let n = Int(ctx.date.timeIntervalSinceReferenceDate / 0.4) % 4
             HStack(spacing: 0) {
                 Text(text)
@@ -327,3 +330,12 @@ struct LoadingText: View {
         .accessibilityLabel(text)
     }
 }
+
+#if DEBUG
+/// Hooks only UI tests use (a 4 Hz readout of the voice's position): on only when a test launched
+/// the app (every test passes --no-notification-prompt; a deploy or a tap on the watch does not),
+/// so the build on the wrist never pays for them.
+enum UITestHooks {
+    static let on = ProcessInfo.processInfo.arguments.contains("--no-notification-prompt")
+}
+#endif

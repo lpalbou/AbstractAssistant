@@ -110,9 +110,13 @@ struct AskView: View {
                         // The tools of this conversation, bottom right, mirroring the keyboard (as far
                         // above the bottom as the keyboard is below the top); shown with the keyboard
                         // (the Assistant's tools; an entity brings its own).
+                        // While it listens, Send sits there instead: what was said goes now (a noise
+                        // that starts would otherwise keep the silence that sends from coming).
                         .overlay(alignment: .bottomTrailing) {
                             if controlsShown, model.responder == .assistant {
                                 toolsLink.padding(.trailing, 6 - Self.reach).padding(.bottom, 60 - Self.reach)
+                            } else if phase == .listening {
+                                sendNow.padding(.trailing, 6 - Self.reach).padding(.bottom, 60 - Self.reach)
                             }
                         }
                         .id("orb")
@@ -129,10 +133,10 @@ struct AskView: View {
         #if DEBUG
         // UI tests read the voice's position here (a rewind must move it back).
         .overlay(alignment: .bottomLeading) {
-            TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+            if UITestHooks.on { TimelineView(.periodic(from: .now, by: 0.25)) { _ in
                 Text(String(format: "%.1f", speaker.position())).font(.system(size: 1)).opacity(0.01)
                     .accessibilityIdentifier("debug.position")
-            }
+            } }
         }
         #endif
         // Beside Back, following what it does: Stop while it is busy, Share at rest; the shield while
@@ -176,8 +180,14 @@ struct AskView: View {
         }
         // The run on screen (followed or answered) is never also posted as a notification while active.
         .onChange(of: runId) { _, id in AnswerNotifier.shared.setShowing(id) }
-        // Screen off or app not in front: the steps are not read (the answer still is).
-        .onChange(of: scenePhase) { _, p in activity.paused = p != .active }
+        // Screen off or app not in front: the steps are not read (the answer still is). Leaving the
+        // app with a run still working: its end is followed in the background, to be posted.
+        .onChange(of: scenePhase) { _, p in
+            activity.paused = p != .active
+            if p == .background, phase == .thinking, !transcribing, pendingWait == nil, let id = runId, !model.client.isMock {
+                AnswerNotifier.shared.watch(runId: id, title: model.responder.title, prompt: prompt)
+            }
+        }
     }
 
     /// Below the orb (scroll): what you said, the answer, the controls, who answers.
@@ -314,6 +324,16 @@ struct AskView: View {
         .buttonStyle(GlassPress())
         .accessibilityLabel(model.sessionTools.isEmpty ? "Tools" : "Tools, changed for this conversation")
         .accessibilityIdentifier("ask.tools")
+    }
+
+    /// Ends the listening now and sends what was said (the orb's tap does the same).
+    private var sendNow: some View {
+        Button { listener.send() } label: {
+            GlassIcon(symbol: "paperplane.fill").padding(Self.reach).contentShape(Rectangle())
+        }
+        .buttonStyle(GlassPress())
+        .accessibilityLabel("Send now")
+        .accessibilityIdentifier("ask.send")
     }
 
     /// The watch's text input (dictation, Scribble, keyboard) behind one keyboard icon.
@@ -480,6 +500,8 @@ struct AskView: View {
             turn += 1
             listener.cancel(); speaker.stop(); activity.reset(); AnswerNotifier.shared.setShowing(nil)
             RuntimeKeeper.shared.release("ask")
+            // The run goes on without this screen: the notification at its end still matters only
+            // once the app itself is left (then scenePhase starts the stream, from the orb page).
             return
         }
         guard let last = path.last, let w = pendingWait else { return }
@@ -562,7 +584,9 @@ struct AskView: View {
                     }
                     runId = id
                     activity.start(runId: id, client: model.client)
-                    if !model.client.isMock { AnswerNotifier.shared.watch(runId: id, title: model.responder.title, prompt: text) }
+                    if scenePhase == .background, !model.client.isMock {   // sent, then the wrist went down
+                        AnswerNotifier.shared.watch(runId: id, title: model.responder.title, prompt: text)
+                    }
                     try await follow(id, turn: mine)
                 case .entity(let name):
                     let reply = try await model.entityTurn(name, text: text)
@@ -630,15 +654,18 @@ struct AskView: View {
                     if model.autoApprovable(w), await model.answer(w, with: .approve) {
                         model.markDecided(w)                   // trusted session: the run goes on
                     } else {
-                        // A person decides now; the screen is on. Waiting on them must not keep the app awake.
+                        // A person decides now; the screen is on. Waiting on them must not keep the app
+                        // awake, nor the radio (the background refresh posts a wait left undecided).
                         pendingWait = w
                         RuntimeKeeper.shared.release("ask")
+                        AnswerNotifier.shared.unwatch(runId: id)
                         open(w)
                         return
                     }
                 }
             }
             if run.isTerminal {
+                AnswerNotifier.shared.unwatch(runId: id)       // seen here: nothing to post
                 keepWork(id, success: run.status == "completed")
                 let media = MediaItem.of(output: run.output, runId: id)
                 if let out = run.outputText, !out.isEmpty { show(out, media: media) }
@@ -697,7 +724,7 @@ struct AskView: View {
         if phase == .thinking {
             turn += 1
             activity.reset()
-            if let id = runId, !transcribing { Task { try? await model.client.cancel(runId: id) } }
+            if let id = runId, !transcribing { AnswerNotifier.shared.unwatch(runId: id); Task { try? await model.client.cancel(runId: id) } }
             transcribing = false; pendingWait = nil
             phase = .idle; note = "Cancelled"; prompt = ""
             RuntimeKeeper.shared.release("ask")
@@ -709,6 +736,8 @@ struct AskView: View {
 
     private func clearConversation() {
         speaker.stop(); listener.cancel(); activity.reset(); turn += 1
+        RuntimeKeeper.shared.release("ask")                      // a turn dropped here must not keep the watch awake
+        if let id = runId { AnswerNotifier.shared.unwatch(runId: id) }
         prompt = ""; answer = ""; runId = nil; answerEntity = nil; note = nil; error = nil; pendingWait = nil
         exchanges = []; readingId = nil; shownCount = 5; historyFailed = nil; mediaFailed = nil
         phase = .idle

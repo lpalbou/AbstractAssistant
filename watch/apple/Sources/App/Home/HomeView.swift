@@ -1,8 +1,8 @@
 import AbstractGatewayClient
 import SwiftUI
 
-/// Home: the orb first (one tap to talk), then only what needs you, then your conversations and
-/// automations. Settings is the gear at the top; the gateway's state shows only when it matters.
+/// Home: the orb first (one tap starts a new conversation), then only what needs you, then your
+/// conversations and automations. Settings is the gear at the top; the gateway's state shows only when it matters.
 struct HomeView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.openURL) private var openURL
@@ -11,7 +11,8 @@ struct HomeView: View {
         ScrollViewReader { proxy in
         ScrollView {
             VStack(spacing: 8) {
-                NavigationLink(value: Route.ask(.idle)) {
+                // A new conversation every time (an earlier one continues from Sessions).
+                Button { model.newAskSession(); model.openOrb() } label: {
                     VStack(spacing: 2) {
                         // Smaller when something needs you, so that card stays on the first screen.
                         Orb(mode: .idle, size: model.waits.isEmpty ? 115 : 82, fps: 24, look: model.responderLook)

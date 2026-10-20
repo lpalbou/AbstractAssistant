@@ -42,10 +42,10 @@ struct ReadView: View {
         .screen("")            // like Ask: the orb is the screen
         #if DEBUG
         .overlay(alignment: .bottomLeading) {   // UI tests read the voice's position here
-            TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+            if UITestHooks.on { TimelineView(.periodic(from: .now, by: 0.25)) { _ in
                 Text(String(format: "%.1f", speaker.position())).font(.system(size: 1)).opacity(0.01)
                     .accessibilityIdentifier("debug.position")
-            }
+            } }
         }
         #endif
         .besideBack { VoiceButton(speaker: speaker) { start() } }   // play / pause, hold to rewind

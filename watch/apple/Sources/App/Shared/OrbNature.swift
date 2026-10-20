@@ -43,7 +43,7 @@ extension OrbCanvas {
         // The curtains: three, each a row of rays.
         let raysPer = 64
         let zenith = CGPoint(x: cx, y: H * 0.16)
-        func curtains(_ g: inout GraphicsContext, _ alpha: Double) {
+        func curtains(_ g: inout GraphicsContext, _ alpha: Double, glow: Bool = true) {
             for c in 0..<3 {
                 let fc = Double(c)
                 var lowRays = Path(), highRays = Path()
@@ -89,18 +89,25 @@ extension OrbCanvas {
                                           .init(color: Color(hex: 0x6ee7b7), location: 1)])
                 let shading = GraphicsContext.Shading.linearGradient(g1, startPoint: CGPoint(x: cx, y: topY), endPoint: CGPoint(x: cx, y: footY))
                 let lw = max(1.2, W / 95)
-                g.drawLayer { layer in
-                    layer.addFilter(.blur(radius: lw * 1.6))
-                    layer.opacity = alpha * (0.55 - 0.1 * fc)
-                    layer.stroke(lowRays, with: shading, lineWidth: lw * 1.6)
-                    layer.opacity = alpha * (0.85 - 0.1 * fc)
-                    layer.stroke(highRays, with: shading, lineWidth: lw * 1.8)
+                if glow {
+                    g.drawLayer { layer in
+                        layer.addFilter(.blur(radius: lw * 1.6))
+                        layer.opacity = alpha * (0.55 - 0.1 * fc)
+                        layer.stroke(lowRays, with: shading, lineWidth: lw * 1.6)
+                        layer.opacity = alpha * (0.85 - 0.1 * fc)
+                        layer.stroke(highRays, with: shading, lineWidth: lw * 1.8)
+                    }
+                } else {
+                    g.opacity = alpha * (0.55 - 0.1 * fc)
+                    g.stroke(lowRays, with: shading, lineWidth: lw * 1.6)
+                    g.opacity = alpha * (0.85 - 0.1 * fc)
+                    g.stroke(highRays, with: shading, lineWidth: lw * 1.8)
                 }
                 g.opacity = alpha * 0.5
                 g.stroke(highRays, with: shading, lineWidth: lw * 0.5)
                 // The foot flares pink on loud syllables (and as it works).
                 let pink = ph.speak * max(0, loud - 0.3) * 1.2 + 0.25 * ph.work * min(1, flash)
-                if pink > 0.02 {
+                if pink > 0.02, glow {
                     g.drawLayer { layer in
                         layer.addFilter(.blur(radius: lw * 1.4))
                         layer.opacity = alpha * min(0.8, pink)
@@ -117,10 +124,10 @@ extension OrbCanvas {
                                           startPoint: CGPoint(x: cx, y: horizon), endPoint: CGPoint(x: cx, y: H)))
         gc.drawLayer { layer in
             layer.clip(to: Path(CGRect(x: 0, y: horizon, width: W, height: H - horizon)))
-            layer.addFilter(.blur(radius: 2))
+            layer.addFilter(.blur(radius: 3))
             layer.translateBy(x: 0, y: 2 * horizon)
             layer.scaleBy(x: 1, y: -1)
-            curtains(&layer, 0.32)
+            curtains(&layer, 0.32, glow: false)
         }
         // The ridge: a dark silhouette on the horizon, and the lake's line.
         var ridge = Path()
@@ -185,20 +192,29 @@ extension OrbCanvas {
             let restP = (bx * 1.25 + 0.12 * sin(0.17 * t), by * 0.42 + fold * (0.6 + 0.4 * bx * bx), bz * 0.5)
             add(ph.rest, restP.0, restP.1, restP.2)
             // Listening: it swells with your voice; dark waves sweep through it.
-            let swell = 1 + 0.35 * level
-            let wave = 0.12 * sin(5 * bx - 3.2 * t) * (0.3 + level)
-            add(ph.listen, restP.0 * swell, restP.1 * swell + wave, restP.2 * swell)
+            if ph.listen > 0.002 {
+                let swell = 1 + 0.35 * level
+                let wave = 0.12 * sin(5 * bx - 3.2 * t) * (0.3 + level)
+                add(ph.listen, restP.0 * swell, restP.1 * swell + wave, restP.2 * swell)
+            }
+            // (Each shape is computed only while its phase shows.)
             // Thinking: a slow spinning ring.
-            let ra = 2 * Double.pi * u + 0.6 * t, rad = 0.75 + 0.18 * (v - 0.5) + 0.06 * sin(3 * ra + t)
-            add(ph.think, rad * cos(ra), 0.32 * rad * sin(ra) + 0.12 * (w - 0.5), rad * sin(ra) * 0.6)
+            if ph.think > 0.002 {
+                let ra = 2 * Double.pi * u + 0.6 * t, rad = 0.75 + 0.18 * (v - 0.5) + 0.06 * sin(3 * ra + t)
+                add(ph.think, rad * cos(ra), 0.32 * rad * sin(ra) + 0.12 * (w - 0.5), rad * sin(ra) * 0.6)
+            }
             // Working: a stream along a figure of eight.
-            let s = 2 * Double.pi * fract(u + 0.12 * t)
-            let lx = 1.15 * sin(s), ly = 0.45 * sin(s) * cos(s)
-            add(ph.work, lx + 0.07 * (v - 0.5), ly + 0.07 * (w - 0.5) * 1.4, 0.3 * cos(s))
+            if ph.work > 0.002 {
+                let s = 2 * Double.pi * fract(u + 0.12 * t)
+                let lx = 1.15 * sin(s), ly = 0.45 * sin(s) * cos(s)
+                add(ph.work, lx + 0.07 * (v - 0.5), ly + 0.07 * (w - 0.5) * 1.4, 0.3 * cos(s))
+            }
             // Speaking: a ribbon across the sky as thick as the voice.
-            let rx = 2 * u - 1
-            let thick = 0.06 + 0.5 * hist.value(secondsAgo: abs(rx) * 0.5) * (0.5 + spectrum.band(at: abs(rx)))
-            add(ph.speak, rx * 1.35, (v - 0.5) * 2 * thick + 0.05 * sin(4 * rx - 2 * t), (w - 0.5) * 0.3)
+            if ph.speak > 0.002 {
+                let rx = 2 * u - 1
+                let thick = 0.06 + 0.5 * hist.value(secondsAgo: abs(rx) * 0.5) * (0.5 + spectrum.band(at: abs(rx)))
+                add(ph.speak, rx * 1.35, (v - 0.5) * 2 * thick + 0.05 * sin(4 * rx - 2 * t), (w - 0.5) * 0.3)
+            }
             // Each bird jitters a little on its own.
             x += 0.012 * sin(t * 7 + Double(i)); y += 0.012 * cos(t * 6 + Double(i) * 1.3)
             let f = 2.6 / (2.6 - z)

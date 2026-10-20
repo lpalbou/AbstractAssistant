@@ -14,6 +14,19 @@ final class RuntimeKeeper: NSObject {
     private var holders: Set<String> = []
     private var session: WKExtendedRuntimeSession?
 
+    override init() {
+        super.init()
+        // Back in front with holders and no session (it expired or could not start with the wrist
+        // down): take a fresh one, so the voice goes on with the wrist down again.
+        NotificationCenter.default.addObserver(forName: WKApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, !self.holders.isEmpty, self.session == nil || self.session?.state == .invalid else { return }
+                self.hold("active again")
+                self.holders.remove("active again")
+            }
+        }
+    }
+
     /// `who` holds the app awake ("listen", "ask", "speak"); idempotent per holder.
     func hold(_ who: String) {
         holders.insert(who)
@@ -54,8 +67,19 @@ extension RuntimeKeeper: WKExtendedRuntimeSessionDelegate {
         }
     }
 
+    /// The ten minutes run out: still held (a long answer being read), a fresh session takes over
+    /// while the app can still start one (in front); with the wrist down it cannot, and the app
+    /// coming back in front takes one then.
     nonisolated func extendedRuntimeSessionWillExpire(_ extendedRuntimeSession: WKExtendedRuntimeSession) {
-        Task { @MainActor in self.trace("session about to expire") }
+        let id = ObjectIdentifier(extendedRuntimeSession)
+        Task { @MainActor in
+            self.trace("session about to expire")
+            guard !self.holders.isEmpty, let s = self.session, ObjectIdentifier(s) == id,
+                  WKApplication.shared().applicationState == .active else { return }
+            s.invalidate(); self.session = nil
+            self.hold("renewal"); self.holders.remove("renewal")
+            self.trace("session renewed")
+        }
     }
 
     nonisolated func extendedRuntimeSession(_ extendedRuntimeSession: WKExtendedRuntimeSession,

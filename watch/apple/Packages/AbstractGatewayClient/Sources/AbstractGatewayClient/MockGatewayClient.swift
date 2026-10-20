@@ -251,6 +251,8 @@ public actor MockGatewayClient: GatewayClient {
     static let samplePrompts: [String: String] = ["img-km-curve": "Kaplan–Meier survival curve by treatment arm, two lines"]
     public static let sampleMedia: [String: [MediaItem]] = [
         "r1a9e0b2": [MediaItem(artifactId: "img-km-curve", runId: "r1a9e0b2", contentType: "image/png", kind: .image, sizeBytes: 40_000)],
+        // An earlier QC answer with a recording (its row on the message page has a player of its own).
+        "qc-older-1": [MediaItem(artifactId: "wav-qc-older-1", runId: "qc-older-1", contentType: "audio/wav", kind: .audio, sizeBytes: 96_044)],
     ]
     public func sessionMedia(sessionId: String) async throws -> [String: [MediaItem]] {
         try await Task.sleep(for: .milliseconds(300))
@@ -506,6 +508,10 @@ public actor MockGatewayClient: GatewayClient {
                 continuation.yield(SyntheticSpeech.wav(seconds: 1.3, seed: 1))
                 try? await Task.sleep(for: .milliseconds(3400))
                 continuation.yield(SyntheticSpeech.wav(seconds: 8.0, seed: 2))
+                // `--long-voice`: a reading long enough to outlast a detour (four more sentences).
+                if ProcessInfo.processInfo.arguments.contains("--long-voice") {
+                    for k in 3..<7 { try? await Task.sleep(for: .milliseconds(1500)); continuation.yield(SyntheticSpeech.wav(seconds: 8.0, seed: k)) }
+                }
                 continuation.finish()
             }
         }

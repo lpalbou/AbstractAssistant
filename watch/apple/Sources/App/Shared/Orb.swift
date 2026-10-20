@@ -196,11 +196,18 @@ struct Orb: View {
 
     @State private var engine = OrbEngine()
     @AppStorage(OrbDesign.storageKey) private var storedDesign = OrbDesign.a.rawValue
+    @Environment(\.isLuminanceReduced) private var dimmed
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var onScreen = false
 
     var body: some View {
-        let rate = mode == .idle ? max(12, fps * 0.6) : fps
+        // At rest it moves slowly (a turn in fifty seconds): a few frames a second are enough.
+        let rate = mode == .idle ? max(10, fps * 0.4) : fps
         let chosen = design ?? OrbDesign(rawValue: storedDesign) ?? .a
-        TimelineView(.animation(minimumInterval: 1 / rate)) { ctx in
+        // Nobody looks: the screen dimmed (wrist down, always on), the app not active, or the orb
+        // covered by another page. It holds its last frame and costs nothing.
+        let still = dimmed || scenePhase != .active || !onScreen
+        TimelineView(.animation(minimumInterval: 1 / rate, paused: still)) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate
             let voiced = mode == .listening || mode == .speaking
             let doing = work?(t)
@@ -209,6 +216,8 @@ struct Orb: View {
             OrbCanvas(t: t, engine: engine, design: chosen, look: look, countdown: countdown?() ?? 0, work: work?(t) ?? .none)
                 .frame(width: fillsWidth(chosen) ? WKInterfaceDevice.current().screenBounds.width : size, height: size)
         }
+        .onAppear { onScreen = true }
+        .onDisappear { onScreen = false }
         .accessibilityLabel(label)
     }
 

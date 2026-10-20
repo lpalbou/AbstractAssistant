@@ -8,6 +8,9 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Added
 
+- **Send while it listens.** While the orb listens, a Send button sits where the tools icon is at
+  rest: what was said goes now (a noise that starts would keep the silence that sends from
+  coming). It works from the first moment, before the microphone has even opened.
 - **Four new orb styles.** Contour (a face raised in lines of light, after Wave) and Membrane (a
   face pressing through a fabric of light, after Well) in Faces; Aurora (the northern lights over a
   lake, gathering into a corona as it thinks) and Murmuration (a flock of starlings at dusk) in a
@@ -52,6 +55,8 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Changed
 
+- **Home's orb starts a new conversation** every time; an earlier conversation continues from
+  Sessions (the orb used to reopen the last one).
 - **The faces speak and listen.** The face's relief is more anatomical (the nose's bridge and wings,
   the philtrum, a cupid's bow, the cheekbones, the folds from nose to mouth, the jaw). Face's and
   Imprint's mouths open with the voice, the jaw dropping and the lips parting as words are spoken
@@ -110,6 +115,23 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Fixed
 
+- **A voice gone silent mid-answer** (a pause then a resume brought it back): the system can stop
+  the player underneath, with an audio interruption, with the app suspended while the wrist is
+  down, or when the keep-awake session ran out, and the reading stayed "speaking" over silence.
+  An interruption now pauses the reading and resumes it when the system allows; the app coming
+  back in front plays on from where the voice stopped; the keep-awake session is renewed while a
+  long answer is read; a recording's row leaving the screen no longer turns the voice's audio off.
+- **Battery through the night.** With the screen dimmed (wrist down) or the app in the background,
+  nothing runs: the orbs hold their last frame (they drew at full rate whatever the screen showed),
+  the poll in flight finishes and none follows (it went on every 15 s), the automations page reads
+  nothing. The background stream that follows a question's run for a notification starts only once
+  the app is left with the run still working (it started with every question, kept the radio busy
+  with a keep-alive every 5 s and stayed open up to two hours), one per run, with a keep-alive every
+  50 s, ended when the app sees the run end and given up after an hour. The 15-minute background
+  refresh reads the waits alone unless one is new. A conversation whose question cannot be read was
+  fetched again on every poll. Starting a new conversation, or dropping the voice player, let go of
+  the keep-awake session (it ran its full ten minutes). The build on the wrist is optimised; the
+  orbs do less work per frame (Contour, Membrane, Aurora, Murmuration) and run slower at rest.
 - The tools and keyboard icons on the orb page take a tap a little beside their circle: a tap that
   missed by a few points paused or resumed the voice instead.
 - Wave changes state without a jump: its motions keep their pace and only how much of each shows

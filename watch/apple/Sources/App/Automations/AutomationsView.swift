@@ -5,6 +5,7 @@ import WatchKit
 /// Your automations, like your conversations: a name, when it runs, how many new results.
 struct AutomationsView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.scenePhase) private var scenePhase
     @State private var archiving: AutomationSummary?
     @State private var problem: String?
 
@@ -65,6 +66,7 @@ struct AutomationsView: View {
             #endif
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(5))
+                guard scenePhase == .active else { continue }          // dimmed or away: nothing to show
                 for a in model.automations where a.currentOccurrence != nil {
                     if let fresh = try? await model.client.automation(id: a.id) { model.replaceAutomation(fresh) }
                 }

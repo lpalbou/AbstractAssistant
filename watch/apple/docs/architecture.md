@@ -72,7 +72,7 @@ sequenceDiagram
 | Component | Responsibility |
 |---|---|
 | `Sources/App` (SwiftUI) | Screens and navigation (one `NavigationStack`); see [design.md](design.md). |
-| `AppModel` (`@MainActor`) | The client, the state on screen (waits, sessions, automations, entities), each automation's definition and latest results once read (shared by its pages, updated by a save), the 15 s foreground poll (the automations list at most once a minute), haptics, tool and workflow choices, the tools Accept all allowed, the answers seen on this watch. |
+| `AppModel` (`@MainActor`) | The client, the state on screen (waits, sessions, automations, entities), each automation's definition and latest results once read (shared by its pages, updated by a save), the 15 s poll while the scene is active (the automations list at most once a minute; none while the screen is dimmed or the app is in the background), haptics, tool and workflow choices, the tools Accept all allowed, the answers seen on this watch. |
 | `Orb`, `OrbScenes`, `OrbConcepts`, `OrbCosmos`, `OrbNature`, `OrbAvatars`, `OrbLines`, `OrbRobots` | The orb (every style drawn from `OrbPhases`, the five phases' weights and the voice): a planet of points whose style answers the voice (Halo, Vortex, Nebula, Liquid, Galaxy), and scenes of their own: Rings, the five state shapes (Lotus, Crystal, Eclipse, Synapse, Drop), Face, Imprint, Contour, Membrane, Eye (one relief of the face, computed once on a grid for the line styles), the six robots, the Cosmos scenes (Well, Black hole, Accretion) and the Nature scenes (Ocean, Aurora, Murmuration); every motion at a fixed pace, the phases blending how much of each shows, so a change of state is always a smooth morph; all frame-rate independent and drawn in one `Canvas`, with the light of its work. |
 | `Listener` | Records 16 kHz mono WAV with metering; detects speech against the room's noise floor; sends after 3 s of silence. |
 | `Speaker` | Streams the gateway's voice in chunks and plays them back to back with metering (the orb follows the level); pause, resume, rewind 10 s. |
@@ -81,7 +81,7 @@ sequenceDiagram
 | `RunActivity` | Follows a question's run down to the run doing the work and reads its new step records (thinking, tool calls, media, waits) into the steps under the orb and the orb's pulses and satellites. |
 | `SVGDocument`, `SVGView` | SVG drawn on the watch (it has no web view): the client library reads a drawing into shapes and texts with their transforms, inherited styles, gradients, dashes and blur or drop-shadow filters (rect, circle, ellipse, line, polyline, polygon, every path command with arcs, text, groups); the app draws them in one `Canvas`, fitted with their aspect kept. Not drawn: embedded images, `use`, masks, clip paths, patterns, CSS stylesheets. Used by the file preview (`FilePreviewView`, a vertical pager over the conversation's files) and the media page. |
 | `MediaStore` | Downloads an answer's images, recordings and videos from the gateway's artifact route once, keeps them in the watch's caches (150 MB at most) and makes pictures small on the watch. |
-| `AnswerNotifier` | Hands a run's ledger stream to a background URLSession, posts answers and waits as notifications, background refresh for new waits. |
+| `AnswerNotifier` | Hands a run's ledger stream to a background URLSession once the app leaves the foreground (one per run, ended when the app sees the run end), posts answers and waits as notifications, background refresh for new waits. |
 | `RuntimeKeeper` | An extended runtime session while the app listens, works or speaks, so the voice continues with the wrist down. |
 | `AbstractGatewayClient` (SwiftPM) | Typed async client: models, endpoints, markdown and speech text, sign-in; reads (GET) that time out, lose their connection or meet a server error are tried 3 times before they fail, writes are sent once ([ADR-0039](https://github.com/lpalbou/AbstractFramework/blob/main/docs/adr/0039-loading-states-spinner-until-a-read-has-failed.md) of AbstractFramework); `MockGatewayClient` with the same protocol for previews and screenshots. Tested with `swift test`. |
 
@@ -120,17 +120,32 @@ sequenceDiagram
 
 ## Background and notifications
 
-- **On screen**: waits, sessions and automations every 15 s; a running Ask every second; a running
-  automation every 3 s and its steps every 2 s.
-- **Answers while away**: each Ask hands `GET /api/gateway/runs/{id}/ledger/stream` to a background
-  URLSession. watchOS keeps it open with the app suspended and wakes the app when the gateway
-  closes it; the app posts the answer as a notification. Run now does the same for an automation's
-  run. No notification is posted for an answer that is on screen.
+- **On screen** (the scene active, someone looking): waits, sessions and automations every 15 s;
+  a running Ask every second; a running automation every 3 s and its steps every 2 s. The screen
+  dimmed (wrist down, always on): the poll in flight finishes and none follows; the orbs hold
+  their last frame; the automations page reads nothing. In the background: nothing.
+- **Answers while away**: an Ask left working when the app leaves the foreground hands
+  `GET /api/gateway/runs/{id}/ledger/stream` (a keep-alive every 50 s) to a background URLSession,
+  once per run. watchOS keeps it open with the app suspended and wakes the app when the gateway
+  closes it; the app posts the answer as a notification. A running automation's page does the same
+  when the app is left. The stream is ended when the app itself sees the run end or park on a
+  person, and given up after an hour (15 minutes a connection, three reconnections). No
+  notification is posted for an answer that is on screen.
 - **New waits while closed**: a background refresh, about every 15 minutes at the system's
-  discretion, posts each new approval or question once. An ordinary tool approval offers Allow
+  discretion, reads the waits (one request; the tools' risk tiers only when there is a new one)
+  and posts each new approval or question once. An ordinary tool approval offers Allow
   (the watch must be unlocked) and Deny; a send or a destructive call opens the app.
 - **Keep awake**: `WKExtendedRuntimeSession` (`WKBackgroundModes: self-care`, up to 10 minutes)
-  from the tap that starts a turn until the voice ends.
+  from the tap that starts a turn until the voice ends, a new conversation is started, or the
+  player is dropped; never past the turn. A session about to expire while still held is renewed
+  while the app is in front; one that could not start (wrist down) is taken when the app comes
+  back in front.
+- **The voice plays on**: a reading that is speaking always has something playing. The system can
+  stop the player underneath (an audio interruption, the app suspended with the wrist down, the
+  keep-awake session gone), and the player's "finished" callback never comes for that: an
+  interruption pauses the reading and resumes it when the system allows; the app coming back in
+  front plays on from where the voice stopped. Only the voice playing turns the audio session off
+  when it ends (an idle player leaving the screen does not).
 - **No push**: the gateway has no push channel; see the backlog track.
 
 ## Security

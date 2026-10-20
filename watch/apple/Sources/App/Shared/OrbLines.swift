@@ -23,7 +23,7 @@ private func speakingRelief(_ x: Double, _ y: Double, _ mouth: MouthShape) -> Do
         let inside = exp(-pow(x / (0.17 * mouth.width), 2) - pow((y - my - gap * 0.6) / (gap + 0.004), 2))
         z -= 0.2 * inside
     }
-    z += 0.02 * mouth.pout * exp(-pow((y - my) / 0.08, 2) - pow(x / 0.16, 2))
+    if mouth.pout > 0.001 { z += 0.02 * mouth.pout * exp(-pow((y - my) / 0.08, 2) - pow(x / 0.16, 2)) }
     return z
 }
 
@@ -79,17 +79,21 @@ extension OrbCanvas {
         let lw = max(0.6, min(W, H) / 210)
         var occluder = gc
         occluder.blendMode = .normal
+        // One relief lookup per sample: the turn uses the sample before it, the light the slopes to
+        // the sample before it and to the line above.
+        let dxFace = W / Double(samples) / S, dyFace = (yBot - yTop) / Double(lines - 1)
+        var above = [Double](repeating: 0, count: samples + 1)
         for k in 0..<lines {
             let fy = yTop + (yBot - yTop) * Double(k) / Double(lines - 1)
             let fk = Double(k)
             var pts: [CGPoint] = [], lit: [Double] = []
             pts.reserveCapacity(samples + 1); lit.reserveCapacity(samples + 1)
+            var before = 0.0
             for i in 0...samples {
                 let X = W * Double(i) / Double(samples)
                 let fx = (X - faceX) / S
                 // The head turns: what stands out moves further.
-                let z0 = speakingRelief(fx, fy, mouth) ?? bodyRelief(fx, fy)
-                let fxTurned = fx - motion.turn * z0 * 0.5
+                let fxTurned = fx - motion.turn * before * 0.5
                 let z = speakingRelief(fxTurned, fy, mouth) ?? bodyRelief(fxTurned, fy)
                 let far = smoothstep(0.35, 1.1, abs(fx) / 1.6 + max(0, fy - 0.9))
                 let r = (fx * fx + fy * fy).squareRoot()
@@ -117,9 +121,9 @@ extension OrbCanvas {
                 }
                 pts.append(CGPoint(x: X, y: faceY + fy * S - z * lift - ripple * S))
                 // Its light: the relief's slope there toward the light (the features read by it).
-                let e = 0.012
-                let zx = ((speakingRelief(fxTurned + e, fy, mouth) ?? bodyRelief(fxTurned + e, fy)) - (speakingRelief(fxTurned - e, fy, mouth) ?? bodyRelief(fxTurned - e, fy))) / (2 * e)
-                let zy = ((speakingRelief(fxTurned, fy + e, mouth) ?? bodyRelief(fxTurned, fy + e)) - (speakingRelief(fxTurned, fy - e, mouth) ?? bodyRelief(fxTurned, fy - e))) / (2 * e)
+                let zx = i == 0 ? 0 : (z - before) / dxFace
+                let zy = k == 0 ? 0 : (z - above[i]) / dyFace
+                before = z; above[i] = z
                 let nn = 1 / (zx * zx + zy * zy + 1).squareRoot()
                 let l = max(0, (-zx * L.x - zy * L.y + L.z) * nn)
                 lit.append(z > 0.02 ? 0.25 + 0.95 * pow(l, 2.2) : 0.75)
@@ -137,11 +141,10 @@ extension OrbCanvas {
             }
             let scan = ph.work * exp(-pow((fy - scanY) / 0.06, 2))
             let edge = 0.55 + 0.45 * (1 - smoothstep(0.9, 1.25, abs(fy + 0.05)))
-            gc.drawLayer { layer in
-                layer.addFilter(.blur(radius: lw * 2.5))
-                layer.opacity = 0.45 * edge + 0.6 * scan
-                layer.stroke(parts[2], with: shading, lineWidth: lw * 2.2)
-            }
+            // The brightest part a little wider and softer (no blurred layer per line: it cost a
+            // whole offscreen pass each).
+            gc.opacity = min(1, 0.3 * edge + 0.4 * scan)
+            gc.stroke(parts[2], with: shading, lineWidth: lw * 2.6)
             for (lv, a) in [(0, 0.32), (1, 0.7), (2, 1.0)] {
                 gc.opacity = min(1, a * edge + 0.5 * scan)
                 gc.stroke(parts[lv], with: shading, lineWidth: lw * (lv == 2 ? 1.2 : 1))
@@ -175,8 +178,9 @@ extension OrbCanvas {
         func height(_ fx: Double, _ fy: Double) -> Double {
             let x = fx - motion.dx, y = fy - motion.dy - 0.18
             let z0 = speakingRelief(x, y, mouth) ?? 0
-            let xt = x - motion.turn * z0 * 0.5
-            let zf = speakingRelief(xt, y, mouth) ?? bodyRelief(xt, y) * 0.8
+            let shiftX = motion.turn * z0 * 0.5
+            let zf = abs(shiftX) < 0.002 ? (z0 > 0 ? z0 : bodyRelief(x, y) * 0.8)
+                : (speakingRelief(x - shiftX, y, mouth) ?? bodyRelief(x - shiftX, y) * 0.8)
             // The fabric drapes over what pushes through it (a soft maximum with its plane).
             let k = 0.05, d = (zf * press - plane) / k
             var h = k * (d > 20 ? d : log(1 + exp(d)))
@@ -210,9 +214,10 @@ extension OrbCanvas {
             let f = 3.2 / (3.2 - z)
             return CGPoint(x: cx + x * f * S, y: cy + fy * f * S)
         }
-        // The fabric once per frame on one grid (its lines are every third row and column), lit from
+        // The fabric once per frame on one grid (its lines are every other row and column), lit from
         // the upper left in front: each segment in one of five brightness levels.
-        let n = 121, every = 2
+        // As fine as the size drawn needs (a thumbnail: a coarse grid).
+        let n = max(41, min(121, Int(min(W, H) * 0.5) | 1)), every = 2
         var hs = [Double](repeating: 0, count: n * n)
         for j in 0..<n {
             let fy = (-span + 2 * span * Double(j) / Double(n - 1)) * 0.95

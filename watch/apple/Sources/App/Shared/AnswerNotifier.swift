@@ -11,11 +11,14 @@ struct AnswerRef: Hashable, Codable {
     var prompt: String?
 }
 
-/// The assistant reaching you while you are not looking. When an Ask is sent, the run's ledger
-/// stream (`GET /runs/{id}/ledger/stream`, which the gateway closes when the run ends) is handed to
-/// a background URLSession: watchOS keeps it open with the app suspended and wakes the app when it
-/// closes. The app reads the answer and posts it as a notification, which you open (the orb speaks
-/// it) or ignore like any other message. Nothing is posted for an answer you are already watching.
+/// The assistant reaching you while you are not looking. When the app leaves the foreground with a
+/// run still working, the run's ledger stream (`GET /runs/{id}/ledger/stream`, which the gateway
+/// closes when the run ends) is handed to a background URLSession: watchOS keeps it open with the
+/// app suspended and wakes the app when it closes. The app reads the answer and posts it as a
+/// notification, which you open (the orb speaks it) or ignore like any other message. Nothing is
+/// posted for an answer you are already watching. The stream is the radio's cost while the app
+/// sleeps (a keep-alive every 50 s): it is started only once the app is not in front, once per run,
+/// ended when the app sees the run end, and given up after an hour.
 final class AnswerNotifier: NSObject, @unchecked Sendable {
     static let shared = AnswerNotifier()
     static let sessionIdentifier = "ai.abstractframework.assistant.answers"
@@ -41,8 +44,8 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
         let cfg = URLSessionConfiguration.background(withIdentifier: Self.sessionIdentifier)
         cfg.isDiscretionary = false
         cfg.sessionSendsLaunchEvents = true
-        cfg.timeoutIntervalForRequest = 15 * 60
-        cfg.timeoutIntervalForResource = 30 * 60
+        cfg.timeoutIntervalForRequest = 5 * 60              // three missed keep-alives
+        cfg.timeoutIntervalForResource = 15 * 60
         return URLSession(configuration: cfg, delegate: self, delegateQueue: nil)
     }()
 
@@ -73,16 +76,36 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
     /// The answer on screen right now (nil when none): no notification for it while the app is active.
     func setShowing(_ key: String?) { lock.withLock { showing = key } }
 
-    /// Follows a run in the background until it ends.
+    /// Follows a run in the background until it ends (one stream per run: a second call for the
+    /// same run changes nothing).
     func watch(runId: String, title: String, prompt: String, attempt: Int = 0) {
         guard let saved = SavedSignIn.load() else { return }
-        var req = URLRequest(url: saved.gateway.appending(path: "api/gateway/runs/\(runId)/ledger/stream"))
+        var url = saved.gateway.appending(path: "api/gateway/runs/\(runId)/ledger/stream")
+        url.append(queryItems: [URLQueryItem(name: "heartbeat_s", value: "50")])
+        var req = URLRequest(url: url)
         saved.credential.apply(to: &req, write: false)
         req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        let task = session.downloadTask(with: req)
-        task.taskDescription = (try? String(decoding: JSONEncoder().encode(Watched(runId: runId, title: title, prompt: prompt, attempt: attempt)), as: UTF8.self))
-        task.resume()
-        trace("watching run \(runId.prefix(8)) in the background")
+        let desc = (try? String(decoding: JSONEncoder().encode(Watched(runId: runId, title: title, prompt: prompt, attempt: attempt)), as: UTF8.self))
+        session.getAllTasks { tasks in
+            if attempt == 0, tasks.contains(where: { Self.runId(of: $0) == runId && $0.state == .running }) {
+                self.trace("already watching run \(runId.prefix(8))"); return
+            }
+            let task = self.session.downloadTask(with: req)
+            task.taskDescription = desc
+            task.resume()
+            self.trace("watching run \(runId.prefix(8)) in the background (attempt \(attempt))")
+        }
+    }
+
+    /// The app saw the run end (or park on a person): its stream has nothing left to tell.
+    func unwatch(runId: String) {
+        session.getAllTasks { tasks in
+            for t in tasks where Self.runId(of: t) == runId { t.cancel() }
+        }
+    }
+
+    private static func runId(of task: URLSessionTask) -> String? {
+        task.taskDescription.flatMap { try? JSONDecoder().decode(Watched.self, from: Data($0.utf8)) }?.runId
     }
 
     private func trace(_ s: String) {
@@ -133,10 +156,14 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
         guard let saved = SavedSignIn.load() else { return }
         let client = LiveGatewayClient(baseURL: saved.gateway, credential: saved.credential)
         guard let waits = try? await client.waits() else { return }
-        let tools = (try? await client.tools()) ?? []
-        let tiers = Dictionary(tools.map { ($0.name, $0.riskTier ?? "") }, uniquingKeysWith: { a, _ in a })
         var seen = Set(UserDefaults.standard.stringArray(forKey: "notify.waits") ?? [])
-        for w in waits where !seen.contains(w.id) {
+        let unseen = waits.filter { !seen.contains($0.id) }
+        guard !unseen.isEmpty else { return }                     // nothing new: no more requests
+        // The tools' risk tiers (which approvals may be allowed from the notification): read only
+        // when there is something to post.
+        let tools = unseen.contains { $0.kind != .askUser } ? ((try? await client.tools()) ?? []) : []
+        let tiers = Dictionary(tools.map { ($0.name, $0.riskTier ?? "") }, uniquingKeysWith: { a, _ in a })
+        for w in unseen {
             seen.insert(w.id)
             let content = UNMutableNotificationContent()
             content.sound = .default
