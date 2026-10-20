@@ -57,10 +57,26 @@ final class BrowserNavigationUITests: XCTestCase {
         XCTAssertTrue(onSessions, "back from the orb is not Sessions")
         forward()
         XCTAssertTrue(app.buttons["voice.button"].waitForExistence(timeout: 10), "forward from Sessions is not the orb again")
+        // A message opened from the orb page opens with a tap only: back from it, then forward opens
+        // the conversation, not the message again.
+        let message = app.buttons.matching(identifier: "message.row").firstMatch
+        for _ in 0..<8 where !(message.exists && message.isHittable) { app.swipeUp(); usleep(300_000) }
+        message.tap()
+        XCTAssertTrue(app.buttons["Back"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["voice.button"].exists, "the message did not open")
+        app.buttons["Back"].firstMatch.tap(); sleep(2)
+        XCTAssertTrue(onOrb, "Back from the message is not the orb")
+        forward()
+        XCTAssertTrue(app.descendants(matching: .any)["conversation.stats"].waitForExistence(timeout: 5),
+                      "forward after a message reopened the message instead of the conversation")
+        back()
+        XCTAssertTrue(onOrb, "back from the conversation is not the orb")
         // Nothing ahead, a message on the orb: forward opens the conversation; back; forward.
         forward()
         XCTAssertTrue(app.descendants(matching: .any)["conversation.stats"].waitForExistence(timeout: 5), "forward from the orb did not open the conversation")
         shot("b1-conversation")
+        // The file its assistant wrote into the conversation's folder is listed, with its share button.
+        XCTAssertTrue(app.buttons["Share cv-by-plate.svg"].waitForExistence(timeout: 10), "the folder's file is not listed")
         back()
         XCTAssertTrue(onOrb, "back from the conversation is not the orb")
         forward()
@@ -83,5 +99,28 @@ final class BrowserNavigationUITests: XCTestCase {
         if !title.waitForExistence(timeout: 5) { shot("b-fail-fwd2") }
         XCTAssertTrue(title.waitForExistence(timeout: 10), "two forwards did not come back to the automation:\n\(app.debugDescription)")
         shot("b2-automation")
+    }
+
+    /// A conversation reopened from Sessions swipes forward to its stats page, every time, whatever
+    /// was opened before.
+    func testAReopenedConversationSwipesToItsStats() throws {
+        app = XCUIApplication()
+        app.launchArguments = ["--mock", "--no-notification-prompt"]
+        app.launch()
+        XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 15))
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Sessions'")).firstMatch.tap()
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "QC")).firstMatch
+        for round in 1...2 {
+            XCTAssertTrue(app.buttons["New conversation"].waitForExistence(timeout: 10) || onSessions)
+            for _ in 0..<6 where !(row.exists && row.isHittable) { app.swipeUp(); usleep(300_000) }
+            row.tap()
+            XCTAssertTrue(app.buttons["voice.button"].waitForExistence(timeout: 20), "round \(round): the orb did not open")
+            sleep(2)
+            forward()
+            XCTAssertTrue(app.descendants(matching: .any)["conversation.stats"].waitForExistence(timeout: 5),
+                          "round \(round): forward from the reopened orb is not its stats")
+            back(); back()
+            XCTAssertTrue(onSessions, "round \(round): two backs from the stats are not Sessions")
+        }
     }
 }

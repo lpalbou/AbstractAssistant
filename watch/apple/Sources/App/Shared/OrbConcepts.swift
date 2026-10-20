@@ -528,7 +528,6 @@ extension OrbCanvas {
         let ribbons = 5, samples = 72
         let w = ph.work * ph.work * (3 - 2 * ph.work)
         let voiced = ph.listen + ph.speak
-        let direction = ph.speak - ph.listen                      // out from the centre / in from the edges
         let colors: [Color] = look.color.map { c in [c.opacity(0.7), c, c.opacity(0.85), .white.opacity(0.8), c.opacity(0.7)] }
             ?? [Color(hex: 0x38bdf8), Color(hex: 0x6366f1), Color(hex: 0xa855f7), Color(hex: 0xf472b6), Color(hex: 0xfb923c), Color(hex: 0x4ade80)]
         let shading = GraphicsContext.Shading.linearGradient(Gradient(colors: colors), startPoint: CGPoint(x: cx - span, y: cy),
@@ -543,16 +542,23 @@ extension OrbCanvas {
             let thinking = ph.think * (0.32 + 0.08 * sin(t * 0.5 + fk * 1.7))
             let a = rest * (1 - voiced - ph.think) + voice + thinking
             let freq = 1.3 + 0.55 * fk
-            let speed = (0.6 + 0.25 * fk) * (1 + 2.2 * voiced) * (ph.think > 0.5 ? 0.5 : 1)
-            let offset = fk * 1.3 + ph.think * t * 0.4 * (k % 2 == 0 ? 1 : -1)
+            // Each motion at a fixed pace, the phases blending how much of each shows (a pace
+            // that changed with the phase would jump: it multiplies the clock): calm, thinking
+            // (slower, the ribbons turning against each other), and the voice travelling out from
+            // the centre as it speaks, in toward it as you speak.
+            let pace = 0.6 + 0.25 * fk, offset = fk * 1.3
+            let counter = 0.4 * t * (k % 2 == 0 ? 1 : -1)
+            let calmW = max(0, 1 - voiced - ph.think)
             var outer: [CGPoint] = [], inner: [CGPoint] = []
             for i in 0...samples {
                 let u = Double(i) / Double(samples), x = 2 * u - 1
                 // A shape that peaks in the middle and fades at the ends.
                 let env = pow(1 - x * x, 2) * (0.35 + 0.65 * exp(-x * x / 0.22))
-                let travel = direction >= 0 ? abs(x) : -abs(x)
-                let phase = freq * .pi * (voiced > 0.05 ? travel : x) - speed * t + offset
-                let y = a * env * sin(phase)
+                let calm = sin(freq * .pi * x - pace * t + offset)
+                let thought = sin(freq * .pi * x - 0.5 * pace * t + offset + counter)
+                let out = sin(freq * .pi * abs(x) - 3.2 * pace * t + offset)
+                let into = sin(-freq * .pi * abs(x) - 3.2 * pace * t + offset)
+                let y = a * env * (calmW * calm + ph.think * thought + ph.speak * out + ph.listen * into)
                 // The wave, and its swirl (each ribbon an arm of a turning spiral).
                 let wx = cx + x * span, wy = cy - y * amp, wyIn = cy - y * amp * 0.12
                 let sa = 2 * .pi * (1.5 * u) + t * 1.6 + fk * 2 * .pi / Double(ribbons)

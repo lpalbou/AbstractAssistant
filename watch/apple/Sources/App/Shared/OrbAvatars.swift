@@ -1,8 +1,8 @@
 import SwiftUI
 
-// Three avatars made from the Face, each another way of showing what is happening:
-// Imprint (a face seen only where it touches a pane of glass), Hologram (the head as scan lines of
-// light) and Eye (one large, friendly eye).
+// Two avatars made from the Face, each another way of showing what is happening: Imprint (a face
+// seen only where it touches a pane of glass) and Eye (one large, friendly eye). Contour and
+// Membrane, the face in lines of light, are in OrbLines.swift.
 
 extension OrbCanvas {
     // MARK: Imprint
@@ -19,10 +19,12 @@ extension OrbCanvas {
         let th = ph.think, talk = engine.talking, e = engine.engagement, listen = ph.listen
         let mouth = MouthShape(engine: engine, smileBase: 1 + 0.2 * listen)
         let yaw = 0.12 * sin(t * 0.27) - 0.62 * listen + 0.1 * th
-        let pitch = 0.04 * sin(t * 0.19) - 0.05 * th
+        // Its own voice: a nod with its phrasing; yours: it nods along with you.
+        let level = engine.history.value(secondsAgo: 0.05)
+        let pitch = 0.04 * sin(t * 0.19) - 0.05 * th + 0.05 * listen * level * sin(t * 4.3) + 0.04 * mouth.open * sin(t * 6.1)
         let roll = 0.03 * sin(t * 0.23) + 0.05 * listen
         let pose = HeadPose(yaw: yaw, pitch: pitch, roll: roll, pivotY: 0, lift: 0)
-        let press = 0.03 * talk * e * min(1, 1.6 * engine.loud) + 0.012 * listen + 0.005 * sin(t * 0.9) - 0.05 * th
+        let press = 0.03 * talk * e * min(1, 1.6 * engine.loud) + (0.012 + 0.025 * level) * listen + 0.005 * sin(t * 0.9) - 0.05 * th
         // Thinking: the pane drifts slowly through its depth; working: it flickers through it quickly.
         let plane = ImprintGeometry.plane + 0.05 * th * sin(t * 1.3) + ph.work * (0.035 * sin(t * 5.3) - 0.02)
         let band = ImprintGeometry.band
@@ -36,9 +38,9 @@ extension OrbCanvas {
                 x *= 1 - (1 - mouth.width) * near
                 y += mouth.jaw(x, y) * 1.2
                 if mouth.open > 0.05 {
-                    let gap = 0.07 * mouth.open
+                    let gap = 0.12 * mouth.open
                     let inside = exp(-pow(x / (0.17 * mouth.width), 2) - pow((y - my - gap * 0.6) / (gap + 0.004), 2))
-                    z -= 0.12 * inside
+                    z -= 0.2 * inside
                 }
                 z += 0.02 * mouth.pout * near
             }
@@ -65,83 +67,6 @@ extension OrbCanvas {
             let x = 2 * OrbPoints.hash(k, 41) - 1, y = 2 * OrbPoints.hash(k, 43) - 1
             let sweep = exp(-pow((x + y) * 0.7 - (t * 0.25).truncatingRemainder(dividingBy: 3) + 1.5, 2) * 6)
             d.dot(x * 1.9, y * 1.9, 0.06 + 0.25 * sweep, OrbPoints.hash(k, 14))
-        }
-        finish(&gc, d)
-    }
-
-    // MARK: Hologram
-
-    /// A hologram of the head: the face's head (its relief: brows, nose, lips, chin) drawn as glowing
-    /// horizontal scan lines that wrap around it, the far side faint, turning slowly so its depth
-    /// reads, with its eyes and lips drawn over the lines. As it speaks, light pulses along the lines
-    /// out from its mouth and its lips move with the words; while you speak it turns toward you and
-    /// the lines ripple with your voice; thinking, a bright scan band sweeps down the head.
-    func drawHologram(_ gc: inout GraphicsContext, _ box: CGSize) {
-        var d = dotCanvas(box)
-        let ph = OrbPhases(engine)
-        let th = ph.think, talk = engine.talking, e = engine.engagement, hist = engine.history, listen = ph.listen
-        let busy = ph.work
-        let mouth = MouthShape(engine: engine, smileBase: 1 + 0.3 * listen - 0.2 * th)
-        let yaw = 0.38 * sin(t * 0.2) * (1 - 0.7 * listen) + 0.15 * th * sin(t * 0.9)
-        let pitch = 0.04 * sin(t * 0.27) - 0.05 * th + 0.03 * mouth.open * sin(t * 6.1)
-        let pose = HeadPose(yaw: yaw, pitch: pitch, roll: 0.03 * sin(t * 0.17), pivotY: FaceGeometry.neckY, lift: 0.01 * sin(t * 1.25))
-        let scanY = -1.1 + 2.0 * (t * 0.45).truncatingRemainder(dividingBy: 1)
-        let my = FaceGeometry.mouthY
-        let scale = 1.3, shift = -0.02
-        let level = hist.value(secondsAgo: 0.05)
-        for p in HologramGeometry.points(count: min(4200, pointBudget(box) * 2)) {
-            var x = p.x, y = p.y, z = p.z
-            if p.front && abs(y - my) < 0.3 {
-                y += mouth.jaw(x, y) * 1.1
-                if mouth.open > 0.05 {
-                    let gap = 0.07 * mouth.open
-                    z -= 0.25 * exp(-pow(x / (0.17 * mouth.width), 2) - pow((y - my - gap * 0.6) / (gap + 0.004), 2))
-                }
-            }
-            if listen > 0.01 { x += listen * (0.006 + 0.03 * level) * sin(16 * p.y - 7 * t) }
-            let r: (x: Double, y: Double, z: Double) = p.head ? pose.apply(x, y, z) : (x: x, y: y + 0.01 * sin(t * 1.25), z: z)
-            let facing: Double = r.z > 0 ? 0.42 + 0.5 * smoothstep(0, FaceGeometry.depth, r.z) : 0.12
-            var bright: Double = p.lum * facing
-            let words: Double = hist.value(secondsAgo: abs(p.y - my) * 0.55)
-            bright += talk * e * 0.85 * words * (r.z > 0 ? 1 : 0.3)
-            let scan: Double = exp(-pow((p.y - scanY) / 0.05, 2))
-            bright += th * 1.1 * scan
-            if busy > 0.01 {
-                // Working: three fast bands and a flicker along each line, as data runs through it.
-                var bands = 0.0
-                for k in 0..<3 {
-                    let by = -1.0 + 1.9 * ((t * 1.3 + Double(k) / 3).truncatingRemainder(dividingBy: 1))
-                    bands += exp(-pow((p.y - by) / 0.035, 2))
-                }
-                let flicker = OrbPoints.hash(Int(p.y * 200) * 31 + Int(t * 12), 3) < 0.25 ? 0.35 : 0
-                bright += busy * (0.7 * bands + flicker)
-            }
-            bright += 0.1 * engine.signal
-            let sx = r.x * scale, sy = r.y * scale + shift
-            let rr = (sx * sx + sy * sy).squareRoot()
-            if rr > 1.98 { continue }
-            place(&d, sx, sy, bright * (1 - smoothstep(1.6, 1.98, rr)), p.dither, phase: p.phase, lum: p.lum)
-        }
-        // The eyes and the lips over the lines (they make it a face, and a friendly one).
-        let blink = FaceGeometry.blink(t)
-        for p in FaceGeometry.points(count: pointBudget(box)) where p.kind.isFeature && p.kind != .cheek && p.kind != .nose {
-            var x = p.x, y = p.y, z = p.z, lum = p.lum
-            switch p.kind {
-            case .lidUpper, .lidLower: y = FaceGeometry.eyeY + (y - FaceGeometry.eyeY) * blink
-            case .iris, .glint:
-                if blink < 0.4 { continue }
-                x += 0.03 * th; y = FaceGeometry.eyeY + (y - FaceGeometry.eyeY - 0.025 * th) * blink
-            case .brow: y -= 0.03 * listen + 0.02 * th
-            case .lipUpper, .lipLower, .teeth:
-                guard let m = mouth.place(p) else { continue }
-                x = m.x; y = m.y; lum = m.lum
-                z = (ImprintGeometry.relief(x, y) ?? 0.5) + 0.02
-            default:
-                z = (ImprintGeometry.relief(x, y) ?? p.z) + 0.02
-            }
-            let r = pose.apply(x, y, z)
-            guard r.z > 0.15 else { continue }
-            place(&d, r.x * scale, r.y * scale + shift, lum * 0.95, p.dither, phase: p.phase, lum: lum)
         }
         finish(&gc, d)
     }
@@ -250,25 +175,76 @@ enum ImprintGeometry {
 
     static func relief(_ x: Double, _ y: Double) -> Double? {
         let sy = (y - FaceGeometry.headY) / FaceGeometry.halfHeight
-        let w = FaceGeometry.halfWidth * (sy > 0 ? 1 - 0.2 * sy : 1)
+        // The outline: the cranium round, the jaw tapering to the chin.
+        let w = FaceGeometry.halfWidth * (sy > 0 ? 1 - 0.3 * pow(sy, 1.25) : 1 - 0.04 * sy * sy)
         guard 1 - pow(x / w, 2) - sy * sy > 0 else { return nil }
+        let ax = abs(x), my = FaceGeometry.mouthY, ex = FaceGeometry.eyeX, ey = FaceGeometry.eyeY
+        func g(_ dx: Double, _ sx: Double, _ dy: Double, _ syy: Double) -> Double { exp(-pow(dx / sx, 2) - pow(dy / syy, 2)) }
         // A face is nearly flat from forehead to chin and curves back at the sides.
-        let ax = abs(x)
-        var z = FaceGeometry.depth * pow(max(0, 1 - pow(x / w, 2)), 0.3) * (1 - 0.25 * pow((y + 0.1) / FaceGeometry.halfHeight, 2))
-        z += 0.15 * exp(-pow(x / 0.075, 2)) * smoothstep(-0.26, 0.08, y) * (1 - smoothstep(0.08, 0.15, y))   // nose
-        z += 0.06 * exp(-pow((ax - 0.065) / 0.04, 2) - pow((y - 0.12) / 0.04, 2))                           // nostrils
-        z += 0.04 * exp(-pow((y + 0.37) / 0.06, 2)) * exp(-pow((ax - 0.22) / 0.2, 2))                        // brow ridge
-        z -= 0.07 * exp(-pow((ax - FaceGeometry.eyeX) / 0.11, 2) - pow((y - FaceGeometry.eyeY) / 0.07, 2))  // soft sockets
-        z += 0.05 * exp(-pow((ax - FaceGeometry.eyeX) / 0.055, 2) - pow((y - FaceGeometry.eyeY) / 0.035, 2)) // eyes
-        let smileY = FaceGeometry.mouthY - 0.035 * pow(x / 0.17, 2)                                    // the mouth line smiles
-        z -= 0.05 * exp(-pow(x / 0.19, 2) - pow((y - smileY) / 0.016, 2))                              // between the lips
-        z -= 0.08 * exp(-pow((ax - 0.05) / 0.02, 2) - pow((y - 0.135) / 0.015, 2))                          // nostrils
-        z += 0.08 * exp(-pow((ax - 0.3) / 0.13, 2) - pow((y - 0.12) / 0.11, 2))                              // full cheeks (a smile lifts them)
-        z += 0.07 * exp(-pow(x / 0.17, 2) - pow((y - 0.29) / 0.03, 2))                                     // upper lip
-        z += 0.075 * exp(-pow(x / 0.15, 2) - pow((y - 0.37) / 0.035, 2))                                   // lower lip
-        z += 0.08 * exp(-pow(x / 0.15, 2) - pow((y - 0.56) / 0.08, 2))                                     // chin
+        var z = FaceGeometry.depth * pow(max(0, 1 - pow(x / w, 2)), 0.32) * (1 - 0.22 * pow((y + 0.1) / FaceGeometry.halfHeight, 2))
+        // The forehead's dome, the temples' hollows, the brow ridge and the soft rise between the brows.
+        z += 0.02 * g(x, 0.35, y + 0.62, 0.2)
+        z -= 0.04 * g(ax - 0.47, 0.08, y + 0.36, 0.15)
+        z += 0.034 * g(ax - 0.2, 0.17, y + 0.335, 0.045)
+        z += 0.016 * g(x, 0.06, y + 0.3, 0.05)
+        // The eyes: sockets deepest at the inner corners, the eyeball under its lids, the lid's crease.
+        z -= 0.08 * g(ax - ex, 0.12, y - ey, 0.075)
+        z -= 0.03 * g(ax - 0.13, 0.04, y - ey - 0.01, 0.04)
+        z += 0.06 * g(ax - ex, 0.07, y - ey, 0.042)
+        let crease = ey - 0.048 - 0.012 * max(0, 1 - pow((ax - ex) / 0.09, 2))
+        z -= 0.012 * exp(-pow((y - crease) / 0.008, 2)) * max(0, 1 - pow((ax - ex) / 0.1, 2))
+        // The nose: a narrow bridge widening to a rounded tip, its wings, the nostrils under it.
+        let bridgeW = 0.032 + 0.034 * smoothstep(-0.2, 0.08, y)
+        z += 0.13 * smoothstep(-0.27, 0.05, y) * (1 - smoothstep(0.07, 0.13, y)) * exp(-pow(x / bridgeW, 2))
+        z += 0.045 * g(x, 0.05, y - 0.07, 0.04)
+        z += 0.05 * g(ax - 0.07, 0.034, y - 0.1, 0.034)
+        z -= 0.055 * g(ax - 0.04, 0.018, y - 0.135, 0.012)
+        // The philtrum: a groove between two soft ridges down to the upper lip.
+        z -= 0.012 * g(x, 0.015, y - 0.22, 0.05)
+        z += 0.008 * g(ax - 0.024, 0.01, y - 0.22, 0.05)
+        // The lips: the mouth's line smiling a little, a cupid's bow on the upper lip, a fuller
+        // lower lip, the corners tucked in, the groove under the lower lip.
+        let smileY = my - 0.035 * pow(x / 0.17, 2)
+        let bow = exp(-pow((ax - 0.032) / 0.02, 2))
+        z += 0.055 * g(x, 0.16, y - (my - 0.034 - 0.008 * bow), 0.024)
+        z += 0.072 * g(x, 0.14, y - (my + 0.042), 0.03)
+        z -= 0.048 * g(x, 0.18, y - smileY, 0.012)
+        z -= 0.02 * g(ax - 0.18, 0.025, y - my, 0.03)
+        z -= 0.025 * g(x, 0.12, y - (my + 0.105), 0.025)
+        // The chin, the cheekbones high at the sides, full cheeks under them, a hollow toward the jaw.
+        z += 0.07 * g(x, 0.13, y - 0.5, 0.07)
+        z += 0.06 * g(ax - 0.36, 0.1, y + 0.04, 0.07)
+        z += 0.05 * g(ax - 0.28, 0.12, y - 0.12, 0.1)
+        z -= 0.025 * g(ax - 0.41, 0.07, y - 0.21, 0.1)
+        // The folds from the nose's wings to the mouth's corners.
+        let fx = 0.09 + (0.2 - 0.09) * min(1, max(0, (y - 0.12) / 0.21)), fy = min(max(y, 0.12), 0.33)
+        if y > 0.08 && y < 0.37 { z -= 0.016 * exp(-pow((ax - fx) / 0.012, 2)) * exp(-pow((y - fy) / 0.2, 2)) }
         return z
     }
+
+    /// The relief, computed once on a fine grid over the head and read back by interpolation (the
+    /// line styles read it thousands of times a frame); nil outside the head.
+    struct Grid: Sendable {
+        static let x0 = -0.72, y0 = -1.0, step = 0.01, nx = 145, ny = 165
+        let z: [Double]                                      // -1: outside the head
+        func at(_ x: Double, _ y: Double) -> Double? {
+            let fx = (x - Grid.x0) / Grid.step, fy = (y - Grid.y0) / Grid.step
+            guard fx >= 0, fy >= 0, fx < Double(Grid.nx - 1), fy < Double(Grid.ny - 1) else { return nil }
+            let i = Int(fx), j = Int(fy), u = fx - Double(i), v = fy - Double(j)
+            let a = z[j * Grid.nx + i], b = z[j * Grid.nx + i + 1], c = z[(j + 1) * Grid.nx + i], d = z[(j + 1) * Grid.nx + i + 1]
+            guard a >= 0, b >= 0, c >= 0, d >= 0 else { return nil }
+            return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v
+        }
+    }
+    static let grid: Grid = {
+        var z = [Double](repeating: -1, count: Grid.nx * Grid.ny)
+        for j in 0..<Grid.ny {
+            for i in 0..<Grid.nx {
+                if let v = relief(Grid.x0 + Double(i) * Grid.step, Grid.y0 + Double(j) * Grid.step) { z[j * Grid.nx + i] = v }
+            }
+        }
+        return Grid(z: z)
+    }()
 
     @MainActor private static var cache: [Int: [P]] = [:]
 
@@ -296,80 +272,6 @@ enum ImprintGeometry {
                 x += step
             }
             y += step * 3.0.squareRoot() / 2; row += 1
-        }
-        cache[n] = out
-        return out
-    }
-}
-
-// MARK: - Hologram's points
-
-/// The head as horizontal scan lines: each line wraps around the head at its height, its front
-/// following the face's relief (`ImprintGeometry.relief`), its back the egg of the head; then the
-/// neck and the shoulders' lines. Points evenly spaced along each line.
-enum HologramGeometry {
-    struct P { let x: Double; let y: Double; let z: Double; let front: Bool; let head: Bool; let lum: Double; let dither: Double; let phase: Double }
-
-    @MainActor private static var cache: [Int: [P]] = [:]
-
-    @MainActor static func points(count n: Int) -> [P] {
-        if let c = cache[n] { return c }
-        var lines: [[(Double, Double, Double, Bool, Bool)]] = []
-        let headLines = 30
-        for j in 0..<headLines {
-            let y = -0.97 + 1.58 * Double(j) / Double(headLines - 1)
-            let sy = (y - FaceGeometry.headY) / FaceGeometry.halfHeight
-            let w = FaceGeometry.halfWidth * (sy > 0 ? 1 - 0.2 * sy : 1) * max(0, 1 - sy * sy).squareRoot()
-            guard w > 0.03 else { continue }
-            var line: [(Double, Double, Double, Bool, Bool)] = []
-            for i in 0...80 {                                       // the front, through the relief
-                let x = -w + 2 * w * Double(i) / 80
-                line.append((x, y, ImprintGeometry.relief(x, y) ?? 0, true, true))
-            }
-            for i in 1..<60 {                                       // the back: half an ellipse
-                let a = Double.pi * Double(i) / 60
-                line.append((w * cos(a), y, -FaceGeometry.depth * 0.95 * sin(a) * max(0, 1 - sy * sy).squareRoot(), false, true))
-            }
-            lines.append(line)
-        }
-        for j in 0..<5 {                                            // the neck
-            let y = 0.66 + 0.06 * Double(j)
-            lines.append((0..<60).map { i in
-                let a = 2 * Double.pi * Double(i) / 60
-                return (0.2 * cos(a), y, 0.18 * sin(a), sin(a) > 0, false)
-            })
-        }
-        for j in 0..<4 {                                            // the shoulders
-            let y0 = 0.95 + 0.14 * Double(j)
-            lines.append((0...90).map { i in
-                let x = -1.5 + 3 * Double(i) / 90
-                let top = 0.32 * pow(max(0, abs(x) - 0.22) / 1.33, 1.5)
-                return (x, y0 + top, 0.25 * max(0, 1 - pow(x / 1.5, 2)), true, false)
-            })
-        }
-        // Evenly spaced points along each line, as many as the budget allows.
-        var length = 0.0
-        for line in lines { for i in 1..<line.count { length += hypot(line[i].0 - line[i - 1].0, line[i].2 - line[i - 1].2) } }
-        let step = length / Double(n)
-        var out: [P] = []
-        out.reserveCapacity(n)
-        var k = 0
-        for line in lines {
-            var carry = 0.0
-            for i in 1..<line.count {
-                let a = line[i - 1], b = line[i]
-                let seg = hypot(b.0 - a.0, b.2 - a.2)
-                var s = carry
-                while s < seg {
-                    let f = s / seg
-                    k += 1
-                    out.append(P(x: a.0 + (b.0 - a.0) * f, y: a.1, z: a.2 + (b.2 - a.2) * f, front: a.3, head: a.4,
-                                 lum: (a.4 ? 0.9 : 0.6) + 0.2 * OrbPoints.hash(k, 3), dither: OrbPoints.hash(k, 14),
-                                 phase: 2 * .pi * OrbPoints.hash(k, 12)))
-                    s += step
-                }
-                carry = s - seg
-            }
         }
         cache[n] = out
         return out

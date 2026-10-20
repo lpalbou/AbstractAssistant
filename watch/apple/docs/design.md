@@ -25,16 +25,19 @@ Orb styles: `../design/anim/orb-designs/`.
 7. **Swipes as in a browser.** A swipe to the right (the finger moving right, as with watchOS's
    own Back) goes back one page, down to Home; a swipe to the left goes forward to a page you came
    back from, and does nothing when there is none. On Home at launch, neither goes anywhere.
+   Swipes move between the app's own pages; a page opened from content (a message, its steps, a
+   picture, a link, a form) opens with a tap only.
 
 ## Screens
 
 | Screen | Purpose | Actions |
 |---|---|---|
 | Sign in | First launch, after Sign out, or when the gateway ends the session: the AbstractFramework mark, one field "Sign in with user or email" with the send arrow inside it, the server below (tap to change). A user name then asks for its token; an email gets an 8-digit code. | send · change · resend the code |
-| Choose your orb | First launch (and Settings → Orb style): the twenty-three styles in four families (Orbs, Forms, Faces, Machines), each row a small live orb speaking, its name and a few words; a row opens its preview, which goes through listening, thinking, working and speaking (tap a phase to hold it), "Use this" at the bottom. | scroll · open · Use this |
+| Choose your orb | First launch (and Settings → Orb style): the twenty-nine styles in six families (Orbs, Forms, Cosmos, Nature, Faces, Machines), each row a small live orb speaking, its name and a few words; a row opens its preview, which goes through listening, thinking, working and speaking (tap a phase to hold it), "Use this" at the bottom. | scroll · open · Use this |
 | Home | The orb (one tap to talk), what needs you (only when something does), Sessions and Automations with a count: what is new in a filled badge, else how many, a spinner until they are read; "Connecting…" while the first tries are retried, and the gateway said unreachable only after 3 failed tries over 20 s; the gear opens Settings. | talk · open |
 | Ask | The orb fills the screen. At rest: "Assistant ⌄" below the orb (who answers), the keyboard icon top right and the tools icon bottom right (as far from the bottom as the keyboard from the top); while it listens, works or speaks, they hide. While it works: its steps live below the orb, a pulse per tool call, a satellite per tool running. Beside Back, the row follows what it does: Stop while it is busy (listening, thinking or working, speaking or paused), Share at rest; while it works after an Accept all, the amber shield beside it takes the permission back; the voice button (play, pause, hold to rewind) once there is an answer. A tap on the orb listens, sends, or pauses and resumes its voice; a 1.5 s hold on the orb (a ring closes round it) does what Stop does, and at rest reads the last answer aloud; let go before, nothing happens. The answer appears below with its images and recordings, spoken by the orb; "N steps · time" opens how it worked. | tap · hold to stop · stop · keyboard · tools · shield · share · voice button · choose who answers |
-| Conversation | Swiped to the left from the orb page of a conversation with at least one message: its title, its numbers (questions, tool calls, thinking steps, when it started, its last activity, its files, the questions spoken) and its files, newest first, one card each (what it is, made or attached, its size and age) with its share button on the right; an image, a recording or a video opens on the watch. Swiped to the right, the orb page again. | swipe · open · share |
+| Conversation | Swiped to the left from the orb page of a conversation with at least one message: its title, its numbers (questions, tool calls, thinking steps, when it started, its last activity, its files, the questions spoken) and its files (what its turns made or were given, and what its assistant wrote into the conversation's folder), newest first, one card each (what it is, made or attached, its size and age) with its share button on the right; a tap opens its preview; Every exchange opens the conversation's exchanges. Swiped to the right, the orb page again. | swipe · open · share |
+| File preview | A tap on a file of the conversation's page: one file per page, its name and where it is ("2 of 5"); a swipe up shows the next file, a swipe down the one before (or the crown). A picture shows (a tap opens it to zoom), a drawing (SVG) is drawn on the watch, a text shows its start, a recording or a video opens to play; otherwise what it is and its size. Share beside Back. | swipe · open · share |
 | Tools | A conversation's tools (or the defaults, from Settings): its Workflow row, then the groups (Files, Web, System, Email, …) with their counts; after an Accept all, "Allowed for now" with Ask again. A group lists each tool with its risk, what it can do and Off · Auto · Ask, and All for the group. | choose · Use my defaults · Ask again |
 | Workflow | The gateway's default agent first, then the Assistant's workflows ("Also makes images and other media"), then the other agents. | choose |
 | Image | An answer's image full screen: the Digital Crown zooms, a drag looks around, a double tap fits it; share beside Back. | zoom · share |
@@ -44,10 +47,10 @@ Orb styles: `../design/anim/orb-designs/`.
 | Email | The full email the assistant wants to send. | back |
 | Question | The question, its choices, or another answer typed or dictated. | choice · answer |
 | Needs you | Everything waiting, oldest first; it closes when nothing is left. | open |
-| Sessions | New and Search on one line, then your conversations by day with exchanges, tools and how long ago each last changed ("10 h ago"); one with an answer you have not opened is outlined in cyan; the archive button at its right archives one (after a confirmation); Archived at the bottom. | continue · search · archive · details (swipe) |
+| Sessions | New and Search on one line, then your conversations by day with exchanges, tools and how long ago each last changed ("10 h ago"); one with an answer you have not opened is outlined in cyan; the archive button at its right archives one (after a confirmation); Archived at the bottom. | continue · search · archive |
 | Search | The conversations holding the words (questions, answers, artifacts), the words marked, a matching image beside them. | continue |
 | Archived | Archived conversations, each with Restore. | restore |
-| Session | Its last exchanges (question, then the answer); a finished answer opens in full; a running one can be stopped. Continue floats at the bottom. | open · stop · Continue |
+| Session | Every exchange (from the conversation's page): its last exchanges (question, then the answer); a finished answer opens in full; a running one can be stopped. Continue floats at the bottom. | open · stop · Continue |
 | Read aloud | The orb speaks a text, the text below; the rewind icon beside Back goes back 10 s. | tap: pause/resume · rewind |
 | Link | A tapped web link: the page's title and readable text, read aloud. | read aloud |
 | Automations | New automation first, then each automation: its name with a spinner while it runs, its count of new results (outlined in amber) and its archive button; its runs and schedule ("⟳ 44 🕐 12h ➜ 6h") with the switch that turns it on or off; Archived at the bottom. | open · on/off · archive |
@@ -112,13 +115,15 @@ change between two phases is a blend, never a cut. The points glow (a soft bloom
 brightest), surfaces are sampled evenly (no grain) and lit from the upper left; the voice's shapes
 stay inside the orb's circle.
 
-Twenty-three styles, chosen at first launch and in Settings → Orb style, in four families: **Orbs**
+Twenty-nine styles, chosen at first launch and in Settings → Orb style, in six families: **Orbs**
 (Halo, Vortex, Nebula, Rings, Liquid, Galaxy), **Forms** (Lotus, Crystal, Eclipse, Synapse, Drop,
-Wave, Ocean), **Faces** (Face, Imprint, Hologram, Eye) and **Machines** (Lens, Dome, Valet, Retro, Deco,
-Rover). Five planets whose points answer
+Wave), **Cosmos** (Well, Black hole, Accretion), **Nature** (Ocean, Aurora, Murmuration), **Faces**
+(Face, Imprint, Contour, Membrane, Eye) and **Machines** (Lens, Dome, Valet, Retro, Deco, Rover). Five planets whose points answer
 the voice: Halo (a radial voice histogram), Vortex (spiral arms), Nebula (a breathing cloud), Liquid
-(surface waves), Galaxy (a dense spiral with stars everywhere). Seventeen scenes of their own
-(`OrbScenes`, `OrbConcepts`, `OrbAvatars`, `OrbRobots`):
+(surface waves), Galaxy (a dense spiral with stars everywhere). Twenty-three scenes of their own
+(`OrbScenes`, `OrbConcepts`, `OrbCosmos`, `OrbNature`, `OrbAvatars`, `OrbLines`, `OrbRobots`). Every scene is a blend of the
+five phases' shapes, each motion at a fixed pace (a phase changes how much of a motion shows, never
+its speed), so a change of state is always a smooth morph:
 
 - **State shapes**, five orbs with one shape per state, the points morphing from one to the next
   as the state changes (at rest, a calm listening shape; working is shown while tools run):
@@ -148,29 +153,65 @@ the voice: Halo (a radial voice histogram), Vortex (spiral arms), Nebula (a brea
   blue to violet, rose, amber and green, overlapping in light. A gentle swell at rest; the waves
   come in from the edges as you speak and travel out from the centre as it speaks; slow crossing
   undulations while it thinks; the ribbons wind into a turning swirl while it works.
+- **Cosmos**, three scenes of the universe:
+  - **Well**: the fabric of space as a grid of fine lines in perspective, curving down into a well
+    round a glowing mass. At rest the well is shallow and breathes; listening, ripples run in from
+    the edges carrying your voice; thinking, the well deepens and a second mass circles inside it;
+    working, the two masses orbit close and fast and the fabric carries their gravitational waves
+    out in a two-armed spiral, a ring for each step, each tool running a small body circling in the
+    well; speaking, waves leave the centre with the voice, its low pitches near the mass.
+  - **Black hole**: a soft ring of orange light round a dark shadow, brightest where the gas comes
+    toward you, as the Event Horizon Telescope photographed it. Listening, gas spirals in along
+    three streams and the ring brightens; thinking, the ring flattens into a thin disk seen almost
+    edge on, its far side bent into arcs over and under the shadow; working, twin jets leave the
+    poles; speaking, the ring follows the voice round its circumference and a hot spot circles it,
+    flaring on loud syllables. Stars behind it are pushed aside by its lensing.
+  - **Accretion**: a solar system forming, a young star in a disk of dust with dark lanes between
+    its rings (as the disk round HL Tauri was photographed). Listening, streams of dust fall onto
+    the disk; thinking, the dust drifts round its rings into seven clumps; working, the clumps merge
+    two by two into planets that clear their lanes; speaking, each ring glows with one band of the
+    voice, a spiral wave runs through the disk and the star flares.
 - **Rings**: a geodesic structure of six rigid rings on the great circles that cross at the corners
   of an icosidodecahedron, turning slowly as one body. Each ring is driven by its own band of the
   voice (low pitches the first, high the last): its size follows that band (a quiet harmonic draws
   its ring in, a loud one pushes it out, so the voice's harmonics show as rings of different sizes),
   it sways about its own diameter and its beads spin faster; silence lets the structure settle back.
   Thinking spins it up like a gyroscope; working runs a wave across the rings, the beads racing.
-- **Face**: a sculpted bust in light: the face's real relief (brows, nose, lips, full cheeks, chin)
-  sampled evenly under a soft frontal light, friendly eyes (a soft white, an iris, a dark pupil, a
+- **The face's relief**, shared by Face, Imprint, Contour and Membrane: the cranium round and the
+  jaw tapering to the chin, a forehead, temples, a brow ridge, eye sockets deepest at their inner
+  corners with the eyeball and its lid crease, a narrow nose bridge widening to a rounded tip with
+  its wings and nostrils, the philtrum, lips with a cupid's bow and a fuller lower lip, tucked
+  corners, the groove under the lower lip, high cheekbones over full cheeks, the folds from the
+  nose to the mouth. Its mouth speaks with the voice: the jaw drops, the lips part (the lower one
+  following the jaw), rounder on dark vowels, wider on bright ones.
+- **Face**: a sculpted bust in light: the face's relief sampled evenly under a soft frontal light, friendly eyes (a soft white, an iris, a dark pupil, a
   catchlight, gently raised brows), a calm smile, hair flowing from a side part, neck and
   shoulders. It blinks, breathes and moves its head a little. Its lips follow its own
   voice: parting with loudness, wider than tall (the jaw following), rounded when the low bands lead,
-  wide when the high ones do, closed in the pauses. Listening, it turns its head and cups a hand
-  behind its ear, your voice arriving as arcs in the hand's cone; thinking, it looks up and aside;
+  wide when the high ones do, the upper teeth showing on open syllables, closed in the pauses; its
+  brows lift on stressed syllables and its head nods with its phrasing. Listening, it turns its head
+  and cups a hand behind its ear, nodding along with your voice, its brows raised, your voice
+  arriving as arcs in the hand's cone; thinking, it looks up and aside;
   working, it reads (quick glances) while a fine scan line passes down its face.
 - **Imprint**: the face zoomed in and pressed against a pane of glass: only what touches the pane
   is drawn, lit by its own surface so its features read, with a bright rim. At rest most of the face
   touches it, its eyes closed and serene and a calm smile on its lips. Its voice
-  presses it in and opens its mouth with the words; while you speak it turns to lay its cheek on the
-  pane; thinking, it draws back so less of it touches.
-- **Hologram**: the head as glowing horizontal scan lines that wrap around it (its relief bends
-  them; the far side is faint), turning slowly, its eyes and lips drawn over the lines. As it speaks,
-  light pulses along the lines out from its mouth; while you speak the lines ripple with your voice;
-  thinking, a bright scan band sweeps down the head.
+  presses it in and opens its mouth with the words, its head nodding with its phrasing; while you
+  speak it turns to lay its cheek on the pane, pressing closer and nodding with your voice;
+  thinking, it draws back so less of it touches.
+- **Contour** (after Wave): the face raised in lines of light across the screen, as a line
+  engraving shows depth, each line lit by the face's slope under it (the eyes, the nose and the
+  lips read by their light) and hiding the lines behind it. At rest the lines breathe; listening,
+  waves travel in along them from the edges carrying your voice while it nods along; thinking, the
+  lines undulate slowly against each other as it looks up; working, a bright line scans down the
+  face and the lines shimmer, a ring for each step; speaking, its mouth moves with its voice and
+  the words leave its lips as waves along the lines.
+- **Membrane** (after Well): the Well's fabric of fine lines with a face pressing through it from
+  behind, seen a little from the side, lit by its own slopes. At rest it presses lightly and
+  breathes; listening, it presses closer with your voice and nods along while ripples run in from
+  the edges; thinking, it draws back until only its brow and nose touch; working, the fabric
+  carries a two-armed spiral of waves and a ring for each step; speaking, it presses forward with
+  its voice, its mouth moves with the words and waves leave its lips across the fabric.
 - **Eye**: one large, friendly eye: soft lids, lashes, a catchlight, an iris of fine fibers. As it
   speaks it smiles, its fibers glow with its voice (the spectrum around the iris) and its pupil
   narrows on loud sounds; while you speak it opens wide, its brow lifts, its pupil widens and rings
@@ -218,6 +259,17 @@ as a small satellite with a trail, dimmed as it passes behind.
 
 ## Interaction rules
 
+- **Aurora**: the northern lights, curtains of light rays green at their foot and violet at their
+  top, folding slowly over a dark ridge and mirrored in a still lake under the stars. Listening,
+  waves run along the curtains toward the middle carrying your voice and they brighten; thinking,
+  the rays gather into a corona overhead, turning; working, the curtains pulse in patches and
+  their rays dance, brightening with each step; speaking, the rays rise with the voice's spectrum
+  across the sky (low pitches in the middle) and their foot flares pink on loud syllables.
+- **Murmuration**: a flock of starlings, black against a dusk sky from indigo to amber over a low
+  line of land. At rest a long cloud drifting and folding on itself; listening, it swells with
+  your voice and dark waves sweep through it; thinking, it turns into a slow spinning ring;
+  working, it streams along a figure of eight; speaking, it stretches into a ribbon across the sky
+  as thick as the voice.
 - **Haptics.** A new wait, a sent answer, a failed one, an answer arriving, an automation done:
   one haptic per event.
 - **Double Tap** allows once an approval that neither sends nor destroys; never anything else.

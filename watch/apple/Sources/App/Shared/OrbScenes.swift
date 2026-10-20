@@ -109,7 +109,10 @@ extension OrbCanvas {
         let glance = busy * (0.5 + 0.5 * sin(t * 2.3)) * (Int(t * 1.6) % 2 == 0 ? 1 : -0.6)
         let scanY = -1.0 + 1.75 * (t * 0.55).truncatingRemainder(dividingBy: 1)
         let yaw = 0.1 * sin(t * 0.29) + 0.05 * sin(t * 0.71) + 0.14 * th - 0.42 * listen
-        let pitch = 0.035 * sin(t * 0.23) - 0.08 * th + 0.06 * busy + 0.035 * mouth.open * sin(t * 6.1)
+        // Its own voice: a nod with its phrasing; yours: it nods along with you.
+        let level = engine.history.value(secondsAgo: 0.05)
+        let pitch = 0.035 * sin(t * 0.23) - 0.08 * th + 0.06 * busy + 0.05 * mouth.open * sin(t * 6.1)
+            + 0.045 * listen * level * sin(t * 4.3) + 0.03 * ph.speak * (level - 0.35)
         let roll = 0.03 * sin(t * 0.19) + 0.06 * listen - 0.04 * th
         let blink = FaceGeometry.blink(t)
         let breathe = 0.012 * sin(t * 1.25)
@@ -131,7 +134,7 @@ extension OrbCanvas {
                 y += mouth.jaw(x, y)
                 if mouth.open > 0.06 {
                     // The mouth opens wider than tall, its inside soft dark (never a hole).
-                    let gap = 0.04 * mouth.open
+                    let gap = 0.09 * mouth.open
                     let inside = exp(-pow(x / (0.16 * mouth.width), 2) - pow((y - my - gap * 0.5 + 0.02 * pow(x / 0.17, 2)) / (gap + 0.004), 2))
                     if inside > 0.5 && OrbPoints.hash(Int(x * 1000 + y * 7000), 5) < 0.75 { continue }
                 }
@@ -181,7 +184,9 @@ extension OrbCanvas {
                 eyePoint(cx + 0.085 * u, upper, 0.45 * (0.6 + 0.4 * (1 - u * u)), OrbPoints.hash(j, side))
                 if j % 2 == 0 { eyePoint(cx + 0.075 * u, lower, 0.22, OrbPoints.hash(j, side + 2)) }
                 // The brow: a soft arc, raised a little (more as it listens).
-                let by = cy - 0.12 - 0.03 * (1 - u * u) - 0.015 * listen - 0.01 * th * (side > 0 ? 1 : 0)
+                // Lifted by a stressed syllable as it speaks, and by your voice as it listens.
+                let lift = 0.015 * listen + 0.025 * listen * level + 0.03 * ph.speak * ph.loud
+                let by = cy - 0.12 - 0.03 * (1 - u * u) - lift - 0.01 * th * (side > 0 ? 1 : 0)
                 if j % 2 == 1 { eyePoint(cx + 0.1 * u + 0.012 * side, by, 0.4 * (1 - 0.6 * u * u), OrbPoints.hash(j, side + 4)) }
             }
             guard blink > 0.35 else { continue }
@@ -197,17 +202,23 @@ extension OrbCanvas {
                 eyePoint(ix - 0.01 + 0.006 * Double(j), iy - 0.011, 0.95, 0.5, lift: 0.04)
             }
         }
-        // The lips: a gentle upturned line where they meet; as it talks they part, wider than tall.
-        let smile = 0.032 + 0.01 * listen - 0.012 * th
+        // The lips: a gentle upturned line where they meet; as it talks they part (the lower lip
+        // following the jaw), rounder on dark vowels, wider on bright ones, the upper teeth showing
+        // on open syllables.
+        let smile = 0.032 + 0.01 * listen - 0.012 * th - 0.01 * mouth.pout
         for j in 0..<48 {
             let u = 2 * Double(j) / 47 - 1
             let xu = 0.17 * mouth.width * u
             let base = my - smile * u * u
-            let upper = base - 0.008 * mouth.open * (1 - u * u)
-            let lower = base + 0.05 * mouth.open * (1 - u * u)
+            let along = 1 - u * u
+            let upper = base - (0.022 * mouth.open + 0.008 * mouth.pout) * along
+            let lower = base + (0.13 * mouth.open + 0.01 * mouth.pout) * pow(along, 0.8)
             let fade = 1 - 0.5 * u * u
-            eyePoint(xu, upper, 0.55 * fade, OrbPoints.hash(j, 71))
-            if mouth.open > 0.05 && j % 2 == 0 { eyePoint(xu, lower, 0.45 * fade, OrbPoints.hash(j, 72)) }
+            eyePoint(xu, upper, 0.6 * fade, OrbPoints.hash(j, 71))
+            if mouth.open > 0.04 { eyePoint(xu * (1 - 0.06 * mouth.open), lower, 0.5 * fade, OrbPoints.hash(j, 72)) }
+            if mouth.open > 0.25, abs(u) < 0.6, j % 2 == 0 {
+                eyePoint(xu * 0.9, upper + 0.014, 0.28 * min(1, (mouth.open - 0.25) * 4), OrbPoints.hash(j, 73))
+            }
         }
         if listen > 0.02 { drawListeningHand(&d, pose: pose, listen: listen, scale: scale, shift: shift) }
         finish(&gc, d)
@@ -429,7 +440,7 @@ struct MouthShape {
     /// The jaw's drop for a skin point below the mouth.
     func jaw(_ x: Double, _ y: Double) -> Double {
         let my = FaceGeometry.mouthY
-        return y > my ? 0.1 * open * smoothstep(my, my + 0.2, y) * max(0, 1 - abs(x) / 0.62) : 0
+        return y > my ? 0.17 * open * smoothstep(my, my + 0.2, y) * max(0, 1 - abs(x) / 0.62) : 0
     }
 
     func place(_ p: FaceGeometry.P) -> (x: Double, y: Double, lum: Double)? {

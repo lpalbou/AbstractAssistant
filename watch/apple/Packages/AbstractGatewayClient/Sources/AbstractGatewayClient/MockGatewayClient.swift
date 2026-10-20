@@ -258,8 +258,9 @@ public actor MockGatewayClient: GatewayClient {
         for (id, media) in startedMedia { out[id] = media }
         return out
     }
-    /// A conversation's files: its turns' media, and a report the QC conversation was given.
-    public func sessionFiles(sessionId: String) async throws -> SessionFiles {
+    /// A conversation's files: its turns' media, a report the QC conversation was given, and the
+    /// chart its assistant wrote into its folder.
+    public func sessionFiles(sessionId: String, folderRunId: String?) async throws -> SessionFiles {
         try await Task.sleep(for: .milliseconds(300))
         var files = try await sessionMedia(sessionId: sessionId).values.flatMap { $0 }.map {
             SessionFile(artifactId: $0.artifactId, runId: $0.runId, contentType: $0.contentType, sizeBytes: $0.sizeBytes,
@@ -269,9 +270,62 @@ public actor MockGatewayClient: GatewayClient {
             files.append(SessionFile(artifactId: "doc-qc-report", runId: "3e9a10c4", contentType: "application/pdf", name: "qc-report.pdf",
                                      sizeBytes: 182_400, createdAt: Date().addingTimeInterval(-7200), origin: .attached))
         }
-        return SessionFiles(files: Array(Set(files)), spokenQuestions: sessionId == "s-qc" ? 3 : 0)
+        if sessionId == "s-qc", let run = folderRunId {
+            for (k, (path, type)) in [("charts/cv-by-plate.svg", "image/svg+xml"), ("hero.svg", "image/svg+xml"), ("notes.md", "text/markdown")].enumerated() {
+                files.append(SessionFile(artifactId: "", runId: run, contentType: type, name: path, sizeBytes: Self.folderFiles[path]?.utf8.count,
+                                         createdAt: Date().addingTimeInterval(-1800 - Double(k) * 60), origin: .made, folderPath: path))
+            }
+        }
+        return SessionFiles(files: Array(Set(files)), spokenQuestions: sessionId == "s-qc" ? 3 : 0).adding([])
     }
+    /// What the QC conversation's assistant wrote into its folder: a chart, a drawing an agent made
+    /// (verbatim), and notes.
+    static let folderFiles: [String: String] = [
+        "charts/cv-by-plate.svg": #"""
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300">
+          <defs><linearGradient id="bar" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#6366f1"/></linearGradient></defs>
+          <rect width="400" height="300" rx="18" fill="#0f172a"/>
+          <text x="24" y="42" font-family="Helvetica" font-size="22" font-weight="bold" fill="#e2e8f0">CV by plate</text>
+          <g fill="url(#bar)"><rect x="40" y="150" width="44" height="110" rx="6"/><rect x="110" y="110" width="44" height="150" rx="6"/>
+          <rect x="180" y="170" width="44" height="90" rx="6"/><rect x="250" y="90" width="44" height="170" rx="6"/><rect x="320" y="130" width="44" height="130" rx="6"/></g>
+          <path d="M24 260H380" stroke="#475569" stroke-width="2"/>
+          <path d="M40 120 Q 120 60 200 100 T 360 80" fill="none" stroke="#f472b6" stroke-width="4" stroke-linecap="round" stroke-dasharray="10 8"/>
+          <circle cx="360" cy="80" r="7" fill="#f472b6"/>
+          <path d="M330 40 a 18 18 0 1 1 36 0 a 18 18 0 1 1 -36 0z" fill="none" stroke="#facc15" stroke-width="3"/>
+        </svg>
+        """#,
+        "hero.svg": #"""
+        <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-label="Abstract AI orchestration modules">
+          <defs>
+            <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#05081a"/><stop offset=".48" stop-color="#0b1234"/><stop offset="1" stop-color="#17092f"/></linearGradient>
+            <radialGradient id="glow"><stop stop-color="#77f7ff" stop-opacity=".72"/><stop offset=".34" stop-color="#6366ff" stop-opacity=".2"/><stop offset="1" stop-color="#09112b" stop-opacity="0"/></radialGradient>
+            <linearGradient id="glass" x2="1" y2="1"><stop stop-color="#e9ffff" stop-opacity=".22"/><stop offset="1" stop-color="#6671ff" stop-opacity=".06"/></linearGradient>
+            <linearGradient id="line" x2="1"><stop stop-color="#62f6ff" stop-opacity="0"/><stop offset=".5" stop-color="#9f8cff"/><stop offset="1" stop-color="#62f6ff" stop-opacity="0"/></linearGradient>
+            <filter id="blur"><feGaussianBlur stdDeviation="24"/></filter><filter id="shadow"><feDropShadow dx="0" dy="22" stdDeviation="24" flood-color="#00051a" flood-opacity=".75"/></filter>
+          </defs>
+          <rect width="1600" height="1000" fill="url(#bg)"/>
+          <ellipse cx="800" cy="490" rx="640" ry="520" fill="url(#glow)"/>
+          <g opacity=".22" stroke="#8ccfff" fill="none"><path d="M0 160H1600M0 360H1600M0 560H1600M0 760H1600"/><path d="M220 0V1000M520 0V1000M820 0V1000M1120 0V1000M1420 0V1000"/></g>
+          <g fill="none" stroke="url(#line)" stroke-width="3" opacity=".9"><path d="M260 660C390 660 380 490 528 490"/><path d="M1070 490c160 0 130-190 270-190"/><path d="M520 750c160 0 135-135 278-135"/><path d="M1040 650c120 0 110 120 260 120"/></g>
+          <g fill="#8dffff"><circle cx="260" cy="660" r="6"/><circle cx="528" cy="490" r="7"/><circle cx="1340" cy="300" r="6"/><circle cx="1300" cy="770" r="6"/></g>
+          <g filter="url(#shadow)" stroke="#c2f8ff" stroke-opacity=".35">
+            <g transform="translate(510 280)"><rect width="265" height="185" rx="20" fill="url(#glass)"/><path d="M28 47h73M28 72h119M28 129h206" stroke="#bdffff" stroke-opacity=".65" stroke-width="4" stroke-linecap="round"/><circle cx="214" cy="55" r="21" fill="#7df5ff" fill-opacity=".82" stroke="none"/></g>
+            <g transform="translate(842 390)"><rect width="285" height="210" rx="22" fill="url(#glass)"/><path d="M32 50h83M32 78h178M32 145h220M32 169h142" stroke="#d6d7ff" stroke-opacity=".64" stroke-width="4" stroke-linecap="round"/><path d="M220 50l25 25-25 25-25-25z" fill="#a78bfa" fill-opacity=".85" stroke="none"/></g>
+            <g transform="translate(585 590)"><rect width="305" height="198" rx="22" fill="url(#glass)"/><path d="M34 55h104M34 82h194M34 146h239" stroke="#d2ffff" stroke-opacity=".62" stroke-width="4" stroke-linecap="round"/><circle cx="242" cy="66" r="24" fill="#6a72ff" fill-opacity=".8" stroke="none"/></g>
+          </g>
+          <g transform="translate(800 505)" filter="url(#shadow)"><circle r="115" fill="#111c49" stroke="#9bfbff" stroke-width="2"/><circle r="84" fill="none" stroke="#806cff" stroke-width="2" stroke-dasharray="6 10"/><path d="M-42-24L0-50 42-24v48L0 50-42 24z" fill="#91faff" fill-opacity=".9"/><circle r="14" fill="#151c53"/></g>
+          <g fill="#e8ffff" font-family="Arial, sans-serif" text-anchor="middle"><text x="800" y="890" font-size="22" letter-spacing="9" opacity=".72">ORCHESTRATE · GENERATE · DEPLOY</text></g>
+          <g fill="#88efff" opacity=".8"><circle cx="102" cy="120" r="2"/><circle cx="180" cy="800" r="3"/><circle cx="1450" cy="190" r="3"/><circle cx="1510" cy="690" r="2"/><circle cx="1210" cy="870" r="3"/></g>
+        </svg>
+        """#,
+        "notes.md": "# Nightly QC\n\nAll 96 wells within range. CV 3.1 % (target under 5 %).\n\n- Plate 4 ran warm: re-check the incubator log.\n- Next run: Tuesday 02:00.\n",
+    ]
     public func fileData(_ file: SessionFile) async throws -> Data {
+        if let path = file.folderPath {
+            try await Task.sleep(for: .milliseconds(300))
+            guard let text = Self.folderFiles[path] else { throw GatewayError.http(status: 404, body: "") }
+            return Data(text.utf8)
+        }
         if let media = file.media { return try await mediaData(media) }
         try await Task.sleep(for: .milliseconds(300))
         return Data("%PDF-1.4 sample".utf8)
@@ -517,7 +571,7 @@ public actor MockGatewayClient: GatewayClient {
     public private(set) var approvals: [String] = []
     private var startedMedia: [String: [MediaItem]] = [:]
 
-    public func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?, workflow: WorkflowChoice?) async throws -> String {
+    public func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?, workflow: WorkflowChoice?, primaryImage: MediaItem?) async throws -> String {
         let id = "mock-" + UUID().uuidString.prefix(6).lowercased()
         lastWorkflow = workflow
         let p = prompt.lowercased()

@@ -4,11 +4,13 @@ import WatchKit
 /// The orb's style: how its points answer a voice (Settings → Orb style, and asked once at first
 /// launch). Stored by letter so a choice survives renames.
 enum OrbDesign: String, CaseIterable, Identifiable {
-    // The picker's order: the planets, the state shapes, the avatars, the robots, then the sea
-    // (letters stay stable).
+    // The picker's order: the planets, the state shapes, the universe's, the avatars, the robots,
+    // then the sea (letters stay stable).
     case a = "A", b = "B", c = "C", d = "D", e = "E", f = "F"
     case r = "R", s = "S", u = "U", v = "V", w = "W", x = "X"
-    case g = "G", i = "I", j = "J", k = "K"
+    case t = "T", y = "Y", z = "Z"
+    case g = "G", i = "I", contour = "CT", membrane = "MB", k = "K"
+    case aurora = "AU", murmuration = "MU"
     case l = "L", m = "M", n = "N", o = "O", p = "P", q = "Q", h = "H"
     var id: String { rawValue }
     var name: String {
@@ -25,9 +27,15 @@ enum OrbDesign: String, CaseIterable, Identifiable {
         case .v: "Synapse"
         case .w: "Drop"
         case .x: "Wave"
+        case .t: "Well"
+        case .y: "Black hole"
+        case .z: "Accretion"
         case .g: "Face"
         case .i: "Imprint"
-        case .j: "Hologram"
+        case .contour: "Contour"
+        case .membrane: "Membrane"
+        case .aurora: "Aurora"
+        case .murmuration: "Murmuration"
         case .k: "Eye"
         case .l: "Lens"
         case .m: "Dome"
@@ -52,9 +60,15 @@ enum OrbDesign: String, CaseIterable, Identifiable {
         case .v: "a network of nodes: tangled to think, orbiting to work, a starburst to speak"
         case .w: "a drop of light: a vortex to think, fibres to work, a horn of particles to speak"
         case .x: "ribbons of light, each a harmonic of the voice; they wind into a swirl to work"
+        case .t: "space bending into a well: ripples carry the voice, two masses circle it as it works"
+        case .y: "a ring of light round a shadow: gas falls in to listen, a disk to think, jets to work"
+        case .z: "a young star's disk of dust: it gathers into clumps to think and merges into planets to work"
         case .g: "a friendly face whose lips follow its voice; it cups its ear to listen"
         case .i: "a face seen only where it touches a pane of glass; it presses in as it speaks"
-        case .j: "a head of light in scan lines: its words pulse along them, a scan sweeps it as it thinks"
+        case .contour: "a face raised in lines of light: its lips speak, the words leave them as waves along the lines"
+        case .membrane: "a face pressing through a fabric of light: it presses closer with the voice and speaks through it"
+        case .aurora: "the northern lights over a lake: they rise with the voice and gather into a corona to think"
+        case .murmuration: "a flock of starlings at dusk: it swells to listen, spins to think, streams to work, draws the voice"
         case .k: "one friendly eye: its iris glows with its voice, it opens wide to listen"
         case .l: "a glowing red camera eye; its core flares as it speaks"
         case .m: "a dome-headed droid: it turns to face you, chatters with its lights, spins to think"
@@ -69,8 +83,10 @@ enum OrbDesign: String, CaseIterable, Identifiable {
     var family: OrbFamily {
         switch self {
         case .a, .b, .c, .d, .e, .f: .orbs
-        case .r, .s, .u, .v, .w, .x, .h: .forms
-        case .g, .i, .j, .k: .faces
+        case .r, .s, .u, .v, .w, .x: .forms
+        case .t, .y, .z: .cosmos
+        case .h, .aurora, .murmuration: .nature
+        case .g, .i, .contour, .membrane, .k: .faces
         case .l, .m, .n, .o, .p, .q: .machines
         }
     }
@@ -89,10 +105,16 @@ enum OrbDesign: String, CaseIterable, Identifiable {
         case .v: "A network of nodes"
         case .w: "A drop of light"
         case .x: "Ribbons of voice"
+        case .t: "Space bending round a mass"
+        case .y: "A ring round a shadow"
+        case .z: "A solar system forming"
         case .h: "A sea at night"
         case .g: "A sculpted face"
         case .i: "A face pressed on glass"
-        case .j: "A head of light"
+        case .contour: "A face in lines of light"
+        case .membrane: "A face through a fabric"
+        case .aurora: "The northern lights"
+        case .murmuration: "A flock of starlings"
         case .k: "One watchful eye"
         case .l: "A red camera eye"
         case .m: "A dome-headed droid"
@@ -110,12 +132,14 @@ enum OrbDesign: String, CaseIterable, Identifiable {
 
 /// The picker's sections: the styles grouped by what they are.
 enum OrbFamily: String, CaseIterable, Identifiable {
-    case orbs, forms, faces, machines
+    case orbs, forms, cosmos, nature, faces, machines
     var id: String { rawValue }
     var title: String {
         switch self {
         case .orbs: "Orbs"
         case .forms: "Forms"
+        case .cosmos: "Cosmos"
+        case .nature: "Nature"
         case .faces: "Faces"
         case .machines: "Machines"
         }
@@ -125,6 +149,8 @@ enum OrbFamily: String, CaseIterable, Identifiable {
         switch self {
         case .orbs: "A sphere of light that answers the voice"
         case .forms: "A shape for each phase, morphing from one to the next"
+        case .cosmos: "Gravity, a black hole, a solar system forming"
+        case .nature: "The sea at night, the northern lights, a flock at dusk"
         case .faces: "A face that listens, thinks and talks"
         case .machines: "Classic talking machines"
         }
@@ -189,7 +215,7 @@ struct Orb: View {
     /// The sea takes the screen's whole width where the orb is the page (the talk and Read pages),
     /// not on Home or in a small tile.
     private func fillsWidth(_ d: OrbDesign) -> Bool {
-        (d == .h || d == .x) && look.shape == .planet && size > 0.6 * WKInterfaceDevice.current().screenBounds.width
+        [.h, .x, .t, .contour, .membrane, .aurora, .murmuration].contains(d) && look.shape == .planet && size > 0.6 * WKInterfaceDevice.current().screenBounds.width
     }
 
     private var label: String {
@@ -334,7 +360,10 @@ struct OrbCanvas: View {
             case .g: drawFace(&gc, box); return
             case .h: drawOcean(&gc, box); return
             case .i: drawImprint(&gc, box); return
-            case .j: drawHologram(&gc, box); return
+            case .contour: drawContour(&gc, box); return
+            case .membrane: drawMembrane(&gc, box); return
+            case .aurora: drawAurora(&gc, box); return
+            case .murmuration: drawMurmuration(&gc, box); return
             case .k: drawEye(&gc, box); return
             case .l: drawLens(&gc, box); return
             case .m: drawDome(&gc, box); return
@@ -348,6 +377,9 @@ struct OrbCanvas: View {
             case .v: drawSynapse(&gc, box); return
             case .w: drawDrop(&gc, box); return
             case .x: drawWave(&gc, box); return
+            case .t: drawWell(&gc, box); return
+            case .y: drawBlackHole(&gc, box); return
+            case .z: drawAccretion(&gc, box); return
             default: break
             }
         }
@@ -447,7 +479,7 @@ struct OrbCanvas: View {
                         }
                         let d = 0.3 + 1.0 * wv * p.reach + 0.4 * now
                         tx += sx * d; ty += sy * d; glow = 0.6 * now
-                    case .g, .h, .i, .j, .k, .l, .m, .n, .o, .p, .q, .r, .s, .u, .v, .w, .x:   // scenes of their own
+                    case .g, .h, .i, .k, .l, .m, .n, .o, .p, .q, .r, .s, .u, .v, .w, .x, .t, .y, .z, .contour, .membrane, .aurora, .murmuration:   // scenes of their own
                         break
                     case .f:   // Galaxy: a continuous disc of stars, densest at the core, crowded along two arms
                         let lh = 0.5 * hist.value(secondsAgo: 0.1 + 0.4 * p.reach) + 0.6 * band(0.15)
@@ -906,7 +938,7 @@ enum OrbIcon {
                     engine.step(t: t - 1.5 + Double(k) / 30, voice: v, engaged: engaged, thinking: thinking, speaking: speaking, working: working)
                 }
                 // The sea as on the talk page: the screen's width over 90% of it (208 × 187 pt).
-                let w: CGFloat = design == .h || design == .x ? 440 : 396
+                let w: CGFloat = [.h, .x, .t, .contour, .membrane, .aurora, .murmuration].contains(design) ? 440 : 396
                 let art = ZStack {
                     Color(hex: 0x000000)
                     OrbCanvas(t: t, engine: engine, design: design, look: .assistant,
@@ -920,6 +952,48 @@ enum OrbIcon {
             }
         }
         print("orb scenes rendered: \(dir.path)")
+        if args.contains("--render-morph") { renderMorph(dir: dir, only: only, voice: voice) }
+    }
+
+    /// The transitions: rest → listen → think → work → speak → rest, two seconds each, the engine
+    /// stepped at 30 fps throughout; frames 0.2, 0.5, 0.8 and 1.6 s after each change
+    /// (orb-<name>-m<step>.png, 24 frames).
+    @MainActor static func renderMorph(dir: URL, only: Set<String>?, voice: (Double, Double, Double) -> VoiceFeatures) {
+        // (voice, engaged, speaking, thinking, working)
+        let states: [(VoiceFeatures, Bool, Bool, Bool, Bool)] = [
+            (.silent, false, false, false, false), (voice(0.7, 0.8, 0.6), true, false, false, false),
+            (.silent, false, false, true, false), (.silent, false, false, true, true),
+            (voice(0.8, 1, 0.5), true, true, false, false), (.silent, false, false, false, false),
+        ]
+        let marks = [0.2, 0.5, 0.8, 1.6]
+        for design in OrbDesign.allCases where only?.contains(design.name) ?? true {
+            let engine = OrbEngine()
+            var frame = 0
+            let t0 = 2000.0
+            for (k, st) in states.enumerated() {
+                for f in 0..<60 {
+                    let t = t0 + Double(k) * 2 + Double(f) / 30
+                    // A voice that moves, so the frames show it answering.
+                    let v = st.1 ? VoiceFeatures(level: st.0.level * (0.6 + 0.4 * sin(t * 9)), bands: st.0.bands) : st.0
+                    engine.step(t: t, voice: v, engaged: st.1, thinking: st.3, speaking: st.2, working: st.4)
+                    let since = Double(f) / 30
+                    guard k > 0, marks.contains(where: { abs($0 - since) < 0.017 }) else { continue }
+                    let w: CGFloat = [.h, .x, .t, .contour, .membrane, .aurora, .murmuration].contains(design) ? 440 : 396
+                    let art = ZStack {
+                        Color(hex: 0x000000)
+                        OrbCanvas(t: t, engine: engine, design: design, look: .assistant,
+                                  work: st.4 ? OrbWork(pulses: [.init(age: since.truncatingRemainder(dividingBy: 1.4), strength: 1, tone: .tool)], satellites: 2) : .none)
+                            .frame(width: w, height: 396)
+                    }
+                    .frame(width: w, height: 396)
+                    let renderer = ImageRenderer(content: art)
+                    renderer.scale = 1
+                    if let data = renderer.uiImage?.pngData() { try? data.write(to: dir.appending(path: "orb-\(design.name)-m\(frame).png")) }
+                    frame += 1
+                }
+            }
+        }
+        print("orb morphs rendered: \(dir.path)")
     }
 }
 #endif

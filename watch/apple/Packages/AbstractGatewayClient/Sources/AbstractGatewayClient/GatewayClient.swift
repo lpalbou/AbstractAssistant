@@ -49,13 +49,14 @@ public protocol GatewayClient: Sendable {
     /// `GET /api/gateway/sessions/search?q=…`: keyword search over the caller's conversations.
     func searchSessions(_ query: String, limit: Int) async throws -> SessionSearchPage
     /// `POST /api/gateway/runs/start`; returns the run id. `workflow` nil: the gateway's default agent.
-    func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?, workflow: WorkflowChoice?) async throws -> String
+    func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?, workflow: WorkflowChoice?, primaryImage: MediaItem?) async throws -> String
     /// `GET /sessions/{id}/artifacts`: the media a conversation's turns made, by run.
     func sessionMedia(sessionId: String) async throws -> [String: [MediaItem]]
     /// `GET /runs/{run}/artifacts/{id}/content`: one media item's bytes (at most `MediaItem.byteLimit`).
     func mediaData(_ item: MediaItem) async throws -> Data
-    /// `GET /sessions/{id}/artifacts`: the conversation's files (what its turns made or were given).
-    func sessionFiles(sessionId: String) async throws -> SessionFiles
+    /// `GET /sessions/{id}/artifacts`: the conversation's files (what its turns made or were given),
+    /// with, given a run of the conversation, the files of its folder (`GET /runs/{run}/workspace/files`).
+    func sessionFiles(sessionId: String, folderRunId: String?) async throws -> SessionFiles
     /// `GET /runs/{run}/artifacts/{id}/content`: one file's bytes (at most `MediaItem.byteLimit`).
     func fileData(_ file: SessionFile) async throws -> Data
     /// `GET /api/gateway/discovery/tools`: the tools with their risk tiers.
@@ -263,8 +264,8 @@ public actor LiveGatewayClient: GatewayClient {
         try await get("api/gateway/discovery/tools", as: ToolsPage.self).items
     }
 
-    public func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?, workflow: WorkflowChoice?) async throws -> String {
-        let body = StartRunRequest(prompt: prompt, sessionId: sessionId, toolPolicy: toolPolicy, tools: tools, workflow: workflow)
+    public func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?, workflow: WorkflowChoice?, primaryImage: MediaItem?) async throws -> String {
+        let body = StartRunRequest(prompt: prompt, sessionId: sessionId, toolPolicy: toolPolicy, tools: tools, workflow: workflow, primaryImage: primaryImage)
         let data = try await request("POST", "api/gateway/runs/start", body: body)
         return try JSONDecoder().decode(StartRunResponse.self, from: data).runId
     }
@@ -277,12 +278,41 @@ public actor LiveGatewayClient: GatewayClient {
         try await artifactData(runId: item.runId, artifactId: item.artifactId, sizeBytes: item.sizeBytes)
     }
 
-    public func sessionFiles(sessionId: String) async throws -> SessionFiles {
-        SessionFiles.of(try await get("api/gateway/sessions/\(sessionId)/artifacts", query: [.init(name: "limit", value: "500")], as: JSONValue.self))
+    public func sessionFiles(sessionId: String, folderRunId: String?) async throws -> SessionFiles {
+        async let kept = get("api/gateway/sessions/\(sessionId)/artifacts", query: [.init(name: "limit", value: "500")], as: JSONValue.self)
+        async let folder = folderFiles(runId: folderRunId)
+        let (more, truncated) = try await folder
+        return SessionFiles.of(try await kept).adding(more, truncated: truncated)
+    }
+
+    /// The files of a conversation's folder: only one the gateway made for the conversation (or the
+    /// run), never a folder of the person's own. None when there is no folder yet or the gateway
+    /// refuses it (gone, blocked, outside the account's folders): the conversation's other files
+    /// still show. A read that cannot get through is a failure, as any other.
+    private func folderFiles(runId: String?) async throws -> ([SessionFile], Bool) {
+        guard let runId else { return ([], false) }
+        guard MediaItem.safe(runId) else { throw GatewayError.invalidResponse }
+        do {
+            let folder = try await get("api/gateway/runs/\(runId)/workspace", as: JSONValue.self)
+            guard ["session", "run"].contains(folder["kind"]?.stringValue ?? ""), folder["exists"] != .bool(false) else { return ([], false) }
+            let page = try await get("api/gateway/runs/\(runId)/workspace/files",
+                                     query: [.init(name: "recursive", value: "true"), .init(name: "limit", value: "500")], as: JSONValue.self)
+            return (SessionFiles.folder(page, runId: runId), page["truncated"] == .bool(true))
+        } catch let error where !Self.isTransient(error) {
+            if case GatewayError.http = error { return ([], false) }
+            throw error
+        }
     }
 
     public func fileData(_ file: SessionFile) async throws -> Data {
-        try await artifactData(runId: file.runId, artifactId: file.artifactId, sizeBytes: file.sizeBytes)
+        guard let path = file.folderPath else {
+            return try await artifactData(runId: file.runId, artifactId: file.artifactId, sizeBytes: file.sizeBytes)
+        }
+        guard MediaItem.safe(file.runId) else { throw GatewayError.invalidResponse }
+        if let size = file.sizeBytes, size > MediaItem.byteLimit { throw GatewayError.invalidResponse }
+        let data = try await request("GET", "api/gateway/runs/\(file.runId)/workspace/content", query: [.init(name: "path", value: path)], timeout: 120)
+        guard data.count <= MediaItem.byteLimit else { throw GatewayError.invalidResponse }
+        return data
     }
 
     private func artifactData(runId: String, artifactId: String, sizeBytes: Int?) async throws -> Data {

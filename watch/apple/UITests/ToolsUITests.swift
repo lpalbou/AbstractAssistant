@@ -126,3 +126,20 @@ final class ConnectionUITests: XCTestCase {
         }
     }
 }
+
+/// The corner icons take a tap a little beside their circle (the orb around them takes every other
+/// tap, pausing or resuming the voice): a tap 21 pt from the tools icon's centre (its circle has a
+/// 17.5 pt radius) opens the tools.
+final class CornerIconReachUITests: XCTestCase {
+    func testATapBesideTheToolsIconOpensTheTools() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--fresh-conversation", "--screen", "ask"]
+        app.launch()
+        let tools = app.buttons["ask.tools"]
+        XCTAssertTrue(tools.waitForExistence(timeout: 20), app.debugDescription)
+        sleep(1)
+        tools.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).withOffset(CGVector(dx: -21, dy: 0)).tap()
+        XCTAssertTrue(app.descendants(matching: .any)["tools.summary"].firstMatch.waitForExistence(timeout: 10)
+                      || app.staticTexts["Tools"].waitForExistence(timeout: 2), "a tap beside the tools icon did not open the tools:\n\(app.debugDescription)")
+    }
+}

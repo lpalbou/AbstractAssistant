@@ -76,10 +76,6 @@ struct SessionsView: View {
                         }
                         .listRowBackground(SessionRowGround(new: new))
                         .listRowInsets(EdgeInsets(top: 4, leading: 10, bottom: 4, trailing: 4))
-                        .swipeActions {
-                            Button { model.path.append(.session(s)) } label: { Label("Details", systemImage: "list.bullet") }
-                                .tint(Theme.indigoButton)
-                        }
                     }
                 }
             }

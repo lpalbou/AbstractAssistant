@@ -173,7 +173,9 @@ enum RowReach { static let vertical: CGFloat = 9 }
 struct TapButtonStyle: PrimitiveButtonStyle {
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.onTapGesture { if enabled { configuration.trigger() } }
+        configuration.label
+            .opacity(enabled ? 1 : 0.5)                      // dimmed while it cannot be used
+            .onTapGesture { if enabled { configuration.trigger() } }
     }
 }
 

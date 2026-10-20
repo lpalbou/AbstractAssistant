@@ -250,6 +250,8 @@ struct MediaPage: View {
     let item: MediaItem
     @EnvironmentObject private var model: AppModel
     @State private var image: UIImage?
+    /// An SVG picture, drawn on the watch.
+    @State private var drawing: SVGDocument?
     @State private var video: AVPlayer?
     @State private var failed = false
     @State private var zoom = 1.0
@@ -259,7 +261,9 @@ struct MediaPage: View {
     var body: some View {
         GeometryReader { geo in
             Group {
-                if let image {
+                if let drawing {
+                    SVGView(document: drawing).frame(width: geo.size.width, height: geo.size.height)
+                } else if let image {
                     Image(uiImage: image).resizable().scaledToFit()
                         .scaleEffect(zoom)
                         .offset(offset)
@@ -276,7 +280,8 @@ struct MediaPage: View {
                         .focusable()
                         .digitalCrownRotation($zoom, from: 1, through: 4, by: 0.05, sensitivity: .low,
                                               isContinuous: false, isHapticFeedbackEnabled: true)
-                        .onChange(of: zoom) { _, _ in offset = clamp(offset, geo.size); dragStart = offset }
+                        .onChange(of: zoom) { _, z in offset = clamp(offset, geo.size); dragStart = offset; model.swipesPaused = z > 1.01 }
+                        .onDisappear { model.swipesPaused = false }
                         .accessibilityLabel("Image")
                         .accessibilityIdentifier("media.full")
                 } else if let video {
@@ -312,6 +317,9 @@ struct MediaPage: View {
         failed = false
         do {
             switch item.kind {
+            case .image where item.contentType.contains("svg"):
+                let data = try await MediaStore.shared.data(item, client: model.client)
+                drawing = try await Task.detached { try SVGDocument.parse(data) }.value
             case .image: image = try await MediaStore.shared.image(item, client: model.client, maxPixel: 1200)
             case .video: video = AVPlayer(url: try await MediaStore.shared.file(item, client: model.client))
             case .audio: failed = true

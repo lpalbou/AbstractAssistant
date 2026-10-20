@@ -5025,7 +5025,7 @@ approval can be allowed or denied from the notification itself.
 
 **Make it yours.** Settings has Connection (the gateway and account you use), Tools (the defaults
 for new conversations), Voice (the speaking voice, its speed and the transcription model), Read
-aloud, Orb style (twenty-three styles in four families: Orbs, Forms, Faces and Machines, each previewed live through listening, thinking, working and speaking) and About.
+aloud, Orb style (twenty-nine styles in six families: Orbs, Forms, Cosmos, Nature, Faces and Machines, each previewed live through listening, thinking, working and speaking) and About.
 
 ## Sign in
 
@@ -5098,6 +5098,19 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Added
 
+- **Four new orb styles.** Contour (a face raised in lines of light, after Wave) and Membrane (a
+  face pressing through a fabric of light, after Well) in Faces; Aurora (the northern lights over a
+  lake, gathering into a corona as it thinks) and Murmuration (a flock of starlings at dusk) in a
+  new Nature family, with Ocean.
+- **Files previewed on the watch.** A tap on a file of the conversation's page opens it; a swipe
+  up shows the next file, a swipe down the one before (or turn the crown), with its share button
+  beside Back. Pictures show, drawings (SVG) are drawn on the watch, texts show their start, a
+  recording or a video opens to play. An SVG picture opens drawn as well.
+- **Cosmos: three new orb styles.** Well (the fabric of space bending into a well round a mass;
+  ripples carry the voice, two masses circle each other and send out gravitational waves as it
+  works), Black hole (a ring of light round a shadow as it was photographed: gas falls in to
+  listen, a disk to think, jets to work, the ring following the voice) and Accretion (a young star's
+  disk of dust: it gathers into clumps to think and merges into planets to work).
 - **New orb styles: five state shapes, Face, Imprint, Hologram, Eye, six robots and Ocean** (first launch and Settings →
   Orb style).
   - **State shapes**: five orbs with one shape per state (listening, thinking, working with its
@@ -5129,15 +5142,27 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Changed
 
+- **The faces speak and listen.** The face's relief is more anatomical (the nose's bridge and wings,
+  the philtrum, a cupid's bow, the cheekbones, the folds from nose to mouth, the jaw). Face's and
+  Imprint's mouths open with the voice, the jaw dropping and the lips parting as words are spoken
+  (they barely moved), the teeth showing on open syllables; the brows lift on stressed syllables
+  and the head nods with the phrasing; listening, they nod along with your voice.
+- **Hologram is gone** (a watch that had it shows Halo).
 - **Swipes as in a browser.** On every page a swipe to the right (the finger moving right, as with
   watchOS's own Back) goes back to the page before, one page at a time, down to Home; a swipe to
   the left goes forward again to a page you came back from, and does nothing when there is none
-  (on Home at launch, neither swipe goes anywhere). A swipe across a row never opens that row. A
+  (on Home at launch, neither swipe goes anywhere). Swipes move between the app's own pages (Home's
+  lists, a conversation, an automation, the settings); a page you open from what is on one of them
+  (a message, its steps, a picture, a link) opens with a tap only. A swipe across a row never opens that row. A
   conversation opened from Sessions opens on top of Sessions, so going back returns to the list.
 - **The conversation's page.** From the orb page of a conversation with at least one message, a
   swipe to the left opens its numbers (questions, tool calls, thinking steps, when it started and last
-  moved) and its files (what its turns made or were given, your spoken questions left out), each
-  card with its share button on the right.
+  moved) and its files (what its turns made or were given, and the files its assistant wrote into
+  the conversation's folder; your spoken questions left out), each card with its share button on
+  the right.
+  Its exchanges open from Every exchange there (the swipe on a Sessions row is gone: swipes move
+  between pages). A swipe back on an automation's edit page with unsaved changes asks to save or
+  discard them, as Back does; a zoomed picture pans without leaving its page.
 - **Buttons that follow what it does.** Beside Back: Stop while it is busy (listening, thinking or
   working, speaking or paused), Share at rest; while it works after an Accept all, the shield that
   takes it back sits beside Stop (it was at the bottom right). A 1.5 s hold on the orb does what
@@ -5175,6 +5200,13 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Fixed
 
+- The tools and keyboard icons on the orb page take a tap a little beside their circle: a tap that
+  missed by a few points paused or resumed the voice instead.
+- Wave changes state without a jump: its motions keep their pace and only how much of each shows
+  changes.
+- With the Assistant's workflow, a request about the picture it just made ("make it simpler",
+  "in white") starts from the conversation's newest image, as on the iPhone; the watch did not
+  send it, so the Assistant asked for an image to be attached.
 - The orb page keeps its layout however it is reached: coming back to it scrolled (from a message,
   for instance) no longer shifts the orb, its icons and "who answers" down the screen.
 - After Accept all, the tools of the call you approved no longer ask again, including those that go
@@ -5424,12 +5456,13 @@ sequenceDiagram
 |---|---|
 | `Sources/App` (SwiftUI) | Screens and navigation (one `NavigationStack`); see [design.md](design.md). |
 | `AppModel` (`@MainActor`) | The client, the state on screen (waits, sessions, automations, entities), each automation's definition and latest results once read (shared by its pages, updated by a save), the 15 s foreground poll (the automations list at most once a minute), haptics, tool and workflow choices, the tools Accept all allowed, the answers seen on this watch. |
-| `Orb`, `OrbScenes`, `OrbConcepts`, `OrbAvatars`, `OrbRobots` | The orb (every style drawn from `OrbPhases`, the five phases' weights and the voice): a planet of points whose style answers the voice (Halo, Vortex, Nebula, Liquid, Galaxy), and scenes of their own: Rings, the five state shapes (Lotus, Crystal, Eclipse, Synapse, Drop), Face, Imprint, Hologram, Eye, the six robots, Ocean; all frame-rate independent and drawn in one `Canvas`, with the light of its work. |
+| `Orb`, `OrbScenes`, `OrbConcepts`, `OrbCosmos`, `OrbNature`, `OrbAvatars`, `OrbLines`, `OrbRobots` | The orb (every style drawn from `OrbPhases`, the five phases' weights and the voice): a planet of points whose style answers the voice (Halo, Vortex, Nebula, Liquid, Galaxy), and scenes of their own: Rings, the five state shapes (Lotus, Crystal, Eclipse, Synapse, Drop), Face, Imprint, Contour, Membrane, Eye (one relief of the face, computed once on a grid for the line styles), the six robots, the Cosmos scenes (Well, Black hole, Accretion) and the Nature scenes (Ocean, Aurora, Murmuration); every motion at a fixed pace, the phases blending how much of each shows, so a change of state is always a smooth morph; all frame-rate independent and drawn in one `Canvas`, with the light of its work. |
 | `Listener` | Records 16 kHz mono WAV with metering; detects speech against the room's noise floor; sends after 3 s of silence. |
 | `Speaker` | Streams the gateway's voice in chunks and plays them back to back with metering (the orb follows the level); pause, resume, rewind 10 s. |
 | `RunProgress` | Follows a running automation down to the agent's child run and describes its newest step in words. |
-| Browser navigation | `AppModel.path` is the history: a swipe to the right (`goBack`) closes the top page, a swipe to the left (`goForward`) opens again the pages closed by going back (`forward`, kept until something else is opened; forms and answered approvals are not kept); rows and links fire on a tap only (`TapButtonStyle`: a finger that moves is not a tap), and the stack's binding (`stackPath`) also refuses a page opened under a sideways-moving finger, so a swipe across a row never opens it; with nothing ahead, and only from there, the orb page of a conversation with a message opens `ConversationInfoView` (its numbers and files from `GET /sessions/{id}/artifacts`, each shared as a file downloaded only when shared). |
+| Browser navigation | `AppModel.path` is the history: a swipe to the right (`goBack`) closes the top page, a swipe to the left (`goForward`) opens again the pages closed by going back (`forward`, kept until something else is opened; only the app's own pages are kept, `Route.revisitable`: a message, its steps, media, a link, a form or a question opens with a tap only); rows and links fire on a tap only (`TapButtonStyle`: a finger that moves is not a tap), and the stack's binding (`stackPath`) also refuses a page opened under a sideways-moving finger, so a swipe across a row never opens it; with nothing ahead, and only from there, the orb page of a conversation with a message opens `ConversationInfoView` (its numbers, and its files from `GET /sessions/{id}/artifacts` and the conversation's folder through `GET /runs/{id}/workspace/files`, each shared as a file downloaded only when shared). |
 | `RunActivity` | Follows a question's run down to the run doing the work and reads its new step records (thinking, tool calls, media, waits) into the steps under the orb and the orb's pulses and satellites. |
+| `SVGDocument`, `SVGView` | SVG drawn on the watch (it has no web view): the client library reads a drawing into shapes and texts with their transforms, inherited styles, gradients, dashes and blur or drop-shadow filters (rect, circle, ellipse, line, polyline, polygon, every path command with arcs, text, groups); the app draws them in one `Canvas`, fitted with their aspect kept. Not drawn: embedded images, `use`, masks, clip paths, patterns, CSS stylesheets. Used by the file preview (`FilePreviewView`, a vertical pager over the conversation's files) and the media page. |
 | `MediaStore` | Downloads an answer's images, recordings and videos from the gateway's artifact route once, keeps them in the watch's caches (150 MB at most) and makes pictures small on the watch. |
 | `AnswerNotifier` | Hands a run's ledger stream to a background URLSession, posts answers and waits as notifications, background refresh for new waits. |
 | `RuntimeKeeper` | An extended runtime session while the app listens, works or speaks, so the voice continues with the wrist down. |
@@ -5444,7 +5477,7 @@ sequenceDiagram
 | Needs you | `GET /api/gateway/runs?status=waiting`, then `GET /api/gateway/runs/{id}` for each waiting row (the approval lives on the agent's child run) |
 | Allow / deny / answer | `POST /api/gateway/commands` `{type: "resume", payload: {wait_key, payload: {approved} or {response}}}`; the run is read again first, and a wait answered elsewhere is not answered twice |
 | Accept all (an approval) | allows this conversation's tools on Ask, up to the risk of the call approved (at least "makes changes"); Off tools stay off, sends and tools whose destination the assistant picks keep asking. Allowed tools stay on Ask in the run's `_runtime.tool_policy` (fixed when a run starts); the watch answers their approvals (`POST /api/gateway/commands` resume) while it follows, and only when every call is on Auto or allowed; the shield (or Ask again on the Tools page) clears them, so the next call asks |
-| Ask the Assistant | `POST /api/gateway/runs/start` `{flow_id: "@default", interface: "abstractcode.agent.v1", session_id, input_data: {prompt, use_session_history: true, system, tools, _runtime.allowed_tools}}`, then `GET /api/gateway/runs/{id}`; `tools` lists every tool `GET /api/gateway/discovery/tools` reports enabled and available (as the desktop assistant), and `system` is added after the agent's own loop and tool rules |
+| Ask the Assistant | `POST /api/gateway/runs/start` `{flow_id: "@default", interface: "abstractcode.agent.v1", session_id, input_data: {prompt, use_session_history: true, system, tools, _runtime.allowed_tools}}`, then `GET /api/gateway/runs/{id}`; `tools` lists every tool `GET /api/gateway/discovery/tools` reports enabled and available (as the desktop assistant), and `system` is added after the agent's own loop and tool rules. With the Assistant's workflow (`interface: "abstractassistant.agent.v1"`), the conversation's newest image goes as `primary_image_artifact` (`{$artifact, run_id, content_type}`, also in `context`) with `has_primary_image_context`, as the iPhone and the menu-bar Assistant send it: an edit, an upscale or an image-to-video starts from it |
 | Ask an entity | `GET /api/gateway/entities`, `POST /api/gateway/entities/{name}/chat/open`, `POST .../chat/{id}/turn`; the entity row's `appearance` gives its orb |
 | Voice in | `POST /api/gateway/attachments/upload` (multipart, `session_id`), `POST /api/gateway/runs/{session owner}/audio/transcribe` |
 | Voice out | `POST /api/gateway/runs/{id}/voice/tts/stream` (an entity: `POST /api/gateway/entities/{name}/voice/tts/stream`); the whole text in one request (the gateway speaks it in whole sentences); playback starts once 1.5 s of speech is queued and plays at the speed chosen on the watch |
@@ -5455,7 +5488,7 @@ sequenceDiagram
 | Archive | `POST /api/gateway/sessions/{id}/archive` (and `/unarchive`): out of `GET /runs?root_only=true` on every client, nothing deleted; `GET /api/gateway/runs?archived_only=true&root_only=true` lists them |
 | Search | `GET /api/gateway/sessions/search?q=…&limit=25` (AbstractRuntime `ConversationSearch`, the caller's own plane): one item per session with `snippet` and `highlights`; 404 on a gateway without it |
 | Live work | the root's `GET /api/gateway/runs/{id}` each second, down its `subworkflow:<child>` waits to the run doing the work; that run's `GET /api/gateway/runs/{id}/ledger?after=N`, decoded for `effect.type`, `effect.payload.tool_calls[{name, arguments}]`, `effect.payload.output.modality`, `response_schema`, `result.results[{success, error}]`, `result.content`, `result.wait` only (a thinking record's conversation is skipped); a run that handed off to a child is not read again. About as much data as the run's records (a 90 s agent run with 6 tools: ~3 MB, mostly its thinking records) |
-| Conversation files | `GET /api/gateway/sessions/{id}/artifacts`: `generated_media` and `attachment` rows; an attachment that a transcript (`tags.task == stt`) names as its `source_audio_artifact` is a spoken question, counted apart; a file's bytes come from `GET /api/gateway/runs/{run}/artifacts/{id}/content` when it is shared |
+| Conversation files | `GET /api/gateway/sessions/{id}/artifacts`: `generated_media` and `attachment` rows; an attachment that a transcript (`tags.task == stt`) names as its `source_audio_artifact` is a spoken question, counted apart; a file's bytes come from `GET /api/gateway/runs/{run}/artifacts/{id}/content` when it is shared. The conversation's folder, when the gateway made it for the conversation or the run (`GET /api/gateway/runs/{run}/workspace` `kind` `session` or `run`): `GET /api/gateway/runs/{run}/workspace/files?recursive=true` (hidden files and caches left out; a refused folder lists nothing and leaves the other files shown), each file's bytes from `GET /api/gateway/runs/{run}/workspace/content?path=` |
 | Media | a finished run's `output` (`outputs.{modality}[].artifact_ref`, `artifact`, `image_artifact`, `audio_artifact`, `video_artifact`); history: `GET /api/gateway/sessions/{id}/artifacts` (`tags.kind == generated_media`, by `run_id` and `parent_run_id`); bytes: `GET /api/gateway/runs/{run}/artifacts/{id}/content` (at most 25 MB), kept in the watch's caches, images shrunk on the watch |
 | Sessions | `GET /api/gateway/runs?root_only=true&session_kind=chat,discussion&include_metrics=true`, a row's title is its latest run's prompt from `GET /api/gateway/runs/{id}/input_data` (none is made up); a conversation's history on the orb page: `GET /api/gateway/runs/{newest}/history_bundle?include_session=true&detail=replay` (one request) |
 | Cancel / stop | `POST /api/gateway/commands` `{type: "cancel"}` |

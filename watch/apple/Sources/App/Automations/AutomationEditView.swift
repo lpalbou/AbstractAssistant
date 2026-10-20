@@ -122,6 +122,9 @@ struct AutomationEditView: View {
                 }
             }
         }
+        // A swipe back with unsaved changes asks the same.
+        .onChange(of: changed, initial: true) { _, c in model.guardBack(of: .automationEdit(automation), c ? { leaving = true } : nil) }
+        .onDisappear { model.guardBack(of: .automationEdit(automation), nil) }
         .confirmationDialog("Save your changes?", isPresented: $leaving) {
             Button("Save") { Task { await save() } }
             Button("Discard", role: .destructive) { model.path.removeLast() }

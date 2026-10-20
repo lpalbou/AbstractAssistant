@@ -8,6 +8,19 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Added
 
+- **Four new orb styles.** Contour (a face raised in lines of light, after Wave) and Membrane (a
+  face pressing through a fabric of light, after Well) in Faces; Aurora (the northern lights over a
+  lake, gathering into a corona as it thinks) and Murmuration (a flock of starlings at dusk) in a
+  new Nature family, with Ocean.
+- **Files previewed on the watch.** A tap on a file of the conversation's page opens it; a swipe
+  up shows the next file, a swipe down the one before (or turn the crown), with its share button
+  beside Back. Pictures show, drawings (SVG) are drawn on the watch, texts show their start, a
+  recording or a video opens to play. An SVG picture opens drawn as well.
+- **Cosmos: three new orb styles.** Well (the fabric of space bending into a well round a mass;
+  ripples carry the voice, two masses circle each other and send out gravitational waves as it
+  works), Black hole (a ring of light round a shadow as it was photographed: gas falls in to
+  listen, a disk to think, jets to work, the ring following the voice) and Accretion (a young star's
+  disk of dust: it gathers into clumps to think and merges into planets to work).
 - **New orb styles: five state shapes, Face, Imprint, Hologram, Eye, six robots and Ocean** (first launch and Settings →
   Orb style).
   - **State shapes**: five orbs with one shape per state (listening, thinking, working with its
@@ -39,15 +52,27 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Changed
 
+- **The faces speak and listen.** The face's relief is more anatomical (the nose's bridge and wings,
+  the philtrum, a cupid's bow, the cheekbones, the folds from nose to mouth, the jaw). Face's and
+  Imprint's mouths open with the voice, the jaw dropping and the lips parting as words are spoken
+  (they barely moved), the teeth showing on open syllables; the brows lift on stressed syllables
+  and the head nods with the phrasing; listening, they nod along with your voice.
+- **Hologram is gone** (a watch that had it shows Halo).
 - **Swipes as in a browser.** On every page a swipe to the right (the finger moving right, as with
   watchOS's own Back) goes back to the page before, one page at a time, down to Home; a swipe to
   the left goes forward again to a page you came back from, and does nothing when there is none
-  (on Home at launch, neither swipe goes anywhere). A swipe across a row never opens that row. A
+  (on Home at launch, neither swipe goes anywhere). Swipes move between the app's own pages (Home's
+  lists, a conversation, an automation, the settings); a page you open from what is on one of them
+  (a message, its steps, a picture, a link) opens with a tap only. A swipe across a row never opens that row. A
   conversation opened from Sessions opens on top of Sessions, so going back returns to the list.
 - **The conversation's page.** From the orb page of a conversation with at least one message, a
   swipe to the left opens its numbers (questions, tool calls, thinking steps, when it started and last
-  moved) and its files (what its turns made or were given, your spoken questions left out), each
-  card with its share button on the right.
+  moved) and its files (what its turns made or were given, and the files its assistant wrote into
+  the conversation's folder; your spoken questions left out), each card with its share button on
+  the right.
+  Its exchanges open from Every exchange there (the swipe on a Sessions row is gone: swipes move
+  between pages). A swipe back on an automation's edit page with unsaved changes asks to save or
+  discard them, as Back does; a zoomed picture pans without leaving its page.
 - **Buttons that follow what it does.** Beside Back: Stop while it is busy (listening, thinking or
   working, speaking or paused), Share at rest; while it works after an Accept all, the shield that
   takes it back sits beside Stop (it was at the bottom right). A 1.5 s hold on the orb does what
@@ -85,6 +110,13 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Fixed
 
+- The tools and keyboard icons on the orb page take a tap a little beside their circle: a tap that
+  missed by a few points paused or resumed the voice instead.
+- Wave changes state without a jump: its motions keep their pace and only how much of each shows
+  changes.
+- With the Assistant's workflow, a request about the picture it just made ("make it simpler",
+  "in white") starts from the conversation's newest image, as on the iPhone; the watch did not
+  send it, so the Assistant asked for an image to be attached.
 - The orb page keeps its layout however it is reached: coming back to it scrolled (from a message,
   for instance) no longer shifts the orb, its icons and "who answers" down the screen.
 - After Accept all, the tools of the call you approved no longer ask again, including those that go

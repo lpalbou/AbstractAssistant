@@ -892,7 +892,15 @@ public struct StartRunRequest: Encodable, Sendable {
         /// The tools offered to the agent; nil: the workflow's own default set (9 file/code/web tools).
         public var tools: [String]?
         public var runtime: Runtime?
-        enum CodingKeys: String, CodingKey { case prompt, useSessionHistory = "use_session_history", system, tools, runtime = "_runtime" }
+        /// The Assistant's workflow: the image an edit, an upscale or an image-to-video starts from
+        /// (the conversation's newest image), as the iPhone and the menu-bar Assistant send it.
+        public var primaryImageArtifact: JSONValue?
+        public var hasPrimaryImageContext: Bool?
+        public var context: JSONValue?
+        enum CodingKeys: String, CodingKey {
+            case prompt, useSessionHistory = "use_session_history", system, tools, runtime = "_runtime", context
+            case primaryImageArtifact = "primary_image_artifact", hasPrimaryImageContext = "has_primary_image_context"
+        }
     }
     public var flowId = "@default"
     public var interface = WorkflowChoice.agentInterface
@@ -904,13 +912,21 @@ public struct StartRunRequest: Encodable, Sendable {
     public var inputData: InputData
 
     public init(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy? = nil, tools: [String]? = nil,
-                system: String? = AssistantPersona.system, workflow: WorkflowChoice? = nil) {
+                system: String? = AssistantPersona.system, workflow: WorkflowChoice? = nil, primaryImage: MediaItem? = nil) {
         self.sessionId = sessionId
         let runtime = toolPolicy == nil && tools == nil ? nil : InputData.Runtime(toolPolicy: toolPolicy, allowedTools: tools)
         self.inputData = InputData(prompt: prompt, system: system, tools: tools, runtime: runtime)
         if let w = workflow {
             flowId = w.flowId; interface = w.interface
             bundleId = w.bundleId; bundleVersion = w.bundleVersion; registryScope = w.registryScope
+        }
+        // Only the Assistant's workflow reads a source image (an agent has no such input).
+        if interface == WorkflowChoice.assistantInterface {
+            let ref = primaryImage.map { JSONValue.object(["$artifact": .string($0.artifactId), "run_id": .string($0.runId),
+                                                          "content_type": .string($0.contentType)]) }
+            inputData.primaryImageArtifact = ref
+            inputData.hasPrimaryImageContext = ref != nil
+            if let ref { inputData.context = .object(["primary_image_artifact": ref]) }
         }
     }
     enum CodingKeys: String, CodingKey {

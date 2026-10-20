@@ -3,11 +3,17 @@ import SwiftUI
 import WatchKit
 
 enum Route: Hashable {
-    /// Worth coming back to with a swipe right (not an answered question, nor a form).
+    /// One of the app's own pages, which a swipe forward may open again: Home's lists, a
+    /// conversation, an automation, the settings. A page opened from what is on one of them (a
+    /// message, its steps, a picture, a link, a choice, a form, a question) opens with a tap only.
     var revisitable: Bool {
         switch self {
-        case .approval, .askUser, .draft, .automationEdit, .newAutomation, .orbStylePreview: false
-        default: true
+        case .ask, .sessions, .session, .automations, .automation, .conversation, .settings, .voiceSettings,
+             .orbStyle, .about, .tools, .toolGroup, .connection, .archivedSessions, .sessionSearch,
+             .archivedAutomations: true
+        // `.answer`: a notification's answer (it would be read aloud again); `.waits`: it closes once empty.
+        case .approval, .askUser, .draft, .waits, .answer, .picker, .automationEdit, .newAutomation, .message,
+             .occurrence, .read, .link, .orbStylePreview, .workflow, .media, .activity, .filePreview: false
         }
     }
     case approval(Wait), askUser(Wait), draft(Wait), waits
@@ -16,6 +22,7 @@ enum Route: Hashable {
     case read(ReadItem), link(URL), answer(AnswerRef), orbStyle, orbStylePreview(String), about, conversation(String)
     case tools(AppModel.ToolScope), toolGroup(AppModel.ToolScope, String), connection
     case workflow(AppModel.ToolScope), media(MediaItem), activity(String), archivedSessions, sessionSearch(String), archivedAutomations
+    case filePreview([SessionFile], Int)
 }
 
 /// App state: one GatewayClient, foreground polling every 15 s for waits and runs.
@@ -234,10 +241,14 @@ final class AppModel: ObservableObject {
     /// The conversations have been read once.
     var sessionsLoaded: Bool { lastRefresh != nil }
     /// The pages open, as a browser's history: going back keeps the pages left (`forward`), and a
-    /// swipe right goes forward again; opening something else forgets them.
+    /// swipe forward (the finger moving left) opens them again; opening something else forgets them.
     @Published var path: [Route] = [] {
-        didSet { forward = Self.forward(after: oldValue, now: path, kept: forward) }
+        didSet {
+            if forwarding { forwarding = false; return }   // goForward has used up its page itself
+            forward = Self.forward(after: oldValue, now: path, kept: forward)
+        }
     }
+    private var forwarding = false
     /// The last moment a finger moved sideways (a swipe under way, or one that just ended).
     private var swipedAt: Date?
 
@@ -251,37 +262,71 @@ final class AppModel: ObservableObject {
             self.path = new
         })
     }
-    /// The pages a swipe right goes forward to, the next one last.
+    /// The pages a swipe forward opens again, the next one last.
     private(set) var forward: [Route] = []
-    /// The orb page with a message: a swipe right with nothing ahead opens its conversation.
-    var forwardFallback: Route?
-
-    /// Swipe left: the page before (Home is the first page: nothing before it).
-    func goBack() {
-        if !path.isEmpty { path.removeLast() }
+    /// The Assistant's conversations known to have a message, each with its newest run (only ever
+    /// added to: a conversation that has had one keeps it), so that its orb page offers its stats
+    /// page whichever page appeared last, before the next poll lists it.
+    private var conversationsWithMessages: [String: String?] = [:]
+    func noteMessages(in sessionId: String, runId: String?) {
+        if let runId { conversationsWithMessages[sessionId] = runId }
+        else if conversationsWithMessages[sessionId] == nil { conversationsWithMessages[sessionId] = .some(nil) }
+    }
+    func hasMessages(_ sessionId: String) -> Bool {
+        conversationsWithMessages[sessionId] != nil || (sessions.first { $0.id == sessionId }?.turns ?? 0) > 0
+    }
+    /// A run of the conversation (its folder is read through it): the newest seen on this watch, else
+    /// the listing's.
+    func anyRun(of sessionId: String) -> String? {
+        conversationsWithMessages[sessionId].flatMap { $0 } ?? sessions.first { $0.id == sessionId }?.latest.runId
+            ?? runs.first { $0.sessionId == sessionId }?.runId
     }
 
-    /// Swipe right: the page went back from, else what the page offers (the orb page: its
-    /// conversation). Nothing ahead: nothing happens.
+    /// A page with something unsaved (a form with changes) asks before a swipe back closes it.
+    private var backGuard: (route: Route, ask: () -> Void)?
+    func guardBack(of route: Route, _ ask: (() -> Void)?) {
+        if let ask { backGuard = (route, ask) } else if backGuard?.route == route { backGuard = nil }
+    }
+    /// A picture being zoomed into: its pan is not a swipe.
+    var swipesPaused = false
+
+    /// Swipe back (the finger moving right): the page before. Home is the first page: nothing is
+    /// before it.
+    func goBack() {
+        guard let top = path.last else { return }
+        if let g = backGuard, g.route == top { g.ask(); return }
+        path.removeLast()
+    }
+
+    /// Swipe forward (the finger moving left): on the Assistant's orb page, the conversation's stats
+    /// page and only that (once it has a message); elsewhere the page went back from. Nothing ahead:
+    /// nothing happens.
     func goForward() {
-        if let next = forward.last { path.append(next); return }
-        guard let more = forwardFallback else { return }
-        switch path.last { case .ask, .answer: path.append(more); default: break }   // from the orb page only
+        switch path.last {
+        case .ask:
+            guard responder == .assistant, hasMessages(askSessionId) else { return }
+            forwarding = true; forward = []
+            path.append(.conversation(askSessionId))
+        default:
+            guard let next = forward.last else { return }
+            forwarding = true; forward.removeLast()
+            path.append(next)
+        }
     }
 
     /// The finger moves sideways: until 0.4 s after it last did, a button under it opens nothing (a
     /// button fires when the finger lifts on it, and a swipe across a full-width row ends on it).
     func swiped() { swipedAt = Date() }
 
-    /// How `forward` follows a change of the path: back (a shorter path, the same start) keeps the
-    /// pages left; forward onto the next of them uses it up; anything else forgets them. Pages that
-    /// are not worth coming back to (an answered approval, a form) are not kept.
+    /// How `forward` follows a change of the path other than a swipe forward: back (a shorter path,
+    /// the same start) keeps the pages left, the app's own pages only (`Route.revisitable`), and none
+    /// above a page that opens with a tap only; anything opened, by a tap or otherwise, forgets them,
+    /// as in a browser.
     nonisolated static func forward(after old: [Route], now new: [Route], kept: [Route]) -> [Route] {
         if new.count < old.count, Array(old.prefix(new.count)) == new {
-            return kept + old[new.count...].reversed().filter(\.revisitable)
-        }
-        if new.count == old.count + 1, Array(new.dropLast()) == old, let last = new.last {
-            return kept.last == last ? Array(kept.dropLast()) : []
+            let left = Array(old[new.count...])
+            if left.allSatisfy(\.revisitable) { return kept + left.reversed() }
+            return Array(left.prefix { $0.revisitable }.reversed())
         }
         return new == old ? kept : []
     }
@@ -376,7 +421,7 @@ final class AppModel: ObservableObject {
         definitions = [:]; results = [:]; savedAt = [:]
         forgetTools()                                    // each account has its own tools (email, …)
         workflows = []; workflowsReadAt = nil; MediaStore.shared.clear()
-        needsSignIn = false; signInNotice = nil; path = []
+        needsSignIn = false; signInNotice = nil; path = []; forward = []
         startPolling()
     }
 
@@ -389,7 +434,7 @@ final class AppModel: ObservableObject {
         definitions = [:]; results = [:]; savedAt = [:]
         forgetTools()
         workflows = []; workflowsReadAt = nil; MediaStore.shared.clear()
-        path = []; signInNotice = notice; needsSignIn = true
+        path = []; forward = []; signInNotice = notice; needsSignIn = true
     }
 
     /// A fresher row for one automation (its page knows first that it runs or has finished).

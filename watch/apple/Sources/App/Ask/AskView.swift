@@ -104,7 +104,7 @@ struct AskView: View {
                         // same moments as who answers).
                         .overlay(alignment: .topTrailing) {
                             if controlsShown {
-                                keyboardLink.buttonStyle(GlassPress()).padding(.trailing, 6).padding(.top, 2)
+                                keyboardLink.buttonStyle(GlassPress()).padding(.trailing, 6 - Self.reach).padding(.top, 2 - Self.reach)
                             }
                         }
                         // The tools of this conversation, bottom right, mirroring the keyboard (as far
@@ -112,7 +112,7 @@ struct AskView: View {
                         // (the Assistant's tools; an entity brings its own).
                         .overlay(alignment: .bottomTrailing) {
                             if controlsShown, model.responder == .assistant {
-                                toolsLink.padding(.trailing, 6).padding(.bottom, 60)
+                                toolsLink.padding(.trailing, 6 - Self.reach).padding(.bottom, 60 - Self.reach)
                             }
                         }
                         .id("orb")
@@ -162,10 +162,11 @@ struct AskView: View {
             }
         }
         .task { await onOpen() }
-        // With a message, a swipe right (nothing ahead) opens this conversation: its numbers, its files.
-        .onAppear { offerConversation() }
-        .onChange(of: exchanges.isEmpty) { _, _ in offerConversation() }
-        .onDisappear { model.forwardFallback = nil }
+        // A message of the Assistant's conversation on screen: a swipe forward opens its stats page
+        // (an entity's exchanges, or an answer opened from a notification, may be another conversation's).
+        .onChange(of: exchanges.last?.id, initial: true) { _, run in
+            if run != nil, opening == nil, model.responder == .assistant { model.noteMessages(in: model.askSessionId, runId: run) }
+        }
         .onChange(of: model.path) { _, path in pathChanged(path) }
         // "New conversation" (in the Assistant ⌄ choice): this screen starts empty.
         // A new conversation, or another session: this screen starts over, unless it is the
@@ -259,6 +260,7 @@ struct AskView: View {
             ForEach(earlier.prefix(shownCount)) { e in
                 NavigationLink(value: Route.message(title: model.responder.title, e)) { MessageRow(exchange: e) }
                     .buttonStyle(.tap)
+                    .accessibilityIdentifier("message.row")
             }
             if earlier.count > shownCount {
                 Button("Show older") { showOlder() }
@@ -307,6 +309,7 @@ struct AskView: View {
                         Circle().fill(Theme.amber).frame(width: 8, height: 8).offset(x: 1, y: -1)
                     }
                 }
+                .padding(Self.reach).contentShape(Rectangle())
         }
         .buttonStyle(GlassPress())
         .accessibilityLabel(model.sessionTools.isEmpty ? "Tools" : "Tools, changed for this conversation")
@@ -316,7 +319,7 @@ struct AskView: View {
     /// The watch's text input (dictation, Scribble, keyboard) behind one keyboard icon.
     private var keyboardLink: some View {
         TextFieldLink(prompt: Text("Ask \(model.responder.title)")) {
-            GlassIcon(symbol: "keyboard")
+            GlassIcon(symbol: "keyboard").padding(Self.reach).contentShape(Rectangle())
         } onSubmit: { text in
             let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !t.isEmpty { speaker.stop(); send(t) }
@@ -334,9 +337,9 @@ struct AskView: View {
     /// next tap listens).
     private var voiceEngaged: Bool { phase == .answer && (speaker.isActive || speaker.isPaused) }
 
-    private func offerConversation() {
-        model.forwardFallback = exchanges.isEmpty ? nil : .conversation(model.askSessionId)
-    }
+    /// How far beyond its circle a corner icon still takes a tap (the orb takes every tap around it,
+    /// and a 35 pt circle is a narrow target on the wrist).
+    static let reach: CGFloat = 10
 
     /// How long a hold on the orb takes to toggle between listening and reading.
     static let holdToToggle: Double = 1.5
@@ -549,8 +552,10 @@ struct AskView: View {
                     // The conversation's workflow (the Assistant's also makes images and voice).
                     let workflow = try await model.runWorkflow()
                     guard mine == turn else { return }
+                    // The conversation's newest image: what "edit it", "make it simpler" start from.
+                    let source = exchanges.reversed().lazy.flatMap(\.media).first { $0.kind == .image }
                     let id = try await model.client.startRun(prompt: text, sessionId: model.askSessionId, toolPolicy: plan.policy,
-                                                                  tools: plan.offered, workflow: workflow)
+                                                                  tools: plan.offered, workflow: workflow, primaryImage: source)
                     guard mine == turn else {
                         // Cancelled (or left) while the run was starting: stop it on the gateway too.
                         try? await model.client.cancel(runId: id); return

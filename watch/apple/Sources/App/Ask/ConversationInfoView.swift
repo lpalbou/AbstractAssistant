@@ -13,6 +13,8 @@ struct ConversationInfoView: View {
     @State private var failed = false
 
     private var session: SessionSummary? { model.sessions.first { $0.id == sessionId } }
+    /// A run of the conversation: the conversation's folder is read through it.
+    private var anyRun: String? { model.anyRun(of: sessionId) }
 
     var body: some View {
         FitScroll {
@@ -21,12 +23,32 @@ struct ConversationInfoView: View {
                     .font(.rounded(.headline)).foregroundStyle(Theme.text).lineLimit(3)
                     .accessibilityIdentifier("conversation.title")
                 stats
+                if let s = session {
+                    NavigationLink(value: Route.session(s)) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "list.bullet").font(.rounded(.caption2)).foregroundStyle(Theme.cyan).frame(width: 16)
+                            Text("Every exchange").font(.rounded(.footnote, weight: .medium)).foregroundStyle(Theme.text)
+                            Spacer(minLength: 2)
+                            Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.muted)
+                        }
+                        .padding(.vertical, 8).padding(.horizontal, 10)
+                        .background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.tap)
+                    .accessibilityIdentifier("conversation.exchanges")
+                }
                 Text("Files").font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text2).padding(.top, 4)
                 if let files {
                     if files.files.isEmpty {
                         Text("No files yet").font(.rounded(.footnote)).foregroundStyle(Theme.muted)
                     }
-                    ForEach(files.files) { FileCard(file: $0) }
+                    ForEach(Array(files.files.enumerated()), id: \.element.id) { i, file in
+                        FileCard(file: file) { model.path.append(.filePreview(files.files, i)) }
+                    }
+                    if files.folderTruncated {
+                        Text("More files are in its folder on your gateway.").font(.rounded(.caption2)).foregroundStyle(Theme.muted)
+                    }
                 } else if failed {
                     Button("Couldn't load the files. Retry") { Task { await load() } }
                         .buttonStyle(.tap).font(.rounded(.footnote)).foregroundStyle(Theme.amber)
@@ -37,7 +59,7 @@ struct ConversationInfoView: View {
             .padding(.horizontal, 4)
         }
         .besideBack { EmptyView() }
-        .task(id: sessionId) { await load() }
+        .task(id: "\(sessionId) \(anyRun ?? "")") { await load() }
     }
 
     private var stats: some View {
@@ -51,6 +73,8 @@ struct ConversationInfoView: View {
                         stat("calendar", "Started \(first.formatted(date: .abbreviated, time: .shortened))")
                     }
                     if let at = s.updatedAt { stat("clock", "Last activity \(SessionRow.ago(at))") }
+                } else if model.hasMessages(sessionId) {
+                    LoadingText(text: "Loading").font(.rounded(.footnote)).foregroundStyle(Theme.muted)   // not listed yet
                 } else {
                     stat("bubble.left.and.bubble.right", "Not started yet")
                 }
@@ -72,20 +96,23 @@ struct ConversationInfoView: View {
     }
 
     private func load() async {
-        do { files = try await model.client.sessionFiles(sessionId: sessionId); failed = false }
+        do { files = try await model.client.sessionFiles(sessionId: sessionId, folderRunId: anyRun); failed = false }
+        catch is CancellationError { return }                  // a newer load replaces it
+        catch let e as URLError where e.code == .cancelled { return }
         catch { failed = files == nil }
     }
 }
 
-/// One file: what it is, its size and when, and its share button on the right. An image, a
-/// recording or a video opens on the watch.
+/// One file: what it is, its size and when, and its share button on the right. A tap previews it,
+/// the conversation's other files a swipe up or down away.
 struct FileCard: View {
     let file: SessionFile
+    let open: () -> Void
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
         HStack(spacing: 6) {
-            Button { if let m = file.media { model.path.append(.media(m)) } } label: {
+            Button(action: open) {
                 HStack(spacing: 6) {
                     Image(systemName: symbol).font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.cyan).frame(width: 22)
                     VStack(alignment: .leading, spacing: 1) {
@@ -97,13 +124,15 @@ struct FileCard: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.tap)
-            .disabled(file.media == nil)
-            ShareLink(item: SharedFile(file: file, client: model.client), preview: SharePreview(file.fileName)) {
-                GlassIcon(symbol: "square.and.arrow.up", size: 30)
+            .accessibilityIdentifier("file.open")
+            if file.fitsTheWatch {
+                ShareLink(item: SharedFile(file: file, client: model.client), preview: SharePreview(file.fileName)) {
+                    GlassIcon(symbol: "square.and.arrow.up", size: 30)
+                }
+                .buttonStyle(GlassPress())
+                .accessibilityLabel("Share \(file.fileName)")
+                .accessibilityIdentifier("file.share")
             }
-            .buttonStyle(GlassPress())
-            .accessibilityLabel("Share \(file.fileName)")
-            .accessibilityIdentifier("file.share")
         }
         .padding(.vertical, 6).padding(.horizontal, 8)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
@@ -116,7 +145,7 @@ struct FileCard: View {
         case .image: "Image"
         case .audio: "Recording"
         case .video: "Video"
-        case nil: file.contentType.contains("pdf") ? "PDF" : "File"
+        case nil: file.contentType.hasPrefix("image/") ? "Image" : file.contentType.contains("pdf") ? "PDF" : "File"
         }
     }
 
@@ -125,7 +154,7 @@ struct FileCard: View {
         case .image: "photo"
         case .audio: "waveform"
         case .video: "play.rectangle"
-        case nil: file.contentType.contains("pdf") ? "doc.richtext" : "doc"
+        case nil: file.contentType.hasPrefix("image/") ? "photo" : file.contentType.contains("pdf") ? "doc.richtext" : "doc"
         }
     }
 
@@ -133,6 +162,7 @@ struct FileCard: View {
         var parts: [String] = [file.origin == .made ? "Made" : "Attached"]
         if let size = file.sizeBytes { parts.append(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)) }
         if let at = file.createdAt { parts.append(SessionRow.ago(at)) }
+        if !file.fitsTheWatch { parts.append("too large for the watch") }
         return parts.joined(separator: " · ")
     }
 }
