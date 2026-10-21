@@ -49,7 +49,7 @@ Orb styles: `../design/anim/orb-designs/`.
 | Image | An answer's image full screen: the Digital Crown zooms, a drag looks around, a double tap fits it; share beside Back. | zoom · share |
 | Work | A finished answer's steps in order (thinking, tools, media), with their durations. | read |
 | Who answers | The Assistant (one-shot agent), then your entities (long-term discussions), each with its orb. | choose |
-| Approval | What the assistant wants to do in plain words, then exactly what: the command and its folder, the page, or the recipient, subject and "Read the email". Three icons at the bottom. | deny · allow once · allow these tools in this conversation (from a conversation, never for sends) |
+| Approval | What the assistant wants to do in plain words, then exactly what: the command and its folder, the page, or the recipient, subject and "Read the email". Three icons at the bottom, the same for a conversation's run and an automation's, wherever it was opened (the orb page, Needs you, a notification). | deny · allow once · approve all: these tools for the rest of the run's conversation, or for its automation's runs, each by its own tools (never for sends) |
 | Email | The full email the assistant wants to send. | back |
 | Question | The question, its choices, or another answer typed or dictated. | choice · answer |
 | Needs you | Everything waiting, oldest first; it closes when nothing is left. | open |

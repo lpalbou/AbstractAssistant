@@ -41,6 +41,22 @@ struct AutomationInfoView: View {
                 if let error { Text(error).font(.rounded(.caption2)).foregroundStyle(Theme.red) }
                 // Its task, unless its name already says it (a name made from the task).
                 if let task = definition?.prompt, task != current.name { about("Task", task, id: "automation.task") }
+                // After an Approve all on one of its runs: what the watch approves for its runs.
+                let allowed = model.trust(.automation(automation.id))
+                if !allowed.isEmpty {
+                    Card(stroke: Theme.amber.opacity(0.5)) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("Allowed for its runs", systemImage: "checkmark.shield.fill")
+                                .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.amber)
+                            Text(allowed.map(ToolGroup.title(of:)).sorted().joined(separator: ", "))
+                                .font(.rounded(.caption2)).foregroundStyle(Theme.text2)
+                            Text("Approved by this watch when it sees them.").font(.rounded(.caption2)).foregroundStyle(Theme.muted)
+                            Button("Ask again") { model.revokeTrust(.automation(automation.id)); WKInterfaceDevice.current().play(.click) }
+                                .buttonStyle(FilledButtonStyle(fill: Theme.neutralButton, font: .rounded(.footnote, weight: .semibold)))
+                                .accessibilityIdentifier("automation.trust.revoke")
+                        }
+                    }
+                }
                 if current.contextMode == "growing" {
                     Label("Builds on its earlier runs", systemImage: "arrow.triangle.2.circlepath")
                         .font(.rounded(.caption2)).foregroundStyle(Theme.muted)

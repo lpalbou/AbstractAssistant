@@ -5066,8 +5066,9 @@ curl https://<host>.<tailnet>.ts.net/api/health
 - No push notifications: the app polls the gateway every 15 seconds while it is on screen, and
   watchOS decides when background checks run.
 - Your sign-in is kept in the app's storage on the watch, not in a sealed store.
-- Tools allowed with Accept all are approved by the watch while it follows the run; away from the
-  orb page, they ask.
+- Tools allowed with Approve all are approved by the watch when it sees their approvals (on the orb
+  page, or in its regular check while the app is open); with the app closed, they ask. Approve all
+  covers the run's own conversation, or its automation, by that one's own tools.
 - "New" answers are tracked on this watch: an answer read on another device still shows as new here.
 - Search and the live steps read your gateway's data: search needs a gateway that serves it, and
   the live steps read the run's records (about as much data as reading an answer aloud).
@@ -5098,6 +5099,15 @@ channel (TestFlight, then the App Store); the Python package's history is in
 [../../CHANGELOG.md](../../CHANGELOG.md).
 
 ## [Unreleased]
+
+### Changed
+
+- **Approve all, for a conversation and an automation alike.** An approval offers Deny, Approve
+  and Approve all wherever it is opened (the orb page, Needs you, a notification). Approve all is
+  for the run's own owner: its conversation, by that conversation's tools, or its automation, by
+  the automation's own tools; another conversation is never touched, and sends always ask. The
+  watch approves what was allowed as soon as it sees it; an automation's details say what is
+  allowed for its runs, with Ask again.
 
 ## [0.4.0] - 2026-10-21
 
@@ -5568,7 +5578,7 @@ sequenceDiagram
 | Sign in with an email | `POST /api/gateway/session/recovery/request`, then `POST /api/gateway/session/recovery/redeem` (`remember: true`); the session and CSRF values are sent as `X-AbstractGateway-Session` / `X-AbstractGateway-CSRF` |
 | Needs you | `GET /api/gateway/runs?status=waiting`, then `GET /api/gateway/runs/{id}` for each waiting row (the approval lives on the agent's child run) |
 | Allow / deny / answer | `POST /api/gateway/commands` `{type: "resume", payload: {wait_key, payload: {approved} or {response}}}`; the run is read again first, and a wait answered elsewhere is not answered twice |
-| Accept all (an approval) | allows this conversation's tools on Ask, up to the risk of the call approved (at least "makes changes"); Off tools stay off, sends and tools whose destination the assistant picks keep asking. Allowed tools stay on Ask in the run's `_runtime.tool_policy` (fixed when a run starts); the watch answers their approvals (`POST /api/gateway/commands` resume) while it follows, and only when every call is on Auto or allowed; the shield (or Ask again on the Tools page) clears them, so the next call asks |
+| Approve all (an approval) | for the run's owner, read from the run itself (`session_id`, `automation_id`, also on an agent's run below an occurrence): a conversation (its tools: the watch's defaults and its own changes) or an automation (its own tools: `input_data._runtime.allowed_tools` and `tool_policy`). It allows that owner's tools on Ask, up to the risk of the call approved (at least "makes changes"); Off tools stay off, sends and tools whose destination the assistant picks keep asking. Allowed tools stay on Ask in the run's `_runtime.tool_policy` (fixed when a run starts); the watch answers their approvals (`POST /api/gateway/commands` resume) when every call is allowed for that owner: while it follows the run, and in its regular check of what needs you (there only what Approve all allowed, never the watch's defaults). The shield, Ask again on the Tools page or on the automation's details clear them, so the next call asks |
 | Ask the Assistant | `POST /api/gateway/runs/start` `{flow_id: "@default", interface: "abstractcode.agent.v1", session_id, input_data: {prompt, use_session_history: true, system, tools, _runtime.allowed_tools}}`, then `GET /api/gateway/runs/{id}`; `tools` lists every tool `GET /api/gateway/discovery/tools` reports enabled and available (as the desktop assistant), and `system` is added after the agent's own loop and tool rules. With the Assistant's workflow (`interface: "abstractassistant.agent.v1"`), the conversation's newest image goes as `primary_image_artifact` (`{$artifact, run_id, content_type}`, also in `context`) with `has_primary_image_context`, as the iPhone and the menu-bar Assistant send it: an edit, an upscale or an image-to-video starts from it |
 | Ask an entity | `GET /api/gateway/entities`, `POST /api/gateway/entities/{name}/chat/open`, `POST .../chat/{id}/turn`; the entity row's `appearance` gives its orb |
 | Voice in | `POST /api/gateway/attachments/upload` (multipart, `session_id`), `POST /api/gateway/runs/{session owner}/audio/transcribe` |

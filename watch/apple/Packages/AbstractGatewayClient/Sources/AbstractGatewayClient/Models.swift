@@ -94,6 +94,10 @@ public struct Wait: Codable, Hashable, Sendable, Identifiable {
     public var choices: [String]?
     public var allowFreeText: Bool?
     public var details: [ToolCallDetail]?
+    /// Whose run waits (the run's own index columns): its session, and the automation when it is
+    /// one of its runs (an agent's run below an occurrence carries them too).
+    public var sessionId: String?
+    public var automationId: String?
 
     // --- Display-only fields, NOT part of the gateway wait payload. ---
     /// Workflow label shown on the watch (from the run row's `workflow_id` in live mode).
@@ -104,20 +108,40 @@ public struct Wait: Codable, Hashable, Sendable, Identifiable {
     public var askedAt: Date?
 
     public var id: String { "\(runId):\(waitKey)" }
+    /// Who a person decides for: the automation whose run this is, else the conversation.
+    public var owner: WaitOwner? {
+        if let a = automationId { return .automation(a) }
+        if let s = sessionId { return .session(s) }
+        return nil
+    }
     public var isDestructive: Bool { ["destructive", "destroy"].contains(riskTier?.lowercased() ?? "") }
     public var toolName: String { kind == .askUser ? "ask_user" : (details?.first?.name ?? kind.rawValue) }
 
     public init(runId: String, waitKey: String, kind: WaitKind, reason: String? = nil, prompt: String? = nil,
                 choices: [String]? = nil, allowFreeText: Bool? = nil, details: [ToolCallDetail]? = nil,
-                workflow: String? = nil, riskTier: String? = nil, askedAt: Date? = nil) {
+                workflow: String? = nil, riskTier: String? = nil, askedAt: Date? = nil,
+                sessionId: String? = nil, automationId: String? = nil) {
         self.runId = runId; self.waitKey = waitKey; self.kind = kind; self.reason = reason; self.prompt = prompt
         self.choices = choices; self.allowFreeText = allowFreeText; self.details = details
         self.workflow = workflow; self.riskTier = riskTier; self.askedAt = askedAt
+        self.sessionId = sessionId; self.automationId = automationId
     }
 
     enum CodingKeys: String, CodingKey {
         case runId = "run_id", waitKey = "wait_key", kind, reason, prompt, choices
         case allowFreeText = "allow_free_text", details, workflow, riskTier = "risk_tier", askedAt = "asked_at"
+        case sessionId = "session_id", automationId = "automation_id"
+    }
+}
+
+/// Who a person's decision is for: a conversation (a chat, or a discussion about an automation), or
+/// an automation (its runs, whatever conversation is on screen). Each runs with its own tools.
+public enum WaitOwner: Hashable, Sendable {
+    case session(String)
+    case automation(String)
+    /// Its key among the watch's choices (an automation's is its conversation's id).
+    public var key: String {
+        switch self { case .session(let id): id; case .automation(let id): "automation:" + id }
     }
 }
 
@@ -228,7 +252,7 @@ public struct RunSummary: Codable, Hashable, Sendable, Identifiable {
         else { kind = .other(w.reason ?? "user") }
         return Wait(runId: runId, waitKey: key, kind: kind, reason: w.reason, prompt: w.prompt, choices: w.choices,
                     allowFreeText: w.allowFreeText, details: details.isEmpty ? nil : details, workflow: workflowId,
-                    askedAt: updatedAt.flatMap(ISO8601.date))
+                    askedAt: updatedAt.flatMap(ISO8601.date), sessionId: sessionId, automationId: automationId)
     }
 }
 
@@ -484,6 +508,20 @@ public struct AutomationDefinition: Decodable, Sendable {
         self.revision = revision; self.title = title; self.target = target
     }
     public var prompt: String? { target?["input_data"]?["prompt"]?.stringValue }
+
+    /// The tools its runs run with, as it was created (what the watch's New automation writes):
+    /// offered (`tools` / `_runtime.allowed_tools`), unasked (`auto_approve_tools`), asked first
+    /// (`require_approval_tools`). Nil parts: the workflow's own.
+    public var toolPolicy: (offered: Set<String>?, auto: Set<String>, ask: Set<String>) {
+        let input = target?["input_data"]
+        func names(_ v: JSONValue?) -> Set<String>? {
+            guard case .array(let items)? = v else { return nil }
+            return Set(items.compactMap(\.stringValue))
+        }
+        let policy = input?["_runtime"]?["tool_policy"]
+        return (names(input?["_runtime"]?["allowed_tools"]) ?? names(input?["tools"]),
+                names(policy?["auto_approve_tools"]) ?? [], names(policy?["require_approval_tools"]) ?? [])
+    }
     /// The title after the task is edited: an automation named by its task (the title is the task,
     /// or its first 120 characters) keeps that name in step; a title of its own is left alone (nil).
     public static func title(afterTask newTask: String, oldTitle: String?, oldTask: String?) -> String? {

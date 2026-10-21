@@ -99,8 +99,9 @@ curl https://<host>.<tailnet>.ts.net/api/health
 - No push notifications: the app polls the gateway every 15 seconds while it is on screen, and
   watchOS decides when background checks run.
 - Your sign-in is kept in the app's storage on the watch, not in a sealed store.
-- Tools allowed with Accept all are approved by the watch while it follows the run; away from the
-  orb page, they ask.
+- Tools allowed with Approve all are approved by the watch when it sees their approvals (on the orb
+  page, or in its regular check while the app is open); with the app closed, they ask. Approve all
+  covers the run's own conversation, or its automation, by that one's own tools.
 - "New" answers are tracked on this watch: an answer read on another device still shows as new here.
 - Search and the live steps read your gateway's data: search needs a gateway that serves it, and
   the live steps read the run's records (about as much data as reading an answer aloud).

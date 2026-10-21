@@ -141,13 +141,14 @@ private struct RunningArc: View {
     }
 }
 
-/// On the orb while it works, after an Accept all: the watch approves those tools for you in this
-/// conversation. One tap and they ask again, from the very next call.
+/// On the orb while it works, after an Approve all: the watch approves those tools for you in this
+/// conversation (or for this automation's runs). One tap and they ask again, from the very next call.
 struct TrustShield: View {
+    let owner: WaitOwner
     @EnvironmentObject private var model: AppModel
     var body: some View {
         Button {
-            model.revokeTrust()
+            model.revokeTrust(owner)
             WKInterfaceDevice.current().play(.click)
         } label: {
             Image(systemName: "checkmark.shield.fill")
@@ -161,9 +162,10 @@ struct TrustShield: View {
                 .contentShape(Circle())
         }
         .buttonStyle(GlassPress())
-        .accessibilityLabel("Allowed in this conversation: \(model.sessionTrust.count) tools. Ask again")
+        .accessibilityLabel("Allowed \(isAutomation ? "for this automation" : "in this conversation"): \(model.trust(owner).count) tools. Ask again")
         .accessibilityIdentifier("activity.trust")
     }
+    private var isAutomation: Bool { if case .automation = owner { true } else { false } }
 }
 
 /// A finished answer's work, opened from its card: every step in order.

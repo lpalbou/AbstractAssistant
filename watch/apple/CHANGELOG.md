@@ -6,6 +6,15 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ## [Unreleased]
 
+### Changed
+
+- **Approve all, for a conversation and an automation alike.** An approval offers Deny, Approve
+  and Approve all wherever it is opened (the orb page, Needs you, a notification). Approve all is
+  for the run's own owner: its conversation, by that conversation's tools, or its automation, by
+  the automation's own tools; another conversation is never touched, and sends always ask. The
+  watch approves what was allowed as soon as it sees it; an automation's details say what is
+  allowed for its runs, with Ask again.
+
 ## [0.4.0] - 2026-10-21
 
 ### Added

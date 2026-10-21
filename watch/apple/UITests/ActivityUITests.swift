@@ -82,6 +82,7 @@ final class ActivityUITests: XCTestCase {
         app.launch()
         let all = app.buttons["Allow these tools in this conversation"]
         XCTAssertTrue(all.waitForExistence(timeout: 30), app.debugDescription)
+        sleep(1)                                              // the approval has slid in
         all.tap()
         let answer = text(containing: "42 GB free")
         let deadline = Date().addingTimeInterval(30)

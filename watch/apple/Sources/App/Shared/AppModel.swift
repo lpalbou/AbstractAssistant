@@ -537,7 +537,7 @@ final class AppModel: ObservableObject {
             async let waitsCall = client.waits()
             async let runsCall = client.recentRuns(limit: runsLimit)
             if principal == nil { principal = try await client.me() }
-            let newWaits = try await waitsCall
+            let newWaits = await approveTrusted(try await waitsCall)
             if newWaits.contains(where: { !seenWaitIDs.contains($0.id) }) {
                 WKInterfaceDevice.current().play(.notification)
             }
@@ -609,32 +609,72 @@ final class AppModel: ObservableObject {
     var activeRunCount: Int { runs.filter { $0.status == "running" || $0.status == "waiting" }.count }
     var isAdmin: Bool { principal?.admin == true || (principal?.roles ?? []).contains("admin") }
     static func newSessionId() -> String { "watch-" + UUID().uuidString.lowercased() }
-    /// Accept all: this conversation's tools on Ask, up to the risk of the call approved, are
-    /// approved by the watch from now on. They stay on Ask for the gateway (a run's permissions
-    /// are fixed when it starts), so the shield takes them back at once, from the very next call.
-    func trustSession(approving wait: Wait) {
+    // MARK: Decisions (a conversation or an automation, each with its own tools)
+
+    /// Who a wait is for: the conversation or automation its run belongs to (the gateway says);
+    /// without that, the conversation on screen when it was opened from its orb page.
+    func owner(of wait: Wait) -> WaitOwner? { wait.owner ?? (approvalFromAsk ? .session(askSessionId) : nil) }
+
+    /// How an owner runs a tool: a conversation with the watch's choices (the defaults and its own
+    /// changes); an automation with its own (as it was created: offered, unasked, asked first).
+    /// Nil while an automation's definition is not read.
+    func mode(of tool: ToolInfo, for owner: WaitOwner) -> ToolMode? {
+        switch owner {
+        case .session(let id):
+            return ToolChoices.mode(of: tool, defaults: toolDefaults, session: id == askSessionId ? sessionTools : ToolPrefs.session(id))
+        case .automation(let id):
+            guard let d = definitions[id] else { return nil }
+            let p = d.toolPolicy
+            if p.auto.contains(tool.name) { return .auto }
+            if p.ask.contains(tool.name) { return .ask }
+            if let offered = p.offered, !offered.contains(tool.name) { return .off }
+            return ToolChoices.gatewayDefault(tool)                  // the workflow's own: as the gateway asks
+        }
+    }
+
+    /// The tools an Approve all allowed for an owner (the watch approves them for you).
+    func trust(_ owner: WaitOwner) -> Set<String> {
+        if case .session(let id) = owner, id == askSessionId { return sessionTrust }
+        return ToolPrefs.trust(owner.key)
+    }
+    private func setTrust(_ owner: WaitOwner, _ names: Set<String>) {
+        ToolPrefs.setTrust(owner.key, names)
+        if case .session(let id) = owner, id == askSessionId { sessionTrust = names }
+        trustChanged += 1
+    }
+    /// Bumped when an owner's trust changes (pages showing it read it again).
+    @Published private(set) var trustChanged = 0
+
+    /// Approve all can be offered: a tool call, of a known owner whose tools are known, not a send.
+    func canTrust(_ wait: Wait) -> Bool {
+        guard wait.kind == .toolApproval, !isOutreach(wait), let owner = owner(of: wait) else { return false }
+        return wait.details?.allSatisfy { c in tools[c.name].map { mode(of: $0, for: owner) != nil } ?? false } ?? false
+    }
+
+    /// Approve all: the owner's tools on Ask, up to the risk of the call approved, are approved by
+    /// the watch from now on, for that owner only (a conversation, or an automation's runs). They
+    /// stay on Ask for the gateway (a run's permissions are fixed when it starts), so "Ask again"
+    /// takes them back at once, from the very next call. Sends to other people always ask.
+    func trustAll(approving wait: Wait) {
+        guard let owner = owner(of: wait) else { return }
         let approved = (wait.details ?? []).map { tools[$0.name]?.riskRank ?? 4 }.max() ?? 4
         let ceiling = max(ToolChoices.allAutoMaxRank, approved)
         let rise = tools.values.filter { t in
-            toolMode(t, scope: .session) == .ask && t.riskTier != "outreach" && t.modelControlledDestination != true
+            mode(of: t, for: owner) == .ask && t.riskTier != "outreach" && t.modelControlledDestination != true
                 && (t.riskRank ?? 4) <= ceiling
         }
         // The tools of the call approved are allowed too, whatever they are, but sends to other
         // people: the person saw them and chose to allow them all (a web page that keeps asking
-        // after Accept all on a web page reads as a broken button).
+        // after Approve all on a web page reads as a broken button).
         let shown = (wait.details ?? []).compactMap { tools[$0.name] }.filter { $0.riskTier != "outreach" }
-        sessionTrust.formUnion(rise.map(\.name) + shown.map(\.name))
-        ToolPrefs.setTrust(askSessionId, sessionTrust)
+        setTrust(owner, trust(owner).union(rise.map(\.name) + shown.map(\.name)))
     }
 
-    /// The tools Accept all allowed in this conversation (the watch approves them for you).
+    /// The tools Approve all allowed in the current conversation (its shield, its Tools page).
     @Published private(set) var sessionTrust: Set<String> = []
 
     /// They ask again, from the next call (also in the run working now).
-    func revokeTrust() {
-        sessionTrust = []
-        ToolPrefs.setTrust(askSessionId, [])
-    }
+    func revokeTrust(_ owner: WaitOwner? = nil) { setTrust(owner ?? .session(askSessionId), []) }
 
     /// The work of answers followed on this watch, by run (an answer card opens it).
     @Published var activities: [String: FinishedWork] = [:]
@@ -645,16 +685,56 @@ final class AppModel: ObservableObject {
 
     func markDecided(_ wait: Wait) { decidedWaits.insert(wait.id) }
 
-    /// The watch approves a call itself only when every call in it is a known tool this conversation
-    /// runs without asking, or one Accept all allowed and that is not Off.
+    /// The watch approves a call itself only when every call in it is a known tool its owner (the
+    /// conversation or the automation) runs without asking, or one Approve all allowed for that owner
+    /// and that is not Off. Never for a wait whose owner is not known.
     func autoApprovable(_ wait: Wait) -> Bool {
-        guard wait.kind == .toolApproval, let calls = wait.details, !calls.isEmpty else { return false }
-        // The runtime asks for a batch as a whole: every call in it must be on Auto.
+        guard wait.kind == .toolApproval, let owner = wait.owner, let calls = wait.details, !calls.isEmpty else { return false }
+        let allowed = trust(owner)
+        // The runtime asks for a batch as a whole: every call in it must be allowed.
         return calls.allSatisfy { c in
-            guard let t = tools[c.name] else { return false }
-            let mode = toolMode(t, scope: .session)
-            return mode == .auto || (mode == .ask && sessionTrust.contains(c.name))
+            guard let t = tools[c.name], let mode = mode(of: t, for: owner) else { return false }
+            return mode == .auto || (mode == .ask && allowed.contains(c.name))
         }
+    }
+
+    /// The one way the watch approves for the person (the orb page following its run, and the
+    /// poll): once, whoever sees the wait first; an approval already on its way counts as given.
+    /// `byDefaults`: also what the owner runs unasked (only for a run this watch follows).
+    func approveIfAllowed(_ wait: Wait, byDefaults: Bool) async -> Bool {
+        if decidedWaits.contains(wait.id) || approving.contains(wait.id) { return true }
+        guard byDefaults ? autoApprovable(wait) : allowedByApproveAll(wait) else { return false }
+        approving.insert(wait.id)
+        defer { approving.remove(wait.id) }
+        if await answer(wait, with: .approve) { markDecided(wait); return true }
+        return decidedWaits.contains(wait.id)
+    }
+    private var approving: Set<String> = []
+
+    /// Every call of the wait is one the person allowed for its owner with Approve all (and that the
+    /// owner still offers). Unlike `autoApprovable`, the watch's own defaults play no part: this is
+    /// what the poll answers, for runs of any client.
+    func allowedByApproveAll(_ wait: Wait) -> Bool {
+        guard wait.kind == .toolApproval, let owner = wait.owner, let calls = wait.details, !calls.isEmpty else { return false }
+        let allowed = trust(owner)
+        return calls.allSatisfy { c in
+            guard allowed.contains(c.name), let t = tools[c.name], let mode = mode(of: t, for: owner) else { return false }
+            return mode != .off
+        }
+    }
+
+    /// The waits an Approve all covers, answered by the watch as they come (seen by the poll,
+    /// whatever page is open): the rest stay for the person. Only what was explicitly allowed for
+    /// that owner: a conversation of another device never gets the watch's defaults.
+    private func approveTrusted(_ found: [Wait]) async -> [Wait] {
+        var left: [Wait] = []
+        for w in found {
+            if case .automation(let id)? = w.owner, definitions[id] == nil, !ToolPrefs.trust(w.owner!.key).isEmpty {
+                _ = try? await definition(of: id)                    // its own tools, to decide by them
+            }
+            if await approveIfAllowed(w, byDefaults: false) == false { left.append(w) }
+        }
+        return left
     }
 
     // MARK: Tools

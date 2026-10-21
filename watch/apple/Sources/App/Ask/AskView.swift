@@ -188,8 +188,8 @@ struct AskView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.25), value: busy)
-            if phase == .thinking, !model.sessionTrust.isEmpty {
-                TrustShield().transition(.scale(scale: 0.6).combined(with: .opacity))
+            if phase == .thinking, !model.trust(trustOwner).isEmpty {
+                TrustShield(owner: trustOwner).transition(.scale(scale: 0.6).combined(with: .opacity))
             }
             if phase != .listening, phase != .thinking, let e = selected, !e.answer.isEmpty, e.scope != nil {
                 VoiceButton(speaker: speaker, isCurrent: readingId == e.id) { read(e) }
@@ -227,6 +227,9 @@ struct AskView: View {
 
     /// The page's automation while it is one (not yet a conversation about it).
     private var automationFeed: AutomationFeed? { if case .automation = conversation { feed } else { nil } }
+
+    /// Whose Approve all this page shows (its shield): the automation's, or the conversation's.
+    private var trustOwner: WaitOwner { automationFeed.map { .automation($0.id) } ?? .session(model.askSessionId) }
 
     /// Who speaks here: the automation, or whoever answers the conversation.
     private var speakerTitle: String { automationFeed?.title ?? model.responder.title }
@@ -726,10 +729,10 @@ struct AskView: View {
                     wait = r.personWait; next = r.waitingOnChild; depth += 1
                 }
                 if let w = wait, !model.decidedWaits.contains(w.id) {
-                    // The watch approves for you only in a conversation you trusted (an automation's run
-                    // waits for you, whatever the conversation on screen allows).
-                    if conversation == .chat, model.autoApprovable(w), await model.answer(w, with: .approve) {
-                        model.markDecided(w)                   // trusted session: the run goes on
+                    // The watch approves for you what the run's owner (its conversation, or its
+                    // automation) runs unasked or what you allowed it with Approve all.
+                    if await model.approveIfAllowed(w, byDefaults: true) {
+                        // allowed: the run goes on
                     } else {
                         // A person decides now; the screen is on. Waiting on them must not keep the app
                         // awake, nor the radio (the background refresh posts a wait left undecided).

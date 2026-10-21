@@ -4,7 +4,8 @@ import WatchKit
 
 /// One tool approval: what the assistant wants to do, in plain words, then what exactly (the
 /// command, the page, the recipient). Deny and Allow stay in the bottom bar; Back is "later".
-/// From a conversation a third icon allows all tools for the rest of it (never for sends).
+/// A third icon, Approve all, allows these tools for the rest of the run's conversation, or for its
+/// automation's runs: each owner by its own tools (never for sends).
 struct ApprovalView: View {
     let wait: Wait
     @EnvironmentObject private var model: AppModel
@@ -35,21 +36,25 @@ struct ApprovalView: View {
                     .accessibilityLabel("Deny")
                     .disabled(sending)
                 allowButton
-                // From a conversation: allow every tool for the rest of it (sends still ask).
-                if model.approvalFromAsk && !outreach {
+                // Approve all: these tools for the rest of its conversation, or for its automation's
+                // runs (each with its own tools; sends still ask).
+                if model.canTrust(wait) {
                     Button { decide(.approve, trustSession: true) } label: { BarIcon(symbol: "checkmark.seal.fill") }
                         .tint(Theme.indigoButton)
-                        .accessibilityLabel("Allow these tools in this conversation")
+                        .accessibilityLabel(model.owner(of: wait).map { if case .automation = $0 { "Allow these tools for this automation" } else { "Allow these tools in this conversation" } } ?? "Allow all")
+                        .accessibilityIdentifier("approval.all")
                         .disabled(sending)
                 }
             }
         }
+        // An automation's own tools decide what Approve all covers: read them (shown at once after).
+        .task { if case .automation(let id)? = wait.owner, model.definitions[id] == nil { _ = try? await model.definition(of: id) } }
         #if DEBUG
         .task {
             guard let how = model.testApprove else { return }
             model.testApprove = nil
             try? await Task.sleep(for: .seconds(2))
-            print("test-approve \(how) for \(wait.toolName), from Ask: \(model.approvalFromAsk)")
+            print("test-approve \(how) for \(wait.toolName), approve all offered: \(model.canTrust(wait))")
             decide(.approve, trustSession: how == "all")
         }
         #endif
@@ -110,7 +115,7 @@ struct ApprovalView: View {
                 return
             }
             model.markDecided(wait)
-            if trustSession { model.trustSession(approving: wait) }
+            if trustSession { model.trustAll(approving: wait) }
             model.path.removeLast()   // back where it was opened: the orb, Home or the list
         }
     }

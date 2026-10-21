@@ -14,16 +14,22 @@ public actor MockGatewayClient: GatewayClient {
                                       arguments: ["to": .string("qc-team@example.org"),
                                                   "subject": .string("Nightly assay QC: 2 plates to review"),
                                                   "body_text": .string("Hello,\n\nThe nightly QC run flagged two plates (P07, P12): control CV above 15% on the low standard. Raw curves and the flagged wells are attached as qc-2026-10-16.pdf.\n\nCould someone re-read P07 and P12 before the batch is released?\n\nThis message was drafted by the Morning digest automation and sent after approval.")])],
-             workflow: "Morning digest", askedAt: Date().addingTimeInterval(-25)),
+             workflow: "Morning digest", askedAt: Date().addingTimeInterval(-25),
+             sessionId: "automation:auto-morning", automationId: "auto-morning"),
+        // An automation's run reading a page: its own tools ask first for it.
+        Wait(runId: "b81f3302-agent", waitKey: "tool_approval:7", kind: .toolApproval, reason: "user",
+             details: [ToolCallDetail(name: "fetch_url", arguments: ["url": .string("https://www.globenewswire.com/news-release/2026/10/21/pharma")])],
+             workflow: "Morning digest", askedAt: Date().addingTimeInterval(-30),
+             sessionId: "automation:auto-morning", automationId: "auto-morning"),
         Wait(runId: "94a436e1", waitKey: "tool_approval:1", kind: .toolApproval, reason: "user",
              details: [ToolCallDetail(name: "execute_command",
                                       arguments: ["command": .string("rm -rf build/ && make"),
                                                   "cwd": .string("~/projects/assay-pipeline")])],
-             workflow: "coding-agent", riskTier: "Destructive", askedAt: Date().addingTimeInterval(-40)),
+             workflow: "coding-agent", riskTier: "Destructive", askedAt: Date().addingTimeInterval(-40), sessionId: "s-build"),
         Wait(runId: "3e9a10c4", waitKey: "ask_user:1", kind: .askUser, reason: "user",
              prompt: "Two sources disagree on the phase II endpoint. Which one should I treat as primary?",
              choices: ["EMA assessment report (2025)", "Company press release", "Cite both, flag the conflict"],
-             allowFreeText: true, workflow: "deep-research", askedAt: Date().addingTimeInterval(-120)),
+             allowFreeText: true, workflow: "deep-research", askedAt: Date().addingTimeInterval(-120), sessionId: "s-qc"),
     ]
 
     public static let sampleRuns: [RunSummary] = {
@@ -365,7 +371,12 @@ public actor MockGatewayClient: GatewayClient {
         return AutomationDefinition(revision: (base?.revision ?? 1) + (revisions[id] ?? 0), title: revisedTitle[id] ?? base?.name, target: [
             "bundle_ref": .string("basic-agent@0.0.5"), "flow_id": .string("81795ea9"),
             "input_data": .object(["prompt": .string(revisedTask[id] ?? (id.hasPrefix("auto-news") ? "investigate today's news." : "Summarise the overnight assay QC runs, new papers on my target, and dependency updates to pin.")),
-                                   "tools": .array([.string("web_search")])]),
+                                   // The morning digest's own tools: the web, a page read asks first.
+                                   "tools": .array(id == "auto-morning" ? [.string("web_search"), .string("fetch_url")] : [.string("web_search")])]
+                                   .merging(id == "auto-morning" ? ["_runtime": .object([
+                                       "allowed_tools": .array([.string("web_search"), .string("fetch_url")]),
+                                       "tool_policy": .object(["auto_approve_tools": .array([.string("web_search")]),
+                                                               "require_approval_tools": .array([.string("fetch_url")])])])] : [:]) { a, _ in a }),
         ])
     }
     public func entities() async throws -> [EntitySummary] { Self.sampleEntities }
@@ -401,6 +412,8 @@ public actor MockGatewayClient: GatewayClient {
     /// run a second one, then answers: the activity a person follows on the orb page.
     private struct Scripted { let t0: Date; var answered: [Int: Date] = [:]; var segs: [Seg] = MockGatewayClient.script }
     private var scripted: [String: Scripted] = [:]
+    /// The conversation each run started here belongs to (a wait says whose it is).
+    private var runSession: [String: String] = [:]
     public static let researchAnswer = "Your disk has 42 GB free; the two largest folders are caches you can clear."
     private enum Seg {
         case think(Double, String?)
@@ -588,6 +601,7 @@ public actor MockGatewayClient: GatewayClient {
     public func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?, workflow: WorkflowChoice?, primaryImage: MediaItem?) async throws -> String {
         let id = "mock-" + UUID().uuidString.prefix(6).lowercased()
         lastWorkflow = workflow
+        runSession[id] = sessionId
         let p = prompt.lowercased()
         if ["look up", "research", "check"].contains(where: p.contains) {
             scripted[id] = Scripted(t0: Date())
@@ -616,7 +630,8 @@ public actor MockGatewayClient: GatewayClient {
             if now.done {
                 return RunSummary(runId: id, workflowId: "basic-agent@0.0.5:81795ea9", status: "completed", output: .object(["response": .string(Self.researchAnswer)]))
             }
-            return RunSummary(runId: id, workflowId: "basic-agent@0.0.5:81795ea9", status: now.waiting == nil ? "running" : "waiting", waiting: now.waiting)
+            return RunSummary(runId: id, workflowId: "basic-agent@0.0.5:81795ea9", status: now.waiting == nil ? "running" : "waiting",
+                              sessionId: runSession[id], waiting: now.waiting)
         }
         guard let (t0, text) = started[id] else {
             return Self.sampleRuns.first { $0.runId == id } ?? RunSummary(runId: id, workflowId: nil, status: "failed", error: "unknown run")

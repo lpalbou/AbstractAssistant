@@ -25,5 +25,6 @@ else
 fi
 xcodebuild test "${ARGS[@]}" > "$LOG" 2>&1 || true
 # (a parallel run says "Test case … passed on 'Clone 2 …'"; a serial one "Test Case '-[…]' passed")
-grep -iE "test case .*failed|error: -\[|^.*\.swift:[0-9]+: error" "$LOG" | cut -c1-220 | sort -u
-echo "$(grep -ciE 'test case .* passed' "$LOG") passed, $(grep -ciE 'test case .* failed' "$LOG") failed — $LOG"
+# (xcodebuild's own notes can break a line in two: count the outcomes, not the lines)
+grep -iE "test case .*\) failed|error: -\[|^.*\.swift:[0-9]+: error" "$LOG" | cut -c1-220 | sort -u
+echo "$(grep -oiE "test case '[^']+' passed" "$LOG" | sort -u | wc -l | tr -d ' ') passed, $(grep -oiE "test case '[^']+' failed" "$LOG" | sort -u | wc -l | tr -d ' ') failed — $(grep -oE 'TEST (SUCCEEDED|FAILED)' "$LOG" | tail -1) — $LOG"
