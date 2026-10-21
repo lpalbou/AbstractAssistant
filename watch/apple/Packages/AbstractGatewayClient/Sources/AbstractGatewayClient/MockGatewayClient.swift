@@ -185,6 +185,10 @@ public actor MockGatewayClient: GatewayClient {
     /// Run now: the automation runs for 14 s (`current_occurrence` set, a ledger that moves on).
     private var automationRunStarted: [String: Date] = [:]
     public func runAutomationNow(id: String) async throws {
+        // As the gateway: one run at a time.
+        if let t = automationRunStarted[id], Date().timeIntervalSince(t) < 14 {
+            throw GatewayError.http(status: 409, body: #"{"reason_code":"automation_busy"}"#)
+        }
         automationRunStarted[id] = Date()
         // Its run: working for 10 s, then its answer (as the occurrence it is).
         started["occ-live"] = (Date().addingTimeInterval(10), "Digest 42: the assay QC run passed; nothing new to pin.")

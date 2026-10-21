@@ -66,6 +66,8 @@ struct AutomationInfoView: View {
         }
         .screen("")
         .task { _ = try? await model.definition(of: automation.id) }
+        // Read fresh: Run or Stop says what it is doing now (the list is read at most once a minute).
+        .task { if let fresh = try? await model.client.automation(id: automation.id) { model.replaceAutomation(fresh) } }
         // While it runs: read again every 3 s, so Stop becomes Run now when it is over.
         .task(id: running) {
             while running, !Task.isCancelled {
@@ -95,8 +97,12 @@ struct AutomationInfoView: View {
                 var row = current; row.currentOccurrence = row.currentOccurrence ?? CurrentOccurrence(runId: nil)
                 model.replaceAutomation(row)
                 if case .automation(let a)? = model.path.dropLast().last, a.id == automation.id { model.goBack() }
+            } catch GatewayError.http(let status, let body) where status == 409 && body.contains("automation_busy") {
+                // A run is already on its way: it is shown, with Stop.
+                self.error = "It is already running."
+                if let fresh = try? await model.client.automation(id: automation.id) { model.replaceAutomation(fresh) }
             } catch {
-                self.error = "Couldn't start it"
+                self.error = "Couldn't start it. " + AppModel.say(error)
             }
         }
     }

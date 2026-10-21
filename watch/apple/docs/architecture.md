@@ -140,8 +140,9 @@ sequenceDiagram
 - **Automation results**: the same refresh reads the automations (`GET /api/gateway/automations`,
   alongside the waits) and posts one notification per automation whose latest run is newer than
   the one known on this watch (the first look only notes them; a run already posted by its answer
-  stream is skipped); the app's own automation reads give a nudge instead. Both follow
-  Settings → Automation results.
+  stream is skipped); the app's own automation reads post the same notification, shown as a banner
+  (none for an automation whose orb page is open). Both follow
+  Settings → Notifications.
 - **Keep awake**: `WKExtendedRuntimeSession` (`WKBackgroundModes: self-care`, up to 10 minutes)
   from the tap that starts a turn until the voice ends, a new conversation is started, or the
   player is dropped; never past the turn. A session about to expire while still held is renewed

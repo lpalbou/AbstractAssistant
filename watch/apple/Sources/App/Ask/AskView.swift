@@ -112,6 +112,15 @@ struct AskView: View {
                                 // answer aloud (let go before: nothing happens).
                                 .onLongPressGesture(minimumDuration: Self.holdToToggle, perform: holdDone, onPressingChanged: holdChanged)
                                 .overlay { if holding { HoldRing(progress: holdProgress).frame(width: side * 0.8, height: side * 0.8) } }
+                                // Its conversation is still on its way: a large spinner over a quiet orb.
+                                .opacity(loadingConversation ? 0.3 : 1)
+                                .overlay {
+                                    if loadingConversation {
+                                        ProgressView().controlSize(.large).tint(Theme.text).scaleEffect(1.4)
+                                            .accessibilityLabel("Loading").accessibilityIdentifier("ask.loading")
+                                    }
+                                }
+                                .animation(.easeOut(duration: 0.25), value: loadingConversation)
                                 .accessibilityAddTraits(.isButton)
                                 .accessibilityLabel(orbHint)
                                 .accessibilityAction(named: busy ? "Stop" : "Read aloud") { holdDone() }
@@ -514,7 +523,14 @@ struct AskView: View {
         }
     }
 
+    /// The page's conversation (an automation's runs, a notification's answer) is not in yet.
+    private var loadingConversation: Bool {
+        exchanges.isEmpty && phase != .listening && phase != .thinking && historyFailed == nil
+            && (loadingOlder || (automationFeed != nil && !opened) || (opening != nil && answer.isEmpty && error == nil))
+    }
+
     private var status: String {
+        if loadingConversation { return "Loading…" }
         // While the orb speaks its line is empty: nothing said before (a note, an error) shows over it.
         if phase == .answer, speaker.isActive { return "" }
         if let error { return error }

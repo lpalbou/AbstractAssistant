@@ -39,9 +39,9 @@ struct SettingsView: View {
                     Toggle("Read aloud", isOn: $speakAnswers)
                         .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text).tint(Theme.indigoButton)
                 }
-                // A nudge when an automation finishes a run (a notification when the app is closed).
+                // A notification when an automation finishes a run.
                 Card {
-                    Toggle("Automation results", isOn: $automationNotices)
+                    Toggle("Notifications", isOn: $automationNotices)
                         .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text).tint(Theme.indigoButton)
                         .accessibilityIdentifier("settings.automationNotices")
                 }

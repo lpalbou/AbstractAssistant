@@ -235,9 +235,13 @@ final class AppModel: ObservableObject {
                 let list = try await client.automations()
                 guard let self, !Task.isCancelled else { return }
                 automations = merged(list); automationsError = nil; automationsLoaded = true; automationsReadAt = Date()
-                // An automation finished a run since the last look: a nudge (Settings → Automation results).
-                if !AutomationNotices.finished(in: list).isEmpty, AutomationNotices.on, !client.isMock || UITestHooks.on {
-                    WKInterfaceDevice.current().play(.notification)
+                // An automation finished a run since the last look: its notification, shown as a banner
+                // with the app in front (Settings → Notifications), unless its own page is on screen.
+                let finished = AutomationNotices.finished(in: list)
+                if AutomationNotices.on, !client.isMock || UITestHooks.on {
+                    for a in finished where !path.contains(where: { if case .automation(let p) = $0 { p.id == a.id } else { false } }) {
+                        Task { await AnswerNotifier.shared.postFinished(a) }
+                    }
                 }
                 #if DEBUG
                 if let i = testOpenAutomation, i < automations.count {

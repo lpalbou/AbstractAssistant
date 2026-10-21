@@ -58,8 +58,8 @@ its information is in, and an error only once reading it has failed several time
 **Get answers while away.** An answer that arrives after you left the app comes as a notification.
 New approvals and questions are checked in the background about every 15 minutes; an ordinary tool
 approval can be allowed or denied from the notification itself. An automation that finishes a run
-gives a small nudge while the app is open and a notification otherwise ("Morning digest finished",
-a tap opens it); Settings → Automation results turns this off.
+posts a notification ("Morning digest finished"; a tap opens it), shown as a banner when the app
+is open; Settings → Notifications turns this off.
 
 **Make it yours.** Settings has Connection (the gateway and account you use), Tools (the defaults
 for new conversations), Voice (the speaking voice, its speed and the transcription model), Read

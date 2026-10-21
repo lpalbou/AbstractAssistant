@@ -170,18 +170,25 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
     /// first words of its answer (a tap opens it). Not for a run already posted (Run now, then left).
     private func checkAutomations(_ client: LiveGatewayClient) async {
         guard AutomationNotices.on, let list = try? await client.automations() else { return }
-        for a in AutomationNotices.finished(in: list) where !AutomationNotices.wasDelivered(a.lastOccurrence?.runId) {
-            let content = UNMutableNotificationContent()
-            let failed = a.lastOccurrence?.status == "failed"
-            content.title = (a.name ?? "An automation") + (failed ? " failed" : " finished")
-            let text = SpeechText.plain(a.lastOccurrence?.excerpt ?? "")
-            content.body = text.count > 300 ? String(text.prefix(300)) + "…" : text
-            content.sound = .default
-            content.userInfo = ["automation": a.id]
-            try? await UNUserNotificationCenter.current().add(UNNotificationRequest(
-                identifier: "automation-\(a.id)-\(a.lastOccurrence?.index ?? 0)", content: content, trigger: nil))
-            trace("posted automation \(a.id.prefix(8))")
-        }
+        for a in AutomationNotices.finished(in: list) { await postFinished(a) }
+    }
+
+    /// "Morning digest finished" (or failed) and the first words of its answer; a tap opens it.
+    /// Once per run (a run its answer stream already posted is skipped). The app in front shows it
+    /// as a banner too.
+    func postFinished(_ a: AutomationSummary) async {
+        guard !AutomationNotices.wasDelivered(a.lastOccurrence?.runId) else { return }
+        let content = UNMutableNotificationContent()
+        let failed = a.lastOccurrence?.status == "failed"
+        content.title = (a.name ?? "An automation") + (failed ? " failed" : " finished")
+        let text = SpeechText.plain(a.lastOccurrence?.excerpt ?? "")
+        content.body = text.count > 300 ? String(text.prefix(300)) + "…" : text
+        content.sound = .default
+        content.userInfo = ["automation": a.id]
+        try? await UNUserNotificationCenter.current().add(UNNotificationRequest(
+            identifier: "automation-\(a.id)-\(a.lastOccurrence?.index ?? 0)", content: content, trigger: nil))
+        if let run = a.lastOccurrence?.runId { AutomationNotices.delivered(run: run) }
+        trace("posted automation \(a.id.prefix(8))")
     }
 
     private func postWaits(_ client: LiveGatewayClient) async {
@@ -318,7 +325,7 @@ extension AnswerNotifier: UNUserNotificationCenterDelegate {
     }
 }
 
-/// "An automation finished": on by default (Settings → Automation results). The numbers of the
+/// "An automation finished": on by default (Settings → Notifications). The numbers of the
 /// automations' latest runs known on this watch (shared by the app and its background check, so a
 /// run is news once), and the runs already posted by the answer stream.
 enum AutomationNotices {

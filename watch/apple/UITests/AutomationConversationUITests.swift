@@ -126,3 +126,33 @@ final class NewConversationToolsUITests: XCTestCase {
         newConversationTools({ app.buttons["New conversation"].firstMatch.tap() }, "Sessions → New")
     }
 }
+
+/// An automation's page while its runs are read: a large spinner over a quiet orb, then its runs.
+/// Its details, back after a Run, say it is running (Stop).
+final class AutomationLoadingUITests: XCTestCase {
+    func testASpinnerWhileItsRunsLoad() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--orb-design", "A", "--screen", "automation"]
+        app.launch()
+        let spinner = app.descendants(matching: .any)["ask.loading"].firstMatch
+        XCTAssertTrue(spinner.waitForExistence(timeout: 5), "no spinner while its runs load:\n\(app.debugDescription)")
+        XCTAssertTrue(app.buttons["Share"].waitForExistence(timeout: 20), app.debugDescription)
+        XCTAssertFalse(spinner.exists, "the spinner stays once its runs are in")
+    }
+
+    func testDetailsSayItIsRunningAfterRun() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--orb-design", "A", "--screen", "automation-info"]
+        app.launch()
+        let run = app.buttons["automation.run"].firstMatch
+        XCTAssertTrue(run.waitForExistence(timeout: 10), app.debugDescription)
+        sleep(1)
+        run.tap()
+        XCTAssertTrue(app.buttons["ask.stop"].waitForExistence(timeout: 15), "not back on the orb, following the run")
+        // Forward (a swipe to the left): its details, saying it runs.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.55))
+            .press(forDuration: 0.02, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.55)), withVelocity: .fast, thenHoldForDuration: 0)
+        let stop = app.buttons["Stop this run"].firstMatch
+        XCTAssertTrue(stop.waitForExistence(timeout: 10), "the details do not say it is running:\n\(app.debugDescription)")
+    }
+}
