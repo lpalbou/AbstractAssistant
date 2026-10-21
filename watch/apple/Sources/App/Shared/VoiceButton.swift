@@ -2,9 +2,9 @@ import SwiftUI
 import WatchKit
 
 /// The one voice control beside Back, sharing the orb's state (the same `Speaker`): a tap plays the
-/// selected message, or pauses / resumes the one playing; holding it rewinds, about 4 s per second
-/// held at first and faster the longer it is held (the voice waits while held, then goes on from
-/// there). While the voice is being made it shows a spinner and a tap waits with it. The screen
+/// selected message, or pauses / resumes the one playing; holding it rewinds, about 8 s per second
+/// held at first (a bump every half second) and faster the longer it is held (the voice waits while
+/// held, then goes on from there). While the voice is being made it shows a spinner and a tap waits with it. The screen
 /// hides it while there is nothing to read, or while the orb listens or works.
 struct VoiceButton: View {
     @ObservedObject var speaker: Speaker
@@ -93,12 +93,12 @@ struct VoiceButton: View {
             scrubbing = true
             wasPlaying = speaker.isActive
             if speaker.isActive { speaker.pause() }
-            var step = 1.0, ticks = 0
+            var step = 2.0, ticks = 0
             while !Task.isCancelled, press == mine {
                 speaker.rewind(step)
                 ticks += 1
-                if ticks % 4 == 0 { WKInterfaceDevice.current().play(.click) }
-                step = min(3, step * 1.12)                    // 4 s per second held, up to 12
+                if ticks % 2 == 0 { WKInterfaceDevice.current().play(.click) }   // a bump every half second
+                step = min(6, step * 1.12)                    // 8 s per second held, up to 24
                 try? await Task.sleep(for: .milliseconds(250))
             }
         }

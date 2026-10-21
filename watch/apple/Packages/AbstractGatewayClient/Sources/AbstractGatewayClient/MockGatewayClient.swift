@@ -59,23 +59,19 @@ public actor MockGatewayClient: GatewayClient {
                           attention: Attention(pendingWaits: 0, unread: true, unseenCount: 1, cursor: "att1:41",
                                                items: [.init(kind: "notify", runId: "b81f3302", at: "2026-10-17T05:06:10Z", title: "Morning digest", body: "3 things today", cursor: "att1:41")]),
                           contextMode: "growing", occurrenceCount: 41, triggerSource: "schedule",
-                          triggerConfig: ["every": .string("24h"), "anchor": .string("2026-09-07T05:04:00Z")], revision: 2),
+                          triggerConfig: ["every": .string("24h"), "anchor": .string("2026-09-07T05:04:00Z")], revision: 2,
+                          growingMaxTokens: 50_000),
         AutomationSummary(id: "auto-lit", name: "Literature watch", status: "active", scheduleText: "every 7 days",
                           lastOccurrence: LastOccurrence(status: "completed", excerpt: "3 new papers"), cadence: "weekly", detail: "every 7 days · 3 new papers"),
         AutomationSummary(id: "auto-qc", name: "Assay QC check", status: "active", scheduleText: "when a file lands",
                           lastOccurrence: LastOccurrence(status: "completed", excerpt: nil), cadence: "on event", detail: "when a file lands · ok"),
-        // Same name, same task: only their instructions tell them apart.
+        // Same name, same task: two automations told apart by their results.
         AutomationSummary(id: "auto-news-ai", name: "investigate today's news.", status: "active", scheduleText: "Every 12 hours (UTC)",
                           lastOccurrence: LastOccurrence(status: "completed", excerpt: "AI news digest"), nextFireAt: "2026-10-18T23:21:00Z",
                           occurrenceCount: 44, triggerSource: "schedule", triggerConfig: ["every": .string("12h")], revision: 1),
         AutomationSummary(id: "auto-news-world", name: "investigate today's news.", status: "active", scheduleText: "Every 12 hours (UTC)",
                           lastOccurrence: LastOccurrence(status: "completed", excerpt: "International news digest"), nextFireAt: "2026-10-18T23:21:00Z",
                           occurrenceCount: 42, triggerSource: "schedule", triggerConfig: ["every": .string("12h")], revision: 1),
-    ]
-    /// The automations' instructions (their workflow's system prompt), where they have some.
-    public static let sampleInstructions: [String: String] = [
-        "auto-news-ai": "You are an expert at identifying the relevant AI stories and research, and you provide informative and actionable digests.",
-        "auto-news-world": "You are an expert at identifying the relevant international political and economic stories, and you provide informative and actionable digests.",
     ]
 
     public static let sampleEntities: [EntitySummary] = [
@@ -239,12 +235,10 @@ public actor MockGatewayClient: GatewayClient {
     /// A revision's new title and task, kept (the list, the page and the next edit show them).
     private var revisedTitle: [String: String] = [:]
     private var revisedTask: [String: String] = [:]
-    private var revisedInstructions: [String: String?] = [:]
     private var revisions: [String: Int] = [:]
     public func reviseAutomation(id: String, changes: [String: JSONValue], expectedRevision: Int?) async throws {
         if let t = changes["title"]?.stringValue { revisedTitle[id] = t }
         if let p = changes["target"]?["input_data"]?["prompt"]?.stringValue { revisedTask[id] = p }
-        if changes["target"] != nil { revisedInstructions[id] = changes["target"]?["input_data"]?["system"]?.stringValue }
         revisions[id, default: 0] += 1
     }
     public func workflows(forInterface interface: String) async throws -> [WorkflowChoice] {
@@ -368,12 +362,10 @@ public actor MockGatewayClient: GatewayClient {
     public func automationDefinition(id: String) async throws -> AutomationDefinition {
         if definitionDelay > .zero { try await Task.sleep(for: definitionDelay) }
         let base = Self.sampleAutomations.first { $0.id == id }
-        let system = revisedInstructions[id] ?? Self.sampleInstructions[id]
         return AutomationDefinition(revision: (base?.revision ?? 1) + (revisions[id] ?? 0), title: revisedTitle[id] ?? base?.name, target: [
             "bundle_ref": .string("basic-agent@0.0.5"), "flow_id": .string("81795ea9"),
             "input_data": .object(["prompt": .string(revisedTask[id] ?? (id.hasPrefix("auto-news") ? "investigate today's news." : "Summarise the overnight assay QC runs, new papers on my target, and dependency updates to pin.")),
-                                   "tools": .array([.string("web_search")])]
-                                   .merging(system.map { ["system": JSONValue.string($0)] } ?? [:]) { a, _ in a }),
+                                   "tools": .array([.string("web_search")])]),
         ])
     }
     public func entities() async throws -> [EntitySummary] { Self.sampleEntities }

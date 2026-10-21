@@ -6,8 +6,15 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-21
+
 ### Added
 
+- **Search automations.** The Automations page has New and Search on one line, as Sessions: Search
+  lists the automations whose name or task holds the words.
+- **How much an automation remembers.** When an automation builds on its earlier runs, Edit shows
+  how much of them each run reads ("Reads up to 50,000 tokens", the gateway's value) and takes a
+  new number (numbers only).
 - **An automation is a conversation.** It opens on the same orb page as a conversation: its runs
   are the messages (what its trigger sent, when, then the answer), the orb follows a run in progress
   and speaks its answer, Share and the voice work the same. Its details (when it runs, Run now,
@@ -72,6 +79,14 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Changed
 
+- **Nothing behind the top row.** Every page starts below the row of the corner button, the title
+  and the time, and is cut there, scrolled or not.
+- **An automation's runs you have not seen** show in an orange badge on its row; on or off moved to
+  Edit, with how often it runs. Its details' play button is now "Run".
+- **Instructions are gone** from an automation's details and Edit: the watch edits its title and
+  its task (anything else its workflow was given stays as it is).
+- **Rewinding is twice as fast:** holding the voice button goes back 8 s a second at first, with a
+  bump every half second.
 - **Tools follow Settings.** A default stays as you set it, even when the gateway's own choice for
   that tool changes. "Use my defaults" also puts the conversation's workflow back on the default,
   and choosing the workflow a conversation already runs is not counted as a change. An answer opened from a

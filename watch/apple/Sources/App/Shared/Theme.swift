@@ -138,13 +138,17 @@ private struct TopRow<V: View>: ViewModifier {
         if systemBar {
             content.navigationTitle(title ?? "").toolbarTitleDisplayMode(.inline).containerBackground(Theme.ground, for: .navigation)
         } else {
-            // Without the bar, watchOS still keeps a top margin larger than the row needs (and not the
-            // same on every watch): the page is moved up to start just below the row, measured here.
-            GeometryReader { g in
-                content
-                    .padding(.top, min(0, 58 - g.safeAreaInsets.top))
-                    .frame(width: g.size.width, height: g.size.height, alignment: .top)
+            // The page starts below the row's band and is cut there: nothing is ever drawn behind the
+            // corner button, the title or the time, at first or scrolled (the band is the screen's
+            // own, not a bar laid over the page).
+            GeometryReader { screen in
+                VStack(spacing: 0) {
+                    Color.clear.frame(height: CornerButton.band)
+                    content.frame(width: screen.size.width, height: max(0, screen.size.height - CornerButton.band), alignment: .top)
+                        .clipped()
+                }
             }
+            .ignoresSafeArea()
             .background(Theme.ground.ignoresSafeArea())
             .navigationTitle(title ?? "")
             .toolbar(.hidden, for: .navigationBar)
@@ -152,17 +156,7 @@ private struct TopRow<V: View>: ViewModifier {
             // The row's band takes any tap on it, as the system bar did: what is scrolled beneath it
             // is read, not tapped (a row comes out from under it with a scroll).
             .overlay(alignment: .top) {
-                Color.clear.frame(height: 58).contentShape(Rectangle()).onTapGesture {}.ignoresSafeArea()
-            }
-            // A fade under the row, so text scrolled beneath it never shows between the icons (as the
-            // system bar does).
-            .overlay(alignment: .top) {
-                LinearGradient(stops: [.init(color: Theme.ground, location: 0), .init(color: Theme.ground, location: 0.7),
-                                       .init(color: Theme.ground.opacity(0), location: 1)],
-                               startPoint: .top, endPoint: .bottom)
-                    .frame(height: 66)
-                    .allowsHitTesting(false)
-                    .ignoresSafeArea()
+                Color.clear.frame(height: CornerButton.band).contentShape(Rectangle()).onTapGesture {}.ignoresSafeArea()
             }
             .overlay(alignment: .top) {
                 if let title, !title.isEmpty {
@@ -197,6 +191,8 @@ private struct TopRow<V: View>: ViewModifier {
 /// the gear on Home (Settings), Back everywhere else, morphing from one to the other.
 struct CornerButton: View {
     static let size: CGFloat = 35, leading: CGFloat = 15, top: CGFloat = 18
+    /// The top row's band, from the screen's top: the page starts below it.
+    static let band: CGFloat = 58
     @EnvironmentObject private var model: AppModel
     var body: some View {
         let home = model.atHome
@@ -306,6 +302,21 @@ struct Card<Content: View>: View {
             .overlay {
                 if let stroke { RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(stroke, lineWidth: 1) }
             }
+    }
+}
+
+/// What you have not seen yet: its number in an orange ring (an automation's runs since you last
+/// looked at it).
+struct CountBadge: View {
+    let count: Int
+    var color: Color = Theme.amber
+    var body: some View {
+        Text("\(count)").font(.rounded(.caption2, weight: .bold)).monospacedDigit().foregroundStyle(color)
+            .frame(minWidth: 24, minHeight: 24).padding(.horizontal, count > 9 ? 4 : 0)
+            .background(color.opacity(0.16), in: Capsule())
+            .overlay(Capsule().strokeBorder(color, lineWidth: 1.5))
+            .fixedSize()
+            .accessibilityLabel(count == 1 ? "1 new run" : "\(count) new runs")
     }
 }
 

@@ -23,6 +23,7 @@ final class ToolsUITests: XCTestCase {
         XCTAssertTrue(tools.waitForExistence(timeout: 20), "no tools icon on the orb:\n\(app.debugDescription)")
         XCTAssertEqual(tools.label, "Tools")
         shot("t1-orb")
+        sleep(1)                                              // the page settles after launch
         tools.tap()
         XCTAssertTrue(app.staticTexts["This conversation"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertEqual(element("tools.summary").label, "5 auto · 4 ask", "the gateway's defaults")
@@ -32,8 +33,9 @@ final class ToolsUITests: XCTestCase {
         reveal(email)
         XCTAssertTrue(email.label.contains("Not connected for this account"), email.label)
         shot("t3-groups-end")
-        for _ in 0..<6 { app.swipeDown() }
-        element("tools.group.files").tap()
+        let files = element("tools.group.files")
+        for _ in 0..<8 where !(files.exists && files.isHittable && files.frame.minY > 60) { app.nudgeDown() }
+        files.tap()
         let write = "tool.write_file"
         reveal(element("\(write).auto"))
         XCTAssertTrue(isSelected("\(write).ask"), "write_file asks by default")

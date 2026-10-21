@@ -2,10 +2,9 @@ import AbstractGatewayClient
 import SwiftUI
 import WatchKit
 
-/// Change an automation from the wrist: its title, its task (what it is asked each run) and its
-/// instructions (how it works), each in its own field holding the current text so editing starts
-/// from it; how often it runs, whether each run builds on the earlier ones, and whether it runs at
-/// all. A title that is the task follows the task while the title itself is not edited. Save sends
+/// Change an automation from the wrist: its title and its task (what it is asked each run), each in
+/// its own field holding the current text so editing starts from it; whether it runs at all and how
+/// often; whether each run builds on the earlier ones, and how much of them it reads. A title that is the task follows the task while the title itself is not edited. Save sends
 /// only what changed, with the revision it was read at (a change made elsewhere meanwhile is
 /// refused); leaving with changes asks to save or discard them. The definition is the one its page
 /// already read (shown at once), and a save updates it for every page.
@@ -15,6 +14,9 @@ struct AutomationEditView: View {
     @State private var every: String
     @State private var remembers: Bool
     @State private var active: Bool
+    /// How much of its earlier runs a run reads, in tokens (the gateway's value; nil: not given).
+    @State private var tokens: Int?
+    @State private var tokensProblem: String?
     @State private var saving = false
     @State private var error: String?
     @State private var choosingEvery = false
@@ -22,7 +24,6 @@ struct AutomationEditView: View {
     @State private var definition: AutomationDefinition?
     @State private var task = ""
     @State private var title = ""
-    @State private var instructions = ""
     /// Back with changes: Save or Discard.
     @State private var leaving = false
     /// The title was typed in (else a title that is the task follows the task).
@@ -36,6 +37,7 @@ struct AutomationEditView: View {
         _every = State(initialValue: automation.every ?? "")
         _remembers = State(initialValue: automation.contextMode != "independent")
         _active = State(initialValue: automation.status != "paused")
+        _tokens = State(initialValue: automation.growingMaxTokens)
     }
 
     private var everyChanged: Bool { automation.every != nil && every != automation.every }
@@ -50,11 +52,8 @@ struct AutomationEditView: View {
         let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
         return !t.isEmpty && t != (definition?.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     }
-    private var instructionsChanged: Bool {
-        guard definition != nil else { return false }
-        return instructions.trimmingCharacters(in: .whitespacesAndNewlines) != (definition?.instructions ?? "")
-    }
-    private var changed: Bool { titleChanged || taskChanged || instructionsChanged || everyChanged || remembersChanged || activeChanged }
+    private var tokensChanged: Bool { remembers && tokens != nil && tokens != automation.growingMaxTokens }
+    private var changed: Bool { titleChanged || taskChanged || everyChanged || remembersChanged || tokensChanged || activeChanged }
 
     var body: some View {
         FitScroll {
@@ -69,32 +68,61 @@ struct AutomationEditView: View {
                         TextField("Task", text: $task, axis: .vertical).lineLimit(1...10)
                             .font(.rounded(.footnote)).accessibilityIdentifier("edit.task")
                     }
-                    field("Instructions") {
-                        TextField("None", text: $instructions, axis: .vertical).lineLimit(1...10)
-                            .font(.rounded(.footnote)).accessibilityIdentifier("edit.instructions")
-                    }
                 } else if loadFailed {
                     Text("Couldn't load this automation").font(.rounded(.caption2)).foregroundStyle(Theme.muted)
                 } else {
                     ProgressView().frame(maxWidth: .infinity, minHeight: 44)
                 }
-                if automation.every != nil {
-                    // A row like the others; the choice opens as a list.
-                    Button { choosingEvery = true } label: {
-                        Card {
-                            HStack {
-                                Label(ScheduleLine.compact(every), systemImage: "clock")
-                                    .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text)
-                                Spacer(minLength: 4)
-                                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Theme.muted)
+                // When: on or off, and how often.
+                field("Runs") {
+                    Card {
+                        VStack(spacing: 8) {
+                            Toggle("Active", isOn: $active).font(.rounded(.footnote, weight: .semibold)).tint(Theme.indigoButton)
+                                .accessibilityIdentifier("edit.active")
+                            if automation.every != nil {
+                                Divider().overlay(Theme.line)
+                                // The choice opens as a list.
+                                Button { choosingEvery = true } label: {
+                                    HStack {
+                                        Label(Self.label(every), systemImage: "clock")
+                                            .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(active ? Theme.text : Theme.muted)
+                                        Spacer(minLength: 4)
+                                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Theme.muted)
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.tap)
+                                .accessibilityLabel(Self.label(every))
                             }
                         }
                     }
-                    .buttonStyle(.tap)
-                    .accessibilityLabel(Self.label(every))
                 }
-                Card { Toggle("Active", isOn: $active).font(.rounded(.footnote, weight: .semibold)).tint(Theme.indigoButton) }
-                Card { Toggle("Builds on earlier runs", isOn: $remembers).font(.rounded(.footnote, weight: .semibold)).tint(Theme.indigoButton) }
+                // Memory: whether a run reads the earlier ones, and how much of them.
+                field("Memory") {
+                    Card {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Toggle("Builds on earlier runs", isOn: $remembers).font(.rounded(.footnote, weight: .semibold)).tint(Theme.indigoButton)
+                            if remembers {
+                                Divider().overlay(Theme.line)
+                                TextFieldLink(prompt: Text("Tokens (numbers only)")) {
+                                    HStack {
+                                        Text("Reads up to").font(.rounded(.footnote)).foregroundStyle(Theme.text2)
+                                        Spacer(minLength: 4)
+                                        Text(tokens.map(Self.tokensText) ?? "—").font(.rounded(.footnote, weight: .semibold)).monospacedDigit()
+                                            .foregroundStyle(Theme.cyan)
+                                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Theme.muted)
+                                    }
+                                    .contentShape(Rectangle())
+                                } onSubmit: { text in setTokens(text) }
+                                .buttonStyle(.tap)
+                                .accessibilityLabel("Reads up to \(tokens.map(Self.tokensText) ?? "the gateway's default")")
+                                .accessibilityIdentifier("edit.tokens")
+                                Text(tokensProblem ?? "of its earlier runs, in tokens.").font(.rounded(.caption2))
+                                    .foregroundStyle(tokensProblem == nil ? Theme.muted : Theme.red)
+                            }
+                        }
+                    }
+                }
                 if let error { Text(error).font(.rounded(.caption2)).foregroundStyle(Theme.red).multilineTextAlignment(.center) }
                 Spacer(minLength: 8)
                 Button(saving ? "Saving…" : "Save") { Task { await save() } }
@@ -109,7 +137,6 @@ struct AutomationEditView: View {
                 definition = d
                 task = d.prompt ?? ""
                 title = d.title ?? automation.name ?? ""
-                instructions = d.instructions ?? ""
             } catch { loadFailed = true }
         }
         // Back (the corner button or a swipe) with unsaved changes asks first (they used to vanish
@@ -147,6 +174,22 @@ struct AutomationEditView: View {
         }
     }
 
+    /// What was typed: a whole number of tokens (spaces and thousands separators allowed), else it
+    /// says numbers only and keeps the value.
+    private func setTokens(_ text: String) {
+        let digits = text.filter { !$0.isWhitespace && $0 != "," && $0 != "." && $0 != "\u{2019}" && $0 != "'" }
+        guard !digits.isEmpty, digits.allSatisfy(\.isASCII), digits.allSatisfy(\.isNumber), let n = Int(digits), n > 0 else {
+            tokensProblem = "Numbers only, more than 0."
+            WKInterfaceDevice.current().play(.failure)
+            return
+        }
+        tokensProblem = nil
+        tokens = n
+    }
+
+    /// "50,000 tokens".
+    static func tokensText(_ n: Int) -> String { n.formatted(.number.grouping(.automatic)) + " tokens" }
+
     private var options: [String] {
         Self.presets.contains(every) || every.isEmpty ? Self.presets : [every] + Self.presets
     }
@@ -168,12 +211,9 @@ struct AutomationEditView: View {
         defer { saving = false }
         var changes: [String: JSONValue] = [:]
         let newTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
-        let newInstructions = instructions.trimmingCharacters(in: .whitespacesAndNewlines)
         let newTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         var newTarget: [String: JSONValue]?
-        if taskChanged || instructionsChanged,
-           let target = definition?.target(withPrompt: taskChanged ? newTask : (definition?.prompt ?? ""),
-                                           instructions: instructionsChanged ? newInstructions : nil) {
+        if taskChanged, let target = definition?.target(withPrompt: newTask) {
             changes["target"] = .object(target); newTarget = target
         }
         if titleChanged { changes["title"] = .string(newTitle) }
@@ -184,7 +224,11 @@ struct AutomationEditView: View {
             if let v = automation.triggerSourceVersion { trigger["source_version"] = .number(Double(v)) }
             changes["trigger"] = .object(trigger)
         }
-        if remembersChanged { changes["context"] = .object(["mode": .string(remembers ? "growing" : "independent")]) }
+        if remembersChanged || tokensChanged {
+            var context: [String: JSONValue] = ["mode": .string(remembers ? "growing" : "independent")]
+            if remembers, let tokens { context["growing"] = .object(["max_tokens": .number(Double(tokens))]) }
+            changes["context"] = .object(context)
+        }
         do {
             if !changes.isEmpty {
                 try await model.client.reviseAutomation(id: automation.id, changes: changes,

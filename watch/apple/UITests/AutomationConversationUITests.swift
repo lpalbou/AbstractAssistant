@@ -41,7 +41,7 @@ final class AutomationConversationUITests: XCTestCase {
         app.buttons["ask.info"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["automation.title"].firstMatch.waitForExistence(timeout: 10), app.debugDescription)
         shot("c3-info")
-        let runNow = app.buttons["Run now"].firstMatch
+        let runNow = app.buttons["automation.run"].firstMatch
         XCTAssertTrue(runNow.waitForExistence(timeout: 5)); sleep(1)       // the page has slid in
         runNow.tap()
         // Back on the orb page, which follows the run at once (its controls hide while it works).

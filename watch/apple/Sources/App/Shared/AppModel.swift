@@ -8,7 +8,7 @@ enum Route: Hashable {
     /// message, its steps, a picture, a link, a choice, a form, a question) opens with a tap only.
     var revisitable: Bool {
         switch self {
-        case .ask, .sessions, .session, .automations, .automation, .automationInfo, .conversation, .settings, .voiceSettings,
+        case .ask, .sessions, .session, .automations, .automation, .automationInfo, .automationSearch, .conversation, .settings, .voiceSettings,
              .orbStyle, .about, .tools, .toolGroup, .connection, .archivedSessions, .sessionSearch,
              .archivedAutomations: true
         // `.answer`: a notification's answer (it would be read aloud again); `.waits`: it closes once empty.
@@ -22,8 +22,10 @@ enum Route: Hashable {
     case tools(AppModel.ToolScope), toolGroup(AppModel.ToolScope, String), connection
     case workflow(AppModel.ToolScope), media(MediaItem), activity(String), archivedSessions, sessionSearch(String), archivedAutomations
     case filePreview([SessionFile], Int)
-    /// An automation's details (behind (i) on its orb page): when it runs, Edit, Run now.
+    /// An automation's details (behind (i) on its orb page): when it runs, Edit, Run.
     case automationInfo(AutomationSummary)
+    /// The automations whose name or task holds these words.
+    case automationSearch(String)
 
     /// A page with the orb that talks (a conversation or an automation): one is on screen at a time.
     var isOrbPage: Bool {
@@ -125,7 +127,7 @@ final class AppModel: ObservableObject {
 
     // MARK: An automation's details, shared by its pages
 
-    /// Each automation's definition (title, task, instructions) and latest results, as last read:
+    /// Each automation's definition (title, task) and latest results, as last read:
     /// its page and Edit show them at once and refresh behind; a save updates them in place.
     @Published private(set) var definitions: [String: AutomationDefinition] = [:]
     @Published private(set) var results: [String: [LastOccurrence]] = [:]

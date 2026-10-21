@@ -31,7 +31,8 @@ Orb styles: `../design/anim/orb-designs/`.
    the gear on Home, Back everywhere else, morphing from one to the other; the page's title sits
    beside it, the time at the right. Settings opens from the left, where its gear is, and its
    pages (Connection, Orb style, Voice, Tools, About) follow from the left and leave to the left;
-   every other page comes from the right.
+   every other page comes from the right. Nothing is drawn behind that row: every page starts
+   below it and is cut there, scrolled or not.
 
 ## Screens
 
@@ -56,14 +57,15 @@ Orb styles: `../design/anim/orb-designs/`.
 | Search | The conversations holding the words (questions, answers, artifacts), the words marked, a matching image beside them. | continue |
 | Archived | Archived conversations, each with Restore. | restore |
 | Session | Every exchange (from the conversation's page): its last exchanges (question, then the answer); a finished answer opens in full; a running one can be stopped. Continue floats at the bottom. | open · stop · Continue |
-| Read aloud | The orb speaks a text, the text below; the rewind icon beside Back goes back 10 s. | tap: pause/resume · rewind |
+| Read aloud | The orb speaks a text, the text below; the rewind icon beside Back goes back 10 s; holding the voice button rewinds 8 s a second, a bump every half second. | tap: pause/resume · rewind |
 | Link | A tapped web link: the page's title and readable text, read aloud. | read aloud |
-| Automations | New automation first, then each automation: its name with a spinner while it runs, its count of new results (outlined in amber) and its archive button; its runs and schedule ("⟳ 44 🕐 12h ➜ 6h") with the switch that turns it on or off; Archived at the bottom. | open · on/off · archive |
+| Automations | New and Search on one line, as in Sessions; then each automation: its name with a spinner while it runs and its archive button; its runs and schedule ("⟳ 44 🕐 12h ➜ 6h") with, at the right, the runs you have not seen in an orange badge (the row outlined in amber); Archived at the bottom. On or off is in Edit. | new · search · open · archive |
+| Search automations | The automations whose name or task holds every word searched, as rows of the list. | open · archive |
 | Archived automations | Archived automations, each with Restore. | restore |
 | Automation | The same orb page as a conversation: its runs are its messages (the message its trigger sent, when, then the answer; a failed run in red), the latest in full, the earlier ones as cards; its name below the orb where a conversation shows who answers; (i) where a conversation has its tools; a run in progress is followed on the orb (its steps under it, Stop ends the run, the schedule goes on); talking opens a conversation about it, seeded with its runs, and the page goes on as that conversation (the automation's own runs never read it). A swipe forward opens its details. | talk · stop · read aloud · share · (i) · open a run |
-| Automation details | Behind (i): its name, when it runs and next, Edit, Run now (back to its orb page, which follows the run) or Stop while it runs, its task (unless its name says it), its instructions, whether it builds on its earlier runs. | edit · run now · stop |
+| Automation details | Behind (i): its name, when it runs and next, Edit and Run (back to its orb page, which follows the run; Stop while it runs), its task (unless its name says it), whether it builds on its earlier runs. | edit · run · stop |
 | New automation | The task (the field opens the watch's text input), the workflow (the gateway's default by name, then the gateway's workflows for this account), its tools (the Tools page), when (the shared presets, or daily at a time), Builds on earlier runs, Create at the bottom. | create |
-| Edit automation | The title, the task and the instructions, each in its own field opening with the current text (shown at once when its page has read them), how often, Active, Builds on earlier runs, Save at the bottom; Back with changes asks Save or Discard. | edit · Save · discard |
+| Edit automation | The title and the task, each in its own field opening with the current text (shown at once when its page has read them); Runs: Active and how often; Memory: Builds on earlier runs and, when it does, how much of them it reads ("Reads up to 50,000 tokens": the gateway's value, a number only); Save at the bottom; Back with changes asks Save or Discard. | edit · Save · discard |
 | Settings | Connection (the gateway, the account, its email and tools), Tools (the defaults), Voice (voice, speed, transcription model), Orb style, Read aloud, About, and Sign out at the bottom. | |
 | About | The app's version and build; the framework's author, copyright, website, source, documentation, issues, feedback and contact. | open a link |
 
@@ -94,7 +96,7 @@ Orb styles: `../design/anim/orb-designs/`.
 
 ### An automation runs
 
-1. Its schedule (or Run now, on its details) starts a run: on its orb page the orb works and its
+1. Its schedule (or Run, on its details) starts a run: on its orb page the orb works and its
    steps show under it, as for a question you asked; Sessions and the list show it running.
 2. You can stay, stop it, or leave: the result comes as a notification.
 3. When it ends: a haptic, the orb speaks the answer, the run among the earlier messages.

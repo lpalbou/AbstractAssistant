@@ -3,8 +3,8 @@ import SwiftUI
 import WatchKit
 
 /// An automation's details, behind (i) on its orb page (or a swipe forward from it): its name, when
-/// it runs, Edit and Run now (Stop while it runs), its task and instructions. Its runs are on the orb
-/// page, as any conversation's messages; Run now goes back there to follow the run.
+/// it runs, Edit and Run (Stop while it runs), its task. Its runs are on the orb page, as any
+/// conversation's messages; Run goes back there to follow the run.
 struct AutomationInfoView: View {
     let automation: AutomationSummary
     @EnvironmentObject private var model: AppModel
@@ -21,20 +21,26 @@ struct AutomationInfoView: View {
                 Text(current.name ?? "Automation").font(.rounded(.headline)).foregroundStyle(Theme.text)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("automation.title")
-                // When it runs, then Edit and Run now on the same line (while it runs: Stop).
+                // When it runs, then Edit and Run on the same line (while it runs: Stop).
                 HStack(spacing: 6) {
                     ScheduleLine(automation: current, stacked: true)
                     Spacer(minLength: 4)
                     NavigationLink(value: Route.automationEdit(current)) { GlassIcon(symbol: "pencil") }
                         .buttonStyle(GlassPress()).accessibilityLabel("Edit")
-                    Button { running ? stopRun() : runNow() } label: { GlassIcon(symbol: running ? "stop.fill" : "play.fill") }
-                        .buttonStyle(GlassPress()).disabled(busy)
-                        .accessibilityLabel(running ? "Stop this run" : "Run now")
+                    Button { running ? stopRun() : runNow() } label: {
+                        Label(running ? "Stop" : "Run", systemImage: running ? "stop.fill" : "play.fill")
+                            .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(running ? Theme.red : Theme.text)
+                            .padding(.horizontal, 12).frame(height: 35)
+                            .background(Theme.neutralButton, in: Capsule())
+                            .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
+                    }
+                    .buttonStyle(GlassPress()).disabled(busy)
+                    .accessibilityLabel(running ? "Stop this run" : "Run")
+                    .accessibilityIdentifier("automation.run")
                 }
                 if let error { Text(error).font(.rounded(.caption2)).foregroundStyle(Theme.red) }
                 // Its task, unless its name already says it (a name made from the task).
                 if let task = definition?.prompt, task != current.name { about("Task", task, id: "automation.task") }
-                if let how = definition?.instructions { about("Instructions", how, id: "automation.instructions") }
                 if current.contextMode == "growing" {
                     Label("Builds on its earlier runs", systemImage: "arrow.triangle.2.circlepath")
                         .font(.rounded(.caption2)).foregroundStyle(Theme.muted)

@@ -121,6 +121,7 @@ struct RoutePage: View {
         case .waits: WaitsView()
         case .automation(let a): AskView(automation: a)
         case .automationInfo(let a): AutomationInfoView(automation: a)
+        case .automationSearch(let q): AutomationSearchView(query: q)
         case .automationEdit(let a): AutomationEditView(automation: a)
         case .newAutomation: NewAutomationView()
         case .message(let title, let e): MessageView(title: title, exchange: e)

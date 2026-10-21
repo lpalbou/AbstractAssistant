@@ -4969,7 +4969,7 @@ listing (`ai.abstractframework.assistant`). Local developer identity/data are re
 
 **Your AI, everywhere. On your wrist.** A voice-first Apple Watch app for your AbstractGateway.
 
-Version 0.3.0 · watchOS 26 or later · independent (no iPhone app needed) · pre-release through
+Version 0.4.0 · watchOS 26 or later · independent (no iPhone app needed) · pre-release through
 TestFlight. See [CHANGELOG.md](CHANGELOG.md) for what changed.
 
 The watch app is a thin client of AbstractGateway, like the desktop assistant: the gateway owns
@@ -5012,13 +5012,14 @@ archive button at its right (Archived brings it back). Each says how long ago it
 
 **Follow your automations.** New automation creates one: the task, the workflow, the tools it may
 use, when it runs and whether each run builds on the earlier ones. In the list, each shows its name,
-how many times it has run, how often it runs and when next; a switch turns one off and on, and its
-archive button archives it (Archived brings it back). It opens on the same orb page as a
+how many times it has run, how often it runs and when next, and the runs you have not seen in an
+orange badge; New and Search sit on one line, as in Sessions, and its archive button archives it
+(Archived brings it back). It opens on the same orb page as a
 conversation: its runs are the messages (what its trigger sent, then the answer), the orb follows a
 run in progress and speaks its answer, and talking there opens a conversation about it (its own runs
-never read it). Its details sit behind (i), where a conversation has its tools: when it runs, Run
-now, Edit (its title, task and instructions, apart) and its instructions; once read, a page opens
-at once. Every screen shows a spinner until
+never read it). Its details sit behind (i), where a conversation has its tools: when it runs, Run,
+and Edit (its title and task apart; Active and how often; whether it builds on its earlier runs and
+how much of them it reads, in tokens); once read, a page opens at once. Every screen shows a spinner until
 its information is in, and an error only once reading it has failed several times.
 
 **Get answers while away.** An answer that arrives after you left the app comes as a notification.
@@ -5098,8 +5099,15 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-21
+
 ### Added
 
+- **Search automations.** The Automations page has New and Search on one line, as Sessions: Search
+  lists the automations whose name or task holds the words.
+- **How much an automation remembers.** When an automation builds on its earlier runs, Edit shows
+  how much of them each run reads ("Reads up to 50,000 tokens", the gateway's value) and takes a
+  new number (numbers only).
 - **An automation is a conversation.** It opens on the same orb page as a conversation: its runs
   are the messages (what its trigger sent, when, then the answer), the orb follows a run in progress
   and speaks its answer, Share and the voice work the same. Its details (when it runs, Run now,
@@ -5164,6 +5172,14 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Changed
 
+- **Nothing behind the top row.** Every page starts below the row of the corner button, the title
+  and the time, and is cut there, scrolled or not.
+- **An automation's runs you have not seen** show in an orange badge on its row; on or off moved to
+  Edit, with how often it runs. Its details' play button is now "Run".
+- **Instructions are gone** from an automation's details and Edit: the watch edits its title and
+  its task (anything else its workflow was given stays as it is).
+- **Rewinding is twice as fast:** holding the voice button goes back 8 s a second at first, with a
+  bump every half second.
 - **Tools follow Settings.** A default stays as you set it, even when the gateway's own choice for
   that tool changes. "Use my defaults" also puts the conversation's workflow back on the default,
   and choosing the workflow a conversation already runs is not counted as a change. An answer opened from a
@@ -5570,7 +5586,7 @@ sequenceDiagram
 | Cancel / stop | `POST /api/gateway/commands` `{type: "cancel"}` |
 | Automations | `GET /api/gateway/automations`; one automation `GET /api/gateway/automations/{id}` (`summary.current_occurrence` while it runs, `definition.target` for its task) |
 | Run now / stop / pause / resume | `POST /api/gateway/automations/{id}/commands` `{type: "automation.run_now" \| "automation.stop_current" \| "automation.pause" \| "automation.resume"}` |
-| Edit an automation | `PATCH /api/gateway/automations/{id}` `{expected_revision, changes}` with only what changed (`title`, `target`, `trigger`, `context`); a stale revision is refused (409) |
+| Edit an automation | `PATCH /api/gateway/automations/{id}` `{expected_revision, changes}` with only what changed (`title`, `target`, `trigger`, `context` `{mode, growing: {max_tokens}}`; the limit shown is the row's `growing_max_tokens`, the automation's own or the gateway's default); a stale revision is refused (409) |
 | New automation | `GET /api/gateway/bundles?executable_for=abstractcode.agent.v1` (the workflows offered; the gateway decides), `GET /api/gateway/bundles/{bundle}/flows/{flow}/input_schema?bundle_version=` (a chosen workflow's defaults and required inputs), `POST /api/gateway/automations` `{request_id, title, target, trigger: schedule@2 {kind: every \| daily}, context, policy: {tool_approval}}` — the body the other clients send |
 | An automation's messages | `GET /api/gateway/automations/{id}/occurrences?limit=` (each run's `user_turn`, `answer`, `fired_at`, `status`) |
 | Talking about an automation | `POST /api/gateway/automations/{id}/discuss` `{request_id, occurrence_index, prompt}`: a `discussion-session:` conversation seeded with its runs, its first turn started; later turns `POST /runs/start` with that `session_id`. Nothing is written into the automation's own conversation. |

@@ -23,7 +23,6 @@ final class EditTextUITests: XCTestCase {
         let task = app.descendants(matching: .any)["edit.task"].firstMatch
         XCTAssertTrue(task.waitForExistence(timeout: 10))
         XCTAssertTrue(app.descendants(matching: .any)["edit.title"].exists, "the title has its own field")
-        XCTAssertTrue(app.descendants(matching: .any)["edit.instructions"].exists, "the instructions have their own field")
         shot("1-edit")
         try open(app, field: task, expect: "Summarise the overnight assay QC runs, new papers on my target, and dependency updates to pin.",
                  shotName: "2-task-editor")
@@ -96,25 +95,25 @@ final class EditTextUITests: XCTestCase {
         shot("9-list-shows-it")
     }
 
-    /// The page reads the automation once: Edit then opens with it at once, and its instructions are
-    /// what the page shows (a definition takes 3 s here, as on a public gateway).
+    /// The page reads the automation once: Edit then opens with it at once (a definition takes 3 s
+    /// here, as on a public gateway).
     func testEditOpensAtOnceWithWhatThePageRead() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--mock", "--no-notification-prompt", "--slow-definitions", "--open-automation", "3"]
         app.launch()
-        // Its orb page, then its details.
+        // Its orb page, then its details (they read the definition).
         let info = app.buttons["ask.info"].firstMatch
         XCTAssertTrue(info.waitForExistence(timeout: 15), app.debugDescription)
         info.tap()
-        let instructions = app.descendants(matching: .any)["automation.instructions"].firstMatch
-        XCTAssertTrue(instructions.waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertTrue(app.descendants(matching: .any)["automation.title"].firstMatch.waitForExistence(timeout: 15), app.debugDescription)
+        sleep(4)                                                  // the definition is read
         app.buttons["Edit"].firstMatch.tap()
         let opened = Date()
-        let field = app.descendants(matching: .any)["edit.instructions"].firstMatch
+        let field = app.descendants(matching: .any)["edit.task"].firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertLessThan(Date().timeIntervalSince(opened), 1.5, "Edit read the automation again")
-        XCTAssertTrue((field.value as? String ?? "").hasPrefix("You are an expert at identifying the relevant AI stories"), field.value as? String ?? "")
-        XCTAssertEqual(app.descendants(matching: .any)["edit.task"].firstMatch.value as? String, "investigate today's news.")
+        XCTAssertEqual(field.value as? String, "investigate today's news.")
+        XCTAssertFalse(app.descendants(matching: .any)["edit.instructions"].exists, "instructions are not an automation's")
         shot("10-edit-at-once")
     }
 }

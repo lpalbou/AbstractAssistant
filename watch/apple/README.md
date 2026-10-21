@@ -2,7 +2,7 @@
 
 **Your AI, everywhere. On your wrist.** A voice-first Apple Watch app for your AbstractGateway.
 
-Version 0.3.0 · watchOS 26 or later · independent (no iPhone app needed) · pre-release through
+Version 0.4.0 · watchOS 26 or later · independent (no iPhone app needed) · pre-release through
 TestFlight. See [CHANGELOG.md](CHANGELOG.md) for what changed.
 
 The watch app is a thin client of AbstractGateway, like the desktop assistant: the gateway owns
@@ -45,13 +45,14 @@ archive button at its right (Archived brings it back). Each says how long ago it
 
 **Follow your automations.** New automation creates one: the task, the workflow, the tools it may
 use, when it runs and whether each run builds on the earlier ones. In the list, each shows its name,
-how many times it has run, how often it runs and when next; a switch turns one off and on, and its
-archive button archives it (Archived brings it back). It opens on the same orb page as a
+how many times it has run, how often it runs and when next, and the runs you have not seen in an
+orange badge; New and Search sit on one line, as in Sessions, and its archive button archives it
+(Archived brings it back). It opens on the same orb page as a
 conversation: its runs are the messages (what its trigger sent, then the answer), the orb follows a
 run in progress and speaks its answer, and talking there opens a conversation about it (its own runs
-never read it). Its details sit behind (i), where a conversation has its tools: when it runs, Run
-now, Edit (its title, task and instructions, apart) and its instructions; once read, a page opens
-at once. Every screen shows a spinner until
+never read it). Its details sit behind (i), where a conversation has its tools: when it runs, Run,
+and Edit (its title and task apart; Active and how often; whether it builds on its earlier runs and
+how much of them it reads, in tokens); once read, a page opens at once. Every screen shows a spinner until
 its information is in, and an error only once reading it has failed several times.
 
 **Get answers while away.** An answer that arrives after you left the app comes as a notification.

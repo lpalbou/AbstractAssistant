@@ -2,20 +2,34 @@ import AbstractGatewayClient
 import SwiftUI
 import WatchKit
 
-/// Your automations, like your conversations: a name, when it runs, how many new results.
+/// Your automations, like your conversations: New and Search on one line, then each with its name,
+/// when it runs, and the runs you have not seen yet.
 struct AutomationsView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
     @State private var archiving: AutomationSummary?
-    @State private var problem: String?
 
     var body: some View {
         List {
-            // A new automation (as Sessions starts a new conversation).
-            Button { model.path.append(.newAutomation) } label: {
-                Label("New automation", systemImage: "plus")
-                    .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.cyan)
+            // One line, as in Sessions: New (an automation) and Search (the keyboard, then the results).
+            HStack(spacing: 6) {
+                Button { model.path.append(.newAutomation) } label: {
+                    TopAction(symbol: "plus", title: "New", color: Theme.cyan)
+                }
+                .buttonStyle(.tap)
+                .accessibilityLabel("New automation")
+                TextFieldLink(prompt: Text("Words to find")) {
+                    TopAction(symbol: "magnifyingglass", title: "Search", color: Theme.text2)
+                } onSubmit: { text in
+                    let q = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !q.isEmpty { model.path.append(.automationSearch(q)) }
+                }
+                .buttonStyle(.tap)
+                .accessibilityLabel("Search")
+                .accessibilityIdentifier("automations.search")
             }
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
             if model.automations.isEmpty {
                 if !model.automationsLoaded && (model.automationsLoading || model.automationsError == nil) {
                     ProgressView().frame(maxWidth: .infinity)
@@ -27,31 +41,14 @@ struct AutomationsView: View {
                     Text("No automations yet").font(.rounded(.footnote)).foregroundStyle(Theme.muted)
                 }
             }
-            ForEach(model.automations) { a in
-                AutomationRow(automation: a, archive: { archiving = a })
-                    // New results you have not seen: outlined, as a new answer in Sessions.
-                    .listRowBackground(SessionRowGround(new: (a.attention?.unseenCount ?? 0) > 0, tint: Theme.amber))
-                    .listRowInsets(EdgeInsets(top: 4, leading: 10, bottom: 4, trailing: 4))
-            }
+            ForEach(model.automations) { a in AutomationListRow(automation: a) { archiving = a } }
             NavigationLink(value: Route.archivedAutomations) {
                 Label("Archived", systemImage: "archivebox").font(.rounded(.footnote)).foregroundStyle(Theme.muted)
             }
             .accessibilityIdentifier("automations.archived")
         }
         .screen("Automations")
-        .sheet(item: $archiving) { a in
-            ArchiveConfirm(title: a.name, what: .automation) { confirmed in
-                archiving = nil
-                guard confirmed else { return }
-                Task {
-                    do { try await model.archiveAutomation(a); WKInterfaceDevice.current().play(.success) }
-                    catch { problem = AppModel.say(error) }
-                }
-            }
-        }
-        .alert("That didn't work", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
-            Button("OK", role: .cancel) {}
-        } message: { Text(problem ?? "") }
+        .archivingAutomation($archiving)
         .containerBackground(Theme.ground, for: .navigation)
         .refreshable { model.refreshAutomations(); await model.refresh() }
         // While one runs, its row is read again every 5 s: the spinner goes when it is done.
@@ -75,16 +72,24 @@ struct AutomationsView: View {
     }
 }
 
-/// One automation: its name (with a spinner while it runs, its count of new results) and the
-/// discreet archive button; its schedule with the switch that turns it on or off. A tap opens it.
+/// An automation's row in a list (the automations, a search): outlined when it has runs you have
+/// not seen, as a new answer in Sessions.
+struct AutomationListRow: View {
+    let automation: AutomationSummary
+    let archive: () -> Void
+    var body: some View {
+        AutomationRow(automation: automation, archive: archive)
+            .listRowBackground(SessionRowGround(new: (automation.attention?.unseenCount ?? 0) > 0, tint: Theme.amber))
+            .listRowInsets(EdgeInsets(top: 4, leading: 10, bottom: 4, trailing: 4))
+    }
+}
+
+/// One automation: its name (with a spinner while it runs) and the discreet archive button; when it
+/// runs, and the runs you have not seen yet in an orange badge. A tap opens it. (On or off is in Edit.)
 struct AutomationRow: View {
     let automation: AutomationSummary
     let archive: () -> Void
     @EnvironmentObject private var model: AppModel
-    @State private var switching = false
-    @State private var problem: String?
-
-    private var switchable: Bool { automation.status == "active" || automation.status == "paused" }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -96,7 +101,6 @@ struct AutomationRow: View {
                             .foregroundStyle(Theme.text).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 2)
                         if automation.currentOccurrence != nil { ProgressView().frame(width: 18, height: 18).accessibilityLabel("Running") }
-                        else if let n = automation.attention?.unseenCount, n > 0 { Pill(text: "\(n)", color: Theme.amber) }
                     }
                     .contentShape(Rectangle())
                 }
@@ -113,32 +117,73 @@ struct AutomationRow: View {
                 .accessibilityLabel("Archive")
                 .accessibilityIdentifier("automation.archive")
             }
-            HStack(spacing: 4) {
-                Button { model.path.append(.automation(automation)) } label: {
-                    ScheduleLine(automation: automation).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+            Button { model.path.append(.automation(automation)) } label: {
+                HStack(spacing: 4) {
+                    ScheduleLine(automation: automation).frame(maxWidth: .infinity, alignment: .leading)
+                    if let n = automation.attention?.unseenCount, n > 0 {
+                        CountBadge(count: n).padding(.trailing, 6).accessibilityIdentifier("automation.unseen")
+                    }
                 }
-                .buttonStyle(.tap)
-                if switchable {
-                    Toggle(isOn: Binding(get: { automation.status == "active" }, set: { on in flip(on) })) { EmptyView() }
-                        .labelsHidden()
-                        .tint(Theme.greenButton)
-                        .disabled(switching)
-                        .accessibilityLabel(automation.status == "active" ? "On" : "Off")
-                        .accessibilityIdentifier("automation.active")
-                }
+                .contentShape(Rectangle())
             }
-            if let problem { Text(problem).font(.rounded(.caption2)).foregroundStyle(Theme.red) }
+            .buttonStyle(.tap)
         }
         .padding(.vertical, 2)
     }
+}
 
-    private func flip(_ on: Bool) {
-        switching = true; problem = nil
-        WKInterfaceDevice.current().play(.click)
-        Task {
-            do { try await model.setActive(automation, on) } catch { problem = AppModel.say(error) }
-            switching = false
+/// The automations whose name or task holds every word searched (as they are on this watch).
+struct AutomationSearchView: View {
+    let query: String
+    @EnvironmentObject private var model: AppModel
+    @State private var archiving: AutomationSummary?
+
+    private var matches: [AutomationSummary] {
+        let words = query.split(whereSeparator: \.isWhitespace).map(String.init)
+        return model.automations.filter { a in
+            let text = (a.name ?? "") + " " + (model.definitions[a.id]?.prompt ?? "")
+            return words.allSatisfy { text.localizedCaseInsensitiveContains($0) }
         }
+    }
+
+    var body: some View {
+        List {
+            Text("“\(query)”").font(.rounded(.footnote)).foregroundStyle(Theme.text2).listRowBackground(Color.clear)
+            if matches.isEmpty {
+                Text("No automation holds these words").font(.rounded(.footnote)).foregroundStyle(Theme.muted)
+            }
+            ForEach(matches) { a in AutomationListRow(automation: a) { archiving = a } }
+        }
+        .screen("Search")
+        .archivingAutomation($archiving)
+        .containerBackground(Theme.ground, for: .navigation)
+    }
+}
+
+extension View {
+    /// "Archive this automation?" for the one set, then it leaves the lists (Archived restores it).
+    func archivingAutomation(_ automation: Binding<AutomationSummary?>) -> some View { modifier(ArchivingAutomation(item: automation)) }
+}
+
+private struct ArchivingAutomation: ViewModifier {
+    @Binding var item: AutomationSummary?
+    @EnvironmentObject private var model: AppModel
+    @State private var problem: String?
+    func body(content: Content) -> some View {
+        content
+            .sheet(item: $item) { a in
+                ArchiveConfirm(title: a.name, what: .automation) { confirmed in
+                    item = nil
+                    guard confirmed else { return }
+                    Task {
+                        do { try await model.archiveAutomation(a); WKInterfaceDevice.current().play(.success) }
+                        catch { problem = AppModel.say(error) }
+                    }
+                }
+            }
+            .alert("That didn't work", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: { Text(problem ?? "") }
     }
 }
 

@@ -24,5 +24,6 @@ else
   ARGS+=(-parallel-testing-enabled YES -parallel-testing-worker-count 3)
 fi
 xcodebuild test "${ARGS[@]}" > "$LOG" 2>&1 || true
-grep -E "Test Case .*failed|error: -\[" "$LOG" | cut -c1-220 | sort -u
-echo "$(grep -c 'Test Case .*passed' "$LOG") passed, $(grep -c 'Test Case .*failed' "$LOG") failed — $LOG"
+# (a parallel run says "Test case … passed on 'Clone 2 …'"; a serial one "Test Case '-[…]' passed")
+grep -iE "test case .*failed|error: -\[|^.*\.swift:[0-9]+: error" "$LOG" | cut -c1-220 | sort -u
+echo "$(grep -ciE 'test case .* passed' "$LOG") passed, $(grep -ciE 'test case .* failed' "$LOG") failed — $LOG"

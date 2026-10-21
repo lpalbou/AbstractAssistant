@@ -379,6 +379,9 @@ public struct AutomationSummary: Codable, Hashable, Sendable, Identifiable {
     public var nextFireAt: String?
     public var attention: Attention?
     public var contextMode: String?
+    /// How much of its earlier runs a run that builds on them is handed, in tokens: its own limit,
+    /// else the gateway's default (the gateway says which; the watch never assumes one).
+    public var growingMaxTokens: Int?
     public var occurrenceCount: Int?
     /// Display-only cadence pill used by the mock ("daily", "weekly", "on event").
     public var cadence: String?
@@ -398,8 +401,10 @@ public struct AutomationSummary: Codable, Hashable, Sendable, Identifiable {
     public init(id: String, name: String?, status: String?, scheduleText: String?, lastOccurrence: LastOccurrence?,
                 cadence: String? = nil, detail: String? = nil, nextFireAt: String? = nil, attention: Attention? = nil,
                 contextMode: String? = nil, occurrenceCount: Int? = nil, triggerSource: String? = nil,
-                triggerConfig: [String: JSONValue]? = nil, revision: Int? = nil, currentOccurrence: CurrentOccurrence? = nil) {
+                triggerConfig: [String: JSONValue]? = nil, revision: Int? = nil, currentOccurrence: CurrentOccurrence? = nil,
+                growingMaxTokens: Int? = nil) {
         self.triggerSource = triggerSource; self.triggerConfig = triggerConfig; self.revision = revision
+        self.growingMaxTokens = growingMaxTokens
         self.currentOccurrence = currentOccurrence
         self.id = id; self.name = name; self.status = status; self.scheduleText = scheduleText
         self.lastOccurrence = lastOccurrence; self.cadence = cadence; self.detail = detail
@@ -409,7 +414,7 @@ public struct AutomationSummary: Codable, Hashable, Sendable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case id, automationId = "automation_id", name, title, status, scheduleText = "schedule_text", lastOccurrence = "last_occurrence"
         case nextFireAt = "next_fire_at", attention, contextMode = "context_mode", occurrenceCount = "occurrence_count", trigger, cadence, detail
-        case revision, currentOccurrence = "current_occurrence"
+        case revision, currentOccurrence = "current_occurrence", growingMaxTokens = "growing_max_tokens"
     }
     enum TriggerKeys: String, CodingKey { case sourceId = "source_id", sourceVersion = "source_version", config, summary }
 
@@ -425,6 +430,7 @@ public struct AutomationSummary: Codable, Hashable, Sendable, Identifiable {
         nextFireAt = try c.decodeIfPresent(String.self, forKey: .nextFireAt)
         attention = try c.decodeIfPresent(Attention.self, forKey: .attention)
         contextMode = try c.decodeIfPresent(String.self, forKey: .contextMode)
+        growingMaxTokens = try? c.decodeIfPresent(Int.self, forKey: .growingMaxTokens)
         occurrenceCount = try c.decodeIfPresent(Int.self, forKey: .occurrenceCount)
         cadence = try c.decodeIfPresent(String.self, forKey: .cadence)
         detail = try c.decodeIfPresent(String.self, forKey: .detail)
@@ -478,11 +484,6 @@ public struct AutomationDefinition: Decodable, Sendable {
         self.revision = revision; self.title = title; self.target = target
     }
     public var prompt: String? { target?["input_data"]?["prompt"]?.stringValue }
-    /// How it does the task (the workflow's system prompt), nil when it has none.
-    public var instructions: String? {
-        guard let s = target?["input_data"]?["system"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else { return nil }
-        return s
-    }
     /// The title after the task is edited: an automation named by its task (the title is the task,
     /// or its first 120 characters) keeps that name in step; a title of its own is left alone (nil).
     public static func title(afterTask newTask: String, oldTitle: String?, oldTask: String?) -> String? {
@@ -491,12 +492,10 @@ public struct AutomationDefinition: Decodable, Sendable {
         return namedByTask ? String(newTask.prefix(120)) : nil
     }
 
-    /// The target with a new task and instructions (empty: none), everything else as committed
-    /// (what the console's form sends).
-    public func target(withPrompt prompt: String, instructions: String? = nil) -> [String: JSONValue]? {
+    /// The target with a new task, everything else as committed (what the console's form sends).
+    public func target(withPrompt prompt: String) -> [String: JSONValue]? {
         guard let t = target, case .object(var input)? = t["input_data"] else { return nil }
         input["prompt"] = .string(prompt)
-        if let instructions { input["system"] = instructions.isEmpty ? nil : .string(instructions) }
         var out: [String: JSONValue] = ["input_data": .object(input)]
         if let b = t["bundle_ref"] { out["bundle_ref"] = b }
         if let f = t["flow_id"] { out["flow_id"] = f }
