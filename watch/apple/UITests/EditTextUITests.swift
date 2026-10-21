@@ -87,7 +87,9 @@ final class EditTextUITests: XCTestCase {
         let end = Date().addingTimeInterval(5)
         while Date() < end && shown.label != "Morning digest kept" { usleep(200_000) }
         XCTAssertEqual(shown.label, "Morning digest kept")
-        // The list shows it too, at once.
+        // Its orb page and the list show it too, at once.
+        app.buttons["Back"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Morning digest kept"].waitForExistence(timeout: 5), app.debugDescription)
         app.buttons["Back"].firstMatch.tap()
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS 'Morning digest kept'")).firstMatch.waitForExistence(timeout: 5),
                       app.debugDescription)
@@ -100,6 +102,10 @@ final class EditTextUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--mock", "--no-notification-prompt", "--slow-definitions", "--open-automation", "3"]
         app.launch()
+        // Its orb page, then its details.
+        let info = app.buttons["ask.info"].firstMatch
+        XCTAssertTrue(info.waitForExistence(timeout: 15), app.debugDescription)
+        info.tap()
         let instructions = app.descendants(matching: .any)["automation.instructions"].firstMatch
         XCTAssertTrue(instructions.waitForExistence(timeout: 15), app.debugDescription)
         app.buttons["Edit"].firstMatch.tap()

@@ -25,6 +25,8 @@ struct VoiceButton: View {
     @State private var scrubbing = false
     @State private var wasPlaying = false
     @State private var scrub: Task<Void, Never>?
+    /// How far a finger may move and still tap (a fingertip rolls a little).
+    private static let tapSlop: CGFloat = 12
     /// A firm tap on a watch can last half a second: only a longer press is a hold.
     private static let holdDelay = Duration.milliseconds(650)
 
@@ -49,7 +51,8 @@ struct VoiceButton: View {
             .gesture(DragGesture(minimumDistance: 0)
                 .updating($touching) { _, down, _ in down = true }
                 .onChanged { _ in if press == nil { pressed() } }
-                .onEnded { _ in released() })
+                // A finger that slid away (a scroll that began on the button) is no tap.
+                .onEnded { v in released(tapped: hypot(v.translation.width, v.translation.height) < Self.tapSlop) })
             .onChange(of: touching) { _, down in if !down { touchGone() } }
             .accessibilityElement()
             .accessibilityLabel(preparing ? "Making the voice" : playing ? "Pause" : "Play")
@@ -101,11 +104,12 @@ struct VoiceButton: View {
         }
     }
 
-    /// The finger lifted: a tap, or the end of a hold (the voice goes on from the earlier point).
-    private func released() {
+    /// The finger lifted: a tap (where it landed), or the end of a hold (the voice goes on from the
+    /// earlier point).
+    private func released(tapped: Bool) {
         let mine = presses
         press = nil
-        if endScrub(resumeIfPaused: true) || cancelledScrub == mine { return }
+        if endScrub(resumeIfPaused: true) || cancelledScrub == mine || !tapped { return }
         tap()
     }
 

@@ -22,7 +22,7 @@ struct ActivityPanel: View {
             }
             HStack(spacing: 6) {
                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                    Text("Working · " + RunningCard.clock(ctx.date.timeIntervalSince(activity.since)))
+                    Text("Working · " + Clock.text(ctx.date.timeIntervalSince(activity.since)))
                         .font(.rounded(.caption2)).foregroundStyle(Theme.muted).monospacedDigit()
                 }
                 Spacer(minLength: 4)
@@ -194,7 +194,7 @@ struct FinishedWork: Hashable {
     /// "6 steps · 1:24"
     var summary: String {
         let n = steps.count
-        return "\(n) step\(n == 1 ? "" : "s") · " + RunningCard.clock(ended.timeIntervalSince(started))
+        return "\(n) step\(n == 1 ? "" : "s") · " + Clock.text(ended.timeIntervalSince(started))
     }
 }
 
@@ -219,4 +219,9 @@ struct WorkLink: View {
             .accessibilityIdentifier("work.link")
         }
     }
+}
+
+/// "1:05": minutes and seconds of a run so far.
+enum Clock {
+    static func text(_ s: Double) -> String { String(format: "%d:%02d", Int(max(0, s)) / 60, Int(max(0, s)) % 60) }
 }

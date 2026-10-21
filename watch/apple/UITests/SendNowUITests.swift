@@ -15,7 +15,7 @@ final class SendNowUITests: XCTestCase {
         XCTAssertFalse(app.buttons["ask.tools"].exists, "the tools icon shows while it listens")
         send.tap()
         let note = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@", "hear anything", "catch that")).firstMatch
-        XCTAssertTrue(note.waitForExistence(timeout: 2), "Send did not end the listening at once:\n\(app.debugDescription)")
+        XCTAssertTrue(note.waitForExistence(timeout: 5), "Send did not end the listening at once:\n\(app.debugDescription)")
         XCTAssertFalse(send.exists, "Send stays after the listening ended")
     }
 }

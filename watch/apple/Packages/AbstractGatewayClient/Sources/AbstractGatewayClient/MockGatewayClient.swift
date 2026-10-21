@@ -53,7 +53,8 @@ public actor MockGatewayClient: GatewayClient {
         AutomationSummary(id: "auto-morning", name: "Morning digest", status: "active", scheduleText: "Every 24 hours (UTC)",
                           lastOccurrence: LastOccurrence(status: "completed", excerpt: "Three things today: the assay QC run passed; two new papers on your target; one dependency to pin.",
                                                          runId: "b81f3302", index: 41, firedAt: "2026-10-17T05:04:00Z", finishedAt: "2026-10-17T05:06:10Z",
-                                                         answer: "Three things today: the assay QC run passed; two new papers on your target (one with a phase II readout); the dependency check found one update to pin."),
+                                                         answer: "Three things today: the assay QC run passed; two new papers on your target (one with a phase II readout); the dependency check found one update to pin.",
+                                                         userTurn: MockGatewayClient.morningTask),
                           cadence: "daily", detail: "every day · last 07:04 · ok", nextFireAt: "2026-10-18T05:00:00Z",
                           attention: Attention(pendingWaits: 0, unread: true, unseenCount: 1, cursor: "att1:41",
                                                items: [.init(kind: "notify", runId: "b81f3302", at: "2026-10-17T05:06:10Z", title: "Morning digest", body: "3 things today", cursor: "att1:41")]),
@@ -181,7 +182,21 @@ public actor MockGatewayClient: GatewayClient {
     }
     /// Run now: the automation runs for 14 s (`current_occurrence` set, a ledger that moves on).
     private var automationRunStarted: [String: Date] = [:]
-    public func runAutomationNow(id: String) async throws { automationRunStarted[id] = Date() }
+    public func runAutomationNow(id: String) async throws {
+        automationRunStarted[id] = Date()
+        // Its run: working for 10 s, then its answer (as the occurrence it is).
+        started["occ-live"] = (Date().addingTimeInterval(10), "Digest 42: the assay QC run passed; nothing new to pin.")
+    }
+    /// The task the morning digest's trigger sends.
+    public static let morningTask = "Summarise what changed overnight: QC runs, new papers on my target, dependency updates."
+    public func discussAutomation(id: String, occurrenceIndex: Int, prompt: String) async throws -> Discussion {
+        // As the gateway: only a run that happened can be talked about.
+        guard let last = Self.sampleAutomations.first(where: { $0.id == id })?.lastOccurrence?.index, occurrenceIndex <= last
+        else { throw GatewayError.http(status: 404, body: "occurrence_not_found") }
+        let run = "mock-" + UUID().uuidString.prefix(6).lowercased()
+        started[run] = (Date(), "About that run: the QC passed on every plate; the two papers are linked in the digest.")
+        return Discussion(sessionId: "discussion-session:" + run, runId: run)
+    }
     public func automation(id: String) async throws -> AutomationSummary {
         guard var a = Self.sampleAutomations.first(where: { $0.id == id }) else { throw GatewayError.http(status: 404, body: "") }
         if let status = automationStatus[id] { a.status = status }
@@ -474,7 +489,8 @@ public actor MockGatewayClient: GatewayClient {
             let failed = i == top - 2
             return LastOccurrence(status: failed ? "failed" : "completed", excerpt: nil, runId: "occ-\(i)", index: i,
                                   firedAt: ISO8601DateFormatter().string(from: day),
-                                  answer: failed ? "The run stopped: the model was not reachable." : "Digest \(i): the assay QC run passed; nothing new to pin.")
+                                  answer: failed ? "The run stopped: the model was not reachable." : "Digest \(i): the assay QC run passed; nothing new to pin.",
+                                  userTurn: Self.morningTask)
         }
         return [last] + older
     }

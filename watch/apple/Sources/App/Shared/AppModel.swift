@@ -8,21 +8,27 @@ enum Route: Hashable {
     /// message, its steps, a picture, a link, a choice, a form, a question) opens with a tap only.
     var revisitable: Bool {
         switch self {
-        case .ask, .sessions, .session, .automations, .automation, .conversation, .settings, .voiceSettings,
+        case .ask, .sessions, .session, .automations, .automation, .automationInfo, .conversation, .settings, .voiceSettings,
              .orbStyle, .about, .tools, .toolGroup, .connection, .archivedSessions, .sessionSearch,
              .archivedAutomations: true
         // `.answer`: a notification's answer (it would be read aloud again); `.waits`: it closes once empty.
         case .approval, .askUser, .draft, .waits, .answer, .picker, .automationEdit, .newAutomation, .message,
-             .occurrence, .read, .link, .orbStylePreview, .workflow, .media, .activity, .filePreview: false
+             .read, .link, .orbStylePreview, .workflow, .media, .activity, .filePreview: false
         }
     }
     case approval(Wait), askUser(Wait), draft(Wait), waits
     case ask(AskView.Phase), picker, sessions, session(SessionSummary), automations, automation(AutomationSummary), automationEdit(AutomationSummary), newAutomation, message(title: String, Exchange), voiceSettings, settings
-    case occurrence(title: String, LastOccurrence)
     case read(ReadItem), link(URL), answer(AnswerRef), orbStyle, orbStylePreview(String), about, conversation(String)
     case tools(AppModel.ToolScope), toolGroup(AppModel.ToolScope, String), connection
     case workflow(AppModel.ToolScope), media(MediaItem), activity(String), archivedSessions, sessionSearch(String), archivedAutomations
     case filePreview([SessionFile], Int)
+    /// An automation's details (behind (i) on its orb page): when it runs, Edit, Run now.
+    case automationInfo(AutomationSummary)
+
+    /// A page with the orb that talks (a conversation or an automation): one is on screen at a time.
+    var isOrbPage: Bool {
+        switch self { case .ask, .answer, .automation: true; default: false }
+    }
 }
 
 /// App state: one GatewayClient, foreground polling every 15 s for waits and runs.
@@ -35,6 +41,10 @@ struct Exchange: Identifiable, Hashable {
     var scope: SpeechScope?
     /// The images, recordings and videos the turn made (the Assistant's workflow makes them).
     var media: [MediaItem] = []
+    /// It ended without an answer (an automation's failed run).
+    var failed = false
+    /// When its trigger sent it ("today 07:04"): an automation's runs; nil for what you asked.
+    var when: String? = nil
 }
 
 @MainActor
@@ -352,6 +362,12 @@ final class AppModel: ObservableObject {
     func goForward() {
         guard settingsPath == nil else { return }
         switch path.last {
+        case .automation(let a) where forward.isEmpty:
+            forwarding = true
+            // Gone on as a conversation about it: that conversation's page; else its details (as a
+            // conversation's: its stats page).
+            if let d = discussion, d.automation == a.id, d.session == askSessionId { path.append(.conversation(askSessionId)) }
+            else { path.append(.automationInfo(a)) }
         case .ask:
             guard responder == .assistant, hasMessages(askSessionId) else { return }
             forwarding = true; forward = []
@@ -653,13 +669,14 @@ final class AppModel: ObservableObject {
         ToolChoices.mode(of: tool, defaults: toolDefaults, session: toolChanges(scope))
     }
 
-    /// Sets tools' modes in a scope, keeping only what differs from the level below (the gateway
-    /// for defaults; the defaults for a conversation), so a later default still reaches them.
+    /// Sets tools' modes in a scope. A default is kept as chosen (the gateway changing its own never
+    /// moves it; "Use the gateway's" forgets them); a conversation keeps only what differs from the
+    /// defaults, so a later default still reaches it.
     func setTools(_ names: [String], _ mode: ToolMode, scope: ToolScope) {
         switch scope {
         case .defaults:
             var d = toolDefaults
-            for n in names { guard let t = tools[n] else { continue }; d[n] = mode == ToolChoices.gatewayDefault(t) ? nil : mode }
+            for n in names where tools[n] != nil { d[n] = mode }
             toolDefaults = d
             ToolPrefs.defaults = d
         case .session, .draft:
@@ -693,8 +710,13 @@ final class AppModel: ObservableObject {
         ToolPrefs.setSession(askSessionId, modes)
     }
 
-    /// This conversation uses the defaults again.
-    func resetSessionTools() { setSessionTools([:]) }
+    /// This conversation uses the defaults again: its tools and its workflow.
+    func resetSessionTools() {
+        setSessionTools([:])
+        sessionWorkflow = nil; WorkflowPrefs.setSession(askSessionId, nil)
+    }
+    /// This conversation differs from the defaults (its tools or its workflow).
+    var sessionDiffers: Bool { !sessionTools.isEmpty || sessionWorkflow != nil }
 
     /// The defaults follow the gateway again.
     func resetToolDefaults() { toolDefaults = [:]; ToolPrefs.defaults = [:] }
@@ -738,8 +760,9 @@ final class AppModel: ObservableObject {
     }
 
     /// The bundle this conversation's latest turn ran (any device), when no choice was made here.
-    private var inheritedBundle: String? {
-        guard sessionWorkflow == nil else { return nil }
+    private var inheritedBundle: String? { sessionWorkflow == nil ? ranBundle : nil }
+    /// The bundle this conversation's latest turn ran (any device), whatever was chosen here.
+    private var ranBundle: String? {
         let latest = runs.filter { $0.sessionId == askSessionId }.max { ($0.createdAt ?? "") < ($1.createdAt ?? "") }
         return latest?.workflowId.flatMap(WorkflowChoice.bundleId(ofRunWorkflow:))
     }
@@ -747,7 +770,13 @@ final class AppModel: ObservableObject {
     func setWorkflow(_ pick: WorkflowPick, scope: ToolScope) {
         switch scope {
         case .defaults: workflowDefault = pick; WorkflowPrefs.defaultPick = pick
-        case .session: sessionWorkflow = pick; WorkflowPrefs.setSession(askSessionId, pick)
+        // The default picked again: the conversation follows the default (a later change reaches it).
+        case .session:
+            // (One its earlier turns inherited stays explicit: nil would bring the inherited one back.)
+            // The workflow it would run anyway (the one it ran, else the default): nothing to keep.
+            let ran = ranBundle.flatMap { b in workflows.first { $0.bundleId == b } }.map { $0.isDefault ? WorkflowPick.gatewayDefault : WorkflowPick($0) }
+            let own: WorkflowPick? = pick == (ran ?? workflowDefault) ? nil : pick
+            sessionWorkflow = own; WorkflowPrefs.setSession(askSessionId, own)
         case .draft: break
         }
     }
@@ -800,7 +829,12 @@ final class AppModel: ObservableObject {
     /// Opened from Ask (the orb is underneath): answering returns to it.
     var approvalFromAsk: Bool {
         guard path.count >= 2 else { return false }
-        switch path[path.count - 2] { case .ask, .answer: return true; default: return false }
+        switch path[path.count - 2] {
+        case .ask, .answer: return true
+        // An automation's page only once it goes on as a conversation (its trust is that conversation's).
+        case .automation(let a): return discussion?.automation == a.id && discussion?.session == askSessionId
+        default: return false
+        }
     }
 
     /// The orb's look for a responder: the Assistant's own, or the entity's colour and shape. Until
@@ -935,8 +969,30 @@ final class AppModel: ObservableObject {
         path.append(.ask(.idle))
     }
 
+    /// The page on screen moves into this conversation (a notification's answer, or a
+    /// conversation about the automation `about`): the current one from now on, answered by the
+    /// Assistant (who answers new conversations stays as chosen).
+    func adopt(_ sessionId: String, about automation: String? = nil) {
+        resuming = nil
+        askSessionId = sessionId
+        UserDefaults.standard.set(askSessionId, forKey: "ask.session")
+        setResponder(.assistant, persist: false)
+        if let automation { discussion = (automation, sessionId) }
+    }
+    /// The conversation an automation's orb page went on as (its forward swipe opens that
+    /// conversation's page, as a conversation's does).
+    private(set) var discussion: (automation: String, session: String)?
+
+    /// The automation an occurrence's run belongs to (the gateway says which; read when not listed).
+    func automation(of run: RunSummary) async -> AutomationSummary? {
+        guard let id = run.automationId else { return nil }
+        if let known = automations.first(where: { $0.id == id }) { return known }
+        return try? await client.automation(id: id)
+    }
+
     func newAskSession() {
         resuming = nil                                   // a pending Continue never lands in a new conversation
+        entityChats = [:]                                // an entity's new conversation is new too
         askSessionId = Self.newSessionId()
         UserDefaults.standard.set(askSessionId, forKey: "ask.session")
     }
@@ -1125,10 +1181,8 @@ struct LaunchOptions {
         case "waits": return [.waits]
         case "automation": return [.automations, .automation(MockGatewayClient.sampleAutomations[0])]
         case "automation-new": return [.automations, .newAutomation]
-        case "automation-edit": return [.automations, .automation(MockGatewayClient.sampleAutomations[0]), .automationEdit(MockGatewayClient.sampleAutomations[0])]
-        case "occurrence":
-            let a = MockGatewayClient.sampleAutomations[0]
-            return [.automations, .automation(a), .occurrence(title: a.name ?? "", a.lastOccurrence!)]
+        case "automation-info": let a = MockGatewayClient.sampleAutomations[0]; return [.automations, .automation(a), .automationInfo(a)]
+        case "automation-edit": let a = MockGatewayClient.sampleAutomations[0]; return [.automations, .automation(a), .automationInfo(a), .automationEdit(a)]
         case "ask": return [.ask(.idle)]
         case "ask-entity": model.setResponder(.entity("castor"), persist: false); return [.ask(.idle)]
         case "listening": return [.ask(.listening)]

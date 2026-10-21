@@ -2,13 +2,15 @@ import AbstractGatewayClient
 import SwiftUI
 import WatchKit
 
-/// Ask: the orb is the assistant, pinned at the top and always visible; it is the only control
-/// you need. Tap it to talk (its dots ripple with your voice; a dotted countdown runs once you
-/// stop); tap again, or stay silent 3 s, to send. It thinks, then speaks the answer (rings with its
-/// voice) while the answer scrolls in markdown just below. Tap while it speaks to pause or resume;
-/// hold to cut in. The bottom bar has the keyboard (dictation, Scribble, keyboard), New, and Cancel
-/// while something runs. The Assistant is a durable run (`POST /runs/start`); an entity is a
-/// hosted conversation (`chat/open` then `turn`).
+/// The orb page, one for every conversation: the current conversation (the Assistant or an entity)
+/// and an automation (whose messages its trigger sends) look and behave the same; an automation
+/// adds (i) for its details. The orb fills the screen; tap it to talk (its dots ripple with your
+/// voice; a dotted countdown runs once you stop); tap again, or stay silent 3 s, to send. It thinks,
+/// then speaks the answer while it scrolls in markdown below. Tap while it speaks to pause or
+/// resume; hold to stop. The keyboard sits top right, the tools bottom right. The Assistant is a
+/// durable run (`POST /runs/start`); an entity is a hosted conversation (`chat/open` then `turn`);
+/// talking on an automation's page opens a conversation about it (`/discuss`), which the page
+/// continues as a chat (`AutomationFeed`).
 struct AskView: View {
     enum Phase: Hashable { case idle, listening, thinking, answer }
 
@@ -51,12 +53,37 @@ struct AskView: View {
     /// Bumped by Cancel, Back, New and every new turn: a late result from an older turn is dropped.
     @State private var turn = 0
     private let opening: AnswerRef?
+    /// What it talks in (an automation becomes a chat once you talk about it).
+    @State private var conversation: Conversation
+    /// The automation's runs, run in progress, Stop and Seen (nil for a chat).
+    @State private var feed: AutomationFeed?
+    /// A conversation this page moved into itself (a notification's, an automation's discussion):
+    /// the current conversation changing to it is no reason to start over.
+    @State private var adopted: String?
+    /// The page has opened (a later appearance is a return to it).
+    @State private var opened = false
+    /// Each time the page comes to the front (an automation's page checks its runs again then).
+    @State private var appearances = 0
+    /// An automation's run stopped here (the automation goes on): it is not followed again.
+    @State private var stoppedRun: String?
+    /// The automation's runs followed live on this page (kept when its runs are read again), and
+    /// when the one followed now started.
+    @State private var liveRuns: Set<String> = []
+    @State private var liveWhen: String?
+    /// The automation's page has read its runs, their media and marked them seen (a first opening
+    /// cut short finishes when the page is back).
+    @State private var automationRead = false
+    /// Where an automation page's spoken question is filed before it has a conversation of its own
+    /// (never the automation's conversation, nor the current chat).
+    @State private var voiceSession = AppModel.newSessionId()
 
     private static let demoPrompt = "Compare overall survival by treatment arm in the ADTTE I sent you"
 
-    init(initialPhase: Phase = .idle, opening: AnswerRef? = nil) {
+    init(initialPhase: Phase = .idle, opening: AnswerRef? = nil, automation: AutomationSummary? = nil) {
         self.opening = opening
         _phase = State(initialValue: initialPhase)
+        _conversation = State(initialValue: automation.map { .automation($0) } ?? .chat)
+        _feed = State(initialValue: automation.map(AutomationFeed.init))
         // Screenshot states carry the mockups' content.
         switch initialPhase {
         case .listening: _listenSince = State(initialValue: Date())
@@ -91,7 +118,7 @@ struct AskView: View {
                         } bottom: {
                             VStack(spacing: 4) {
                                 // Who answers, below the orb: only while the orb is at rest.
-                                if controlsShown { responderSwitch }
+                                if controlsShown { if let a = automationFeed { automationName(a) } else { responderSwitch } }
                                 Text(status).font(.rounded(.footnote)).foregroundStyle(statusColor)
                                     .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.85)
                                     .accessibilityIdentifier("ask.status")
@@ -113,7 +140,10 @@ struct AskView: View {
                         // While it listens, Send sits there instead: what was said goes now (a noise
                         // that starts would otherwise keep the silence that sends from coming).
                         .overlay(alignment: .bottomTrailing) {
-                            if controlsShown, model.responder == .assistant {
+                            if controlsShown, let a = automationFeed {
+                                // An automation's tools are in its details (Edit), with when it runs.
+                                infoLink(a).padding(.trailing, 6 - Self.reach).padding(.bottom, 60 - Self.reach)
+                            } else if controlsShown, model.responder == .assistant {
                                 toolsLink.padding(.trailing, 6 - Self.reach).padding(.bottom, 60 - Self.reach)
                             } else if phase == .listening {
                                 sendNow.padding(.trailing, 6 - Self.reach).padding(.bottom, 60 - Self.reach)
@@ -153,7 +183,7 @@ struct AskView: View {
                         .accessibilityIdentifier("ask.stop")
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 } else if !exchanges.isEmpty {
-                    ShareIcon(item: transcript, subject: model.responder.title)
+                    ShareIcon(item: transcript, subject: speakerTitle)
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
             }
@@ -166,16 +196,21 @@ struct AskView: View {
             }
         }
         .task { await onOpen() }
+        // An automation's page notices a run starting (its schedule, or Run now on its details).
+        // The task ends when the page is covered or left, and starts again when it is back in front.
+        .onAppear { appearances += 1 }
+        .task(id: automationFeed.map { "\($0.id)#\(appearances)" }) { await watchAutomation() }
         // A message of the Assistant's conversation on screen: a swipe forward opens its stats page
         // (an entity's exchanges, or an answer opened from a notification, may be another conversation's).
         .onChange(of: exchanges.last?.id, initial: true) { _, run in
-            if run != nil, opening == nil, model.responder == .assistant { model.noteMessages(in: model.askSessionId, runId: run) }
+            if run != nil, opening == nil, conversation == .chat, model.responder == .assistant { model.noteMessages(in: model.askSessionId, runId: run) }
         }
         .onChange(of: model.path) { _, path in pathChanged(path) }
         // "New conversation" (in the Assistant ⌄ choice): this screen starts empty.
         // A new conversation, or another session: this screen starts over, unless it is the
         // session being resumed (its exchange is about to show).
         .onChange(of: model.askSessionId) { _, id in
+            guard conversation == .chat, id != adopted else { return }
             if model.resuming?.sessionId != id { model.resuming = nil; clearConversation() }
         }
         // The run on screen (followed or answered) is never also posted as a notification while active.
@@ -185,18 +220,31 @@ struct AskView: View {
         .onChange(of: scenePhase) { _, p in
             activity.paused = p != .active
             if p == .background, phase == .thinking, !transcribing, pendingWait == nil, let id = runId, !model.client.isMock {
-                AnswerNotifier.shared.watch(runId: id, title: model.responder.title, prompt: prompt)
+                AnswerNotifier.shared.watch(runId: id, title: speakerTitle, prompt: prompt)
             }
         }
+    }
+
+    /// The page's automation while it is one (not yet a conversation about it).
+    private var automationFeed: AutomationFeed? { if case .automation = conversation { feed } else { nil } }
+
+    /// Who speaks here: the automation, or whoever answers the conversation.
+    private var speakerTitle: String { automationFeed?.title ?? model.responder.title }
+
+    /// The automation's name below the orb (where a conversation shows who answers).
+    private func automationName(_ a: AutomationFeed) -> some View {
+        Text(a.title).font(.rounded(.headline, weight: .semibold)).foregroundStyle(Theme.text)
+            .lineLimit(1).minimumScaleFactor(0.7).shadow(color: .black, radius: 3)
+            .accessibilityIdentifier("ask.automation")
     }
 
     /// Below the orb (scroll): what you said, the answer, the controls, who answers.
     /// The conversation as markdown: who asked what, and each answer as written.
     private var transcript: String {
-        var out = "# \(model.responder.title)\n"
+        var out = "# \(speakerTitle)\n"
         for e in exchanges {
-            if !e.prompt.isEmpty { out += "\n**You:** \(e.prompt)\n" }
-            if !e.answer.isEmpty { out += "\n**\(model.responder.title):**\n\n\(e.answer)\n" }
+            if !e.prompt.isEmpty { out += "\n**\(e.when.map { "Sent \($0)" } ?? "You"):** \(e.prompt)\n" }
+            if !e.answer.isEmpty { out += "\n**\(speakerTitle):**\n\n\(e.answer)\n" }
         }
         return out
     }
@@ -248,16 +296,16 @@ struct AskView: View {
     /// that message.
     @ViewBuilder private var belowContent: some View {
         // While it works: its steps, live, in place of the conversation (which returns with the answer).
-        if phase == .thinking, activity.runId != nil, model.responder == .assistant {
+        if phase == .thinking, activity.runId != nil, automationFeed != nil || model.responder == .assistant {
             ActivityPanel(activity: activity, prompt: prompt, openWait: pendingWait.map { w in { open(w) } })
         } else {
-            conversation
+            messages
         }
     }
 
-    @ViewBuilder private var conversation: some View {
+    @ViewBuilder private var messages: some View {
         if let last = exchanges.last {
-            MessageCard(text: last.answer, media: last.media, play: playClip) { QuestionCaption(text: last.prompt) }
+            MessageCard(text: last.answer, failed: last.failed, media: last.media, play: playClip) { ExchangeCaption(exchange: last) }
             WorkLink(runId: last.id)
         }
         // The question being worked on (its answer joins the exchanges when it arrives).
@@ -268,7 +316,7 @@ struct AskView: View {
         if !earlier.isEmpty {
             Text("Earlier messages").font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text2).padding(.top, 6)
             ForEach(earlier.prefix(shownCount)) { e in
-                NavigationLink(value: Route.message(title: model.responder.title, e)) { MessageRow(exchange: e) }
+                NavigationLink(value: Route.message(title: speakerTitle, e)) { MessageRow(exchange: e) }
                     .buttonStyle(.tap)
                     .accessibilityIdentifier("message.row")
             }
@@ -283,7 +331,9 @@ struct AskView: View {
             HStack(spacing: 6) { ProgressView().frame(width: 16); Text("Loading earlier messages…") }
                 .font(.rounded(.footnote)).foregroundStyle(Theme.muted).padding(.top, 6)
         } else if let session = historyFailed {
-            Button("Couldn't load earlier messages. Retry") { Task { await loadHistory(session.id, latestRun: session.run) } }
+            Button("Couldn't load earlier messages. Retry") {
+                Task { if let a = automationFeed { await openAutomation(a) } else { await loadHistory(session.id, latestRun: session.run) } }
+            }
                 .buttonStyle(.tap).font(.rounded(.footnote)).foregroundStyle(Theme.amber).padding(.top, 6)
         } else if let session = mediaFailed {
             Button("Couldn't load images and recordings. Retry") { Task { await loadMedia(session) } }
@@ -315,15 +365,26 @@ struct AskView: View {
         NavigationLink(value: Route.tools(.session)) {
             GlassIcon(symbol: "wrench.and.screwdriver")
                 .overlay(alignment: .topTrailing) {
-                    if !model.sessionTools.isEmpty {
+                    if model.sessionDiffers {
                         Circle().fill(Theme.amber).frame(width: 8, height: 8).offset(x: 1, y: -1)
                     }
                 }
                 .padding(Self.reach).contentShape(Rectangle())
         }
         .buttonStyle(GlassPress())
-        .accessibilityLabel(model.sessionTools.isEmpty ? "Tools" : "Tools, changed for this conversation")
+        .accessibilityLabel(model.sessionDiffers ? "Tools, changed for this conversation" : "Tools")
         .accessibilityIdentifier("ask.tools")
+    }
+
+    /// An automation's details (when it runs, Edit, Run now), where a conversation has its tools; a
+    /// swipe forward opens them too.
+    private func infoLink(_ a: AutomationFeed) -> some View {
+        Button { model.path.append(.automationInfo(a.automation)) } label: {
+            GlassIcon(symbol: "info").padding(Self.reach).contentShape(Rectangle())
+        }
+        .buttonStyle(GlassPress())
+        .accessibilityLabel("About this automation")
+        .accessibilityIdentifier("ask.info")
     }
 
     /// Ends the listening now and sends what was said (the orb's tap does the same).
@@ -338,7 +399,7 @@ struct AskView: View {
 
     /// The watch's text input (dictation, Scribble, keyboard) behind one keyboard icon.
     private var keyboardLink: some View {
-        TextFieldLink(prompt: Text("Ask \(model.responder.title)")) {
+        TextFieldLink(prompt: Text("Ask \(speakerTitle)")) {
             GlassIcon(symbol: "keyboard").padding(Self.reach).contentShape(Rectangle())
         } onSubmit: { text in
             let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -349,7 +410,10 @@ struct AskView: View {
 
     /// The orb of whoever answers: the entity that wrote the answer on screen (it may not be the
     /// responder now selected), else the selected responder.
-    private var orbLook: OrbLook { answerEntity.map { model.look(for: .entity($0)) } ?? model.responderLook }
+    private var orbLook: OrbLook {
+        if automationFeed != nil { return model.look(for: .assistant) }
+        return answerEntity.map { model.look(for: .entity($0)) } ?? model.responderLook
+    }
 
     /// The keyboard and who answers show together, only while the orb is at rest: not listening,
     /// not working, not speaking (a paused or finished answer is at rest).
@@ -443,7 +507,7 @@ struct AskView: View {
         case .answer where speaker.isActive: "Pause the voice"
         case .answer where speaker.isPaused: "Resume the voice"
         case .thinking: pendingWait == nil ? "Working" : "Review what is waiting for you"
-        default: "Talk to \(model.responder.title)"
+        default: "Talk to \(speakerTitle)"
         }
     }
 
@@ -492,9 +556,7 @@ struct AskView: View {
     }
 
     private func pathChanged(_ path: [Route]) {
-        let stillHere = path.contains { route in
-            switch route { case .ask, .answer: return true; default: return false }
-        }
+        let stillHere = path.contains(where: \.isOrbPage)
         if !stillHere {
             // Leaving Ask (Back): nothing from this screen may keep running, speaking or pushing screens.
             turn += 1
@@ -504,8 +566,7 @@ struct AskView: View {
             // once the app itself is left (then scenePhase starts the stream, from the orb page).
             return
         }
-        guard let last = path.last, let w = pendingWait else { return }
-        switch last { case .ask, .answer: break; default: return }
+        guard let last = path.last, last.isOrbPage, let w = pendingWait else { return }
         // Back on the orb from the approval or question: follow again only if it was decided.
         if model.decidedWaits.contains(w.id), let id = runId {
             pendingWait = nil
@@ -539,7 +600,8 @@ struct AskView: View {
         WKInterfaceDevice.current().play(.stop)          // heard: the microphone is closed, sending
         Task {
             do {
-                let text = try await model.client.transcribe(wav: wav, sessionId: model.askSessionId, model: VoicePrefs.transcription)
+                let text = try await model.client.transcribe(wav: wav, sessionId: automationFeed == nil ? model.askSessionId : voiceSession,
+                                                             model: VoicePrefs.transcription)
                 guard mine == turn else { return }
                 transcribing = false
                 if text.isEmpty { phase = back; note = "I didn't catch that"; RuntimeKeeper.shared.release("ask"); return }
@@ -562,6 +624,19 @@ struct AskView: View {
         activity.reset()
         Task {
             do {
+                if let a = automationFeed {
+                    // About the automation: a conversation of its own, its first turn started.
+                    guard let d = try await a.discuss(model, text) else {
+                        if mine == turn { fail("It hasn't run yet: nothing to talk about.") }
+                        return
+                    }
+                    guard mine == turn else { try? await model.client.cancel(runId: d.runId); return }
+                    adopt(d.sessionId)
+                    runId = d.runId
+                    activity.start(runId: d.runId, client: model.client)
+                    try await follow(d.runId, turn: mine)
+                    return
+                }
                 switch model.responder {
                 case .assistant:
                     // The tools this conversation allows, read fresh; without them no question goes
@@ -651,7 +726,9 @@ struct AskView: View {
                     wait = r.personWait; next = r.waitingOnChild; depth += 1
                 }
                 if let w = wait, !model.decidedWaits.contains(w.id) {
-                    if model.autoApprovable(w), await model.answer(w, with: .approve) {
+                    // The watch approves for you only in a conversation you trusted (an automation's run
+                    // waits for you, whatever the conversation on screen allows).
+                    if conversation == .chat, model.autoApprovable(w), await model.answer(w, with: .approve) {
                         model.markDecided(w)                   // trusted session: the run goes on
                     } else {
                         // A person decides now; the screen is on. Waiting on them must not keep the app
@@ -670,9 +747,12 @@ struct AskView: View {
                 let media = MediaItem.of(output: run.output, runId: id)
                 if let out = run.outputText, !out.isEmpty { show(out, media: media) }
                 else if !media.isEmpty { show("", media: media) }
-                else { fail(run.status == "cancelled" ? "Stopped" : "That didn't work. Try again."); return }
+                else {
+                    fail(run.status == "cancelled" ? "Stopped" : automationFeed != nil ? "The run failed." : "That didn't work. Try again.")
+                    return
+                }
                 if scenePhase == .background {   // wrist down, app still in front: the orb speaks it
-                    await AnswerNotifier.shared.deliver(key: id, title: model.responder.title, ref: AnswerRef(runId: id, prompt: prompt), answer: answer)
+                    await AnswerNotifier.shared.deliver(key: id, title: speakerTitle, ref: AnswerRef(runId: id, prompt: prompt), answer: answer)
                 }
                 return
             }
@@ -682,7 +762,7 @@ struct AskView: View {
 
     private func resumeFollowing(_ id: String) {
         RuntimeKeeper.shared.hold("ask")
-        let mine = turn
+        let mine = turn                                   // callers check their turn is still this one
         phase = .thinking
         if activity.runId != id { activity.start(runId: id, client: model.client) }
         Task {
@@ -698,10 +778,13 @@ struct AskView: View {
     private func show(_ text: String, media: [MediaItem] = []) {
         answer = text; phase = .answer
         // A followed turn already listed (a resumed conversation) gets its answer; else it is new.
-        let e = Exchange(id: runId ?? UUID().uuidString, prompt: prompt, answer: text,
+        var e = Exchange(id: runId ?? UUID().uuidString, prompt: prompt, answer: text,
                          scope: answerEntity.map { SpeechScope.entity($0) } ?? runId.map { SpeechScope.run($0) }, media: media)
-        if let i = exchanges.firstIndex(where: { $0.id == e.id }) { exchanges[i] = e } else { exchanges.append(e) }
-        if answerEntity == nil, let id = runId { model.markSeen(session: model.askSessionId, run: id) }
+        // An automation's run keeps its trigger's time (read, or when it was seen starting here).
+        if automationFeed != nil { e.when = liveWhen }
+        if let i = exchanges.firstIndex(where: { $0.id == e.id }) { e.when = exchanges[i].when ?? e.when; exchanges[i] = e } else { exchanges.append(e) }
+        if let a = automationFeed { Task { await a.markSeen(model) } }
+        else if answerEntity == nil, let id = runId { model.markSeen(session: model.askSessionId, run: id) }
         WKInterfaceDevice.current().play(.notification)
         speak()                                     // the speaker holds the app awake while it reads
         RuntimeKeeper.shared.release("ask")
@@ -724,7 +807,15 @@ struct AskView: View {
         if phase == .thinking {
             turn += 1
             activity.reset()
-            if let id = runId, !transcribing { AnswerNotifier.shared.unwatch(runId: id); Task { try? await model.client.cancel(runId: id) } }
+            if let id = runId, !transcribing {
+                AnswerNotifier.shared.unwatch(runId: id)
+                if let a = automationFeed {
+                    // The automation goes on with its schedule; this run is not followed again.
+                    stoppedRun = id
+                    Task { do { try await a.stop(model) } catch { self.error = "Couldn't stop it" } }
+                }
+                else { Task { try? await model.client.cancel(runId: id) } }
+            }
             transcribing = false; pendingWait = nil
             phase = .idle; note = "Cancelled"; prompt = ""
             RuntimeKeeper.shared.release("ask")
@@ -746,6 +837,15 @@ struct AskView: View {
     /// Opened from a notification (an answer to show and speak), from "Continue" on a session,
     /// or by a device test hook.
     private func onOpen() async {
+        guard !opened else { return }                       // back from a page above: as it was left
+        defer { opened = true }
+        if let a = automationFeed {
+            await openAutomation(a)
+            #if DEBUG
+            if let t = model.testAsk { model.testAsk = nil; send(t) }   // talking about it (tests)
+            #endif
+            return
+        }
         if let r = model.resuming {
             // Continue a session: open on its last exchange, quiet; the next tap talks in it.
             model.resuming = nil
@@ -765,8 +865,17 @@ struct AskView: View {
             runId = ref.runId
             if let text = ref.text { show(text); return }
             if let id = ref.runId, let run = try? await model.client.run(id: id) {
+                // The answer's own conversation: its tools, its next question and its history are
+                // that conversation's (never the one that happened to be current).
+                // An automation's run: its own page (talking there never writes into its conversation).
+                if !run.isConversation, let last = model.path.indices.last,
+                   let a = await model.automation(of: run) {
+                    model.path[last] = .automation(a); return
+                }
+                if ref.entity == nil, let session = run.sessionId, run.isConversation, session != model.askSessionId { adopt(session) }
                 let media = MediaItem.of(output: run.output, runId: id)
                 if let out = run.outputText, !out.isEmpty { show(out, media: media) } else { error = "No answer." }
+                if ref.entity == nil, let session = run.sessionId, session == model.askSessionId { await loadHistory(session, latestRun: id) }
             }
             return
         }
@@ -792,6 +901,107 @@ struct AskView: View {
         model.markSeen(session: s.id, run: last.runId)
         if last.status == "running" || last.status == "waiting" { note = nil; resumeFollowing(last.runId) }
         await loadHistory(s.id, latestRun: last.runId)
+    }
+
+    /// Moves the page into a conversation (a notification's, an automation's discussion): it is the
+    /// current conversation from now on, and what is on screen stays.
+    private func adopt(_ session: String) {
+        adopted = session
+        model.adopt(session, about: automationFeed?.id)
+        conversation = .chat
+    }
+
+    // MARK: - An automation
+
+    /// An automation's page: its runs as messages (at once from what was read before, then read
+    /// again; quiet, on the latest), Seen, and its run in progress followed as a turn is.
+    private func openAutomation(_ a: AutomationFeed) async {
+        if exchanges.isEmpty, let known = model.results[a.id], !known.isEmpty {
+            exchanges = known.reversed().map(AutomationFeed.exchange)
+            showLatestQuietly()
+        }
+        await finishAutomation(a)
+    }
+
+    /// The runs read, the latest run's media, Seen: what an opening does once the page has it.
+    private func finishAutomation(_ a: AutomationFeed) async {
+        await readRuns(a)
+        guard !Task.isCancelled, historyFailed == nil else { return }
+        // The latest run's images and recordings (an automation's runs may each have a session of their own).
+        if let last = exchanges.last, last.media.isEmpty, last.scope != nil, let run = try? await model.client.run(id: last.id) {
+            let media = MediaItem.of(output: run.output, runId: last.id)
+            if !media.isEmpty, let i = exchanges.firstIndex(where: { $0.id == last.id }) { exchanges[i].media = media }
+        }
+        guard !Task.isCancelled else { return }
+        await a.markSeen(model)
+        if !Task.isCancelled { automationRead = true }
+    }
+
+    /// Reads the automation's runs again: the runs as read, in their order, then those followed here
+    /// and not listed yet. A read cut short (the page covered, left) is no failure: the page reads
+    /// them again when it is back.
+    private func readRuns(_ a: AutomationFeed) async {
+        loadingOlder = exchanges.isEmpty
+        defer { loadingOlder = false }
+        do {
+            let fresh = try await a.exchanges(model)
+            guard !Task.isCancelled, automationFeed === a else { return }
+            historyFailed = nil
+            let ids = Set(fresh.map(\.id))
+            exchanges = fresh + exchanges.filter { !ids.contains($0.id) && liveRuns.contains($0.id) }
+            showLatestQuietly()
+        } catch {
+            if !Task.isCancelled, !(error is CancellationError), (error as? URLError)?.code != .cancelled { historyFailed = ("", "") }
+        }
+    }
+
+    /// At rest on the latest run, without reading it aloud (a tap reads it).
+    private func showLatestQuietly() {
+        guard phase == .idle || (phase == .answer && !speaker.isActive), let last = exchanges.last else { return }
+        answer = last.answer; prompt = last.prompt; runId = last.scope == nil ? nil : last.id
+        if phase == .idle { phase = .answer }
+    }
+
+    /// A run of the automation in progress, not yet followed here: follow it (its message, then
+    /// its steps under the orb, then its answer). Nothing happens once the page is left or covered,
+    /// once something else is under way, or for the run you stopped.
+    private func checkAutomationRun(_ a: AutomationFeed) async {
+        guard automationFeed === a, phase != .listening, phase != .thinking else { return }
+        let mine = turn
+        let starting = model.automations.first { $0.id == a.id }?.currentOccurrence != nil || a.automation.currentOccurrence != nil
+        let found = starting ? await a.liveRun(model) : await a.refresh(model)
+        guard !Task.isCancelled, mine == turn else { return }
+        // A run that ended while the page was covered or dimmed: the runs again.
+        if found == nil, let last = a.automation.lastOccurrence?.runId, !exchanges.contains(where: { $0.id == last }) {
+            await readRuns(a)
+            return
+        }
+        guard let run = found, run != stoppedRun, automationFeed === a,
+              phase != .listening, phase != .thinking,
+              exchanges.first(where: { $0.id == run })?.answer.isEmpty != false else { return }
+        let sent = (try? await model.client.prompt(ofRun: run)) ?? nil
+        guard !Task.isCancelled, mine == turn, phase != .listening, phase != .thinking else { return }
+        speaker.stop()
+        liveRuns.insert(run)
+        liveWhen = AutomationInfoView.short(ISO8601DateFormatter().string(from: Date()))
+        runId = run
+        prompt = sent ?? ""                                   // never another run's message
+        note = nil; error = nil
+        resumeFollowing(run)
+    }
+
+    /// While an automation's page is in front (this task ends when it is covered or left, and
+    /// starts again when it is back): once its runs are shown, at once, then every 10 s, a run its
+    /// schedule or Run now started, or one that ended meanwhile. One task: one check at a time.
+    private func watchAutomation() async {
+        guard let a = automationFeed else { return }
+        while !opened, !Task.isCancelled { try? await Task.sleep(for: .milliseconds(300)) }
+        guard !Task.isCancelled else { return }                                // replaced by the page's next appearance
+        if !automationRead { await finishAutomation(a) }                       // the first opening was cut short
+        while !Task.isCancelled {
+            if scenePhase == .active { await checkAutomationRun(a) }
+            try? await Task.sleep(for: .seconds(10))
+        }
     }
 
     /// The whole conversation below the orb, from the gateway's replay of the session (one

@@ -37,6 +37,12 @@ generated from `project.yml` and is not committed.
 
 ## Tests
 
+`scripts/test-watch.sh light` runs the package tests and the tests of the shared pages (the orb
+page, navigation, an automation, tools; about 5 minutes): after each change, adding the classes of
+the area changed (`scripts/test-watch.sh light ShareUITests`). `scripts/test-watch.sh full` runs
+every test but the live ones on three simulator clones in parallel (about 10 minutes): once, before
+a commit or a deploy. `WATCH_SIM` picks the simulator.
+
 - **Package tests**: `swift test --package-path Packages/AbstractGatewayClient` (models decoded
   from the gateway's real shapes, sign-in, markdown and speech text, automation edits).
 - **UI tests**: the `AbstractAssistantWatchUITests` scheme drives the app in the simulator where a
@@ -59,7 +65,7 @@ nothing). The app's own scheme, CI and the release archive do not build the UI t
 | Argument | Effect |
 |---|---|
 | `--mock` | sample data instead of a gateway (screenshots, previews) |
-| `--screen <name>` | opens a screen at launch: `home` `signin` `approval` `approval-ask` `email` `draft` `askuser` `waits` `ask` `ask-entity` `picker` `listening` `thinking` `answer` `sessions` `session` `automations` `automation` `automation-new` `automation-edit` `occurrence` `settings` `orbstyle` `about` `read` `link` `tools` `tools:<group>` `session-search` `session-search-media` |
+| `--screen <name>` | opens a screen at launch: `home` `signin` `approval` `approval-ask` `email` `draft` `askuser` `waits` `ask` `ask-entity` `picker` `listening` `thinking` `answer` `sessions` `session` `automations` `automation` `automation-info` `automation-new` `automation-edit` `settings` `orbstyle` `about` `read` `link` `tools` `tools:<group>` `session-search` `session-search-media` |
 | `--gateway <url> --token <token> [--user <id>]` | signs in with that gateway and token and keeps the sign-in, so one launch provisions a simulator or a watch |
 | `--forget-gateway` | forgets the saved sign-in (the sign-in screen shows) |
 | `--orb-design <letter>` | chooses the orb style (R Lotus, S Crystal, U Eclipse, V Synapse, W Drop, X Wave, G Face, I Imprint, J Hologram, K Eye, L Lens, M Dome, N Valet, O Retro, P Deco, Q Rover, H Ocean); `--ask-orb` asks the first-launch question again |

@@ -72,6 +72,10 @@ final class AutomationsListUITests: XCTestCase {
         shot("a6-names")
         usleep(800_000)
         news.tap()
+        // Its orb page, then its details behind (i).
+        let info = app.buttons["ask.info"].firstMatch
+        XCTAssertTrue(info.waitForExistence(timeout: 10), app.debugDescription)
+        info.tap()
         let whole = app.descendants(matching: .any)["automation.instructions"].firstMatch
         XCTAssertTrue(whole.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(whole.label.contains("international political and economic stories, and you provide informative and actionable digests."), whole.label)

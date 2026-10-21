@@ -91,13 +91,20 @@ final class BrowserNavigationUITests: XCTestCase {
         let digest = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Morning digest'")).firstMatch
         XCTAssertTrue(digest.waitForExistence(timeout: 15), app.debugDescription)
         digest.tap()
+        // Its orb page, as a conversation's; forward: its details (as a conversation's stats).
+        let page = app.staticTexts["ask.automation"].firstMatch
+        XCTAssertTrue(page.waitForExistence(timeout: 10), app.debugDescription)
+        sleep(1)
+        forward()
         let title = app.descendants(matching: .any)["automation.title"].firstMatch
-        XCTAssertTrue(title.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(title.waitForExistence(timeout: 10), "forward from an automation's orb page is not its details:\n\(app.debugDescription)")
+        back()
+        XCTAssertTrue(page.waitForExistence(timeout: 5), "back from the details is not the automation's orb page")
         back(); back()
         XCTAssertTrue(onHome, "two backs from an automation did not reach Home")
         forward(); shot("b-fwd1"); forward()
-        if !title.waitForExistence(timeout: 5) { shot("b-fail-fwd2") }
-        XCTAssertTrue(title.waitForExistence(timeout: 10), "two forwards did not come back to the automation:\n\(app.debugDescription)")
+        if !page.waitForExistence(timeout: 5) { shot("b-fail-fwd2") }
+        XCTAssertTrue(page.waitForExistence(timeout: 10), "two forwards did not come back to the automation:\n\(app.debugDescription)")
         shot("b2-automation")
     }
 

@@ -76,7 +76,7 @@ sequenceDiagram
 | `Orb`, `OrbScenes`, `OrbConcepts`, `OrbCosmos`, `OrbNature`, `OrbAvatars`, `OrbLines`, `OrbRobots`, `OrbMachines` | The orb (every style drawn from `OrbPhases`, the five phases' weights and the voice): a planet of points whose style answers the voice (Halo, Vortex, Nebula, Liquid, Galaxy), and scenes of their own: Rings, the five state shapes (Lotus, Crystal, Eclipse, Synapse, Drop), Face, Imprint, Contour, Membrane, Eye (one relief of the face, computed once on a grid for the line styles), the eleven machines (six robots, a floating robot, a robot on tracks, a car, an android and a chrome sentinel, drawn as lit metal under a fine texture of points), the Cosmos scenes (Well, Black hole, Accretion) and the Nature scenes (Ocean, Aurora, Murmuration); every motion at a fixed pace, the phases blending how much of each shows, so a change of state is always a smooth morph; all frame-rate independent and drawn in one `Canvas`, with the light of its work. |
 | `Listener` | Records 16 kHz mono WAV with metering; detects speech against the room's noise floor; sends after 3 s of silence. |
 | `Speaker` | Streams the gateway's voice in chunks and plays them back to back with metering (the orb follows the level); pause, resume, rewind 10 s. |
-| `RunProgress` | Follows a running automation down to the agent's child run and describes its newest step in words. |
+| `AskView`, `Conversation`, `AutomationFeed` | The one orb page, for a conversation and for an automation: `Conversation` says which, `AutomationFeed` gives an automation's runs as messages (`/occurrences`, its trigger's `user_turn`), its run in progress, Stop, Seen and the conversation about it (`/discuss`); the page follows a run the same way for both (`RunActivity`). |
 | Browser navigation | `AppModel.path` is the history: a swipe to the right (`goBack`) closes the top page, a swipe to the left (`goForward`) opens again the pages closed by going back (`forward`, kept until something else is opened; only the app's own pages are kept, `Route.revisitable`: a message, its steps, media, a link, a form or a question opens with a tap only); rows and links fire on a tap only (`TapButtonStyle`: a finger that moves is not a tap), and the stack's binding (`stackPath`) also refuses a page opened under a sideways-moving finger, so a swipe across a row never opens it; with nothing ahead, and only from there, the orb page of a conversation with a message opens `ConversationInfoView` (its numbers, and its files from `GET /sessions/{id}/artifacts` and the conversation's folder through `GET /runs/{id}/workspace/files`, each shared as a file downloaded only when shared). |
 | `RunActivity` | Follows a question's run down to the run doing the work and reads its new step records (thinking, tool calls, media, waits) into the steps under the orb and the orb's pulses and satellites. |
 | `SVGDocument`, `SVGView` | SVG drawn on the watch (it has no web view): the client library reads a drawing into shapes and texts with their transforms, inherited styles, gradients, dashes and blur or drop-shadow filters (rect, circle, ellipse, line, polyline, polygon, every path command with arcs, text, groups); the app draws them in one `Canvas`, fitted with their aspect kept. Not drawn: embedded images, `use`, masks, clip paths, patterns, CSS stylesheets. Used by the file preview (`FilePreviewView`, a vertical pager over the conversation's files) and the media page. |
@@ -113,7 +113,8 @@ sequenceDiagram
 | Run now / stop / pause / resume | `POST /api/gateway/automations/{id}/commands` `{type: "automation.run_now" \| "automation.stop_current" \| "automation.pause" \| "automation.resume"}` |
 | Edit an automation | `PATCH /api/gateway/automations/{id}` `{expected_revision, changes}` with only what changed (`title`, `target`, `trigger`, `context`); a stale revision is refused (409) |
 | New automation | `GET /api/gateway/bundles?executable_for=abstractcode.agent.v1` (the workflows offered; the gateway decides), `GET /api/gateway/bundles/{bundle}/flows/{flow}/input_schema?bundle_version=` (a chosen workflow's defaults and required inputs), `POST /api/gateway/automations` `{request_id, title, target, trigger: schedule@2 {kind: every \| daily}, context, policy: {tool_approval}}` — the body the other clients send |
-| Earlier runs | `GET /api/gateway/automations/{id}/occurrences?limit=` |
+| An automation's messages | `GET /api/gateway/automations/{id}/occurrences?limit=` (each run's `user_turn`, `answer`, `fired_at`, `status`) |
+| Talking about an automation | `POST /api/gateway/automations/{id}/discuss` `{request_id, occurrence_index, prompt}`: a `discussion-session:` conversation seeded with its runs, its first turn started; later turns `POST /runs/start` with that `session_id`. Nothing is written into the automation's own conversation. |
 | Live progress | `GET /api/gateway/runs/{id}/ledger?after=` on the occurrence's run and the child runs it starts |
 | Seen | `POST /api/gateway/automations/{id}/seen` `{attention_cursor}` |
 | Links | the page itself, fetched by the watch and shown as readable text |
@@ -121,13 +122,14 @@ sequenceDiagram
 ## Background and notifications
 
 - **On screen** (the scene active, someone looking): waits, sessions and automations every 15 s;
-  a running Ask every second; a running automation every 3 s and its steps every 2 s. The screen
+  a running question or automation run every second, its steps every 2 s; an automation's orb page
+  reads the automation every 10 s (a run its schedule starts). The screen
   dimmed (wrist down, always on): the poll in flight finishes and none follows; the orbs hold
   their last frame; the automations page reads nothing. In the background: nothing.
 - **Answers while away**: an Ask left working when the app leaves the foreground hands
   `GET /api/gateway/runs/{id}/ledger/stream` (a keep-alive every 50 s) to a background URLSession,
   once per run. watchOS keeps it open with the app suspended and wakes the app when the gateway
-  closes it; the app posts the answer as a notification. A running automation's page does the same
+  closes it; the app posts the answer as a notification. A running automation's orb page does the same
   when the app is left. The stream is ended when the app itself sees the run end or park on a
   person, and given up after an hour (15 minutes a connection, three reconnections). No
   notification is posted for an answer that is on screen.

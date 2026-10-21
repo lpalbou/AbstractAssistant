@@ -52,7 +52,7 @@ struct ToolsView: View {
                 Text(caption).font(.rounded(.caption2)).foregroundStyle(Theme.muted)
                 Text(summary).font(.rounded(.caption2, weight: .semibold)).foregroundStyle(Theme.text2)
                     .accessibilityIdentifier("tools.summary")
-                if scope != .defaults, !model.toolChanges(scope).isEmpty {
+                if scope == .session ? model.sessionDiffers : (scope == .draft && !model.toolChanges(scope).isEmpty) {
                     Button("Use my defaults") { model.resetTools(scope); WKInterfaceDevice.current().play(.click) }
                         .buttonStyle(FilledButtonStyle(fill: Theme.neutralButton))
                 } else if scope == .defaults, !model.toolDefaults.isEmpty {

@@ -69,6 +69,9 @@ public protocol GatewayClient: Sendable {
     func runAutomationNow(id: String) async throws
     /// `POST /automations/{id}/commands` (`automation.pause`, `automation.resume`, …).
     func automationCommand(id: String, type: String) async throws
+    /// `POST /automations/{id}/discuss {request_id, occurrence_index, prompt}`: a conversation about
+    /// the automation, seeded with its runs up to that one; the automation's own context is untouched.
+    func discussAutomation(id: String, occurrenceIndex: Int, prompt: String) async throws -> Discussion
     /// `GET /api/gateway/automations?archived_only=true`: the archived automations.
     func archivedAutomations() async throws -> [AutomationSummary]
     /// `GET /automations/{id}` → `summary`: one automation's row, fresh (e.g. its run in progress).
@@ -244,7 +247,7 @@ public actor LiveGatewayClient: GatewayClient {
     public func run(id: String) async throws -> RunSummary { try await get("api/gateway/runs/\(id)", as: RunSummary.self) }
 
     public func setArchived(sessionId: String, _ archived: Bool) async throws {
-        guard MediaItem.safe(sessionId) else { throw GatewayError.invalidResponse }
+        guard MediaItem.safeSession(sessionId) else { throw GatewayError.invalidResponse }
         _ = try await request("POST", "api/gateway/sessions/\(sessionId)/\(archived ? "archive" : "unarchive")")
     }
 
@@ -353,6 +356,13 @@ public actor LiveGatewayClient: GatewayClient {
     public func archivedAutomations() async throws -> [AutomationSummary] {
         try JSONDecoder().decode(AutomationsPage.self, from: try await request(
             "GET", "api/gateway/automations", query: [.init(name: "archived_only", value: "true")], timeout: 60)).items
+    }
+
+    public func discussAutomation(id: String, occurrenceIndex: Int, prompt: String) async throws -> Discussion {
+        struct Body: Encodable { let request_id: String; let occurrence_index: Int; let prompt: String }
+        let data = try await request("POST", "api/gateway/automations/\(id)/discuss",
+                                     body: Body(request_id: UUID().uuidString.lowercased(), occurrence_index: occurrenceIndex, prompt: prompt), timeout: 60)
+        return try JSONDecoder().decode(Discussion.self, from: data)
     }
 
     public func automationCommand(id: String, type: String) async throws {

@@ -74,6 +74,28 @@ struct MessagePage<Caption: View>: View {
     }
 }
 
+/// A message's caption, the same for a conversation and an automation: when its trigger sent it (an
+/// automation's run, "Failed" in red when it failed), then the message sent.
+struct ExchangeCaption: View {
+    let exchange: Exchange
+    var lines = 2
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            if exchange.when != nil || exchange.failed {
+                HStack(spacing: 6) {
+                    if let when = exchange.when {
+                        Text(when).font(.rounded(.caption2)).foregroundStyle(Theme.muted).lineLimit(1).minimumScaleFactor(0.7)
+                    }
+                    if exchange.failed {
+                        Text("Failed").font(.rounded(.caption2, weight: .semibold)).foregroundStyle(Theme.red).fixedSize()
+                    }
+                }
+            }
+            QuestionCaption(text: exchange.prompt, lines: lines)
+        }
+    }
+}
+
 /// A conversation message's caption: the question asked, as an automation's date line.
 struct QuestionCaption: View {
     let text: String

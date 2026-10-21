@@ -156,6 +156,11 @@ public struct RunSummary: Codable, Hashable, Sendable, Identifiable {
     public var tokensTotal: Int?
     /// chat · discussion · automation · occurrence
     public var sessionKind: String?
+    /// A turn of a conversation (a chat, or a discussion about an automation), not an automation's
+    /// own run: another turn may be written into its session.
+    public var isConversation: Bool { sessionKind == nil || sessionKind == "chat" || sessionKind == "discussion" }
+    /// The automation an occurrence's run belongs to (nil for a conversation's turn).
+    public var automationId: String?
 
     public var id: String { runId }
     public var isTerminal: Bool { ["completed", "failed", "cancelled"].contains(status) }
@@ -172,6 +177,7 @@ public struct RunSummary: Codable, Hashable, Sendable, Identifiable {
         case runId = "run_id", workflowId = "workflow_id", status, sessionId = "session_id"
         case createdAt = "created_at", updatedAt = "updated_at", error, waiting, output, kind, subtitle
         case steps, llmCalls = "llm_calls", toolCalls = "tool_calls", tokensTotal = "tokens_total", sessionKind = "session_kind"
+        case automationId = "automation_id"
     }
 
     /// The run's final text. The exact output field for agent workflows is unverified
@@ -282,12 +288,15 @@ public struct LastOccurrence: Codable, Hashable, Sendable {
     public var finishedAt: String?
     public var answer: String?
     public var triggerSummary: String?
+    /// The message the trigger sent (the task as it was for that run, with what the trigger brought).
+    public var userTurn: String?
     public init(status: String?, excerpt: String?, runId: String? = nil, index: Int? = nil, firedAt: String? = nil,
-                finishedAt: String? = nil, answer: String? = nil, triggerSummary: String? = nil) {
+                finishedAt: String? = nil, answer: String? = nil, triggerSummary: String? = nil, userTurn: String? = nil) {
         self.status = status; self.excerpt = excerpt; self.runId = runId; self.index = index
         self.firedAt = firedAt; self.finishedAt = finishedAt; self.answer = answer; self.triggerSummary = triggerSummary
+        self.userTurn = userTurn
     }
-    enum CodingKeys: String, CodingKey { case status, excerpt, runId = "run_id", index, firedAt = "fired_at", finishedAt = "finished_at", answer, trigger }
+    enum CodingKeys: String, CodingKey { case status, excerpt, runId = "run_id", index, firedAt = "fired_at", finishedAt = "finished_at", answer, trigger, userTurn = "user_turn" }
     enum TriggerKeys: String, CodingKey { case summary }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -298,13 +307,23 @@ public struct LastOccurrence: Codable, Hashable, Sendable {
         firedAt = try c.decodeIfPresent(String.self, forKey: .firedAt)
         finishedAt = try c.decodeIfPresent(String.self, forKey: .finishedAt)
         answer = try c.decodeIfPresent(String.self, forKey: .answer)
+        userTurn = try c.decodeIfPresent(String.self, forKey: .userTurn)
         if let t = try? c.nestedContainer(keyedBy: TriggerKeys.self, forKey: .trigger) { triggerSummary = try t.decodeIfPresent(String.self, forKey: .summary) }
     }
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encodeIfPresent(status, forKey: .status); try c.encodeIfPresent(excerpt, forKey: .excerpt); try c.encodeIfPresent(runId, forKey: .runId)
         try c.encodeIfPresent(index, forKey: .index); try c.encodeIfPresent(firedAt, forKey: .firedAt); try c.encodeIfPresent(finishedAt, forKey: .finishedAt); try c.encodeIfPresent(answer, forKey: .answer)
+        try c.encodeIfPresent(userTurn, forKey: .userTurn)
     }
+}
+
+/// `POST /automations/{id}/discuss`: the conversation about an automation (its first turn started).
+public struct Discussion: Decodable, Sendable {
+    public var sessionId: String
+    public var runId: String
+    public init(sessionId: String, runId: String) { self.sessionId = sessionId; self.runId = runId }
+    enum CodingKeys: String, CodingKey { case sessionId = "session_id", runId = "run_id" }
 }
 
 public struct OccurrencesPage: Codable, Sendable {

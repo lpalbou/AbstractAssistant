@@ -192,3 +192,25 @@ extension ActivityLog.Step {
         return s < 60 ? "\(Int(s)) s" : String(format: "%d:%02d", Int(s) / 60, Int(s) % 60)
     }
 }
+
+/// What a tool call is doing, in plain words ("Searching the web", "Reading 4 web pages").
+/// What tools are doing, as a person would say it.
+enum ToolWords {
+    static func doing(_ names: [String]) -> String {
+        guard let first = names.first else { return "Working" }
+        let n = names.filter { $0 == first }.count
+        switch first {
+        case "web_search", "skim_websearch": return "Searching the web"
+        case "skim_url", "fetch_url", "render_url_html": return n > 1 ? "Reading \(n) web pages" : "Reading a web page"
+        case "read_file", "skim_files": return n > 1 ? "Reading \(n) files" : "Reading a file"
+        case "list_files", "search_files", "skim_folders": return "Looking through files"
+        case "write_file", "edit_file": return "Writing a file"
+        case "execute_command", "shell_exec": return "Running a command"
+        case "send_email", "reply_email": return "Sending an email"
+        case "read_email", "list_emails", "search_emails": return "Reading email"
+        default:
+            let w = first.replacingOccurrences(of: "_", with: " ")
+            return "Using " + w
+        }
+    }
+}

@@ -69,6 +69,8 @@ final class SessionsArchiveUITests: XCTestCase {
         XCTAssertTrue(restore.waitForNonExistence(timeout: 10))
         app.buttons["Back"].firstMatch.tap()
         let back = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
+        // The list may be scrolled below it (Archived is at its end): up, then down.
+        for _ in 0..<8 where !back.exists { app.nudgeDown() }
         for _ in 0..<10 where !back.exists { app.nudgeUp() }
         XCTAssertTrue(back.exists, "the restored conversation is not back: \(title)")
     }

@@ -43,7 +43,7 @@ Orb styles: `../design/anim/orb-designs/`.
 | Ask | The orb fills the screen. At rest: "Assistant ⌄" below the orb (who answers), the keyboard icon top right and the tools icon bottom right (as far from the bottom as the keyboard from the top); while it listens, Send takes the tools icon's place (what was said goes now, before a noise keeps the silence that sends from coming); while it works or speaks, they hide. While it works: its steps live below the orb, a pulse per tool call, a satellite per tool running. Beside Back, the row follows what it does: Stop while it is busy (listening, thinking or working, speaking or paused), Share at rest; while it works after an Accept all, the amber shield beside it takes the permission back; the voice button (play, pause, hold to rewind) once there is an answer. A tap on the orb listens, sends, or pauses and resumes its voice; a 1.5 s hold on the orb (a ring closes round it) does what Stop does, and at rest reads the last answer aloud; let go before, nothing happens. The answer appears below with its images and recordings, spoken by the orb; "N steps · time" opens how it worked. | tap · hold to stop · stop · keyboard · tools · shield · share · voice button · choose who answers |
 | Conversation | Swiped to the left from the orb page of a conversation with at least one message: its title, its numbers (questions, tool calls, thinking steps, when it started, its last activity, its files, the questions spoken) and its files (what its turns made or were given, and what its assistant wrote into the conversation's folder), newest first, one card each (what it is, made or attached, its size and age) with its share button on the right; a tap opens its preview; Every exchange opens the conversation's exchanges. Swiped to the right, the orb page again. | swipe · open · share |
 | File preview | A tap on a file of the conversation's page: one file per page, its name and where it is ("2 of 5"); a swipe up shows the next file, a swipe down the one before (or the crown). A picture shows (a tap opens it to zoom), a drawing (SVG) is drawn on the watch, a text shows its start, a recording or a video opens to play; otherwise what it is and its size. Share beside Back. | swipe · open · share |
-| Tools | A conversation's tools (or the defaults, from Settings): its Workflow row, then the groups (Files, Web, System, Email, …) with their counts; after an Accept all, "Allowed for now" with Ask again. A group lists each tool with its risk, what it can do and Off · Auto · Ask, and All for the group. | choose · Use my defaults · Ask again |
+| Tools | A conversation's tools (or the defaults, from Settings; a new conversation starts on them, and a default stays as chosen): its Workflow row, then the groups (Files, Web, System, Email, …) with their counts; after an Accept all, "Allowed for now" with Ask again. A group lists each tool with its risk, what it can do and Off · Auto · Ask, and All for the group. | choose · Use my defaults · Ask again |
 | Workflow | The gateway's default agent first, then the Assistant's workflows ("Also makes images and other media"), then the other agents. | choose |
 | Image | An answer's image full screen: the Digital Crown zooms, a drag looks around, a double tap fits it; share beside Back. | zoom · share |
 | Work | A finished answer's steps in order (thinking, tools, media), with their durations. | read |
@@ -52,7 +52,7 @@ Orb styles: `../design/anim/orb-designs/`.
 | Email | The full email the assistant wants to send. | back |
 | Question | The question, its choices, or another answer typed or dictated. | choice · answer |
 | Needs you | Everything waiting, oldest first; it closes when nothing is left. | open |
-| Sessions | New and Search on one line, then your conversations by day with exchanges, tools and how long ago each last changed ("10 h ago"); one with an answer you have not opened is outlined in cyan; the archive button at its right archives one (after a confirmation); Archived at the bottom. | continue · search · archive |
+| Sessions | New and Search on one line, then your conversations by day with exchanges, tools and how long ago each last changed ("10 h ago"), your automations among them by their latest run (the circling clock and how many times each ran); one with an answer you have not opened is outlined in cyan; the archive button at its right archives one (after a confirmation); Archived at the bottom. | continue · search · archive |
 | Search | The conversations holding the words (questions, answers, artifacts), the words marked, a matching image beside them. | continue |
 | Archived | Archived conversations, each with Restore. | restore |
 | Session | Every exchange (from the conversation's page): its last exchanges (question, then the answer); a finished answer opens in full; a running one can be stopped. Continue floats at the bottom. | open · stop · Continue |
@@ -60,7 +60,8 @@ Orb styles: `../design/anim/orb-designs/`.
 | Link | A tapped web link: the page's title and readable text, read aloud. | read aloud |
 | Automations | New automation first, then each automation: its name with a spinner while it runs, its count of new results (outlined in amber) and its archive button; its runs and schedule ("⟳ 44 🕐 12h ➜ 6h") with the switch that turns it on or off; Archived at the bottom. | open · on/off · archive |
 | Archived automations | Archived automations, each with Restore. | restore |
-| Automation | Name and instructions, in full; runs and schedule line with Run now at its right (stop while it runs); Read aloud and Edit; while running, what the agent is doing now; the latest result; earlier runs (five, then more). | run now · stop · read aloud · edit · open a run |
+| Automation | The same orb page as a conversation: its runs are its messages (the message its trigger sent, when, then the answer; a failed run in red), the latest in full, the earlier ones as cards; its name below the orb where a conversation shows who answers; (i) where a conversation has its tools; a run in progress is followed on the orb (its steps under it, Stop ends the run, the schedule goes on); talking opens a conversation about it, seeded with its runs, and the page goes on as that conversation (the automation's own runs never read it). A swipe forward opens its details. | talk · stop · read aloud · share · (i) · open a run |
+| Automation details | Behind (i): its name, when it runs and next, Edit, Run now (back to its orb page, which follows the run) or Stop while it runs, its task (unless its name says it), its instructions, whether it builds on its earlier runs. | edit · run now · stop |
 | New automation | The task (the field opens the watch's text input), the workflow (the gateway's default by name, then the gateway's workflows for this account), its tools (the Tools page), when (the shared presets, or daily at a time), Builds on earlier runs, Create at the bottom. | create |
 | Edit automation | The title, the task and the instructions, each in its own field opening with the current text (shown at once when its page has read them), how often, Active, Builds on earlier runs, Save at the bottom; Back with changes asks Save or Discard. | edit · Save · discard |
 | Settings | Connection (the gateway, the account, its email and tools), Tools (the defaults), Voice (voice, speed, transcription model), Orb style, Read aloud, About, and Sign out at the bottom. | |
@@ -93,10 +94,10 @@ Orb styles: `../design/anim/orb-designs/`.
 
 ### An automation runs
 
-1. Run now (or the schedule) starts an occurrence; its page shows what the agent is doing, with a
-   running time, and the list shows a spinner on it.
+1. Its schedule (or Run now, on its details) starts a run: on its orb page the orb works and its
+   steps show under it, as for a question you asked; Sessions and the list show it running.
 2. You can stay, stop it, or leave: the result comes as a notification.
-3. When it ends: a haptic, the new result at the top, the run among the earlier ones.
+3. When it ends: a haptic, the orb speaks the answer, the run among the earlier messages.
 
 ## The orb
 

@@ -41,14 +41,16 @@ works, the amber shield on the orb takes that back at once. Sends to other peopl
 **Find and tidy your conversations.** Sessions lists your conversations (Today, Yesterday,
 Earlier), outlines the ones with an answer you have not opened, searches every question, answer and
 artifact (an image by what it was made from, a file by its name), and archives one with the
-archive button at its right (Archived brings it back). Each says how long ago it last changed. Tap a conversation to continue it on the orb.
+archive button at its right (Archived brings it back). Each says how long ago it last changed. Tap a conversation to continue it on the orb. Your automations are listed among them: an automation is a conversation its trigger writes in.
 
 **Follow your automations.** New automation creates one: the task, the workflow, the tools it may
 use, when it runs and whether each run builds on the earlier ones. In the list, each shows its name,
 how many times it has run, how often it runs and when next; a switch turns one off and on, and its
-archive button archives it (Archived brings it back). Its page shows its instructions in full, Run
-now (with live progress, and you can leave: a notification brings the result), the latest result in
-full, Edit (its title, task and instructions, apart), and the earlier runs; once read, a page opens
+archive button archives it (Archived brings it back). It opens on the same orb page as a
+conversation: its runs are the messages (what its trigger sent, then the answer), the orb follows a
+run in progress and speaks its answer, and talking there opens a conversation about it (its own runs
+never read it). Its details sit behind (i), where a conversation has its tools: when it runs, Run
+now, Edit (its title, task and instructions, apart) and its instructions; once read, a page opens
 at once. Every screen shows a spinner until
 its information is in, and an error only once reading it has failed several times.
 

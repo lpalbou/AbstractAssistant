@@ -30,6 +30,11 @@ public struct MediaItem: Hashable, Sendable, Identifiable, Codable {
         return nil
     }
 
+    /// A session id in a URL path: as `safe`, and `:` (a discussion's `discussion-session:<run>`).
+    static func safeSession(_ id: String) -> Bool {
+        !id.isEmpty && id.count <= 160 && id.allSatisfy { $0 == ":" || ($0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_")) }
+    }
+
     /// Ids go into a URL path: letters, digits, `-` and `_` only.
     static func safe(_ id: String) -> Bool {
         !id.isEmpty && id.count <= 128 && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }

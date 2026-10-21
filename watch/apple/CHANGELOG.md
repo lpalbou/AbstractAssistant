@@ -8,6 +8,12 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Added
 
+- **An automation is a conversation.** It opens on the same orb page as a conversation: its runs
+  are the messages (what its trigger sent, when, then the answer), the orb follows a run in progress
+  and speaks its answer, Share and the voice work the same. Its details (when it runs, Run now,
+  Edit, its instructions) are behind (i), where a conversation has its tools, or a swipe forward.
+  Talking there opens a conversation about it, seeded with its runs; the automation's own runs
+  never read it. Sessions lists the automations among the conversations.
 - **Four more machines.** Hover (a small round floating robot, polite and brave, that drifts closer
   to listen and unfolds its arms to work), Spark (a curious robot on tracks with shutter brows that
   leans right in for input and flicks its eyes as it thinks), Cruiser (a sleek black car whose red
@@ -66,6 +72,11 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Changed
 
+- **Tools follow Settings.** A default stays as you set it, even when the gateway's own choice for
+  that tool changes. "Use my defaults" also puts the conversation's workflow back on the default,
+  and choosing the workflow a conversation already runs is not counted as a change. An answer opened from a
+  notification opens its own conversation, with that conversation's tools. A new conversation with
+  an entity is a new one.
 - **Membrane redone.** A soft, smiling face with closed eyes pressing into a curtain of silk
   threads, drawn by the light where it presses; it presses closer with your voice, draws back as it
   thinks, ripples as it works and pushes with its voice as it speaks.
@@ -155,6 +166,7 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Fixed
 
+- A conversation about an automation can be archived from Sessions.
 - **A voice gone silent mid-answer** (a pause then a resume brought it back): the system can stop
   the player underneath, with an audio interruption, with the app suspended while the wrist is
   down, or when the keep-awake session ran out, and the reading stayed "speaking" over silence.
