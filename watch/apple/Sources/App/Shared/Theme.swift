@@ -64,9 +64,10 @@ struct FitScroll<Content: View>: View {
 }
 
 /// The orb's stage: what is visible of the screen below the top row (`top`: where the visible area
-/// starts on screen, which no scroll moves), with its content sized to fit it whole and centred in
-/// it. The same on every visit: it is never measured from the stage itself, whose place changes
-/// with the scroll (a page reopened scrolled down used to keep a wrong top).
+/// starts on screen, which no scroll moves), with its content centred on the screen itself and as
+/// large as fits there without reaching the top row. The same on every visit: it is never measured
+/// from the stage itself, whose place changes with the scroll (a page reopened scrolled down used to
+/// keep a wrong top).
 struct ScreenCentered<Content: View, Bottom: View>: View {
     let width: CGFloat
     let top: CGFloat
@@ -76,9 +77,12 @@ struct ScreenCentered<Content: View, Bottom: View>: View {
     var body: some View {
         let screen = WKInterfaceDevice.current().screenBounds.size
         let visible = max(0, screen.height - max(0, top))
+        let centre = max(0, screen.height / 2 - max(0, top))   // the screen's centre, from the stage's top
+        let side = min(width, 2 * centre)
         ZStack(alignment: .bottom) {
-            content(min(width, visible))
-                .frame(width: width, height: visible)
+            content(side)
+                .frame(width: width, height: side)
+                .position(x: width / 2, y: centre)
             bottom()
         }
         .frame(width: width, height: visible)
