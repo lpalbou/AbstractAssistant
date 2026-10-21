@@ -127,17 +127,19 @@ final class NewConversationToolsUITests: XCTestCase {
     }
 }
 
-/// An automation's page while its runs are read: a large spinner over a quiet orb, then its runs.
+/// An automation's page shows its latest run at once while its runs are read.
 /// Its details, back after a Run, say it is running (Stop).
 final class AutomationLoadingUITests: XCTestCase {
-    func testASpinnerWhileItsRunsLoad() throws {
+    /// Its latest run shows at once (as the list has it), while its runs are read: no spinner.
+    func testTheLatestRunShowsAtOnce() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--mock", "--no-notification-prompt", "--orb-design", "A", "--screen", "automation"]
         app.launch()
-        let spinner = app.descendants(matching: .any)["ask.loading"].firstMatch
-        XCTAssertTrue(spinner.waitForExistence(timeout: 5), "no spinner while its runs load:\n\(app.debugDescription)")
-        XCTAssertTrue(app.buttons["Share"].waitForExistence(timeout: 20), app.debugDescription)
-        XCTAssertFalse(spinner.exists, "the spinner stays once its runs are in")
+        XCTAssertTrue(app.buttons["Share"].waitForExistence(timeout: 2.5), "the latest run is not shown at once:\n\(app.debugDescription)")
+        XCTAssertFalse(app.descendants(matching: .any)["ask.loading"].exists, "a spinner over a run already known")
+        let earlier = app.buttons.matching(identifier: "message.row").firstMatch
+        app.bring(earlier)
+        XCTAssertTrue(earlier.waitForExistence(timeout: 15), "the earlier runs never came")
     }
 
     func testDetailsSayItIsRunningAfterRun() throws {

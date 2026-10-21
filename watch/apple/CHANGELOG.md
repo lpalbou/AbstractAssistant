@@ -11,7 +11,9 @@ channel (TestFlight, then the App Store); the Python package's history is in
 - **Notifications when an automation finishes.** "Morning digest finished", with the first words of
   its answer (a tap opens it): a banner when the app is open, a notification from the background
   check otherwise. Settings → Notifications turns it off.
-- **A large spinner** on the orb page while an automation's runs (or a notification's answer) load.
+- **An automation's page opens at once** on its latest run (as the list has it) while its ten
+  latest runs are read; a large spinner shows only when there is nothing to show yet (a run never
+  read, a notification's answer on its way).
 - **New automation sets how much it remembers.** With "Builds on earlier runs" on, it shows how
   much of its earlier runs each run reads (the gateway's default, 50,000 tokens on yours) and takes
   a new number, as Edit does.

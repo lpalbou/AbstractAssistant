@@ -62,6 +62,8 @@ struct AskView: View {
     @State private var adopted: String?
     /// The page has opened (a later appearance is a return to it).
     @State private var opened = false
+    /// An automation's runs have been read once (or the read failed): its spinner goes.
+    @State private var runsRead = false
     /// Each time the page comes to the front (an automation's page checks its runs again then).
     @State private var appearances = 0
     /// An automation's run stopped here (the automation goes on): it is not followed again.
@@ -526,7 +528,8 @@ struct AskView: View {
     /// The page's conversation (an automation's runs, a notification's answer) is not in yet.
     private var loadingConversation: Bool {
         exchanges.isEmpty && phase != .listening && phase != .thinking && historyFailed == nil
-            && (loadingOlder || (automationFeed != nil && !opened) || (opening != nil && answer.isEmpty && error == nil))
+            && ((automationFeed != nil && !runsRead) || (automationFeed == nil && loadingOlder)
+                || (opening != nil && answer.isEmpty && error == nil))
     }
 
     private var status: String {
@@ -938,6 +941,10 @@ struct AskView: View {
         if exchanges.isEmpty, let known = model.results[a.id], !known.isEmpty {
             exchanges = known.reversed().map(AutomationFeed.exchange)
             showLatestQuietly()
+        } else if exchanges.isEmpty, let last = a.automation.lastOccurrence, last.runId != nil {
+            // Its latest run as the list has it (the start of its answer), while its runs are read.
+            exchanges = [AutomationFeed.exchange(last)]
+            showLatestQuietly()
         }
         await finishAutomation(a)
     }
@@ -960,8 +967,8 @@ struct AskView: View {
     /// and not listed yet. A read cut short (the page covered, left) is no failure: the page reads
     /// them again when it is back.
     private func readRuns(_ a: AutomationFeed) async {
-        loadingOlder = exchanges.isEmpty
-        defer { loadingOlder = false }
+        loadingOlder = true
+        defer { loadingOlder = false; runsRead = true }
         do {
             let fresh = try await a.exchanges(model)
             guard !Task.isCancelled, automationFeed === a else { return }

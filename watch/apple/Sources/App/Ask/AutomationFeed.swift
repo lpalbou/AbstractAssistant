@@ -20,8 +20,9 @@ enum Conversation: Hashable {
     var id: String { automation.id }
     var title: String { automation.name ?? "Automation" }
 
-    /// Its runs, oldest first: the latest `limit` of them.
-    func exchanges(_ model: AppModel, limit: Int = 30) async throws -> [Exchange] {
+    /// Its runs, oldest first: the latest `limit` of them (the gateway reads each run's answer: 15 s
+    /// for one, 45 s for 30 on a local gateway, measured 2026-10-22; ten keep the wait short).
+    func exchanges(_ model: AppModel, limit: Int = 10) async throws -> [Exchange] {
         let runs = try await model.client.occurrences(automationId: id, limit: limit)
         model.keep(results: runs, of: id)
         return runs.reversed().map(Self.exchange)
