@@ -63,18 +63,10 @@ struct FitScroll<Content: View>: View {
     }
 }
 
-/// The orb's tap area: its own square minus its top 60 pt (the row of Back and the controls beside
-/// it, before any scroll). Scrolled, the orb slides under that row: the row's band then takes the
-/// taps (see `BesideBack`).
-struct BelowTopRow: Shape {
-    func path(in r: CGRect) -> Path { Path(CGRect(x: r.minX, y: r.minY + 60, width: r.width, height: max(0, r.height - 60))) }
-}
-
-/// The orb's stage: as tall as what is left of the screen below the scroll view's top (`top`: where
-/// the visible area starts on screen, which no scroll moves), with its content (drawn in a
-/// screen-sized box) centred on the screen itself, whatever the bars above take on this watch. The
-/// same on every visit: it is never measured from the stage itself, whose place changes with the
-/// scroll (a page reopened scrolled down used to keep a wrong top).
+/// The orb's stage: what is visible of the screen below the top row (`top`: where the visible area
+/// starts on screen, which no scroll moves), with its content sized to fit it whole and centred in
+/// it. The same on every visit: it is never measured from the stage itself, whose place changes
+/// with the scroll (a page reopened scrolled down used to keep a wrong top).
 struct ScreenCentered<Content: View, Bottom: View>: View {
     let width: CGFloat
     let top: CGFloat
@@ -83,14 +75,13 @@ struct ScreenCentered<Content: View, Bottom: View>: View {
 
     var body: some View {
         let screen = WKInterfaceDevice.current().screenBounds.size
-        let t = max(0, top)
+        let visible = max(0, screen.height - max(0, top))
         ZStack(alignment: .bottom) {
-            content(min(width, screen.height))
-                .frame(width: width, height: screen.height)
-                .position(x: width / 2, y: screen.height / 2 - t)
+            content(min(width, visible))
+                .frame(width: width, height: visible)
             bottom()
         }
-        .frame(width: width, height: max(0, screen.height - t))
+        .frame(width: width, height: visible)
     }
 }
 

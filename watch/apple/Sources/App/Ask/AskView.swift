@@ -103,11 +103,11 @@ struct AskView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 6) {
-                        // The orb fills the screen, centred in what is visible; everything else is below.
+                        // The orb fills what is visible below the top row, whole and centred; everything else is below.
                         ScreenCentered(width: geo.size.width, top: geo.frame(in: .global).minY) { side in
                             Orb(mode: orbMode, size: side * 0.9, voice: orbVoice, countdown: orbCountdown, since: listenSince, look: orbLook,
                                 work: phase == .thinking && activity.isFollowing ? { activity.orb(at: $0) } : nil)
-                                .contentShape(BelowTopRow())
+                                .contentShape(Circle())
                                 .onTapGesture(perform: orbTapped)
                                 // Hold: a ring closes round the orb in 1.5 s, then it stops what it is
                                 // doing (listening, working, speaking), or at rest reads the last

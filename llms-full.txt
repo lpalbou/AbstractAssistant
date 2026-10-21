@@ -5230,6 +5230,8 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Changed
 
+- **The orb fits whole below the top row** on a conversation's, an automation's and the read-aloud
+  page, centred in what is visible.
 - **Run says when it is already running**, and an automation's details read it fresh, so Stop shows
   while a run is on its way.
 - **Approve all, for a conversation and an automation alike.** An approval offers Deny, Approve

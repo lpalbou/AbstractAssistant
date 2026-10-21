@@ -26,7 +26,7 @@ struct ReadView: View {
                     // again); the text is below, on scroll.
                     ScreenCentered(width: geo.size.width, top: geo.frame(in: .global).minY) { side in
                         Orb(mode: orbMode, size: side * 0.9, voice: { speaker.features(at: $0) }, look: lookOfVoice)
-                            .contentShape(BelowTopRow())
+                            .contentShape(Circle())
                             .onTapGesture(perform: orbTapped)
                             .accessibilityAddTraits(.isButton)
                             .accessibilityLabel(speaker.isActive ? "Pause" : speaker.isPaused ? "Resume" : "Read aloud")
