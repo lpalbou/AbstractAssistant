@@ -5,6 +5,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @AppStorage("ask.speak") private var speakAnswers = true
+    @AppStorage(AutomationNotices.key) private var automationNotices = true
     @AppStorage(OrbDesign.storageKey) private var orbDesign = OrbDesign.a.rawValue
 
     var body: some View {
@@ -37,6 +38,12 @@ struct SettingsView: View {
                 Card {
                     Toggle("Read aloud", isOn: $speakAnswers)
                         .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text).tint(Theme.indigoButton)
+                }
+                // A nudge when an automation finishes a run (a notification when the app is closed).
+                Card {
+                    Toggle("Automation results", isOn: $automationNotices)
+                        .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text).tint(Theme.indigoButton)
+                        .accessibilityIdentifier("settings.automationNotices")
                 }
                 Button { model.push(.voiceSettings) } label: {
                     Card {

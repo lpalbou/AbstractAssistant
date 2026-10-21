@@ -235,6 +235,10 @@ final class AppModel: ObservableObject {
                 let list = try await client.automations()
                 guard let self, !Task.isCancelled else { return }
                 automations = merged(list); automationsError = nil; automationsLoaded = true; automationsReadAt = Date()
+                // An automation finished a run since the last look: a nudge (Settings → Automation results).
+                if !AutomationNotices.finished(in: list).isEmpty, AutomationNotices.on, !client.isMock || UITestHooks.on {
+                    WKInterfaceDevice.current().play(.notification)
+                }
                 #if DEBUG
                 if let i = testOpenAutomation, i < automations.count {
                     testOpenAutomation = nil
@@ -1070,6 +1074,12 @@ final class AppModel: ObservableObject {
         guard let id = run.automationId else { return nil }
         if let known = automations.first(where: { $0.id == id }) { return known }
         return try? await client.automation(id: id)
+    }
+
+    /// An automation's page, from a notification (read when not listed yet).
+    func openAutomation(id: String) {
+        if let a = automations.first(where: { $0.id == id }) { show([.automation(a)]); return }
+        Task { if let a = try? await client.automation(id: id) { show([.automation(a)]) } }
     }
 
     func newAskSession() {

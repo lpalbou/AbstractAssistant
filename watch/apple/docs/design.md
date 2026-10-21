@@ -66,7 +66,7 @@ Orb styles: `../design/anim/orb-designs/`.
 | Automation details | Behind (i): its name, when it runs and next, Edit and Run (back to its orb page, which follows the run; Stop while it runs), its task (unless its name says it), whether it builds on its earlier runs. | edit · run · stop |
 | New automation | The task (the field opens the watch's text input), the workflow (the gateway's default by name, then the gateway's workflows for this account), its tools (the Tools page), when (the shared presets, or daily at a time), Builds on earlier runs and, when it does, how much of them it reads (the gateway's default, a number only), Create at the bottom. | create |
 | Edit automation | The title and the task, each in its own field opening with the current text (shown at once when its page has read them); Runs: Active and how often; Memory: Builds on earlier runs and, when it does, how much of them it reads ("Reads up to 50,000 tokens": the gateway's value, a number only); Save at the bottom; Back with changes asks Save or Discard. | edit · Save · discard |
-| Settings | Connection (the gateway, the account, its email and tools), Tools (the defaults), Voice (voice, speed, transcription model), Orb style, Read aloud, About, and Sign out at the bottom. | |
+| Settings | Connection (the gateway, the account, its email and tools), Tools (the defaults), Voice (voice, speed, transcription model), Orb style, Read aloud, Automation results (a nudge when an automation finishes a run, a notification while the app is closed), About, and Sign out at the bottom. | |
 | About | The app's version and build; the framework's author, copyright, website, source, documentation, issues, feedback and contact. | open a link |
 
 ## Flows

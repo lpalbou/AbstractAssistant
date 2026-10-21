@@ -8,6 +8,9 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Added
 
+- **Automation results.** When an automation finishes a run, the watch gives a small nudge while
+  the app is open and posts a notification otherwise ("Morning digest finished", with the first
+  words of its answer; a tap opens it). Settings → Automation results turns it off.
 - **New automation sets how much it remembers.** With "Builds on earlier runs" on, it shows how
   much of its earlier runs each run reads (the gateway's default, 50,000 tokens on yours) and takes
   a new number, as Edit does.

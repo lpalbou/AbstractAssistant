@@ -5083,7 +5083,7 @@ listing (`ai.abstractframework.assistant`). Local developer identity/data are re
 
 **Your AI, everywhere. On your wrist.** A voice-first Apple Watch app for your AbstractGateway.
 
-Version 0.3.0 · watchOS 26 or later · independent (no iPhone app needed) · pre-release through
+Version 0.4.0 · watchOS 26 or later · independent (no iPhone app needed) · pre-release through
 TestFlight. See [CHANGELOG.md](CHANGELOG.md) for what changed.
 
 The watch app is a thin client of AbstractGateway, like the desktop assistant: the gateway owns
@@ -5122,24 +5122,29 @@ works, the amber shield on the orb takes that back at once. Sends to other peopl
 **Find and tidy your conversations.** Sessions lists your conversations (Today, Yesterday,
 Earlier), outlines the ones with an answer you have not opened, searches every question, answer and
 artifact (an image by what it was made from, a file by its name), and archives one with the
-archive button at its right (Archived brings it back). Each says how long ago it last changed. Tap a conversation to continue it on the orb.
+archive button at its right (Archived brings it back). Each says how long ago it last changed. Tap a conversation to continue it on the orb. Your automations are listed among them: an automation is a conversation its trigger writes in.
 
 **Follow your automations.** New automation creates one: the task, the workflow, the tools it may
 use, when it runs and whether each run builds on the earlier ones. In the list, each shows its name,
-how many times it has run, how often it runs and when next; a switch turns one off and on, and its
-archive button archives it (Archived brings it back). Its page shows its instructions in full, Run
-now (with live progress, and you can leave: a notification brings the result), the latest result in
-full, Edit (its title, task and instructions, apart), and the earlier runs; once read, a page opens
-at once. Every screen shows a spinner until
+how many times it has run, how often it runs and when next, and the runs you have not seen in an
+orange badge; New and Search sit on one line, as in Sessions, and its archive button archives it
+(Archived brings it back). It opens on the same orb page as a
+conversation: its runs are the messages (what its trigger sent, then the answer), the orb follows a
+run in progress and speaks its answer, and talking there opens a conversation about it (its own runs
+never read it). Its details sit behind (i), where a conversation has its tools: when it runs, Run,
+and Edit (its title and task apart; Active and how often; whether it builds on its earlier runs and
+how much of them it reads, in tokens); once read, a page opens at once. Every screen shows a spinner until
 its information is in, and an error only once reading it has failed several times.
 
 **Get answers while away.** An answer that arrives after you left the app comes as a notification.
 New approvals and questions are checked in the background about every 15 minutes; an ordinary tool
-approval can be allowed or denied from the notification itself.
+approval can be allowed or denied from the notification itself. An automation that finishes a run
+gives a small nudge while the app is open and a notification otherwise ("Morning digest finished",
+a tap opens it); Settings → Automation results turns this off.
 
 **Make it yours.** Settings has Connection (the gateway and account you use), Tools (the defaults
 for new conversations), Voice (the speaking voice, its speed and the transcription model), Read
-aloud, Orb style (twenty-nine styles in six families: Orbs, Forms, Cosmos, Nature, Faces and Machines, each previewed live through listening, thinking, working and speaking) and About.
+aloud, Orb style (thirty-four styles in six families: Orbs, Forms, Cosmos, Nature, Faces and Machines, each previewed live through listening, thinking, working and speaking) and About.
 
 ## Sign in
 
@@ -5177,8 +5182,9 @@ curl https://<host>.<tailnet>.ts.net/api/health
 - No push notifications: the app polls the gateway every 15 seconds while it is on screen, and
   watchOS decides when background checks run.
 - Your sign-in is kept in the app's storage on the watch, not in a sealed store.
-- Tools allowed with Accept all are approved by the watch while it follows the run; away from the
-  orb page, they ask.
+- Tools allowed with Approve all are approved by the watch when it sees their approvals (on the orb
+  page, or in its regular check while the app is open); with the app closed, they ask. Approve all
+  covers the run's own conversation, or its automation, by that one's own tools.
 - "New" answers are tracked on this watch: an answer read on another device still shows as new here.
 - Search and the live steps read your gateway's data: search needs a gateway that serves it, and
   the live steps read the run's records (about as much data as reading an answer aloud).
@@ -5212,6 +5218,48 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Added
 
+- **Automation results.** When an automation finishes a run, the watch gives a small nudge while
+  the app is open and posts a notification otherwise ("Morning digest finished", with the first
+  words of its answer; a tap opens it). Settings → Automation results turns it off.
+- **New automation sets how much it remembers.** With "Builds on earlier runs" on, it shows how
+  much of its earlier runs each run reads (the gateway's default, 50,000 tokens on yours) and takes
+  a new number, as Edit does.
+
+### Changed
+
+- **Approve all, for a conversation and an automation alike.** An approval offers Deny, Approve
+  and Approve all wherever it is opened (the orb page, Needs you, a notification). Approve all is
+  for the run's own owner: its conversation, by that conversation's tools, or its automation, by
+  the automation's own tools; another conversation is never touched, and sends always ask. The
+  watch approves what was allowed as soon as it sees it; an automation's details say what is
+  allowed for its runs, with Ask again.
+
+## [0.4.0] - 2026-10-21
+
+### Added
+
+- **Search automations.** The Automations page has New and Search on one line, as Sessions: Search
+  lists the automations whose name or task holds the words.
+- **How much an automation remembers.** When an automation builds on its earlier runs, Edit shows
+  how much of them each run reads ("Reads up to 50,000 tokens", the gateway's value) and takes a
+  new number (numbers only).
+- **An automation is a conversation.** It opens on the same orb page as a conversation: its runs
+  are the messages (what its trigger sent, when, then the answer), the orb follows a run in progress
+  and speaks its answer, Share and the voice work the same. Its details (when it runs, Run now,
+  Edit, its instructions) are behind (i), where a conversation has its tools, or a swipe forward.
+  Talking there opens a conversation about it, seeded with its runs; the automation's own runs
+  never read it. Sessions lists the automations among the conversations.
+- **Four more machines.** Hover (a small round floating robot, polite and brave, that drifts closer
+  to listen and unfolds its arms to work), Spark (a curious robot on tracks with shutter brows that
+  leans right in for input and flicks its eyes as it thinks), Cruiser (a sleek black car whose red
+  scanner sweeps as it thinks and whose dash shows three voice bars as it talks, the screen's whole
+  width on the talk page) and Android (a calm android in pale gold with amber eyes, a precise blink,
+  a tilt of the head and a raised brow as it thinks) and Sentinel (a polished chrome helmet whose one
+  red eye sweeps side to side, faster as it thinks, steady and bright as it talks). Thirty-four
+  styles in six families.
+- **One corner button.** The button at the top left is the same on every page and never moves:
+  the gear on Home, Back everywhere else, morphing from one to the other. Settings opens from the
+  left, where its gear is, and its pages follow it from the left too.
 - **Send while it listens.** While the orb listens, a Send button sits where the tools icon is at
   rest: what was said goes now (a noise that starts would keep the silence that sends from
   coming). It works from the first moment, before the microphone has even opened.
@@ -5259,6 +5307,37 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Changed
 
+- **Nothing behind the top row.** Every page starts below the row of the corner button, the title
+  and the time, and is cut there, scrolled or not.
+- **An automation's runs you have not seen** show in an orange badge on its row; on or off moved to
+  Edit, with how often it runs. Its details' play button is now "Run".
+- **Instructions are gone** from an automation's details and Edit: the watch edits its title and
+  its task (anything else its workflow was given stays as it is).
+- **Rewinding is twice as fast:** holding the voice button goes back 8 s a second at first, with a
+  bump every half second.
+- **Tools follow Settings.** A default stays as you set it, even when the gateway's own choice for
+  that tool changes. "Use my defaults" also puts the conversation's workflow back on the default,
+  and choosing the workflow a conversation already runs is not counted as a change. An answer opened from a
+  notification opens its own conversation, with that conversation's tools. A new conversation with
+  an entity is a new one.
+- **Membrane redone.** A soft, smiling face with closed eyes pressing into a curtain of silk
+  threads, drawn by the light where it presses; it presses closer with your voice, draws back as it
+  thinks, ripples as it works and pushes with its voice as it speaks.
+- **Eye in particles again.** Its iris, lids, brow and catchlight are particles of light in the
+  planet's colours as before, under the lids, lashes, blink and gaze it has now.
+- **Ocean is a real sea.** An evening sky over solid, shaded water lit by the slope of its waves,
+  a moon's path of glitter, whitecaps, a lighthouse on a low island; the swell travels across the
+  frame. Listening, rings carry your voice across the near water; thinking, the waves fall into
+  order (parallel ranks, then a lattice of lit peaks) and loosen again when it is done; working, a
+  wind raises chop while the lighthouse beam swings and a ship's light crosses for each running
+  tool; speaking, its voice's waves roll toward you with foam on loud syllables.
+- **The robots have characters.** Valet is a fussy, proper gilded valet with arms and hands (it
+  frets as it thinks, talks with its hands up); Retro a gentle giant of the fifties, slow and
+  deliberate, the works in its dome whirring as it thinks and neon tubes flickering as it talks;
+  Deco a serene, regal art-deco machine woman whose rings of light gather as she thinks and pulse
+  from her throat as she speaks; Rover a shy, curious little rover, far more animated (brows that
+  tilt on their own, a neck that stretches to listen, a claw tapping its chin as it thinks, a
+  wiggle as it talks).
 - **Every orb and avatar refined**, with Wave and Well as the reference: soft light, a gradient of
   hues, rounded friendly forms, each phase readable at a glance, smooth morphs, and less work per
   frame. The planets are shaded spheres of light with a soft limb; Halo's corona, Vortex's arms,
@@ -5330,6 +5409,7 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Fixed
 
+- A conversation about an automation can be archived from Sessions.
 - **A voice gone silent mid-answer** (a pause then a resume brought it back): the system can stop
   the player underneath, with an audio interruption, with the app suspended while the wrist is
   down, or when the keep-awake session ran out, and the reading stayed "speaking" over silence.
@@ -5603,10 +5683,10 @@ sequenceDiagram
 |---|---|
 | `Sources/App` (SwiftUI) | Screens and navigation (one `NavigationStack`); see [design.md](design.md). |
 | `AppModel` (`@MainActor`) | The client, the state on screen (waits, sessions, automations, entities), each automation's definition and latest results once read (shared by its pages, updated by a save), the 15 s poll while the scene is active (the automations list at most once a minute; none while the screen is dimmed or the app is in the background), haptics, tool and workflow choices, the tools Accept all allowed, the answers seen on this watch. |
-| `Orb`, `OrbScenes`, `OrbConcepts`, `OrbCosmos`, `OrbNature`, `OrbAvatars`, `OrbLines`, `OrbRobots` | The orb (every style drawn from `OrbPhases`, the five phases' weights and the voice): a planet of points whose style answers the voice (Halo, Vortex, Nebula, Liquid, Galaxy), and scenes of their own: Rings, the five state shapes (Lotus, Crystal, Eclipse, Synapse, Drop), Face, Imprint, Contour, Membrane, Eye (one relief of the face, computed once on a grid for the line styles), the six robots, the Cosmos scenes (Well, Black hole, Accretion) and the Nature scenes (Ocean, Aurora, Murmuration); every motion at a fixed pace, the phases blending how much of each shows, so a change of state is always a smooth morph; all frame-rate independent and drawn in one `Canvas`, with the light of its work. |
+| `Orb`, `OrbScenes`, `OrbConcepts`, `OrbCosmos`, `OrbNature`, `OrbAvatars`, `OrbLines`, `OrbRobots`, `OrbMachines` | The orb (every style drawn from `OrbPhases`, the five phases' weights and the voice): a planet of points whose style answers the voice (Halo, Vortex, Nebula, Liquid, Galaxy), and scenes of their own: Rings, the five state shapes (Lotus, Crystal, Eclipse, Synapse, Drop), Face, Imprint, Contour, Membrane, Eye (one relief of the face, computed once on a grid for the line styles), the eleven machines (six robots, a floating robot, a robot on tracks, a car, an android and a chrome sentinel, drawn as lit metal under a fine texture of points), the Cosmos scenes (Well, Black hole, Accretion) and the Nature scenes (Ocean, Aurora, Murmuration); every motion at a fixed pace, the phases blending how much of each shows, so a change of state is always a smooth morph; all frame-rate independent and drawn in one `Canvas`, with the light of its work. |
 | `Listener` | Records 16 kHz mono WAV with metering; detects speech against the room's noise floor; sends after 3 s of silence. |
 | `Speaker` | Streams the gateway's voice in chunks and plays them back to back with metering (the orb follows the level); pause, resume, rewind 10 s. |
-| `RunProgress` | Follows a running automation down to the agent's child run and describes its newest step in words. |
+| `AskView`, `Conversation`, `AutomationFeed` | The one orb page, for a conversation and for an automation: `Conversation` says which, `AutomationFeed` gives an automation's runs as messages (`/occurrences`, its trigger's `user_turn`), its run in progress, Stop, Seen and the conversation about it (`/discuss`); the page follows a run the same way for both (`RunActivity`). |
 | Browser navigation | `AppModel.path` is the history: a swipe to the right (`goBack`) closes the top page, a swipe to the left (`goForward`) opens again the pages closed by going back (`forward`, kept until something else is opened; only the app's own pages are kept, `Route.revisitable`: a message, its steps, media, a link, a form or a question opens with a tap only); rows and links fire on a tap only (`TapButtonStyle`: a finger that moves is not a tap), and the stack's binding (`stackPath`) also refuses a page opened under a sideways-moving finger, so a swipe across a row never opens it; with nothing ahead, and only from there, the orb page of a conversation with a message opens `ConversationInfoView` (its numbers, and its files from `GET /sessions/{id}/artifacts` and the conversation's folder through `GET /runs/{id}/workspace/files`, each shared as a file downloaded only when shared). |
 | `RunActivity` | Follows a question's run down to the run doing the work and reads its new step records (thinking, tool calls, media, waits) into the steps under the orb and the orb's pulses and satellites. |
 | `SVGDocument`, `SVGView` | SVG drawn on the watch (it has no web view): the client library reads a drawing into shapes and texts with their transforms, inherited styles, gradients, dashes and blur or drop-shadow filters (rect, circle, ellipse, line, polyline, polygon, every path command with arcs, text, groups); the app draws them in one `Canvas`, fitted with their aspect kept. Not drawn: embedded images, `use`, masks, clip paths, patterns, CSS stylesheets. Used by the file preview (`FilePreviewView`, a vertical pager over the conversation's files) and the media page. |
@@ -5623,7 +5703,7 @@ sequenceDiagram
 | Sign in with an email | `POST /api/gateway/session/recovery/request`, then `POST /api/gateway/session/recovery/redeem` (`remember: true`); the session and CSRF values are sent as `X-AbstractGateway-Session` / `X-AbstractGateway-CSRF` |
 | Needs you | `GET /api/gateway/runs?status=waiting`, then `GET /api/gateway/runs/{id}` for each waiting row (the approval lives on the agent's child run) |
 | Allow / deny / answer | `POST /api/gateway/commands` `{type: "resume", payload: {wait_key, payload: {approved} or {response}}}`; the run is read again first, and a wait answered elsewhere is not answered twice |
-| Accept all (an approval) | allows this conversation's tools on Ask, up to the risk of the call approved (at least "makes changes"); Off tools stay off, sends and tools whose destination the assistant picks keep asking. Allowed tools stay on Ask in the run's `_runtime.tool_policy` (fixed when a run starts); the watch answers their approvals (`POST /api/gateway/commands` resume) while it follows, and only when every call is on Auto or allowed; the shield (or Ask again on the Tools page) clears them, so the next call asks |
+| Approve all (an approval) | for the run's owner, read from the run itself (`session_id`, `automation_id`, also on an agent's run below an occurrence): a conversation (its tools: the watch's defaults and its own changes) or an automation (its own tools: `input_data._runtime.allowed_tools` and `tool_policy`). It allows that owner's tools on Ask, up to the risk of the call approved (at least "makes changes"); Off tools stay off, sends and tools whose destination the assistant picks keep asking. Allowed tools stay on Ask in the run's `_runtime.tool_policy` (fixed when a run starts); the watch answers their approvals (`POST /api/gateway/commands` resume) when every call is allowed for that owner: while it follows the run, and in its regular check of what needs you (there only what Approve all allowed, never the watch's defaults). The shield, Ask again on the Tools page or on the automation's details clear them, so the next call asks |
 | Ask the Assistant | `POST /api/gateway/runs/start` `{flow_id: "@default", interface: "abstractcode.agent.v1", session_id, input_data: {prompt, use_session_history: true, system, tools, _runtime.allowed_tools}}`, then `GET /api/gateway/runs/{id}`; `tools` lists every tool `GET /api/gateway/discovery/tools` reports enabled and available (as the desktop assistant), and `system` is added after the agent's own loop and tool rules. With the Assistant's workflow (`interface: "abstractassistant.agent.v1"`), the conversation's newest image goes as `primary_image_artifact` (`{$artifact, run_id, content_type}`, also in `context`) with `has_primary_image_context`, as the iPhone and the menu-bar Assistant send it: an edit, an upscale or an image-to-video starts from it |
 | Ask an entity | `GET /api/gateway/entities`, `POST /api/gateway/entities/{name}/chat/open`, `POST .../chat/{id}/turn`; the entity row's `appearance` gives its orb |
 | Voice in | `POST /api/gateway/attachments/upload` (multipart, `session_id`), `POST /api/gateway/runs/{session owner}/audio/transcribe` |
@@ -5641,9 +5721,10 @@ sequenceDiagram
 | Cancel / stop | `POST /api/gateway/commands` `{type: "cancel"}` |
 | Automations | `GET /api/gateway/automations`; one automation `GET /api/gateway/automations/{id}` (`summary.current_occurrence` while it runs, `definition.target` for its task) |
 | Run now / stop / pause / resume | `POST /api/gateway/automations/{id}/commands` `{type: "automation.run_now" \| "automation.stop_current" \| "automation.pause" \| "automation.resume"}` |
-| Edit an automation | `PATCH /api/gateway/automations/{id}` `{expected_revision, changes}` with only what changed (`title`, `target`, `trigger`, `context`); a stale revision is refused (409) |
-| New automation | `GET /api/gateway/bundles?executable_for=abstractcode.agent.v1` (the workflows offered; the gateway decides), `GET /api/gateway/bundles/{bundle}/flows/{flow}/input_schema?bundle_version=` (a chosen workflow's defaults and required inputs), `POST /api/gateway/automations` `{request_id, title, target, trigger: schedule@2 {kind: every \| daily}, context, policy: {tool_approval}}` — the body the other clients send |
-| Earlier runs | `GET /api/gateway/automations/{id}/occurrences?limit=` |
+| Edit an automation | `PATCH /api/gateway/automations/{id}` `{expected_revision, changes}` with only what changed (`title`, `target`, `trigger`, `context` `{mode, growing: {max_tokens}}`; the limit shown is the row's `growing_max_tokens`, the automation's own or the gateway's default); a stale revision is refused (409) |
+| New automation | `GET /api/gateway/automations/defaults` (`growing_max_tokens`, the memory a new one starts with), `GET /api/gateway/bundles?executable_for=abstractcode.agent.v1` (the workflows offered; the gateway decides), `GET /api/gateway/bundles/{bundle}/flows/{flow}/input_schema?bundle_version=` (a chosen workflow's defaults and required inputs), `POST /api/gateway/automations` `{request_id, title, target, trigger: schedule@2 {kind: every \| daily}, context, policy: {tool_approval}}` — the body the other clients send |
+| An automation's messages | `GET /api/gateway/automations/{id}/occurrences?limit=` (each run's `user_turn`, `answer`, `fired_at`, `status`) |
+| Talking about an automation | `POST /api/gateway/automations/{id}/discuss` `{request_id, occurrence_index, prompt}`: a `discussion-session:` conversation seeded with its runs, its first turn started; later turns `POST /runs/start` with that `session_id`. Nothing is written into the automation's own conversation. |
 | Live progress | `GET /api/gateway/runs/{id}/ledger?after=` on the occurrence's run and the child runs it starts |
 | Seen | `POST /api/gateway/automations/{id}/seen` `{attention_cursor}` |
 | Links | the page itself, fetched by the watch and shown as readable text |
@@ -5651,13 +5732,14 @@ sequenceDiagram
 ## Background and notifications
 
 - **On screen** (the scene active, someone looking): waits, sessions and automations every 15 s;
-  a running Ask every second; a running automation every 3 s and its steps every 2 s. The screen
+  a running question or automation run every second, its steps every 2 s; an automation's orb page
+  reads the automation every 10 s (a run its schedule starts). The screen
   dimmed (wrist down, always on): the poll in flight finishes and none follows; the orbs hold
   their last frame; the automations page reads nothing. In the background: nothing.
 - **Answers while away**: an Ask left working when the app leaves the foreground hands
   `GET /api/gateway/runs/{id}/ledger/stream` (a keep-alive every 50 s) to a background URLSession,
   once per run. watchOS keeps it open with the app suspended and wakes the app when the gateway
-  closes it; the app posts the answer as a notification. A running automation's page does the same
+  closes it; the app posts the answer as a notification. A running automation's orb page does the same
   when the app is left. The stream is ended when the app itself sees the run end or park on a
   person, and given up after an hour (15 minutes a connection, three reconnections). No
   notification is posted for an answer that is on screen.
@@ -5665,6 +5747,11 @@ sequenceDiagram
   discretion, reads the waits (one request; the tools' risk tiers only when there is a new one)
   and posts each new approval or question once. An ordinary tool approval offers Allow
   (the watch must be unlocked) and Deny; a send or a destructive call opens the app.
+- **Automation results**: the same refresh reads the automations (`GET /api/gateway/automations`,
+  alongside the waits) and posts one notification per automation whose latest run is newer than
+  the one known on this watch (the first look only notes them; a run already posted by its answer
+  stream is skipped); the app's own automation reads give a nudge instead. Both follow
+  Settings → Automation results.
 - **Keep awake**: `WKExtendedRuntimeSession` (`WKBackgroundModes: self-care`, up to 10 minutes)
   from the tap that starts a turn until the voice ends, a new conversation is started, or the
   player is dropped; never past the turn. A session about to expire while still held is renewed

@@ -350,6 +350,22 @@ public struct Discussion: Decodable, Sendable {
     enum CodingKeys: String, CodingKey { case sessionId = "session_id", runId = "run_id" }
 }
 
+/// Which automations finished a run since they were last looked at: by each one's latest run
+/// (its number), against the numbers known. The first time an automation is seen it is only noted
+/// (its past runs are not news); a run still in progress is not finished.
+public enum FinishedRuns {
+    public static func since(_ known: [String: Int], in list: [AutomationSummary]) -> (finished: [AutomationSummary], known: [String: Int]) {
+        var known = known, finished: [AutomationSummary] = []
+        for a in list {
+            guard let last = a.lastOccurrence, let index = last.index,
+                  ["completed", "failed"].contains(last.status ?? "") else { continue }
+            if let before = known[a.id], index > before { finished.append(a) }
+            if (known[a.id] ?? Int.min) < index { known[a.id] = index }
+        }
+        return (finished, known)
+    }
+}
+
 /// `GET /api/gateway/automations/defaults`: what a new automation gets unless it says otherwise.
 public struct AutomationDefaults: Decodable, Sendable {
     public var growingMaxTokens: Int?

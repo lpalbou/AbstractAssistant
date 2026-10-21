@@ -137,6 +137,11 @@ sequenceDiagram
   discretion, reads the waits (one request; the tools' risk tiers only when there is a new one)
   and posts each new approval or question once. An ordinary tool approval offers Allow
   (the watch must be unlocked) and Deny; a send or a destructive call opens the app.
+- **Automation results**: the same refresh reads the automations (`GET /api/gateway/automations`,
+  alongside the waits) and posts one notification per automation whose latest run is newer than
+  the one known on this watch (the first look only notes them; a run already posted by its answer
+  stream is skipped); the app's own automation reads give a nudge instead. Both follow
+  Settings → Automation results.
 - **Keep awake**: `WKExtendedRuntimeSession` (`WKBackgroundModes: self-care`, up to 10 minutes)
   from the tap that starts a turn until the voice ends, a new conversation is started, or the
   player is dropped; never past the turn. A session about to expire while still held is renewed

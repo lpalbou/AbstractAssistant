@@ -23,6 +23,7 @@ struct AbstractAssistantWatchApp: App {
             guard let model else { return }
             switch model.path.last { case .ask, .answer: return; default: model.show([.answer(ref)]) }
         }
+        AnswerNotifier.shared.openAutomation = { [weak model] id in model?.openAutomation(id: id) }
         AnswerNotifier.shared.openWait = { [weak model] w in model?.show([w.kind == .askUser ? .askUser(w) : .approval(w)]) }
     }
 

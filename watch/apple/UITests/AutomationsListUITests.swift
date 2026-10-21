@@ -122,3 +122,27 @@ final class NewAutomationMemoryUITests: XCTestCase {
         XCTAssertTrue(tokens.label.contains("80,000 tokens"), tokens.label)
     }
 }
+
+/// Settings → Automation results: on by default; off stays off.
+final class AutomationNoticesSettingUITests: XCTestCase {
+    func testTheToggleIsOnAndKeepsItsValue() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--screen", "settings"]
+        app.launch()
+        let toggle = app.switches["settings.automationNotices"].firstMatch
+        app.bring(toggle)
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10), app.debugDescription)
+        let start = toggle.value as? String
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        let end = Date().addingTimeInterval(3)
+        while Date() < end && (toggle.value as? String) == start { usleep(200_000) }
+        XCTAssertNotEqual(toggle.value as? String, start, "the toggle did not change")
+        let changed = toggle.value as? String
+        app.terminate(); app.launch()
+        app.bring(toggle)
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10))
+        XCTAssertEqual(toggle.value as? String, changed, "the choice was not kept")
+        // Leave it on for other runs.
+        if changed == "0" { toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap() }
+    }
+}

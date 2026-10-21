@@ -33,6 +33,8 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
 
     /// Opens an answer in the app (set by the app; called on the main actor).
     var open: (@MainActor (AnswerRef) -> Void)?
+    /// Opens an automation's page (a tap on "… finished").
+    var openAutomation: (@MainActor (String) -> Void)?
 
     private let lock = NSLock()
     private var notified: Set<String> = []
@@ -125,6 +127,7 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
             notified.insert(key); return false
         }
         if skip { trace("not posted for \(key.prefix(8)) (already notified or on screen)"); return }
+        AutomationNotices.delivered(run: key)                 // an automation's run: not posted again by the check
         let content = UNMutableNotificationContent()
         content.title = title
         if let p = ref.prompt, !p.isEmpty { content.subtitle = "“\(p)”" }
@@ -150,11 +153,38 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
                                                          userInfo: Self.refreshIdentifier as NSString) { _ in }
     }
 
-    /// Background refresh: posts each new wait (an approval or a question) once, then reschedules.
+    /// Background refresh: posts each new wait (an approval or a question) once, and each
+    /// automation that finished a run (Settings → Automation results), then reschedules.
     func checkWaits() async {
         await MainActor.run { scheduleRefresh() }
         guard let saved = SavedSignIn.load() else { return }
         let client = LiveGatewayClient(baseURL: saved.gateway, credential: saved.credential)
+        // Both reads go out together (on the watch's radio each one costs seconds).
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await self.checkAutomations(client) }
+            group.addTask { await self.postWaits(client) }
+        }
+    }
+
+    /// Each automation that finished a run since the last look: "Morning digest finished" and the
+    /// first words of its answer (a tap opens it). Not for a run already posted (Run now, then left).
+    private func checkAutomations(_ client: LiveGatewayClient) async {
+        guard AutomationNotices.on, let list = try? await client.automations() else { return }
+        for a in AutomationNotices.finished(in: list) where !AutomationNotices.wasDelivered(a.lastOccurrence?.runId) {
+            let content = UNMutableNotificationContent()
+            let failed = a.lastOccurrence?.status == "failed"
+            content.title = (a.name ?? "An automation") + (failed ? " failed" : " finished")
+            let text = SpeechText.plain(a.lastOccurrence?.excerpt ?? "")
+            content.body = text.count > 300 ? String(text.prefix(300)) + "…" : text
+            content.sound = .default
+            content.userInfo = ["automation": a.id]
+            try? await UNUserNotificationCenter.current().add(UNNotificationRequest(
+                identifier: "automation-\(a.id)-\(a.lastOccurrence?.index ?? 0)", content: content, trigger: nil))
+            trace("posted automation \(a.id.prefix(8))")
+        }
+    }
+
+    private func postWaits(_ client: LiveGatewayClient) async {
         guard let waits = try? await client.waits() else { return }
         var seen = Set(UserDefaults.standard.stringArray(forKey: "notify.waits") ?? [])
         let unseen = waits.filter { !seen.contains($0.id) }
@@ -277,9 +307,40 @@ extension AnswerNotifier: UNUserNotificationCenterDelegate {
             }
             return
         }
+        if let id = response.notification.request.content.userInfo["automation"] as? String {
+            if response.actionIdentifier != UNNotificationDismissActionIdentifier { await MainActor.run { self.openAutomation?(id) } }
+            return
+        }
         guard response.actionIdentifier != UNNotificationDismissActionIdentifier,
               let raw = response.notification.request.content.userInfo["answer"] as? String,
               let ref = try? JSONDecoder().decode(AnswerRef.self, from: Data(raw.utf8)) else { return }
         await MainActor.run { self.open?(ref) }
+    }
+}
+
+/// "An automation finished": on by default (Settings → Automation results). The numbers of the
+/// automations' latest runs known on this watch (shared by the app and its background check, so a
+/// run is news once), and the runs already posted by the answer stream.
+enum AutomationNotices {
+    static let key = "notify.automations"
+    private static let knownKey = "notify.automations.known", deliveredKey = "notify.automations.delivered"
+    static var on: Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
+
+    /// The automations that finished a run since the last look (and notes them as looked at).
+    static func finished(in list: [AutomationSummary]) -> [AutomationSummary] {
+        let known = UserDefaults.standard.dictionary(forKey: knownKey) as? [String: Int] ?? [:]
+        let r = FinishedRuns.since(known, in: list)
+        UserDefaults.standard.set(r.known, forKey: knownKey)
+        return r.finished
+    }
+
+    static func delivered(run: String) {
+        var runs = UserDefaults.standard.stringArray(forKey: deliveredKey) ?? []
+        runs.append(run)
+        UserDefaults.standard.set(Array(runs.suffix(40)), forKey: deliveredKey)
+    }
+    static func wasDelivered(_ run: String?) -> Bool {
+        guard let run else { return false }
+        return (UserDefaults.standard.stringArray(forKey: deliveredKey) ?? []).contains(run)
     }
 }
