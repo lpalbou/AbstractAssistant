@@ -41,7 +41,7 @@ works, the amber shield on the orb takes that back at once. Sends to other peopl
 **Find and tidy your conversations.** Sessions lists your conversations (Today, Yesterday,
 Earlier), outlines the ones with an answer you have not opened, searches every question, answer and
 artifact (an image by what it was made from, a file by its name), and archives one with the
-archive button at its right (Archived brings it back). Each says how long ago it last changed. Tap a conversation to continue it on the orb. Your automations are listed among them: an automation is a conversation its trigger writes in.
+archive button at its right (Archived brings it back). Each says how long ago it last changed. Tap a conversation to continue it on the orb.
 
 **Follow your automations.** New automation creates one: the task, the workflow, the tools it may
 use, when it runs and whether each run builds on the earlier ones. In the list, each shows its name,

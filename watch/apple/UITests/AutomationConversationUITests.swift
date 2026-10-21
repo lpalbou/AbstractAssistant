@@ -2,7 +2,7 @@ import XCTest
 
 /// An automation is a conversation its trigger writes in: the same orb page (its runs as messages,
 /// the voice, Share), (i) for its details where a conversation has its tools; Run now is followed on
-/// the orb; talking about it opens a conversation about it; Sessions lists it. Sample data.
+/// the orb; talking about it opens a conversation about it. Sample data.
 final class AutomationConversationUITests: XCTestCase {
     private func shot(_ name: String) {
         guard let dir = ProcessInfo.processInfo.environment["SHOTS_DIR"] else { return }
@@ -67,21 +67,6 @@ final class AutomationConversationUITests: XCTestCase {
         XCTAssertFalse(app.buttons["ask.info"].exists)
         shot("c6-discussion")
     }
-
-    /// Sessions lists the automations with the conversations; a tap opens its orb page.
-    func testSessionsListsAutomations() throws {
-        let app = XCUIApplication()
-        app.launchArguments = ["--mock", "--no-notification-prompt", "--screen", "sessions"]
-        app.launch()
-        XCTAssertTrue(app.buttons["New conversation"].waitForExistence(timeout: 15), app.debugDescription)
-        let row = app.descendants(matching: .any).matching(identifier: "sessions.automation")
-            .matching(NSPredicate(format: "label CONTAINS 'Morning digest'")).firstMatch
-        app.bring(row)
-        XCTAssertTrue(row.exists, "Morning digest is not in Sessions:\n\(app.debugDescription)")
-        shot("c7-sessions")
-        row.tap()
-        XCTAssertTrue(app.staticTexts["ask.automation"].waitForExistence(timeout: 10), app.debugDescription)
-    }
 }
 
 /// A new conversation takes the tools set in Settings → Tools, whichever way it starts.
@@ -130,6 +115,16 @@ final class NewConversationToolsUITests: XCTestCase {
 /// An automation's page shows its latest run at once while its runs are read.
 /// Its details, back after a Run, say it is running (Stop).
 final class AutomationLoadingUITests: XCTestCase {
+    /// Sessions lists conversations only; automations have their own page.
+    func testSessionsHoldOnlyConversations() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--screen", "sessions"]
+        app.launch()
+        XCTAssertTrue(app.buttons["New conversation"].waitForExistence(timeout: 15), app.debugDescription)
+        sleep(3)
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label CONTAINS 'Morning digest'")).firstMatch.exists, "an automation in Sessions")
+    }
+
     /// Its latest run shows at once (as the list has it), while its runs are read: no spinner.
     func testTheLatestRunShowsAtOnce() throws {
         let app = XCUIApplication()

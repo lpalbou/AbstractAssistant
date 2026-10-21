@@ -2,17 +2,15 @@ import AbstractGatewayClient
 import SwiftUI
 import WatchKit
 
-/// Your conversations, newest first, grouped Today / Yesterday / Earlier: those you write in and
-/// your automations (a conversation its trigger writes in), by their latest message. A tap opens
-/// one on the orb page (on its last exchange). One with an answer you have not seen is outlined. The
-/// red button archives one on the gateway (after a confirmation); Archived, at the bottom, lists the
-/// conversations and restores one.
+/// Your conversations, newest first, grouped Today / Yesterday / Earlier. A tap continues one (the
+/// orb opens on its last exchange); swipe for its details. One with an answer you have not seen is
+/// outlined. The red button archives one on the gateway (after a confirmation); Archived, at the
+/// bottom, lists them and restores one.
 struct SessionsView: View {
     @EnvironmentObject private var model: AppModel
     @State private var opening: String?
     @State private var loadingOlder = false
     @State private var archiving: SessionSummary?
-    @State private var archivingAutomation: AutomationSummary?
     @State private var archiveError: String?
 
     var body: some View {
@@ -40,7 +38,7 @@ struct SessionsView: View {
             }
             .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
-            if items.isEmpty {
+            if model.sessions.isEmpty {
                 if model.lastRefresh == nil && !model.unreachable { ProgressView().frame(maxWidth: .infinity) }
                 else {
                     Text(model.unreachable ? "Can't reach your assistant" : "No conversations yet")
@@ -49,58 +47,7 @@ struct SessionsView: View {
             }
             ForEach(groups, id: \.0) { label, items in
                 Section(label) {
-                    ForEach(items) { item in
-                        switch item {
-                        case .chat(let s): chatRow(s)
-                        case .automation(let a): automationRow(a)
-                        }
-                    }
-                }
-            }
-            if model.runs.count >= model.runsLimit {
-                Button(loadingOlder ? "Loading…" : "Show older") {
-                    loadingOlder = true
-                    Task { await model.showOlder(); loadingOlder = false }
-                }
-                .font(.rounded(.footnote)).foregroundStyle(Theme.cyan)
-                .disabled(loadingOlder)
-            }
-            NavigationLink(value: Route.archivedSessions) {
-                Label("Archived", systemImage: "archivebox").font(.rounded(.footnote)).foregroundStyle(Theme.muted)
-            }
-            .accessibilityIdentifier("sessions.archived")
-        }
-        .screen("Sessions")
-        // Archiving asks first: the conversation leaves the list on every device (nothing is deleted).
-        .sheet(item: $archiving) { s in
-            ArchiveConfirm(title: model.title(of: s), what: .conversation) { confirmed in
-                archiving = nil
-                guard confirmed else { return }
-                Task {
-                    do { try await model.archive(s); WKInterfaceDevice.current().play(.success) }
-                    catch { archiveError = AppModel.say(error) }
-                }
-            }
-        }
-        .sheet(item: $archivingAutomation) { a in
-            ArchiveConfirm(title: a.name, what: .automation) { confirmed in
-                archivingAutomation = nil
-                guard confirmed else { return }
-                Task {
-                    do { try await model.archiveAutomation(a); WKInterfaceDevice.current().play(.success) }
-                    catch { archiveError = AppModel.say(error) }
-                }
-            }
-        }
-        .alert("Couldn't archive", isPresented: Binding(get: { archiveError != nil }, set: { if !$0 { archiveError = nil } })) {
-            Button("OK", role: .cancel) {}
-        } message: { Text(archiveError ?? "") }
-        .containerBackground(Theme.ground, for: .navigation)
-        .refreshable { model.refreshAutomations(); await model.refresh() }
-    }
-
-    /// A conversation you write in.
-    @ViewBuilder private func chatRow(_ s: SessionSummary) -> some View {
+                    ForEach(items) { s in
                         let new = model.isNew(s)
                         HStack(spacing: 6) {
                             Button { open(s) } label: {
@@ -129,32 +76,39 @@ struct SessionsView: View {
                         }
                         .listRowBackground(SessionRowGround(new: new))
                         .listRowInsets(EdgeInsets(top: 4, leading: 10, bottom: 4, trailing: 4))
-    }
-
-    /// An automation: the same row, its trigger's clock in front, its runs counted as messages.
-    private func automationRow(_ a: AutomationSummary) -> some View {
-        let new = (a.attention?.unseenCount ?? 0) > 0
-        return HStack(spacing: 6) {
-            Button { model.path.append(.automation(a)) } label: {
-                AutomationSessionRow(automation: a, new: new).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                    }
+                }
             }
-            .buttonStyle(.tap)
-            Button { archivingAutomation = a } label: {
-                Image(systemName: "archivebox").font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Theme.red.opacity(0.8))
-                    .frame(width: 26, height: 26)
-                    .background(Theme.red.opacity(0.12), in: Circle())
-                    .frame(width: 34, height: 44, alignment: .trailing)
-                    .contentShape(Rectangle())
+            if model.runs.count >= model.runsLimit {
+                Button(loadingOlder ? "Loading…" : "Show older") {
+                    loadingOlder = true
+                    Task { await model.showOlder(); loadingOlder = false }
+                }
+                .font(.rounded(.footnote)).foregroundStyle(Theme.cyan)
+                .disabled(loadingOlder)
             }
-            .buttonStyle(.tap)
-            .disabled(a.currentOccurrence != nil)
-            .opacity(a.currentOccurrence != nil ? 0.35 : 1)
-            .accessibilityLabel("Archive")
-            .accessibilityIdentifier("session.archive")
+            NavigationLink(value: Route.archivedSessions) {
+                Label("Archived", systemImage: "archivebox").font(.rounded(.footnote)).foregroundStyle(Theme.muted)
+            }
+            .accessibilityIdentifier("sessions.archived")
         }
-        .listRowBackground(SessionRowGround(new: new))
-        .listRowInsets(EdgeInsets(top: 4, leading: 10, bottom: 4, trailing: 4))
+        .screen("Sessions")
+        // Archiving asks first: the conversation leaves the list on every device (nothing is deleted).
+        .sheet(item: $archiving) { s in
+            ArchiveConfirm(title: model.title(of: s), what: .conversation) { confirmed in
+                archiving = nil
+                guard confirmed else { return }
+                Task {
+                    do { try await model.archive(s); WKInterfaceDevice.current().play(.success) }
+                    catch { archiveError = AppModel.say(error) }
+                }
+            }
+        }
+        .alert("Couldn't archive", isPresented: Binding(get: { archiveError != nil }, set: { if !$0 { archiveError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: { Text(archiveError ?? "") }
+        .containerBackground(Theme.ground, for: .navigation)
+        .refreshable { await model.refresh() }
     }
 
     private func open(_ s: SessionSummary) {
@@ -163,60 +117,14 @@ struct SessionsView: View {
         Task { await model.continueSession(s); opening = nil }
     }
 
-    /// The conversations and the automations that have run, newest message first.
-    private var items: [SessionsItem] {
-        (model.sessions.map(SessionsItem.chat) + model.automations.filter { $0.lastOccurrence != nil }.map(SessionsItem.automation))
-            .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
-    }
-
-    private var groups: [(String, [SessionsItem])] {
+    private var groups: [(String, [SessionSummary])] {
         let cal = Calendar.current
-        var today: [SessionsItem] = [], yesterday: [SessionsItem] = [], earlier: [SessionsItem] = []
-        for s in items {
+        var today: [SessionSummary] = [], yesterday: [SessionSummary] = [], earlier: [SessionSummary] = []
+        for s in model.sessions {
             guard let d = s.updatedAt else { earlier.append(s); continue }
             if cal.isDateInToday(d) { today.append(s) } else if cal.isDateInYesterday(d) { yesterday.append(s) } else { earlier.append(s) }
         }
         return [("Today", today), ("Yesterday", yesterday), ("Earlier", earlier)].filter { !$0.1.isEmpty }
-    }
-}
-
-/// A row of Sessions: a conversation you write in, or an automation (one its trigger writes in).
-enum SessionsItem: Identifiable {
-    case chat(SessionSummary), automation(AutomationSummary)
-    var id: String { switch self { case .chat(let s): "chat:" + s.id; case .automation(let a): "automation:" + a.id } }
-    /// When its latest message came.
-    var updatedAt: Date? {
-        switch self {
-        case .chat(let s): s.updatedAt
-        case .automation(let a): (a.lastOccurrence?.finishedAt ?? a.lastOccurrence?.firedAt).flatMap(ISO8601.date)
-        }
-    }
-}
-
-/// An automation in Sessions, as a conversation's row: its name, its runs, how long ago it last ran.
-struct AutomationSessionRow: View {
-    let automation: AutomationSummary
-    var new = false
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 5) {
-                if (automation.attention?.pendingWaits ?? 0) > 0 { StatusDot(color: Theme.amber) }
-                else if automation.currentOccurrence != nil { StatusDot(color: Theme.cyan) }
-                else if new { Circle().fill(Theme.cyan).frame(width: 7, height: 7).accessibilityLabel("New answer") }
-                else if automation.lastOccurrence?.status == "failed" { StatusDot(color: Theme.red) }
-                Text(automation.name ?? "Automation").font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(2)
-                Spacer(minLength: 2)
-            }
-            HStack(spacing: 8) {
-                SessionStat(symbol: "clock.arrow.circlepath", value: "\(automation.occurrenceCount ?? 1)").accessibilityLabel("Automation")
-                if let at = (automation.lastOccurrence?.finishedAt ?? automation.lastOccurrence?.firedAt).flatMap(ISO8601.date) {
-                    SessionStat(symbol: "clock", value: SessionRow.ago(at)).accessibilityLabel("Last run \(SessionRow.ago(at))")
-                }
-            }
-        }
-        .padding(.vertical, 2)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("sessions.automation")
     }
 }
 

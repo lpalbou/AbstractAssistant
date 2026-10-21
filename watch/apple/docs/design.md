@@ -53,7 +53,7 @@ Orb styles: `../design/anim/orb-designs/`.
 | Email | The full email the assistant wants to send. | back |
 | Question | The question, its choices, or another answer typed or dictated. | choice · answer |
 | Needs you | Everything waiting, oldest first; it closes when nothing is left. | open |
-| Sessions | New and Search on one line, then your conversations by day with exchanges, tools and how long ago each last changed ("10 h ago"), your automations among them by their latest run (the circling clock and how many times each ran); one with an answer you have not opened is outlined in cyan; the archive button at its right archives one (after a confirmation); Archived at the bottom. | continue · search · archive |
+| Sessions | New and Search on one line, then your conversations by day with exchanges, tools and how long ago each last changed ("10 h ago"); one with an answer you have not opened is outlined in cyan; the archive button at its right archives one (after a confirmation); Archived at the bottom. | continue · search · archive |
 | Search | The conversations holding the words (questions, answers, artifacts), the words marked, a matching image beside them. | continue |
 | Archived | Archived conversations, each with Restore. | restore |
 | Session | Every exchange (from the conversation's page): its last exchanges (question, then the answer); a finished answer opens in full; a running one can be stopped. Continue floats at the bottom. | open · stop · Continue |
