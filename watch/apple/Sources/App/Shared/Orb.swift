@@ -229,8 +229,11 @@ struct Orb: View {
             let doing = work?(t)
             let _ = engine.step(t: t, voice: voiced ? (voice?(t) ?? .silent) : .silent, engaged: voiced, thinking: mode == .thinking,
                                 speaking: mode == .speaking, working: (doing?.satellites ?? 0) > 0)
+            let width = fillsWidth(chosen) ? WKInterfaceDevice.current().screenBounds.width : size
+            let k = pageScale(chosen)
             OrbCanvas(t: t, engine: engine, design: chosen, look: look, countdown: countdown?() ?? 0, work: work?(t) ?? .none)
-                .frame(width: fillsWidth(chosen) ? WKInterfaceDevice.current().screenBounds.width : size, height: size)
+                .frame(width: width * k, height: size * k)
+                .frame(width: width, height: size)
         }
         .onAppear { onScreen = true }
         .onDisappear { onScreen = false }
@@ -241,6 +244,12 @@ struct Orb: View {
     /// not on Home or in a small tile.
     private func fillsWidth(_ d: OrbDesign) -> Bool {
         [.h, .x, .t, .contour, .membrane, .aurora, .murmuration, .cruiser].contains(d) && look.shape == .planet && size > 0.6 * WKInterfaceDevice.current().screenBounds.width
+    }
+
+    /// Where the orb is the page (the talk and Read pages): Lens, whose bezel fills its whole box,
+    /// is drawn smaller, so that centred on the screen it stays clear of the top row.
+    private func pageScale(_ d: OrbDesign) -> CGFloat {
+        d == .l && size > 0.6 * WKInterfaceDevice.current().screenBounds.width ? 0.72 : 1
     }
 
     private var label: String {

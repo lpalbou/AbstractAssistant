@@ -103,7 +103,7 @@ struct AskView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 6) {
-                        // The orb, centred on the screen and clear of the top row; everything else is below.
+                        // The orb fills the screen, centred on it; everything else is below.
                         ScreenCentered(width: geo.size.width, top: geo.frame(in: .global).minY) { side in
                             Orb(mode: orbMode, size: side * 0.9, voice: orbVoice, countdown: orbCountdown, since: listenSince, look: orbLook,
                                 work: phase == .thinking && activity.isFollowing ? { activity.orb(at: $0) } : nil)
