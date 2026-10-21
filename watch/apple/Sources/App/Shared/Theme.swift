@@ -117,27 +117,43 @@ extension View {
         padding(.vertical, RowReach.vertical).padding(.trailing, trailing).contentShape(Rectangle())
     }
 
-    /// A control on the top line, right beside Back. The system bar is hidden on such a screen
-    /// and Back is drawn here with the control, where the bar's Back was: a control drawn over the
-    /// bar is not tappable on a real watch (the bar takes the touch), and the bar's leading side
-    /// holds a single item. The edge swipe still goes back; the time stays.
+    /// A control on the top line, right beside the corner button (Back). The system bar is hidden on
+    /// every screen and the row is drawn here, where the bar's was: the corner button itself is drawn
+    /// once, by the app, over every page, so it never moves from page to page; a control drawn over
+    /// the bar is not tappable on a real watch (the bar takes the touch). The edge swipe still goes
+    /// back; the time stays.
     func besideBack<V: View>(@ViewBuilder _ control: () -> V) -> some View {
-        modifier(BesideBack(control: control()))
+        modifier(TopRow(title: nil, control: control(), systemBar: false))
     }
 }
 
-private struct BesideBack<V: View>: ViewModifier {
+/// Every screen's top row: the page's title centred between the corner button and the time, the
+/// page starting just below the row, a fade under it. `systemBar`: the system's own bar instead (the
+/// first-launch choice, before the app's corner button exists).
+private struct TopRow<V: View>: ViewModifier {
+    let title: String?
     let control: V
-    @Environment(\.dismiss) private var dismiss
-    func body(content: Content) -> some View {
-        // Without the bar, watchOS still keeps a top margin larger than the row needs (and not the
-        // same on every watch): the page is moved up to start just below the row, measured here.
-        GeometryReader { g in
-            content
-                .padding(.top, min(0, 58 - g.safeAreaInsets.top))
-                .frame(width: g.size.width, height: g.size.height, alignment: .top)
-        }
+    let systemBar: Bool
+    @ViewBuilder func body(content: Content) -> some View {
+        if systemBar {
+            content.navigationTitle(title ?? "").toolbarTitleDisplayMode(.inline).containerBackground(Theme.ground, for: .navigation)
+        } else {
+            // Without the bar, watchOS still keeps a top margin larger than the row needs (and not the
+            // same on every watch): the page is moved up to start just below the row, measured here.
+            GeometryReader { g in
+                content
+                    .padding(.top, min(0, 58 - g.safeAreaInsets.top))
+                    .frame(width: g.size.width, height: g.size.height, alignment: .top)
+            }
+            .background(Theme.ground.ignoresSafeArea())
+            .navigationTitle(title ?? "")
             .toolbar(.hidden, for: .navigationBar)
+            .containerBackground(Theme.ground, for: .navigation)
+            // The row's band takes any tap on it, as the system bar did: what is scrolled beneath it
+            // is read, not tapped (a row comes out from under it with a scroll).
+            .overlay(alignment: .top) {
+                Color.clear.frame(height: 58).contentShape(Rectangle()).onTapGesture {}.ignoresSafeArea()
+            }
             // A fade under the row, so text scrolled beneath it never shows between the icons (as the
             // system bar does).
             .overlay(alignment: .top) {
@@ -148,10 +164,21 @@ private struct BesideBack<V: View>: ViewModifier {
                     .allowsHitTesting(false)
                     .ignoresSafeArea()
             }
+            .overlay(alignment: .top) {
+                if let title, !title.isEmpty {
+                    Text(title)
+                        .font(.system(.body, design: .rounded, weight: .semibold)).foregroundStyle(Theme.text)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                        .frame(maxWidth: .infinity).padding(.horizontal, CornerButton.leading + CornerButton.size + 4)
+                        .frame(height: CornerButton.size).padding(.top, CornerButton.top)
+                        .allowsHitTesting(false)
+                        .ignoresSafeArea()
+                        .accessibilityIdentifier("screen.title")
+                }
+            }
             .overlay(alignment: .topLeading) {
                 HStack(spacing: 6) {
-                    Button { dismiss() } label: { GlassIcon(symbol: "chevron.left").rowReach() }
-                        .buttonStyle(GlassPress()).accessibilityLabel("Back")
+                    Color.clear.frame(width: CornerButton.size, height: CornerButton.size).rowReach()   // the corner button's place
                     control
                 }
                 // The row owns its band, whatever is scrolled beneath: a tap just beside an icon
@@ -159,9 +186,30 @@ private struct BesideBack<V: View>: ViewModifier {
                 // The circles' tops stay 18 pt down, as the system bar's Back.
                 .padding(EdgeInsets(top: 0, leading: 6, bottom: 14 - RowReach.vertical, trailing: 6))
                 .background(Color.clear.contentShape(Rectangle()).onTapGesture {})
-                .padding(.leading, 9).padding(.top, 18 - RowReach.vertical)
+                .padding(.leading, CornerButton.leading - 6).padding(.top, CornerButton.top - RowReach.vertical)
                 .ignoresSafeArea()
             }
+        }
+    }
+}
+
+/// The one button at the top left of every page, drawn by the app over the pages so it never moves:
+/// the gear on Home (Settings), Back everywhere else, morphing from one to the other.
+struct CornerButton: View {
+    static let size: CGFloat = 35, leading: CGFloat = 15, top: CGFloat = 18
+    @EnvironmentObject private var model: AppModel
+    var body: some View {
+        let home = model.atHome
+        Button { if home { model.openSettings() } else { model.goBack() } } label: {
+            GlassIcon(symbol: home ? "gearshape" : "chevron.left")
+                .contentTransition(.symbolEffect(.replace))
+                .rowReach()
+        }
+        .buttonStyle(GlassPress())
+        .accessibilityLabel(home ? "Settings" : "Back")
+        .animation(.easeInOut(duration: 0.25), value: home)
+        .padding(.leading, Self.leading).padding(.top, Self.top - RowReach.vertical)
+        .ignoresSafeArea()
     }
 }
 
@@ -304,11 +352,10 @@ private struct DimWhenDisabled: ViewModifier {
 }
 
 extension View {
-    /// Dark ground behind every screen.
-    func screen(_ title: String) -> some View {
-        self.navigationTitle(title)
-            .toolbarTitleDisplayMode(.inline)
-            .containerBackground(Theme.ground, for: .navigation)
+    /// A screen: dark ground, its title in the top row beside the corner button (`systemBar`: the
+    /// system's own bar, for the first-launch choice).
+    func screen(_ title: String, systemBar: Bool = false) -> some View {
+        modifier(TopRow(title: title, control: EmptyView(), systemBar: systemBar))
     }
 }
 

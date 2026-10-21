@@ -38,7 +38,7 @@ struct AutomationsView: View {
             }
             .accessibilityIdentifier("automations.archived")
         }
-        .navigationTitle("Automations")
+        .screen("Automations")
         .sheet(item: $archiving) { a in
             ArchiveConfirm(title: a.name, what: .automation) { confirmed in
                 archiving = nil
@@ -165,8 +165,7 @@ struct ArchivedAutomationsView: View {
                 }
             }
         }
-        .navigationTitle("Archived")
-        .containerBackground(Theme.ground, for: .navigation)
+        .screen("Archived")
         .task {
             defer { loading = false }
             do { items = try await model.client.archivedAutomations(); failed = false } catch { failed = true }

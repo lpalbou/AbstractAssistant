@@ -12,7 +12,7 @@ final class AskStatusUITests: XCTestCase {
         // A conversation, continued on the orb: its last answer, with the voice button.
         let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "QC")).firstMatch
         XCTAssertTrue(app.buttons["New conversation"].waitForExistence(timeout: 15))
-        for _ in 0..<6 where !(row.exists && row.isHittable) { app.swipeUp(); usleep(300_000) }
+        app.bring(row)
         row.tap()
         let voice = app.buttons["voice.button"].firstMatch
         XCTAssertTrue(voice.waitForExistence(timeout: 20), "the conversation's last answer is not shown:\n\(app.debugDescription)")

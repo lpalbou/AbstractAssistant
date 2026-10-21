@@ -10,7 +10,7 @@ final class ToolsUITests: XCTestCase {
     }
     private func element(_ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
     private func reveal(_ e: XCUIElement) {
-        for _ in 0..<10 where !(e.exists && e.isHittable) { app.swipeUp(); usleep(300_000) }
+        app.bring(e)
     }
     private func isSelected(_ id: String) -> Bool { element(id).isSelected }
 
@@ -86,6 +86,7 @@ final class ToolsUITests: XCTestCase {
         shot("t8-system")
         app.buttons["Back"].firstMatch.tap()
         element("tools.group.web").tap()
+        sleep(1)                                             // the page slides in first
         element("tools.all.web.auto").tap()
         XCTAssertTrue(isSelected("tool.web_search.auto") && isSelected("tool.fetch_url.ask"), "All auto leaves fetch URL on Ask")
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Tools that reach outside")).firstMatch.exists)

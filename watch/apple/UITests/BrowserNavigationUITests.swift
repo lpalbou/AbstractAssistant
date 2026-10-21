@@ -49,7 +49,7 @@ final class BrowserNavigationUITests: XCTestCase {
         XCTAssertTrue(onSessions, "forward from Home is not Sessions again")
         // A conversation on the orb; back to Sessions; forward to the orb.
         let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "QC")).firstMatch
-        for _ in 0..<6 where !(row.exists && row.isHittable) { app.swipeUp(); usleep(300_000) }
+        app.bring(row)
         row.tap()
         XCTAssertTrue(app.buttons["voice.button"].waitForExistence(timeout: 20), app.debugDescription)
         back()
@@ -60,7 +60,7 @@ final class BrowserNavigationUITests: XCTestCase {
         // A message opened from the orb page opens with a tap only: back from it, then forward opens
         // the conversation, not the message again.
         let message = app.buttons.matching(identifier: "message.row").firstMatch
-        for _ in 0..<8 where !(message.exists && message.isHittable) { app.swipeUp(); usleep(300_000) }
+        app.bring(message)
         message.tap()
         XCTAssertTrue(app.buttons["Back"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["voice.button"].exists, "the message did not open")
@@ -112,7 +112,7 @@ final class BrowserNavigationUITests: XCTestCase {
         let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "QC")).firstMatch
         for round in 1...2 {
             XCTAssertTrue(app.buttons["New conversation"].waitForExistence(timeout: 10) || onSessions)
-            for _ in 0..<6 where !(row.exists && row.isHittable) { app.swipeUp(); usleep(300_000) }
+            app.bring(row)
             row.tap()
             XCTAssertTrue(app.buttons["voice.button"].waitForExistence(timeout: 20), "round \(round): the orb did not open")
             sleep(2)

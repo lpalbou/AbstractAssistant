@@ -36,7 +36,7 @@ struct WorkflowPickView: View {
         return Button {
             model.setWorkflow(pick, scope: scope)
             WKInterfaceDevice.current().play(.click)
-            if model.path.last == .workflow(scope) { model.path.removeLast() }
+            if model.activeTop == .workflow(scope) { model.pop() }
         } label: {
             HStack {
                 VStack(alignment: .leading, spacing: 1) {
@@ -70,7 +70,7 @@ struct WorkflowRow: View {
     let scope: AppModel.ToolScope
     @State private var failed = false
     var body: some View {
-        NavigationLink(value: Route.workflow(scope)) {
+        Button { model.push(.workflow(scope)) } label: {
             Card {
                 HStack(spacing: 8) {
                     Image(systemName: "square.stack.3d.up").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.cyan).frame(width: 18)

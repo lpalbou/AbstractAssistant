@@ -23,14 +23,26 @@ extension XCUIApplication {
     /// Scrolls a list a third of the screen (a swipe moves more than a screen and skips past a row).
     func nudgeUp() {
         let from = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
-        from.press(forDuration: 0.05, thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.42)))
-        usleep(500_000)
+        from.press(forDuration: 0.05, thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.42)),
+                   withVelocity: .slow, thenHoldForDuration: 0.2)   // held at the end: no fling, the list stops here
+        usleep(400_000)
+    }
+
+    /// Scrolls a row into view and clear of the top row (what is under it takes no tap, as under the
+    /// system's bar): up until it is there, down when it sits under the row, settling after each nudge
+    /// (a nudge keeps the list rolling).
+    func bring(_ row: XCUIElement) {
+        for _ in 0..<16 {
+            if row.exists, row.isHittable, row.frame.minY > 60, row.frame.maxY <= frame.height { return }
+            if row.exists, row.frame.minY <= 60 { nudgeDown() } else { nudgeUp() }
+        }
     }
 
     /// Scrolls back a fifth of the screen (a row stopped under the title bar comes out from under it).
     func nudgeDown() {
         let from = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
-        from.press(forDuration: 0.05, thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.62)))
-        usleep(500_000)
+        from.press(forDuration: 0.05, thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.62)),
+                   withVelocity: .slow, thenHoldForDuration: 0.2)
+        usleep(400_000)
     }
 }

@@ -11,7 +11,7 @@ final class LiveMediaUITests: XCTestCase {
         try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent(name + ".png"))
     }
     private func reveal(_ e: XCUIElement) {
-        for _ in 0..<10 where !(e.exists && e.isHittable) { app.swipeUp(); usleep(300_000) }
+        app.bring(e)
     }
 
     func testAPictureFromTheLiveAssistantWorkflow() throws {

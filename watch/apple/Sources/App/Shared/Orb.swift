@@ -12,7 +12,7 @@ enum OrbDesign: String, CaseIterable, Identifiable {
     case g = "G", i = "I", contour = "CT", membrane = "MB", k = "K"
     case aurora = "AU", murmuration = "MU"
     case l = "L", m = "M", n = "N", o = "O", p = "P", q = "Q"
-    case hover = "HV", spark = "SP", cruiser = "CR", android = "AN", h = "H"
+    case hover = "HV", spark = "SP", cruiser = "CR", android = "AN", sentinel = "CY", h = "H"
     var id: String { rawValue }
     var name: String {
         switch self {
@@ -48,6 +48,7 @@ enum OrbDesign: String, CaseIterable, Identifiable {
         case .spark: "Spark"
         case .cruiser: "Cruiser"
         case .android: "Android"
+        case .sentinel: "Sentinel"
         case .h: "Ocean"
         }
     }
@@ -85,6 +86,7 @@ enum OrbDesign: String, CaseIterable, Identifiable {
         case .spark: "a curious robot on tracks with shutter eyes: it leans in for input and its eyes flick while it thinks"
         case .cruiser: "a sleek black car: its red scanner sweeps while it thinks, its dash lights up with its voice"
         case .android: "a pale gold android with amber eyes: a tilt of the head while it thinks, a precise blink"
+        case .sentinel: "a chrome sentinel helmet whose red eye sweeps side to side, faster as it thinks; it speaks in a low glow"
         case .h: "a sea at dusk whose swell rises with its voice; while it thinks the waves fall into order"
         }
     }
@@ -96,7 +98,7 @@ enum OrbDesign: String, CaseIterable, Identifiable {
         case .t, .y, .z: .cosmos
         case .h, .aurora, .murmuration: .nature
         case .g, .i, .contour, .membrane, .k: .faces
-        case .l, .m, .n, .o, .p, .q, .hover, .spark, .cruiser, .android: .machines
+        case .l, .m, .n, .o, .p, .q, .hover, .spark, .cruiser, .android, .sentinel: .machines
         }
     }
     /// What it is, in a few words (the picker's rows).
@@ -135,6 +137,7 @@ enum OrbDesign: String, CaseIterable, Identifiable {
         case .spark: "A curious robot on tracks"
         case .cruiser: "A car with a scanning light"
         case .android: "An android with amber eyes"
+        case .sentinel: "A chrome helmet with a sweeping eye"
         }
     }
     static let storageKey = "orb.design"
@@ -397,6 +400,7 @@ struct OrbCanvas: View {
             case .spark: drawSpark(&gc, box); return
             case .cruiser: drawCruiser(&gc, box); return
             case .android: drawAndroid(&gc, box); return
+            case .sentinel: drawSentinel(&gc, box); return
             case .r: drawLotus(&gc, box); return
             case .s: drawCrystal(&gc, box); return
             case .u: drawEclipse(&gc, box); return
@@ -637,7 +641,7 @@ struct OrbCanvas: View {
                         tx = x * scale; ty = y * scale
                         glow = 0.3 + 2.0 * max(0, f) + 0.2 * now
                         th2 = min(1, max(0, hue + 2.2 * f))
-                    case .g, .h, .i, .k, .l, .m, .n, .o, .p, .q, .hover, .spark, .cruiser, .android, .r, .s, .u, .v, .w, .x, .t, .y, .z, .contour, .membrane, .aurora, .murmuration:   // scenes of their own
+                    case .g, .h, .i, .k, .l, .m, .n, .o, .p, .q, .hover, .spark, .cruiser, .android, .sentinel, .r, .s, .u, .v, .w, .x, .t, .y, .z, .contour, .membrane, .aurora, .murmuration:   // scenes of their own
                         break
                     case .f:   // Galaxy: a continuous disc of stars, densest at the core, crowded along two arms
                         let lh = 0.5 * hist.value(secondsAgo: 0.1 + 0.4 * p.reach) + 0.6 * band(0.15)

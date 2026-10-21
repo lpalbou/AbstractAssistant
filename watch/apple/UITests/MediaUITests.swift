@@ -12,7 +12,7 @@ final class MediaUITests: XCTestCase {
     }
     private func element(_ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
     private func reveal(_ e: XCUIElement) {
-        for _ in 0..<10 where !(e.exists && e.isHittable) { app.swipeUp(); usleep(300_000) }
+        app.bring(e)
     }
     private func launch(_ args: [String]) {
         app = XCUIApplication()

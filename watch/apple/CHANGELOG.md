@@ -13,7 +13,12 @@ channel (TestFlight, then the App Store); the Python package's history is in
   leans right in for input and flicks its eyes as it thinks), Cruiser (a sleek black car whose red
   scanner sweeps as it thinks and whose dash shows three voice bars as it talks, the screen's whole
   width on the talk page) and Android (a calm android in pale gold with amber eyes, a precise blink,
-  a tilt of the head and a raised brow as it thinks). Thirty-three styles in six families.
+  a tilt of the head and a raised brow as it thinks) and Sentinel (a polished chrome helmet whose one
+  red eye sweeps side to side, faster as it thinks, steady and bright as it talks). Thirty-four
+  styles in six families.
+- **One corner button.** The button at the top left is the same on every page and never moves:
+  the gear on Home, Back everywhere else, morphing from one to the other. Settings opens from the
+  left, where its gear is, and its pages follow it from the left too.
 - **Send while it listens.** While the orb listens, a Send button sits where the tools icon is at
   rest: what was said goes now (a noise that starts would keep the silence that sends from
   coming). It works from the first moment, before the microphone has even opened.
@@ -61,6 +66,11 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Changed
 
+- **Membrane redone.** A soft, smiling face with closed eyes pressing into a curtain of silk
+  threads, drawn by the light where it presses; it presses closer with your voice, draws back as it
+  thinks, ripples as it works and pushes with its voice as it speaks.
+- **Eye in particles again.** Its iris, lids, brow and catchlight are particles of light in the
+  planet's colours as before, under the lids, lashes, blink and gaze it has now.
 - **Ocean is a real sea.** An evening sky over solid, shaded water lit by the slope of its waves,
   a moon's path of glitter, whitecaps, a lighthouse on a low island; the swell travels across the
   frame. Listening, rings carry your voice across the near water; thinking, the waves fall into

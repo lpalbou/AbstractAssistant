@@ -27,6 +27,11 @@ Orb styles: `../design/anim/orb-designs/`.
    back from, and does nothing when there is none. On Home at launch, neither goes anywhere.
    Swipes move between the app's own pages; a page opened from content (a message, its steps, a
    picture, a link, a form) opens with a tap only.
+8. **One corner button.** The button at the top left is the same on every page and never moves:
+   the gear on Home, Back everywhere else, morphing from one to the other; the page's title sits
+   beside it, the time at the right. Settings opens from the left, where its gear is, and its
+   pages (Connection, Orb style, Voice, Tools, About) follow from the left and leave to the left;
+   every other page comes from the right.
 
 ## Screens
 
@@ -115,12 +120,12 @@ change between two phases is a blend, never a cut. The points glow (a soft bloom
 brightest), surfaces are sampled evenly (no grain) and lit from the upper left; the voice's shapes
 stay inside the orb's circle.
 
-Thirty-three styles, chosen at first launch and in Settings → Orb style, in six families: **Orbs**
+Thirty-four styles, chosen at first launch and in Settings → Orb style, in six families: **Orbs**
 (Halo, Vortex, Nebula, Rings, Liquid, Galaxy), **Forms** (Lotus, Crystal, Eclipse, Synapse, Drop,
 Wave), **Cosmos** (Well, Black hole, Accretion), **Nature** (Ocean, Aurora, Murmuration), **Faces**
-(Face, Imprint, Contour, Membrane, Eye) and **Machines** (Lens, Dome, Valet, Retro, Deco, Rover, Hover, Spark, Cruiser, Android). Five planets whose points answer
+(Face, Imprint, Contour, Membrane, Eye) and **Machines** (Lens, Dome, Valet, Retro, Deco, Rover, Hover, Spark, Cruiser, Android, Sentinel). Five planets whose points answer
 the voice: Halo (a radial voice histogram), Vortex (spiral arms), Nebula (a breathing cloud), Liquid
-(surface waves), Galaxy (a dense spiral with stars everywhere). Twenty-seven scenes of their own
+(surface waves), Galaxy (a dense spiral with stars everywhere). Twenty-eight scenes of their own
 (`OrbScenes`, `OrbConcepts`, `OrbCosmos`, `OrbNature`, `OrbAvatars`, `OrbLines`, `OrbRobots`, `OrbMachines`). Every scene is a blend of the
 five phases' shapes, each motion at a fixed pace (a phase changes how much of a motion shows, never
 its speed), so a change of state is always a smooth morph:
@@ -178,7 +183,7 @@ its speed), so a change of state is always a smooth morph:
   its ring in, a loud one pushes it out, so the voice's harmonics show as rings of different sizes),
   it sways about its own diameter and its beads spin faster; silence lets the structure settle back.
   Thinking spins it up like a gyroscope; working runs a wave across the rings, the beads racing.
-- **The face's relief**, shared by Face, Imprint, Contour and Membrane: the cranium round and the
+- **The face's relief**, shared by Face, Imprint and Contour: the cranium round and the
   jaw tapering to the chin, a forehead, temples, a brow ridge, eye sockets deepest at their inner
   corners with the eyeball and its lid crease, a narrow nose bridge widening to a rounded tip with
   its wings and nostrils, the philtrum, lips with a cupid's bow and a fuller lower lip, tucked
@@ -207,16 +212,20 @@ its speed), so a change of state is always a smooth morph:
   lines undulate slowly against each other as it looks up; working, a bright line scans down the
   face and the lines shimmer, a ring for each step; speaking, its mouth moves with its voice and
   the words leave its lips as waves along the lines.
-- **Membrane** (after Well): the Well's fabric of fine lines with a face pressing through it from
-  behind, seen a little from the side, lit by its own slopes. At rest it presses lightly and
-  breathes; listening, it presses closer with your voice and nods along while ripples run in from
-  the edges; thinking, it draws back until only its brow and nose touch; working, the fabric
-  carries a two-armed spiral of waves and a ring for each step; speaking, it presses forward with
-  its voice, its mouth moves with the words and waves leave its lips across the fabric.
-- **Eye**: one large, friendly eye: soft lids, lashes, a catchlight, an iris of fine fibers. As it
-  speaks it smiles, its fibers glow with its voice (the spectrum around the iris) and its pupil
-  narrows on loud sounds; while you speak it opens wide, its brow lifts, its pupil widens and rings
-  of your voice ripple in; thinking, it looks up and aside, its lids lower and its iris turns slowly.
+- **Membrane** (after Well): a soft, smiling face with closed eyes pressing into a curtain of fine
+  vertical threads of silk, the threads bending round the head and the nose, the face drawn by the
+  light where it presses (brow, nose, cheeks, lips, chin lit, the lids and the smile darker), a
+  warm light behind the silk. At rest it barely presses and breathes, a sheen crossing the silk;
+  listening, it presses closer with your voice, the threads bending toward it and ripples running
+  in; thinking, it draws back, whole but fainter, the silk swaying in slow waves; working, the
+  threads tighten and each tool step sends a ripple out from the face; speaking, its mouth pushes
+  with the voice, the lips' press lit, ribbons of light leaving the lips along the threads.
+- **Eye**: one large, friendly eye in particles of light (indigo to cyan to white, or the entity's
+  colour): an iris of fine fibres dim near the pupil and bright at the rim, sparkling, a ring round
+  the pupil, a catchlight, lids, crease and brow as rows of particles, curling lashes. As it speaks
+  it smiles, its fibres glow with its voice and its pupil narrows on loud sounds; while you speak it
+  opens wide, its brow lifts and its pupil widens; thinking, it looks up and aside, its lids lower;
+  working, its gaze jumps from point to point.
 - **Robots**, six classic ways of picturing a talking machine, each in its own colour (an entity's
   colour wins), each showing rest, listening, speaking, thinking and working (tools running):
   - **Lens**: a warm amber-red camera lens (a brushed bezel, dark glass with a reflection and a
@@ -277,6 +286,13 @@ its speed), so a change of state is always a smooth morph:
     politely to listen; tilts its head and raises a brow as it thinks, eyes up and aside; its eyes
     dart rapidly and a shimmer crosses its face as it works; it speaks with precise mouth movements
     and a hint of a smile.
+  - **Sentinel**: a polished chrome helmet, head and shoulders, with a crest, a black slot across
+    the face carrying one soft red eye that sweeps side to side with a fading trail, cheek vents, a
+    ribbed neck and a collar of lamps; a calm guardian. The eye sweeps slowly at rest; comes to the
+    centre, narrows and brightens with your voice as it listens, the head tilting toward you; sweeps
+    faster and wider, a second light following, as it thinks; scans in quick short sweeps as it
+    works, the collar lamps stepping and a faint beam fanning down; stays near the centre, wider and
+    brighter with its voice, pulsing on the syllables, the helmet nodding on emphasis, as it speaks.
 - **Ocean**: an evening sea filling the frame (the screen's whole width on the talk and Read pages):
   a sky from amber to night with stars, a moon in its halo, a low island with a lighthouse, and
   solid shaded water, each row lit by the slope of its waves (the sky reflected at grazing angles,

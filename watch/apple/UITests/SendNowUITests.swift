@@ -31,7 +31,7 @@ final class HomeOrbNewConversationUITests: XCTestCase {
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Sessions'")).firstMatch.tap()
         XCTAssertTrue(app.buttons["New conversation"].waitForExistence(timeout: 10))
         let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "QC")).firstMatch
-        for _ in 0..<6 where !(row.exists && row.isHittable) { app.swipeUp(); usleep(300_000) }
+        app.bring(row)
         row.tap()
         XCTAssertTrue(app.buttons["voice.button"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "assay QC")).firstMatch.waitForExistence(timeout: 10))

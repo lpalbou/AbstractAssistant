@@ -10,7 +10,7 @@ struct SettingsView: View {
     var body: some View {
         FitScroll {
             VStack(spacing: 6) {
-                NavigationLink(value: Route.connection) {
+                Button { model.push(.connection) } label: {
                     Card {
                         HStack {
                             Text("Connection").font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text)
@@ -23,7 +23,7 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.tap)
                 .accessibilityIdentifier("settings.connection")
-                NavigationLink(value: Route.orbStyle) {
+                Button { model.push(.orbStyle) } label: {
                     Card {
                         HStack {
                             Text("Orb style").font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text)
@@ -38,7 +38,7 @@ struct SettingsView: View {
                     Toggle("Read aloud", isOn: $speakAnswers)
                         .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text).tint(Theme.indigoButton)
                 }
-                NavigationLink(value: Route.voiceSettings) {
+                Button { model.push(.voiceSettings) } label: {
                     Card {
                         HStack {
                             Text("Voice").font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text)
@@ -49,7 +49,7 @@ struct SettingsView: View {
                     }
                 }
                 .buttonStyle(.tap)
-                NavigationLink(value: Route.tools(.defaults)) {
+                Button { model.push(.tools(.defaults)) } label: {
                     Card {
                         HStack {
                             Text("Tools").font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text)
@@ -61,7 +61,7 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.tap)
                 .accessibilityIdentifier("settings.tools")
-                NavigationLink(value: Route.about) {
+                Button { model.push(.about) } label: {
                     Card {
                         HStack {
                             Text("About").font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text)

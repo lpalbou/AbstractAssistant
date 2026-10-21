@@ -12,7 +12,7 @@ final class VoiceGoesOnUITests: XCTestCase {
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Sessions'")).firstMatch.tap()
         XCTAssertTrue(app.buttons["New conversation"].waitForExistence(timeout: 10))
         let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "QC")).firstMatch
-        for _ in 0..<6 where !(row.exists && row.isHittable) { app.swipeUp(); usleep(300_000) }
+        app.bring(row)
         row.tap()
         let voice = app.buttons["voice.button"]
         XCTAssertTrue(voice.waitForExistence(timeout: 20), app.debugDescription)
@@ -22,10 +22,10 @@ final class VoiceGoesOnUITests: XCTestCase {
         func seconds() -> Double { Double(position.label) ?? -1 }
         let started = Date()
         while seconds() < 0.8 && Date().timeIntervalSince(started) < 20 { usleep(200_000) }
-        XCTAssertGreaterThan(seconds(), 0.8, "the voice did not start:\n\(app.debugDescription)")
+        XCTAssertGreaterThanOrEqual(seconds(), 0.8, "the voice did not start:\n\(app.debugDescription)")
         // An earlier message with a recording: open it, then come back.
         let message = app.buttons.matching(identifier: "message.row").firstMatch
-        for _ in 0..<8 where !(message.exists && message.isHittable) { app.swipeUp(); usleep(300_000) }
+        app.bring(message)
         message.tap()
         XCTAssertTrue(app.buttons["Back"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] 'recording'")).firstMatch.waitForExistence(timeout: 10)

@@ -5,6 +5,7 @@ import SwiftUI
 /// framework's identity descriptor bundled with the app (`abstractframework_identity.json`, the
 /// same file AbstractCore ships), so none of them is typed here.
 struct AboutView: View {
+    @EnvironmentObject private var model: AppModel
     private let identity = AppIdentity.load()
 
     var body: some View {
@@ -64,7 +65,7 @@ struct AboutView: View {
     /// A link opens in the app's page reader (the watch has no browser an app can open).
     @ViewBuilder private func link(_ label: String, _ value: String) -> some View {
         if let url = URL(string: value) {
-            NavigationLink(value: Route.link(url)) {
+            Button { model.push(.link(url)) } label: {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(label).font(.rounded(.caption2)).foregroundStyle(Theme.muted)
                     Text(value.replacingOccurrences(of: "https://", with: "")).font(.rounded(.footnote))

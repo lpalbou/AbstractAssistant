@@ -70,7 +70,7 @@ final class OrbHistoryUITests: XCTestCase {
         app.launch()
         let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "QC")).firstMatch
         XCTAssertTrue(app.buttons["New conversation"].waitForExistence(timeout: 15))
-        for _ in 0..<6 where !(row.exists && row.isHittable) { app.swipeUp(); usleep(300_000) }   // rows build as they scroll in
+        app.bring(row)
         XCTAssertTrue(row.exists, app.debugDescription)
         row.tap()
         // The last message in full.

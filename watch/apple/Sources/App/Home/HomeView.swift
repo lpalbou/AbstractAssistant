@@ -55,13 +55,6 @@ struct HomeView: View {
         #endif
         }
         .screen("Assistant")
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                NavigationLink(value: Route.settings) { BarIcon(symbol: "gearshape") }
-                    .tint(Theme.neutralButton)
-                    .accessibilityLabel("Settings")
-            }
-        }
         .refreshable { await model.refresh() }
         .task {
             #if DEBUG

@@ -21,8 +21,7 @@ struct WaitsView: View {
                 .padding(.vertical, 2)
             }
         }
-        .navigationTitle("Needs you")
-        .containerBackground(Theme.ground, for: .navigation)
+        .screen("Needs you")
         .refreshable { await model.refresh() }
         .onChange(of: model.waits.isEmpty) { _, empty in if empty, model.path.last == .waits { model.path.removeLast() } }
     }

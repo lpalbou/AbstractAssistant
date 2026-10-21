@@ -16,7 +16,7 @@ final class FilePreviewUITests: XCTestCase {
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Sessions'")).firstMatch.tap()
         XCTAssertTrue(app.buttons["New conversation"].waitForExistence(timeout: 10))
         let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "QC")).firstMatch
-        for _ in 0..<6 where !(row.exists && row.isHittable) { app.swipeUp(); usleep(300_000) }
+        app.bring(row)
         row.tap()
         XCTAssertTrue(app.buttons["voice.button"].waitForExistence(timeout: 20))
         sleep(2)
@@ -25,7 +25,7 @@ final class FilePreviewUITests: XCTestCase {
             .press(forDuration: 0.02, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.55)), withVelocity: .fast, thenHoldForDuration: 0)
         let first = app.buttons.matching(identifier: "file.open").firstMatch
         XCTAssertTrue(first.waitForExistence(timeout: 10), "no file on the conversation's page")
-        for _ in 0..<6 where !first.isHittable { app.swipeUp(); usleep(300_000) }
+        app.bring(first)
         first.tap()
         let name = app.staticTexts["preview.name"].firstMatch
         let position = app.staticTexts["preview.position"].firstMatch
@@ -42,7 +42,10 @@ final class FilePreviewUITests: XCTestCase {
         app.swipeUp(); sleep(2)
         XCTAssertTrue(app.descendants(matching: .any)["preview.text"].firstMatch.waitForExistence(timeout: 10), "the notes are not shown")
         shot("p3-notes")
-        app.swipeDown(); sleep(2)
+        // A drag down (the harness's own swipe down starts too high, in the top row).
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)), withVelocity: .fast, thenHoldForDuration: 0)
+        sleep(2)
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label == 'hero.svg'")).firstMatch.exists, "a swipe down did not go back to the drawing")
         // The share button follows the file on screen.
         XCTAssertTrue(app.buttons["Share hero.svg"].exists)

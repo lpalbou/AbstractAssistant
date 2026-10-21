@@ -1104,4 +1104,339 @@ extension OrbCanvas {
         }
         finish(&gc, d, palette: pal)
     }
+
+    // MARK: Sentinel
+
+    /// A chrome sentinel, a quiet homage to the classic television centurions (by its attitude and
+    /// its signature motion, never a replica): a tall polished helmet with a raised crest, a flat
+    /// brow over a black slot across its face where a single soft red eye sweeps from side to side,
+    /// a vented faceplate, a chrome collar with a row of lamps on broad shoulder plates; seen a
+    /// little from above, lit from the upper left with cool sky and warm ground in its chrome.
+    /// Calm and obedient: at rest the eye sweeps slowly and steadily, the helmet very still, a slow
+    /// breath of light running along the crest; listening, the eye comes to the centre, narrows
+    /// and pulses with your voice, the head tilting a little toward you; thinking, the sweep
+    /// quickens and widens, a second faint light trailing it, the helmet turned a little aside;
+    /// working, quick short sweeps scan, the collar's lamps step through a sequence and a faint
+    /// beam leaves the eye; speaking, the eye glows steadily, wide and bright with a loud voice, a
+    /// low pulse on each syllable and a slight nod on emphasis. Every sweep is a blend of fixed
+    /// sweeps (a phase sets how much of each shows, never its speed).
+    func drawSentinel(_ gc: inout GraphicsContext, _ box: CGSize) {
+        let s = RobotState(engine, work)
+        let k = density(box)
+        let rest = max(0, 1 - s.listen - s.th - s.busy - s.speak)
+        var d = robotCanvas(box, scale: 1.28 * (1 + 0.035 * s.listen), dy: 0.02)
+        let custom = look.color
+        let pal: [Color] = custom.map { OrbPalette.colors(for: $0) } ?? [
+            Color(hex: 0x2a3240).opacity(0.45), Color(hex: 0x56637a).opacity(0.6), Color(hex: 0x8e9cb4).opacity(0.75),
+            Color(hex: 0xd0dbec).opacity(0.88), Color(hex: 0xf6f9ff).opacity(0.95)]
+        let ink = Ink(d, pal)
+        let red = custom ?? Color(hex: 0xff3424), redCore = custom ?? Color(hex: 0xffa48e), hot = Color(hex: 0xfff1ea)
+        func hex(_ v: UInt32, _ a: Double = 1) -> Color { Color(hex: v).opacity(a) }
+        let sky = hex(0xeaf2ff), steel = hex(0x9aa8bd), warmGround = hex(0xc49a6c)
+        // The pose: very still at rest; a tilt toward you to listen; turned a little aside to think;
+        // a nod on the voice's emphasis.
+        let emphasis = s.speak * engine.history.value(secondsAgo: 0.12)
+        let yaw = 0.015 * sin(t * 0.13) + s.listen * 0.04 - s.th * (0.2 + 0.02 * sin(t * 0.37))
+            + s.busy * 0.04 * sin(t * 0.6) + s.speak * 0.03 * sin(t * 0.45)
+        let pitch = -0.2 - 0.06 * s.listen + 0.03 * s.th + 0.07 * emphasis - 0.01 * sin(t * 0.21)
+        let roll = 0.008 * sin(t * 0.17) + 0.075 * s.listen - 0.035 * s.th
+        let head = Turn3(yaw: yaw, pitch: pitch, roll: roll), view = Turn3(yaw: 0, pitch: pitch, roll: roll)
+        let hy = -0.3
+        let hw = 0.68, domeC = -0.2, domeH = 0.84, jawY = 0.3, chinY = 0.84, chinW = 0.45, depth = 0.62
+        /// The helmet's half-width at height y (head units, its centre the origin): a tall dome, near
+        /// vertical sides, a jaw tapering to a broad chin guard.
+        func widthAt(_ y: Double) -> Double {
+            if y < domeC {
+                let e = min(1, abs(y - domeC) / domeH)
+                return hw * max(0, 1 - pow(e, 2.3)).squareRoot()
+            }
+            let side = hw * (1 - 0.03 * (y - domeC))
+            if y < jawY { return side }
+            let f = min(1, (y - jawY) / (chinY - jawY))
+            let sideJ = hw * (1 - 0.03 * (jawY - domeC))
+            return sideJ + (chinW - sideJ) * pow(f, 1.4)
+        }
+        func depthAt(_ y: Double) -> Double { depth * widthAt(y) / hw }
+        /// The front surface (a flattened oval in each cross-section).
+        func front(_ x: Double, _ y: Double) -> Double {
+            let w = max(1e-4, widthAt(y)), u = min(1, abs(x) / w)
+            return depthAt(y) * pow(max(0, 1 - pow(u, 2.4)), 1 / 2.4)
+        }
+        func F(_ x: Double, _ y: Double, lift: Double = 0) -> (Double, Double) {
+            let p = head.apply(x, y, front(x, y) + lift)
+            return (p.x, p.y + hy)
+        }
+        func FP(_ x: Double, _ y: Double, lift: Double = 0) -> CGPoint { let q = F(x, y, lift: lift); return ink.p(q.0, q.1) }
+        let cY = cos(yaw), sY = sin(yaw)
+        func silhouette(_ y: Double, _ side: Double) -> CGPoint {
+            let w = widthAt(y), dz = depthAt(y)
+            let W = (w * w * cY * cY + dz * dz * sY * sY).squareRoot()
+            let p = view.apply(side * W, y, 0)
+            return ink.p(p.x, p.y + hy)
+        }
+        let ys = stride(from: -1.04, through: chinY, by: 0.07).map { $0 } + [chinY]
+        var outline = ys.map { silhouette($0, 1) }
+        for j in 1..<8 {
+            let x = 1 - 2 * Double(j) / 8
+            let w = widthAt(chinY) * x
+            let p = view.apply(w + front(w, chinY) * sY, chinY + 0.035 * (1 - x * x), 0)
+            outline.append(ink.p(p.x, p.y + hy))
+        }
+        outline += ys.reversed().map { silhouette($0, -1) }
+        let helmet = mSmooth(outline)
+        let top = F(0, -1.04).1, bottom = chinY + hy + 0.05
+        var occluder = gc
+        occluder.blendMode = .normal
+        /// The crest's samples along the dome's midline (φ from the forehead over the crown): its two
+        /// base edges and its top, on the screen, and whether that part faces us.
+        func crestSamples() -> [(l: CGPoint, r: CGPoint, top: CGPoint, front: Bool)] {
+            (0...16).map { j -> (l: CGPoint, r: CGPoint, top: CGPoint, front: Bool) in
+                let f = Double(j) / 16, phi = 0.36 + (Double.pi / 2 + 0.5 - 0.36) * f
+                let y = domeC - domeH * sin(phi), z = depth * cos(phi)
+                var ny = -sin(phi) / domeH, nz = cos(phi) / depth
+                let nl = (ny * ny + nz * nz).squareRoot(); ny /= nl; nz /= nl
+                let h = (0.012 + 0.09 * pow(sin(Double.pi * min(1, 1.1 * f)), 0.7) * (0.55 + 0.45 * f)) * smoothstep(-0.02, 0.3, f)
+                let cw = 0.015 + 0.065 * smoothstep(0, 0.45, f)
+                func S(_ x: Double, _ yy: Double, _ zz: Double) -> CGPoint { let q = head.apply(x, yy, zz); return ink.p(q.x, q.y + hy) }
+                return (S(-cw, y, z), S(cw, y, z), S(0, y + ny * h, z + nz * h), z > 0)
+            }
+        }
+        let crest = crestSamples()
+        func drawCrest(front: Bool) {
+            let part = crest.filter { $0.front == front }
+            guard part.count > 1 else { return }
+            let l = part.map(\.l), r = part.map(\.r), top = part.map(\.top)
+            let lFace = Path { p in p.addLines(l + top.reversed()); p.closeSubpath() }
+            let rFace = Path { p in p.addLines(r + top.reversed()); p.closeSubpath() }
+            occluder.fill(lFace, with: .color(hex(0x0b0d12))); occluder.fill(rFace, with: .color(hex(0x0b0d12)))
+            gc.fill(lFace, with: .linearGradient(Gradient(colors: [Color.white.opacity(0.8), sky.opacity(0.5), steel.opacity(0.4)]),
+                                                 startPoint: l.last!, endPoint: l.first!))
+            gc.fill(rFace, with: .linearGradient(Gradient(colors: [hex(0x3a4250, 0.9), hex(0x10131a, 0.9), hex(0x2a303c, 0.8)]),
+                                                 startPoint: r.last!, endPoint: r.first!))
+            gc.stroke(Path { $0.addLines(top) }, with: .color(Color.white.opacity(front ? 0.75 : 0.5)), lineWidth: d.px * 1.1)
+            guard front else { return }
+            let breath = mFract(t * 0.16)
+            let along = min(top.count - 1, max(0, Int((Double(top.count - 1) * breath).rounded())))
+            let glow = (0.4 * rest + 0.12) * sin(Double.pi * breath)
+            mSoftOval(&gc, top[along], 0.07 * d.R, 0.14 * d.R, angle: roll, Color.white, glow)
+        }
+        // Behind it: a faint cool presence.
+        mSoftOval(&gc, ink.p(0, -0.2), 1.5 * d.R, 1.5 * d.R, hex(0x5d7396), 0.14)
+        // The shoulders: broad rounded plates of chrome, a collar round the neck.
+        let shoulders = mSmooth([ink.p(-1.9, 1.95), ink.p(-1.72, 1.2), ink.p(-1.3, 0.86), ink.p(-0.62, 0.66), ink.p(0.62, 0.66),
+                                 ink.p(1.3, 0.86), ink.p(1.72, 1.2), ink.p(1.9, 1.95)])
+        occluder.fill(shoulders, with: .color(hex(0x07080b)))
+        gc.fill(shoulders, with: .linearGradient(Gradient(stops: [
+            .init(color: sky.opacity(0.42), location: 0), .init(color: steel.opacity(0.26), location: 0.14), .init(color: hex(0x12151c, 0.3), location: 0.3),
+            .init(color: warmGround.opacity(0.16), location: 0.5), .init(color: .clear, location: 0.85)]),
+            startPoint: ink.p(0, 0.68), endPoint: ink.p(0, 1.9)))
+        for side in [-1.0, 1.0] {
+            // A pauldron in three plates: grooves along the shoulder's curve, each plate's lit edge
+            // under its groove, a soft sheen on the lit shoulder.
+            let lit = side < 0 ? 1.0 : 0.55
+            func curve(_ o: Double) -> Path {
+                mSmooth([ink.p(side * (0.7 + 0.15 * o), 0.72 + 0.55 * o), ink.p(side * (1.2 + 0.1 * o), 0.84 + 0.5 * o),
+                         ink.p(side * (1.62 + 0.03 * o), 1.12 + 0.42 * o), ink.p(side * (1.84 - 0.04 * o), 1.55 + 0.3 * o)], closed: false)
+            }
+            mSoftOval(&gc, ink.p(side * 1.2, 0.98), 0.5 * d.R, 0.13 * d.R, angle: side * 0.42, Color.white, 0.32 * lit)
+            gc.stroke(curve(0), with: .color(sky.opacity(0.7 * lit)), lineWidth: d.px * 1.2)
+            for n in 1...2 {
+                let o = 0.24 * Double(n)
+                gc.stroke(curve(o), with: .color(hex(0x030406, 0.85)), lineWidth: d.px * 2)
+                gc.stroke(curve(o + 0.035), with: .color(sky.opacity((0.5 - 0.12 * Double(n)) * lit)), lineWidth: d.px)
+            }
+        }
+        // The neck: dark rings under the chin guard.
+        let neck = ink.poly([(-0.42, 0.42), (0.42, 0.42), (0.5, 0.74), (-0.5, 0.74)])
+        occluder.fill(neck, with: .color(hex(0x050608)))
+        var rings = Path()
+        for n in 0..<3 {
+            let y = 0.55 + 0.06 * Double(n)
+            rings.move(to: ink.p(-0.46, y)); rings.addQuadCurve(to: ink.p(0.46, y), control: ink.p(0, y + 0.06))
+        }
+        gc.stroke(rings, with: .color(steel.opacity(0.35)), lineWidth: d.px * 1.2)
+        // The collar: a chrome ring round the neck's base, its lamps across the front.
+        let collar = mSmooth([ink.p(-0.66, 0.66), ink.p(0, 0.76), ink.p(0.66, 0.66), ink.p(0.62, 0.8), ink.p(0, 0.92), ink.p(-0.62, 0.8)])
+        occluder.fill(collar, with: .color(hex(0x0a0b0f)))
+        gc.fill(collar, with: .linearGradient(Gradient(stops: [
+            .init(color: hex(0x3a4352, 0.6), location: 0), .init(color: Color.white.opacity(0.75), location: 0.22), .init(color: sky.opacity(0.5), location: 0.35),
+            .init(color: hex(0x1c2028, 0.5), location: 0.6), .init(color: warmGround.opacity(0.4), location: 0.85), .init(color: hex(0x3a3028, 0.4), location: 1)]),
+            startPoint: ink.p(-0.66, 0.7), endPoint: ink.p(0.66, 0.86)))
+        gc.stroke(collar, with: .color(sky.opacity(0.4)), lineWidth: d.px)
+        // The lamps: dim at rest, your voice in them as it listens, its bands as it speaks, a
+        // stepping sequence as it works.
+        let order = [0, 1, 2, 3, 4, 3, 2, 1]
+        let tick = Int((t * 6).rounded(.down))
+        let cur = order[((tick % 8) + 8) % 8], prev = order[(((tick - 1) % 8) + 8) % 8]
+        for i in 0..<5 {
+            let f = Double(i) / 4
+            let x = -0.36 + 0.18 * Double(i), y = 0.84 + 0.05 * (1 - pow(2 * f - 1, 2))
+            let seq = i == cur ? 1.0 : (i == prev ? 0.35 : 0)
+            let b = 0.18 + 0.06 * sin(t * 0.9 + Double(i)) + s.listen * 0.5 * s.level + s.speak * 0.7 * s.spectrum.band(at: f) + s.busy * 0.85 * seq
+            ink.glow(&gc, x, y, 0.1, red, 0.5 * b)
+            gc.fill(ink.oval(x, y, 0.035, 0.02), with: .color(redCore.opacity(min(1, 0.25 + 0.75 * b))))
+        }
+        drawCrest(front: false)
+        // The helmet: solid, then its chrome: bands of sky and ground across it, lit from the upper
+        // left, a cool rim on the far side.
+        occluder.fill(helmet, with: .color(hex(0x0b0d12)))
+        let lx = -hw * 1.02, rx = hw * 1.02
+        gc.fill(helmet, with: .linearGradient(Gradient(stops: [
+            .init(color: hex(0x5a6578, 0.6), location: 0), .init(color: sky.opacity(0.85), location: 0.16), .init(color: Color.white.opacity(0.9), location: 0.21),
+            .init(color: steel.opacity(0.55), location: 0.3), .init(color: hex(0x3a4250, 0.35), location: 0.5),
+            .init(color: hex(0x161a22, 0.3), location: 0.68), .init(color: hex(0x6d7d98, 0.4), location: 0.86), .init(color: hex(0x1a1e26, 0.4), location: 1)]),
+            startPoint: ink.p(lx, 0), endPoint: ink.p(rx, 0)))
+        gc.fill(helmet, with: .linearGradient(Gradient(stops: [
+            .init(color: sky.opacity(0.55), location: 0), .init(color: sky.opacity(0.22), location: 0.3), .init(color: hex(0x10131a, 0.35), location: 0.47),
+            .init(color: .clear, location: 0.56), .init(color: warmGround.opacity(0.32), location: 0.74), .init(color: hex(0x2a2018, 0.3), location: 1)]),
+            startPoint: ink.p(0, top), endPoint: ink.p(0, bottom)))
+        var shell = gc
+        shell.clip(to: helmet)
+        // The dome's highlight and a long streak down its lit side.
+        let hi = F(-0.3, -0.72)
+        mSoftOval(&shell, ink.p(hi.0, hi.1), 0.26 * d.R, 0.16 * d.R, angle: -0.6, Color.white, 0.8)
+        mSoftOval(&shell, ink.p(hi.0 - 0.02, hi.1 - 0.01), 0.1 * d.R, 0.045 * d.R, angle: -0.6, [
+            .init(color: Color.white.opacity(0.95), location: 0), .init(color: Color.white.opacity(0.9), location: 0.55), .init(color: Color.white.opacity(0), location: 1)])
+        let streak = F(-0.42, 0.05)
+        mSoftOval(&shell, ink.p(streak.0, streak.1), 0.05 * d.R, 0.55 * d.R, angle: roll, Color.white, 0.4)
+        // The crest: a fin along the helmet's midline from the forehead back over the crown, taller
+        // toward the back, a breath of light running along it.
+        drawCrest(front: true)
+        // The brow: a flat ledge over the slot, its top catching the sky.
+        let slotTop = -0.225, slotBottom = -0.07, slotEye = (slotTop + slotBottom) / 2
+        let reach = 0.93
+        func slotEdge(_ y: Double, _ n: Int = 18) -> [CGPoint] {
+            let w = widthAt(y) * reach
+            return (0...n).map { j in FP(-w + 2 * w * Double(j) / Double(n), y) }
+        }
+        let browTop = slotEdge(-0.3), browBottom = slotEdge(slotTop)
+        let brow = Path { p in p.addLines(browTop + browBottom.reversed()); p.closeSubpath() }
+        shell.fill(brow, with: .linearGradient(Gradient(colors: [Color.white.opacity(0.5), sky.opacity(0.2), hex(0x0c0e14, 0.6)]),
+                                               startPoint: FP(0, -0.3), endPoint: FP(0, slotTop)))
+        shell.stroke(Path { $0.addLines(browTop) }, with: .color(Color.white.opacity(0.55)), lineWidth: d.px)
+        // The slot: black glass across the face, a faint red within.
+        let slotUp = slotEdge(slotTop, 24), slotDown = slotEdge(slotBottom, 24)
+        let slot = mSmooth(slotUp + slotDown.reversed())
+        occluder.fill(slot, with: .color(hex(0x030102)))
+        // The eye's sweep: a blend of fixed sweeps (slow and wide at rest, quicker and wider as it
+        // thinks, short and quick while it works, held at the centre to listen and to speak).
+        func sweepAt(_ tt: Double) -> Double {
+            let r = rest * 0.8 * sin(tt * 1.9)
+            let th = s.th * 0.96 * sin(tt * 3.8)
+            let wk = s.busy * (0.42 * sin(tt * 0.9) + 0.3 * sin(tt * 8.2))
+            return r + th + wk + s.speak * 0.05 * sin(tt * 0.8)
+        }
+        let eyeW = 0.17 - 0.085 * s.listen + 0.02 * s.th - 0.03 * s.busy + s.speak * (0.2 * min(1, 1.3 * s.loud) - 0.08)
+        let eyeB = 0.85 + 0.06 * rest * sin(t * 1.1) + s.listen * (0.75 * s.level - 0.1) + 0.15 * s.th + 0.15 * s.busy
+            + s.speak * (0.55 * s.voice - 0.05)
+        let slotHalf = widthAt(slotEye) * reach * 0.86
+        func eyeAt(_ x: Double) -> (CGPoint, Double) {
+            let c = FP(x, slotEye)
+            let a = FP(x - eyeW, slotEye), b = FP(x + eyeW, slotEye)
+            return (c, max(0.01, Double(abs(b.x - a.x)) / 2))
+        }
+        var inSlot = gc
+        inSlot.clip(to: slot)
+        inSlot.fill(slot, with: .linearGradient(Gradient(colors: [red.opacity(0.04), red.opacity(0.14), red.opacity(0.04)]),
+                                                startPoint: FP(-slotHalf, slotEye), endPoint: FP(slotHalf, slotEye)))
+        let ex = slotHalf * max(-1, min(1, sweepAt(t)))
+        // Its trail (fading behind it), and as it thinks a second faint light following.
+        for n in stride(from: 9, through: 1, by: -1) {
+            let xn = slotHalf * max(-1, min(1, sweepAt(t - (0.035 - 0.016 * s.th - 0.012 * s.busy) * Double(n))))
+            let (c, w) = eyeAt(xn)
+            let a = eyeB * 0.5 * pow(1 - Double(n) / 10, 1.6) * (1 - 0.85 * s.listen) * (1 - 0.7 * s.speak)
+            mSoftOval(&inSlot, c, w * 1.1, 0.05 * d.R, angle: roll, red, a)
+        }
+        if s.th > 0.01 {
+            let xg = slotHalf * max(-1, min(1, sweepAt(t - 0.5)))
+            let (c, w) = eyeAt(xg)
+            mSoftOval(&inSlot, c, w * 1.4, 0.05 * d.R, angle: roll, red, 0.35 * s.th)
+            mSoftOval(&inSlot, c, w * 0.7, 0.035 * d.R, angle: roll, redCore, 0.45 * s.th)
+        }
+        let (ec, ew) = eyeAt(ex)
+        let e = F(ex, slotEye)
+        mSoftOval(&inSlot, ec, ew * 1.5, 0.06 * d.R, angle: roll, red, 0.6 * eyeB)
+        mSoftOval(&inSlot, ec, ew, 0.05 * d.R, angle: roll, [
+            .init(color: hot.opacity(min(1, 0.95 * eyeB)), location: 0), .init(color: redCore.opacity(min(1, 0.95 * eyeB)), location: 0.35),
+            .init(color: red.opacity(min(1, 0.8 * eyeB)), location: 0.7), .init(color: red.opacity(0), location: 1)])
+        gc.stroke(Path { $0.addLines(slotUp) }, with: .color(hex(0x0a0b10, 0.9)), lineWidth: d.px * 1.5)
+        gc.stroke(Path { $0.addLines(slotDown) }, with: .color(sky.opacity(0.45)), lineWidth: d.px)
+        // Its light on the chrome round the slot (the brow's underside, the cheeks).
+        ink.glow(&gc, e.0, e.1, 0.42 + 0.1 * s.voice, red, 0.22 * eyeB)
+        // Speaking: a low pulse of light with each syllable.
+        if s.speak > 0.01 {
+            let pulse = s.speak * engine.history.value(secondsAgo: 0.06)
+            ink.glow(&gc, e.0, e.1 + 0.05, 0.9, red, 0.16 * pulse)
+        }
+        // The faceplate: a ridge down its middle (the crest's line carried on), short vents on
+        // each cheek (a low glow in them as it speaks).
+        // A soft crease of light down the middle of the mask.
+        let crease = mSmooth(stride(from: 0.0, through: 0.78, by: 0.13).map { FP(-0.012, $0) }, closed: false)
+        shell.stroke(crease, with: .linearGradient(Gradient(colors: [Color.white.opacity(0.05), Color.white.opacity(0.4), warmGround.opacity(0.5)]),
+                                                   startPoint: FP(0, 0), endPoint: FP(0, 0.78)), lineWidth: d.px * 1.2)
+        shell.stroke(mSmooth(stride(from: 0.0, through: 0.78, by: 0.13).map { FP(0.03, $0) }, closed: false),
+                     with: .color(hex(0x0a0c12, 0.35)), lineWidth: d.px * 2.4)
+        var vents = Path(), ventLight = Path()
+        let ventGlow = s.speak * (0.25 * s.voice + 0.55 * engine.history.value(secondsAgo: 0.06))
+        for side in [-1.0, 1.0] {
+            let c = F(side * 0.27, 0.42)
+            mSoftOval(&shell, ink.p(c.0, c.1), 0.15 * d.R, 0.17 * d.R, angle: roll, hex(0x05060a), 0.55)
+            for n in 0..<4 {
+                let x = side * (0.18 + 0.055 * Double(n)), y0 = 0.3, y1 = 0.54
+                vents.move(to: FP(x, y0)); vents.addLine(to: FP(x, y1))
+                ventLight.move(to: FP(x + 0.016, y0 + 0.01)); ventLight.addLine(to: FP(x + 0.016, y1 + 0.01))
+            }
+            if ventGlow > 0.01 { mSoftOval(&shell, ink.p(c.0, c.1), 0.13 * d.R, 0.15 * d.R, angle: roll, red, 0.5 * ventGlow) }
+        }
+        shell.stroke(ventLight, with: .color(sky.opacity(0.35)), lineWidth: d.px)
+        shell.stroke(vents, with: .color(hex(0x030406, 0.9)), style: StrokeStyle(lineWidth: d.px * 2.4, lineCap: .round))
+        if s.speak > 0.01 {
+            shell.stroke(vents, with: .color(redCore.opacity(min(1, 0.6 * ventGlow))), style: StrokeStyle(lineWidth: d.px * 1, lineCap: .round))
+        }
+        var seams = Path()
+        for side in [-1.0, 1.0] {
+            seams.move(to: FP(side * 0.44, slotBottom + 0.04)); seams.addQuadCurve(to: FP(side * 0.36, 0.82), control: FP(side * 0.5, 0.45))
+        }
+        shell.stroke(seams, with: .color(hex(0x05060a, 0.7)), lineWidth: d.px * 1.3)
+        // The chin guard's lip: warm ground light along it.
+        let lip = mSmooth((0...10).map { j -> CGPoint in let x = -0.95 + 0.19 * Double(j); return FP(x * chinW, chinY - 0.03) }, closed: false)
+        gc.stroke(lip, with: .color(warmGround.opacity(0.55)), lineWidth: d.px * 1.2)
+        // The rim: a cool light on its far edge.
+        gc.stroke(helmet, with: .linearGradient(Gradient(stops: [.init(color: sky.opacity(0.35), location: 0), .init(color: .clear, location: 0.35),
+                                                                 .init(color: .clear, location: 0.7), .init(color: hex(0xb4cfff, 0.5), location: 1)]),
+                                                startPoint: ink.p(lx, 0), endPoint: ink.p(rx, 0)), lineWidth: d.px * 1.2)
+        // Working: a faint beam from the eye, sweeping with it.
+        if s.busy > 0.01 {
+            let fan = Path { p in
+                p.move(to: ink.p(e.0 - 0.04, e.1)); p.addLine(to: ink.p(e.0 * 1.8 - 0.42, 1.35)); p.addLine(to: ink.p(e.0 * 1.8 + 0.42, 1.35))
+                p.addLine(to: ink.p(e.0 + 0.04, e.1)); p.closeSubpath()
+            }
+            gc.fill(fan, with: .radialGradient(Gradient(colors: [red.opacity(0.32 * s.busy), red.opacity(0.08 * s.busy), .clear]),
+                                               center: ink.p(e.0, e.1), startRadius: 0, endRadius: 1.5 * d.R))
+        }
+        // A fine texture of points on the chrome.
+        for j in 0..<Int(320 * k) + 20 {
+            let u = evenPoint(j)
+            let y = -1.0 + 1.8 * u.1, w = widthAt(y)
+            guard w > 0.05 else { continue }
+            let x = (2 * u.0 - 1) * w * 0.97
+            if y > slotTop - 0.02 && y < slotBottom + 0.02 && abs(x) < w * reach { continue }
+            let z = front(x, y)
+            let ny = y < domeC ? (y - domeC) / domeH * 0.9 : (y > jawY ? 0.25 : 0)
+            let nx = x / max(0.1, w), nz = max(0.05, z / depth)
+            let l = (nx * nx + ny * ny + nz * nz).squareRoot()
+            let n = head.apply(nx / l, ny / l, nz / l)
+            guard n.z > 0.05 else { continue }
+            let p = head.apply(x, y, z)
+            place(&d, p.x, p.y + hy, 0.32 * mMetal(n.x, n.y, n.z, shine: 1.2), OrbPoints.hash(j, 71), phase: x * 3, lum: 0.6, size: 0.6)
+        }
+        for j in 0..<Int(90 * k) + 6 {
+            let u = evenPoint(j + 7000)
+            let side: Double = u.0 < 0.5 ? -1 : 1
+            let x = side * (0.75 + 1.0 * (2 * abs(u.0 - 0.5))), y = 0.8 + 0.45 * (abs(x) - 0.75) + 0.35 * u.1
+            let lit = side < 0 ? 0.42 : 0.24
+            place(&d, x, y, lit * (1 - 0.6 * u.1), OrbPoints.hash(j, 72), phase: x, lum: 0.5, size: 0.7)
+        }
+        finish(&gc, d, palette: pal)
+    }
 }

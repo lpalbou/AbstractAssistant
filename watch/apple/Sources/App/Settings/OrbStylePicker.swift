@@ -6,6 +6,7 @@ import WatchKit
 /// at first launch (`onboarding`), after sign-in.
 struct OrbStylePicker: View {
     var onboarding = false
+    @EnvironmentObject private var model: AppModel
     @AppStorage(OrbDesign.storageKey) private var stored = OrbDesign.a.rawValue
     @AppStorage(OrbDesign.chosenKey) private var chosen = false
     @State private var voice = SyntheticVoice()
@@ -15,7 +16,11 @@ struct OrbStylePicker: View {
             ForEach(OrbFamily.allCases) { family in
                 Section {
                     ForEach(family.designs) { d in
-                        NavigationLink(value: Route.orbStylePreview(d.rawValue)) { row(d) }
+                        // The first-launch choice has the system's own stack; Settings' pages have the app's.
+                        Group {
+                            if onboarding { NavigationLink(value: Route.orbStylePreview(d.rawValue)) { row(d) } }
+                            else { Button { model.push(.orbStylePreview(d.rawValue)) } label: { row(d) } }
+                        }
                             .accessibilityIdentifier("orb.\(d.name)")
                     }
                 } header: {
@@ -25,9 +30,7 @@ struct OrbStylePicker: View {
                 }
             }
         }
-        .navigationTitle(onboarding ? "Choose your orb" : "Orb style")
-        .navigationBarTitleDisplayMode(.inline)
-        .containerBackground(Theme.ground, for: .navigation)
+        .screen(onboarding ? "Choose your orb" : "Orb style", systemBar: onboarding)
     }
 
     private func row(_ d: OrbDesign) -> some View {
@@ -103,9 +106,7 @@ struct OrbStylePreview: View {
             .frame(width: geo.size.width, height: geo.size.height)
         }
         .ignoresSafeArea(edges: .bottom)
-        .navigationTitle(design.name)
-        .navigationBarTitleDisplayMode(.inline)
-        .containerBackground(Theme.ground, for: .navigation)
+        .screen(design.name, systemBar: onboarding)
         .task {
             // The phases in turn, 3.5 s each, until one is held.
             while !Task.isCancelled && !held {
@@ -120,7 +121,7 @@ struct OrbStylePreview: View {
         chosen = true
         WKInterfaceDevice.current().play(.success)
         // From Settings: back to Settings (past the list).
-        if !onboarding, model.path.count >= 2, case .orbStylePreview = model.path.last { model.path.removeLast(2) }
+        if !onboarding, case .orbStylePreview = model.activeTop { model.pop(2) }
     }
 }
 

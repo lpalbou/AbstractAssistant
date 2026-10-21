@@ -113,19 +113,20 @@ extension OrbCanvas {
     }
     // MARK: Eye
 
-    /// One large, friendly eye: soft lids drawn in light with curling lashes, a soft white, an iris
-    /// of fine fibers glowing warm near the pupil and cool at its rim, a catchlight. As it speaks its
-    /// eye smiles, the fibers glow with its voice (its spectrum around the iris) and the pupil narrows
-    /// on loud sounds; while you speak it opens wide, its brow lifts, its pupil widens and rings of
-    /// your voice ripple in toward it; thinking, it looks up and aside, its lids lower a little and
-    /// its iris turns slowly. It blinks every few seconds.
+    /// One large, friendly eye in points of light: an iris of fine fibers, dim indigo at the
+    /// pupil's collar rising to cyan and near-white at its rim, sparkling; a ring of light round the
+    /// pupil, a faint white, a catchlight of bright points; soft lids drawn in light with curling
+    /// lashes, a crease and a brow. As it speaks its eye smiles, the fibers glow with its voice (its
+    /// spectrum around the iris) and the pupil narrows on loud sounds; while you speak it opens
+    /// wide, its brow lifts, its pupil widens and rings of your voice ripple in toward it; thinking,
+    /// it looks up and aside, its lids lower a little and its iris turns slowly; working, its gaze
+    /// jumps from point to point as it reads. It blinks every few seconds.
     func drawEye(_ gc: inout GraphicsContext, _ box: CGSize) {
         var d = dotCanvas(box)
-        d.softSize = 2.2
         let ph = OrbPhases(engine)
         let th = ph.think, hist = engine.history, loud = engine.loud
         let listen = ph.listen, speak = ph.speak, busy = ph.work
-        let pal = PortraitPalette.colors(look.color)
+        let pal = OrbPalette.colors(for: look.color)
         let spectrum = VoiceFeatures(level: loud, bands: engine.bands)
         let blink = FaceGeometry.blink(t)
         let open = (0.8 + 0.18 * listen - 0.2 * th) * blink
@@ -148,7 +149,12 @@ extension OrbCanvas {
         let lw = max(0.6, d.px * 0.8)
         func scr(_ x: Double, _ y: Double) -> CGPoint { d.screen(x * scale, (y + shift) * scale) }
         func put(_ x: Double, _ y: Double, _ b: Double, _ dither: Double, _ phase: Double, lum: Double = 0.7) {
-            place(&d, x * scale, (y + shift) * scale, b, 0.5 + 0.4 * (dither - 0.5), phase: phase, lum: lum, size: 0.8)
+            place(&d, x * scale, (y + shift) * scale, b, dither, phase: phase, lum: lum)
+        }
+        func crease(_ x: Double) -> Double { upper(x) * 1.05 - 0.13 - 0.05 * open - 0.03 * listen }
+        let browY = -0.98 - 0.1 * listen - 0.04 * th
+        func brow(_ x: Double) -> Double {
+            browY - 0.04 * th * (0.65 + 0.35 * x / 1.15) + 0.2 * pow(x / 1.15, 2) + 0.04 * (1 - open) + 0.03 * (x / 1.15)
         }
         for p in EyeGeometry.points(count: pointBudget(box)) {
             switch p.kind {
@@ -158,19 +164,42 @@ extension OrbCanvas {
                 let a = p.a + turn + 0.22 * sin(3 * p.u + p.a * 2) * (1 - p.u)
                 let x = gx + r * cos(a), y = gy + r * sin(a)
                 guard inside(x, y) else { continue }
-                var b = p.lum * (0.3 + 0.3 * exp(-pow((p.u - 0.3) / 0.1, 2)) + 0.35 * smoothstep(0.85, 1, p.u))
+                var b = p.lum * (0.32 + 0.3 * exp(-pow((p.u - 0.32) / 0.08, 2)) + 0.45 * smoothstep(0.88, 1, p.u))
                 let pos = (a.truncatingRemainder(dividingBy: 2 * .pi) + 2 * .pi).truncatingRemainder(dividingBy: 2 * .pi) / (2 * .pi)
-                b += speak * 0.8 * spectrum.band(at: abs(pos * 2 - 1)) * (0.4 + 0.6 * p.u)
+                b += speak * 0.9 * spectrum.band(at: abs(pos * 2 - 1)) * (0.4 + 0.6 * p.u)
                 if listen > 0.01 { b += listen * 0.8 * hist.value(secondsAgo: (1 - p.u) * 0.9) * exp(-pow(sin((p.u - t * 1.2) * .pi * 2), 2) * 2) }
                 b += 0.08 * engine.signal
                 put(x, y, b, p.dither, p.phase, lum: p.lum)
             case .pupilEdge:
                 let x = gx + pupil * cos(p.a), y = gy + pupil * sin(p.a)
                 guard inside(x, y) else { continue }
-                put(x, y, 0.6, p.dither, p.phase)
+                put(x, y, 0.75, p.dither, p.phase)
+            case .sclera:
+                let x = p.x * W, y = p.y < 0 ? -p.y * upper(p.x * W) : p.y * lower(p.x * W)
+                let dx = x - gx, dy = y - gy
+                guard dx * dx + dy * dy > iris * iris * 1.08, inside(x, y) else { continue }
+                put(x, y, 0.13 * p.lum, p.dither, p.phase)
+            case .glint:
+                // The catchlight stays put as the eye looks around (the light does not move).
+                let x = gx * 0.5 - 0.14 + p.x, y = gy * 0.5 - 0.17 + p.y
+                guard inside(x, y) else { continue }
+                put(x, y, 1.25, p.dither, p.phase, lum: 1)
+            case .upperLid:
+                let x = p.x * W * 1.02
+                put(x, upper(x) - 0.014 * p.u, 0.95 * p.lum, p.dither, p.phase, lum: p.lum)
+            case .lowerLid:
+                guard blink > 0.25 else { continue }
+                let x = p.x * W * 0.94
+                put(x, lower(x) + 0.01 * p.u, p.lum * (0.75 - 0.25 * abs(p.x)), p.dither, p.phase, lum: p.lum)
+            case .crease:
+                let x = W * (0.025 + 0.825 * p.x)
+                put(x, crease(x), p.lum, p.dither, p.phase)
+            case .brow:
+                let x = 0.025 + 1.125 * p.x
+                put(x, brow(x) + 0.025 * (p.u - 0.5), p.lum * (1 - 0.35 * pow(p.x, 4)), p.dither, p.phase)
             }
         }
-        // The eye's opening, and the lines of its lids, crease, lashes and brow.
+        // The eye's lines of light: the glow along its lids and brow, and its lashes.
         func line(_ n: Int, from x0: Double, to x1: Double, _ f: (Double) -> Double) -> Path {
             var path = Path()
             for j in 0...n {
@@ -179,14 +208,8 @@ extension OrbCanvas {
             }
             return path
         }
-        var almond = line(28, from: -W, to: W, upper)
-        for j in (0...28).reversed() { let x = -W + 2 * W * Double(j) / 28; almond.addLine(to: scr(x, lower(x))) }
-        almond.closeSubpath()
         let upperLid = line(28, from: -W * 1.02, to: W * 1.02, upper)
-        let lowerLid = line(24, from: -W * 0.94, to: W * 0.94, lower)
-        let crease = line(20, from: -W * 0.8, to: W * 0.85) { x in upper(x) * 1.05 - 0.13 - 0.05 * open - 0.03 * listen }
-        let browY = -0.98 - 0.1 * listen - 0.04 * th
-        let brow = line(20, from: -1.1, to: 1.15) { x in browY - 0.04 * th * (0.65 + 0.35 * x / 1.15) + 0.2 * pow(x / 1.15, 2) + 0.04 * (1 - open) + 0.03 * (x / 1.15) }
+        let browLine = line(20, from: -1.1, to: 1.15, brow)
         // Lashes along the upper lid, longer toward the outer corner, curling up and out.
         var lashes = Path()
         for l in 0..<10 {
@@ -197,40 +220,35 @@ extension OrbCanvas {
             lashes.move(to: scr(x, base))
             lashes.addQuadCurve(to: scr(x + dir * len * 0.7, base - len * 1.05), control: scr(x + dir * len * 0.6, base - len * 0.4))
         }
+        // The iris's own glow round it, a soft light in the eye (no blur: a gradient), the pupil dark.
         let ic = scr(gx, gy), ri = iris * S, rp = pupil * S
-        let glint = scr(gx * 0.5 - 0.14, gy * 0.5 - 0.17), g1 = 0.075 * S, g2 = 0.035 * S
-        let irisColors: [Color] = look.color.map { c in [Color.white.opacity(0.55), c.opacity(0.5), c.opacity(0.85)] }
-            ?? [Color(hex: 0xffd08a).opacity(0.85), Color(hex: 0xffb38a).opacity(0.6), Color(hex: 0xf09ac6).opacity(0.5), Color(hex: 0x8b7cf6).opacity(0.6),
-                Color(hex: 0x6366f1).opacity(0.85)]
-        let under: (inout GraphicsContext) -> Void = { g in
-            g.stroke(upperLid, with: .color(pal[3].opacity(0.55)), style: StrokeStyle(lineWidth: lw * 5, lineCap: .round))
-            g.stroke(brow, with: .color(pal[2].opacity(0.4)), style: StrokeStyle(lineWidth: lw * 6, lineCap: .round))
+        let halo = ri * (1.5 + 0.15 * listen)
+        let glow = OrbPalette.glow(pal)
+        drawWaves(&gc, cx: d.cx, cy: d.cy, R: d.R, pal: pal)
+        if blink > 0.25 {
+            // Within the eye's opening only.
+            var almond = line(28, from: -W, to: W, upper)
+            for j in (0...28).reversed() { let x = -W + 2 * W * Double(j) / 28; almond.addLine(to: scr(x, lower(x))) }
+            almond.closeSubpath()
+            var e = gc
+            e.clip(to: almond)
+            var ring = Path(ellipseIn: CGRect(x: ic.x - halo, y: ic.y - halo, width: 2 * halo, height: 2 * halo))
+            ring.addEllipse(in: CGRect(x: ic.x - rp, y: ic.y - rp, width: 2 * rp, height: 2 * rp))
+            e.fill(ring, with: .radialGradient(Gradient(colors: [glow.opacity(0.14 + 0.12 * engine.signal), glow.opacity(0.05), .clear]),
+                                                center: ic, startRadius: rp, endRadius: halo), style: FillStyle(eoFill: true))
         }
-        let over: (inout GraphicsContext) -> Void = { g in
-            if blink > 0.25 {
-                var e = g
-                e.clip(to: almond)
-                // The white: soft and warm, dimmer toward the corners; the iris's own light under its fibers.
-                var white = Path(almond.boundingRect.insetBy(dx: -2, dy: -2))
-                white.addEllipse(in: CGRect(x: ic.x - ri, y: ic.y - ri, width: 2 * ri, height: 2 * ri))
-                e.fill(white, with: .radialGradient(Gradient(colors: [pal[4].opacity(0.18), pal[1].opacity(0.07)]), center: scr(0, 0.05),
-                                                    startRadius: 0, endRadius: W * S), style: FillStyle(eoFill: true))
-                var disc = Path(ellipseIn: CGRect(x: ic.x - ri, y: ic.y - ri, width: 2 * ri, height: 2 * ri))
-                disc.addEllipse(in: CGRect(x: ic.x - rp, y: ic.y - rp, width: 2 * rp, height: 2 * rp))
-                e.fill(disc, with: .radialGradient(Gradient(colors: irisColors), center: ic, startRadius: rp, endRadius: ri), style: FillStyle(eoFill: true))
-                e.fill(Path(ellipseIn: CGRect(x: glint.x - g1, y: glint.y - g1, width: 2 * g1, height: 2 * g1)),
-                       with: .radialGradient(Gradient(colors: [.white.opacity(0.95), .white.opacity(0.7), .clear]), center: glint, startRadius: 0, endRadius: g1))
-                let gl2 = CGPoint(x: glint.x + 0.24 * S, y: glint.y + 0.22 * S)
-                e.fill(Path(ellipseIn: CGRect(x: gl2.x - g2, y: gl2.y - g2, width: 2 * g2, height: 2 * g2)), with: .color(.white.opacity(0.45)))
-            }
-            g.stroke(crease, with: .color(pal[2].opacity(0.35)), style: StrokeStyle(lineWidth: lw, lineCap: .round))
-            g.stroke(lashes, with: .color(pal[4].opacity(0.65)), style: StrokeStyle(lineWidth: lw * 1.0, lineCap: .round))
-            g.stroke(upperLid, with: .color(pal[4].opacity(0.9)), style: StrokeStyle(lineWidth: lw * 2, lineCap: .round))
-            if blink > 0.25 { g.stroke(lowerLid, with: .color(pal[3].opacity(0.5)), style: StrokeStyle(lineWidth: lw * 1.1, lineCap: .round)) }
-            g.stroke(brow, with: .color(pal[2].opacity(0.4)), style: StrokeStyle(lineWidth: lw * 3, lineCap: .round))
-            g.stroke(brow, with: .color(pal[4].opacity(0.55)), style: StrokeStyle(lineWidth: lw * 1.1, lineCap: .round))
+        // One blurred layer: the bloom of the brightest points and the lids' glow.
+        gc.drawLayer { layer in
+            layer.addFilter(.blur(radius: d.px * 2.4))
+            layer.fill(d.paths[3], with: .color(pal[3].opacity(0.55)))
+            layer.fill(d.paths[4], with: .color(pal[4].opacity(0.75)))
+            layer.stroke(upperLid, with: .color(pal[3].opacity(0.5)), style: StrokeStyle(lineWidth: lw * 4, lineCap: .round))
+            layer.stroke(browLine, with: .color(pal[2].opacity(0.4)), style: StrokeStyle(lineWidth: lw * 4, lineCap: .round))
         }
-        finishSoft(&gc, d, pal, surface: 0.35, crisp: 0.8, blur: 1.6, under: under, over: over)
+        gc.stroke(upperLid, with: .color(pal[3].opacity(0.35)), style: StrokeStyle(lineWidth: lw, lineCap: .round))
+        for b in 0..<5 { gc.fill(d.paths[b], with: .color(pal[b])) }
+        gc.stroke(lashes, with: .color(pal[3].opacity(0.85)), style: StrokeStyle(lineWidth: lw, lineCap: .round))
+        drawSatellites(&gc, cx: d.cx, cy: d.cy, R: d.R, px: d.px, pal: pal)
     }
 }
 // MARK: - Imprint's points
@@ -357,14 +375,16 @@ enum ImprintGeometry {
 // MARK: - The eye's points
 
 /// The eye's fixed points, placed each frame from their parameters: the iris's fibers (each point
-/// at its angle and its place along the fiber) and the pupil's edge. The white, the lids, the
-/// crease, the lashes, the brow and the catchlight are drawn as lines and fills.
+/// at its angle and its place along the fiber), the pupil's edge, the white of the eye, the
+/// catchlight, the lids, the crease and the brow. The lashes are lines.
 enum EyeGeometry {
-    enum Kind { case fiber, pupilEdge }
+    enum Kind { case fiber, pupilEdge, sclera, glint, upperLid, lowerLid, crease, brow }
     struct P {
         let kind: Kind
-        /// Fibers: angle `a`, place `u` (0 the pupil … 1 the rim); the pupil's edge: angle `a`.
-        let a: Double; let u: Double; let x: Double; let y: Double; let v: Double
+        /// Fibers: angle `a`, place `u` (0 the pupil … 1 the rim). Sclera: `x` −1…1, `y` −1…1 (up
+        /// to the upper lid … down to the lower). Catchlight: `x`, `y` its offset. Lids, crease,
+        /// brow: `x` −1…1 along, `u` a little thickness.
+        let a: Double; let u: Double; let x: Double; let y: Double
         let lum: Double; let dither: Double; let phase: Double
     }
     static let halfWidth = 1.25, irisRadius = 0.46
@@ -377,11 +397,10 @@ enum EyeGeometry {
         out.reserveCapacity(n)
         var k = 0
         func h(_ salt: Double) -> Double { OrbPoints.hash(k, salt) }
-        func add(_ kind: Kind, a: Double = 0, u: Double = 0, x: Double = 0, y: Double = 0, v: Double = 0, lum: Double) {
-            out.append(P(kind: kind, a: a, u: u, x: x, y: y, v: v, lum: lum, dither: h(14), phase: 2 * .pi * h(12)))
+        func add(_ kind: Kind, a: Double = 0, u: Double = 0, x: Double = 0, y: Double = 0, lum: Double) {
+            out.append(P(kind: kind, a: a, u: u, x: x, y: y, lum: lum, dither: h(14), phase: 2 * .pi * h(12)))
         }
-        // The fibers and the pupil's edge (the lids, the lashes, the brow and the catchlight are lines).
-        let fiberPoints = Int(Double(n) * 0.8)
+        let fiberPoints = Int(Double(n) * 0.55)
         let fibers = max(36, fiberPoints / 14)
         for f in 0..<fibers {
             let a = 2 * Double.pi * (Double(f) + 0.4 * OrbPoints.hash(f, 21)) / Double(fibers)
@@ -389,6 +408,15 @@ enum EyeGeometry {
             for _ in 0..<(fiberPoints / fibers) { k += 1; add(.fiber, a: a, u: h(1), lum: lum) }
         }
         for i in 0..<max(24, n / 40) { k += 1; add(.pupilEdge, a: 2 * Double.pi * Double(i) / Double(max(24, n / 40)), lum: 0.8) }
+        for _ in 0..<Int(Double(n) * 0.1) { k += 1; add(.sclera, x: 2 * h(1) - 1, y: 2 * h(2) - 1, lum: 0.6 + 0.4 * h(3)) }
+        for _ in 0..<Int(Double(n) * 0.1) { k += 1; add(.upperLid, u: h(2), x: 2 * h(1) - 1, lum: 1) }
+        for _ in 0..<Int(Double(n) * 0.06) { k += 1; add(.lowerLid, u: h(2), x: 2 * h(1) - 1, lum: 0.7) }
+        for _ in 0..<Int(Double(n) * 0.04) { k += 1; let x = 2 * h(1) - 1; add(.crease, x: x, lum: 0.4 * (1 - x * x)) }
+        for _ in 0..<Int(Double(n) * 0.06) { k += 1; add(.brow, u: h(2), x: 2 * h(1) - 1, lum: 0.6 + 0.15 * h(3)) }
+        for _ in 0..<max(12, n / 60) {                              // the catchlight
+            k += 1; let a = 2 * Double.pi * h(1), r = 0.06 * h(2).squareRoot()
+            add(.glint, x: r * cos(a), y: r * sin(a), lum: 1)
+        }
         cache[n] = out
         return out
     }

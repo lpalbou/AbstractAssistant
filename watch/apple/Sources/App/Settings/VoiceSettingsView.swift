@@ -33,8 +33,7 @@ struct VoiceSettingsView: View {
                 .accessibilityIdentifier("voices.loading")
             }
         }
-        .navigationTitle("Voice")
-        .containerBackground(Theme.ground, for: .navigation)
+        .screen("Voice")
         .task {
             do { catalog = try await model.client.voiceCatalog() } catch { failed = true }
         }

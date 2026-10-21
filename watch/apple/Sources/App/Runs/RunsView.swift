@@ -92,7 +92,7 @@ struct SessionsView: View {
             }
             .accessibilityIdentifier("sessions.archived")
         }
-        .navigationTitle("Sessions")
+        .screen("Sessions")
         // Archiving asks first: the conversation leaves the list on every device (nothing is deleted).
         .sheet(item: $archiving) { s in
             ArchiveConfirm(title: model.title(of: s), what: .conversation) { confirmed in
@@ -423,8 +423,7 @@ struct ArchivedSessionsView: View {
                 }
             }
         }
-        .navigationTitle("Archived")
-        .containerBackground(Theme.ground, for: .navigation)
+        .screen("Archived")
         .task { await load() }
     }
 
@@ -489,8 +488,7 @@ struct SessionSearchView: View {
                 ProgressView().frame(maxWidth: .infinity)
             }
         }
-        .navigationTitle("Search")
-        .containerBackground(Theme.ground, for: .navigation)
+        .screen("Search")
         .task { await load() }
     }
 

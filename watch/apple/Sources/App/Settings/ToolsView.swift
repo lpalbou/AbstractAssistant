@@ -60,7 +60,7 @@ struct ToolsView: View {
                         .buttonStyle(FilledButtonStyle(fill: Theme.neutralButton))
                 }
                 ForEach(groups) { g in
-                    NavigationLink(value: Route.toolGroup(scope, g.id)) { groupRow(g) }
+                    Button { model.push(.toolGroup(scope, g.id)) } label: { groupRow(g) }
                         .buttonStyle(.tap)
                 }
             }

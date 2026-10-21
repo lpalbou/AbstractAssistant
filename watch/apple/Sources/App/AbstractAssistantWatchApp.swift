@@ -1,5 +1,6 @@
 import AbstractGatewayClient
 import SwiftUI
+import WatchKit
 
 @main
 struct AbstractAssistantWatchApp: App {
@@ -12,7 +13,7 @@ struct AbstractAssistantWatchApp: App {
         let options = LaunchOptions.parse()
         self.options = options
         let model = options.makeModel()
-        model.path = options.initialPath(model)
+        model.show(options.initialPath(model))
         _model = StateObject(wrappedValue: model)
         // Answers that arrive while the app is not on screen come back as notifications.
         AnswerNotifier.shared.activate()
@@ -20,9 +21,9 @@ struct AbstractAssistantWatchApp: App {
         // just come back to it; a second Ask page would show a still orb over the live one.
         AnswerNotifier.shared.open = { [weak model] ref in
             guard let model else { return }
-            switch model.path.last { case .ask, .answer: return; default: model.path = [.answer(ref)] }
+            switch model.path.last { case .ask, .answer: return; default: model.show([.answer(ref)]) }
         }
-        AnswerNotifier.shared.openWait = { [weak model] w in model?.path = [w.kind == .askUser ? .askUser(w) : .approval(w)] }
+        AnswerNotifier.shared.openWait = { [weak model] w in model?.show([w.kind == .askUser ? .askUser(w) : .approval(w)]) }
     }
 
     var body: some Scene {
@@ -39,45 +40,29 @@ struct AbstractAssistantWatchApp: App {
                         }
                 }
             } else {
-            NavigationStack(path: model.stackPath) {
-                HomeView()
-                    .navigationDestination(for: Route.self) { route in
-                        switch route {
-                        case .approval(let w): ApprovalView(wait: w)
-                        case .askUser(let w): AskUserView(wait: w)
-                        case .draft(let w): DraftView(wait: w)
-                        case .waits: WaitsView()
-                        case .automation(let a): AutomationDetailView(automation: a)
-                        case .automationEdit(let a): AutomationEditView(automation: a)
-                        case .newAutomation: NewAutomationView()
-                        case .message(let title, let e): MessageView(title: title, exchange: e)
-                        case .occurrence(let title, let o): OccurrenceView(title: title, occurrence: o)
-                        case .ask(let phase): AskView(initialPhase: phase)
-                        case .picker: ResponderPickerView()
-                        case .sessions: SessionsView()
-                        case .session(let s): SessionDetailView(session: s)
-                        case .automations: AutomationsView()
-                        case .settings: SettingsView()
-                        case .read(let item): ReadView(item: item)
-                        case .about: AboutView()
-                        case .voiceSettings: VoiceSettingsView()
-                        case .tools(let scope): ToolsView(scope: scope)
-                        case .connection: ConnectionView()
-                        case .workflow(let scope): WorkflowPickView(scope: scope)
-                        case .media(let item): MediaPage(item: item)
-                        case .activity(let runId): ActivityDetailView(runId: runId)
-                        case .archivedSessions: ArchivedSessionsView()
-                        case .sessionSearch(let q): SessionSearchView(query: q)
-                        case .archivedAutomations: ArchivedAutomationsView()
-                        case .toolGroup(let scope, let id): ToolGroupView(scope: scope, groupId: id)
-                        case .link(let url): LinkView(url: url)
-                        case .answer(let ref): AskView(initialPhase: .idle, opening: ref)
-                        case .conversation(let id): ConversationInfoView(sessionId: id)
-                        case .filePreview(let files, let i): FilePreviewView(files: files, index: i)
-                        case .orbStyle: OrbStylePicker()
-                        case .orbStylePreview(let raw): OrbStylePreview(design: OrbDesign(rawValue: raw) ?? .a)
+            ZStack(alignment: .topLeading) {
+                NavigationStack(path: model.stackPath) {
+                    HomeView()
+                        .navigationDestination(for: Route.self) { RoutePage(route: $0) }
+                }
+                // Settings slides in from the left, where its gear is, and its pages after it: a
+                // stack of the app's own (a navigation stack would push from the right).
+                if let pages = model.settingsPath {
+                    ZStack {
+                        SettingsView().zIndex(0)
+                        // A page's identity is its place and its route: a page replacing another at the
+                        // same depth starts fresh.
+                        ForEach(Array(pages.enumerated()), id: \.element.hashValue) { i, route in
+                            RoutePage(route: route).transition(.move(edge: .leading)).zIndex(Double(i + 1))
                         }
                     }
+                    .animation(.easeInOut(duration: AppModel.settingsSlide), value: pages)
+                    .background(Theme.ground.ignoresSafeArea())
+                    .offset(x: model.settingsIn ? 0 : -WKInterfaceDevice.current().screenBounds.width)
+                    .zIndex(1)
+                }
+                // The one corner button, over every page: the gear on Home, Back elsewhere.
+                CornerButton().zIndex(2)
             }
             // Swipes as in a browser: to the right goes back (as the system's own Back), to the left
             // goes forward (to a page went back from, or from the orb page to its conversation). A
@@ -98,7 +83,7 @@ struct AbstractAssistantWatchApp: App {
             // the iPhone); other schemes go to the system.
             .environment(\.openURL, OpenURLAction { url in
                 guard url.scheme == "http" || url.scheme == "https" else { return .systemAction(url) }
-                model.path.append(.link(url)); return .handled
+                model.push(.link(url)); return .handled
             })
             .environmentObject(model)
             .tint(Theme.indigo)
@@ -121,6 +106,48 @@ struct AbstractAssistantWatchApp: App {
             // there; background stops at once and asks for a refresh later.
             model.scene(phase)
             if phase == .background { AnswerNotifier.shared.scheduleRefresh() }
+        }
+    }
+}
+
+/// The page a route opens (the same on both stacks).
+struct RoutePage: View {
+    let route: Route
+    var body: some View {
+        switch route {
+        case .approval(let w): ApprovalView(wait: w)
+        case .askUser(let w): AskUserView(wait: w)
+        case .draft(let w): DraftView(wait: w)
+        case .waits: WaitsView()
+        case .automation(let a): AutomationDetailView(automation: a)
+        case .automationEdit(let a): AutomationEditView(automation: a)
+        case .newAutomation: NewAutomationView()
+        case .message(let title, let e): MessageView(title: title, exchange: e)
+        case .occurrence(let title, let o): OccurrenceView(title: title, occurrence: o)
+        case .ask(let phase): AskView(initialPhase: phase)
+        case .picker: ResponderPickerView()
+        case .sessions: SessionsView()
+        case .session(let s): SessionDetailView(session: s)
+        case .automations: AutomationsView()
+        case .settings: SettingsView()
+        case .read(let item): ReadView(item: item)
+        case .about: AboutView()
+        case .voiceSettings: VoiceSettingsView()
+        case .tools(let scope): ToolsView(scope: scope)
+        case .connection: ConnectionView()
+        case .workflow(let scope): WorkflowPickView(scope: scope)
+        case .media(let item): MediaPage(item: item)
+        case .activity(let runId): ActivityDetailView(runId: runId)
+        case .archivedSessions: ArchivedSessionsView()
+        case .sessionSearch(let q): SessionSearchView(query: q)
+        case .archivedAutomations: ArchivedAutomationsView()
+        case .toolGroup(let scope, let id): ToolGroupView(scope: scope, groupId: id)
+        case .link(let url): LinkView(url: url)
+        case .answer(let ref): AskView(initialPhase: .idle, opening: ref)
+        case .conversation(let id): ConversationInfoView(sessionId: id)
+        case .filePreview(let files, let i): FilePreviewView(files: files, index: i)
+        case .orbStyle: OrbStylePicker()
+        case .orbStylePreview(let raw): OrbStylePreview(design: OrbDesign(rawValue: raw) ?? .a)
         }
     }
 }

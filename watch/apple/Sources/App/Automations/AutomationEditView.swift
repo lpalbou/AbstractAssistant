@@ -112,17 +112,8 @@ struct AutomationEditView: View {
                 instructions = d.instructions ?? ""
             } catch { loadFailed = true }
         }
-        // Back with unsaved changes asks first (they used to vanish without a word).
-        .navigationBarBackButtonHidden(changed)
-        .toolbar {
-            if changed {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button { leaving = true } label: { Image(systemName: "chevron.backward") }
-                        .accessibilityLabel("Back")
-                }
-            }
-        }
-        // A swipe back with unsaved changes asks the same.
+        // Back (the corner button or a swipe) with unsaved changes asks first (they used to vanish
+        // without a word).
         .onChange(of: changed, initial: true) { _, c in model.guardBack(of: .automationEdit(automation), c ? { leaving = true } : nil) }
         .onDisappear { model.guardBack(of: .automationEdit(automation), nil) }
         .confirmationDialog("Save your changes?", isPresented: $leaving) {

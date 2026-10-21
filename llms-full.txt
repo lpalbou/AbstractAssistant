@@ -5025,7 +5025,7 @@ approval can be allowed or denied from the notification itself.
 
 **Make it yours.** Settings has Connection (the gateway and account you use), Tools (the defaults
 for new conversations), Voice (the speaking voice, its speed and the transcription model), Read
-aloud, Orb style (thirty-three styles in six families: Orbs, Forms, Cosmos, Nature, Faces and Machines, each previewed live through listening, thinking, working and speaking) and About.
+aloud, Orb style (thirty-four styles in six families: Orbs, Forms, Cosmos, Nature, Faces and Machines, each previewed live through listening, thinking, working and speaking) and About.
 
 ## Sign in
 
@@ -5103,7 +5103,12 @@ channel (TestFlight, then the App Store); the Python package's history is in
   leans right in for input and flicks its eyes as it thinks), Cruiser (a sleek black car whose red
   scanner sweeps as it thinks and whose dash shows three voice bars as it talks, the screen's whole
   width on the talk page) and Android (a calm android in pale gold with amber eyes, a precise blink,
-  a tilt of the head and a raised brow as it thinks). Thirty-three styles in six families.
+  a tilt of the head and a raised brow as it thinks) and Sentinel (a polished chrome helmet whose one
+  red eye sweeps side to side, faster as it thinks, steady and bright as it talks). Thirty-four
+  styles in six families.
+- **One corner button.** The button at the top left is the same on every page and never moves:
+  the gear on Home, Back everywhere else, morphing from one to the other. Settings opens from the
+  left, where its gear is, and its pages follow it from the left too.
 - **Send while it listens.** While the orb listens, a Send button sits where the tools icon is at
   rest: what was said goes now (a noise that starts would keep the silence that sends from
   coming). It works from the first moment, before the microphone has even opened.
@@ -5151,6 +5156,11 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Changed
 
+- **Membrane redone.** A soft, smiling face with closed eyes pressing into a curtain of silk
+  threads, drawn by the light where it presses; it presses closer with your voice, draws back as it
+  thinks, ripples as it works and pushes with its voice as it speaks.
+- **Eye in particles again.** Its iris, lids, brow and catchlight are particles of light in the
+  planet's colours as before, under the lids, lashes, blink and gaze it has now.
 - **Ocean is a real sea.** An evening sky over solid, shaded water lit by the slope of its waves,
   a moon's path of glitter, whitecaps, a lighthouse on a low island; the swell travels across the
   frame. Listening, rings carry your voice across the near water; thinking, the waves fall into
@@ -5508,7 +5518,7 @@ sequenceDiagram
 |---|---|
 | `Sources/App` (SwiftUI) | Screens and navigation (one `NavigationStack`); see [design.md](design.md). |
 | `AppModel` (`@MainActor`) | The client, the state on screen (waits, sessions, automations, entities), each automation's definition and latest results once read (shared by its pages, updated by a save), the 15 s poll while the scene is active (the automations list at most once a minute; none while the screen is dimmed or the app is in the background), haptics, tool and workflow choices, the tools Accept all allowed, the answers seen on this watch. |
-| `Orb`, `OrbScenes`, `OrbConcepts`, `OrbCosmos`, `OrbNature`, `OrbAvatars`, `OrbLines`, `OrbRobots`, `OrbMachines` | The orb (every style drawn from `OrbPhases`, the five phases' weights and the voice): a planet of points whose style answers the voice (Halo, Vortex, Nebula, Liquid, Galaxy), and scenes of their own: Rings, the five state shapes (Lotus, Crystal, Eclipse, Synapse, Drop), Face, Imprint, Contour, Membrane, Eye (one relief of the face, computed once on a grid for the line styles), the ten machines (six robots, a floating robot, a robot on tracks, a car and an android, drawn as lit metal under a fine texture of points), the Cosmos scenes (Well, Black hole, Accretion) and the Nature scenes (Ocean, Aurora, Murmuration); every motion at a fixed pace, the phases blending how much of each shows, so a change of state is always a smooth morph; all frame-rate independent and drawn in one `Canvas`, with the light of its work. |
+| `Orb`, `OrbScenes`, `OrbConcepts`, `OrbCosmos`, `OrbNature`, `OrbAvatars`, `OrbLines`, `OrbRobots`, `OrbMachines` | The orb (every style drawn from `OrbPhases`, the five phases' weights and the voice): a planet of points whose style answers the voice (Halo, Vortex, Nebula, Liquid, Galaxy), and scenes of their own: Rings, the five state shapes (Lotus, Crystal, Eclipse, Synapse, Drop), Face, Imprint, Contour, Membrane, Eye (one relief of the face, computed once on a grid for the line styles), the eleven machines (six robots, a floating robot, a robot on tracks, a car, an android and a chrome sentinel, drawn as lit metal under a fine texture of points), the Cosmos scenes (Well, Black hole, Accretion) and the Nature scenes (Ocean, Aurora, Murmuration); every motion at a fixed pace, the phases blending how much of each shows, so a change of state is always a smooth morph; all frame-rate independent and drawn in one `Canvas`, with the light of its work. |
 | `Listener` | Records 16 kHz mono WAV with metering; detects speech against the room's noise floor; sends after 3 s of silence. |
 | `Speaker` | Streams the gateway's voice in chunks and plays them back to back with metering (the orb follows the level); pause, resume, rewind 10 s. |
 | `RunProgress` | Follows a running automation down to the agent's child run and describes its newest step in words. |

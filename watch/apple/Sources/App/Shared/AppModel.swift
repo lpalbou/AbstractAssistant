@@ -251,6 +251,47 @@ final class AppModel: ObservableObject {
     private var forwarding = false
     /// The last moment a finger moved sideways (a swipe under way, or one that just ended).
     private var swipedAt: Date?
+    /// Settings and its pages, a stack of its own that slides in from the left (the gear is at the
+    /// left), over the pages (`nil`: closed; `[]`: Settings itself).
+    @Published var settingsPath: [Route]?
+    /// Settings' stack is in place (it slides in from the left once it exists, and out before it goes).
+    @Published var settingsIn = false
+    /// Home, with nothing over it: the corner button is the gear.
+    var atHome: Bool { path.isEmpty && !settingsIn }
+    func openSettings() {
+        guard settingsPath == nil else { return }
+        forward = []                                      // opening something else forgets the pages ahead
+        settingsPath = []
+        Task { @MainActor in withAnimation(.easeInOut(duration: Self.settingsSlide)) { settingsIn = true } }   // once it exists, off screen
+    }
+    func closeSettings() {
+        withAnimation(.easeInOut(duration: Self.settingsSlide)) { settingsIn = false }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(Self.settingsSlide))
+            if !settingsIn { settingsPath = nil }
+        }
+    }
+    /// How long Settings takes to slide in or out.
+    static let settingsSlide: Double = 0.3
+    /// Opens a page on top of whatever is open (Settings' stack while it is); a row under a swiping
+    /// finger opens nothing.
+    func push(_ route: Route) {
+        if let t = swipedAt, Date().timeIntervalSince(t) < 0.4 { return }
+        if settingsPath != nil { settingsPath?.append(route) } else { path.append(route) }
+    }
+    /// Closes the page on top of whatever is open (`n` pages).
+    func pop(_ n: Int = 1) {
+        if settingsPath != nil { settingsPath?.removeLast(min(n, settingsPath?.count ?? 0)) }
+        else { path.removeLast(min(n, path.count)) }
+    }
+    /// The page on top of whatever is open.
+    var activeTop: Route? { settingsPath != nil ? settingsPath?.last : path.last }
+    /// Shows these pages (a notification's, a launch option's), closing Settings if open; pages
+    /// starting at Settings open in its stack.
+    func show(_ routes: [Route]) {
+        if routes.first == .settings { path = []; settingsPath = Array(routes.dropFirst()); settingsIn = true }
+        else { settingsIn = false; settingsPath = nil; path = routes }
+    }
 
     /// The navigation stack's changes (a tapped link, the system's Back): a row under a swiping
     /// finger opens nothing, only the swipe moves the history.
@@ -293,6 +334,13 @@ final class AppModel: ObservableObject {
     /// Swipe back (the finger moving right): the page before. Home is the first page: nothing is
     /// before it.
     func goBack() {
+        if let sp = settingsPath {
+            if let top = sp.last {
+                if let g = backGuard, g.route == top { g.ask(); return }
+                settingsPath?.removeLast()
+            } else { closeSettings() }
+            return
+        }
         guard let top = path.last else { return }
         if let g = backGuard, g.route == top { g.ask(); return }
         path.removeLast()
@@ -302,6 +350,7 @@ final class AppModel: ObservableObject {
     /// page and only that (once it has a message); elsewhere the page went back from. Nothing ahead:
     /// nothing happens.
     func goForward() {
+        guard settingsPath == nil else { return }
         switch path.last {
         case .ask:
             guard responder == .assistant, hasMessages(askSessionId) else { return }
