@@ -15,6 +15,8 @@ struct NewAutomationView: View {
     @State private var when: NewAutomation.When = .every("24h")
     @State private var dailyAt = Calendar.current.date(bySettingHour: 8, minute: 0, second: 0, of: Date()) ?? Date()
     @State private var buildsOnEarlierRuns = false
+    /// How much of its earlier runs each run reads (the gateway's default until changed).
+    @State private var tokens: Int?
     @State private var choosingWorkflow = false
     @State private var choosingWhen = false
     @State private var creating = false
@@ -43,7 +45,7 @@ struct NewAutomationView: View {
                 Button { choosingWhen = true } label: { row("When", symbol: "clock", value: Self.label(when)) }
                     .buttonStyle(.tap)
                     .accessibilityLabel("When: \(Self.label(when))")
-                Card { Toggle("Builds on earlier runs", isOn: $buildsOnEarlierRuns).font(.rounded(.footnote, weight: .semibold)).tint(Theme.indigoButton) }
+                MemoryCard(remembers: $buildsOnEarlierRuns, tokens: $tokens, id: "new.tokens")
                 if let error { Text(error).font(.rounded(.caption2)).foregroundStyle(Theme.red).multilineTextAlignment(.center) }
                 Spacer(minLength: 8)
                 Button(creating ? "Creating…" : "Create") { Task { await create() } }
@@ -54,6 +56,8 @@ struct NewAutomationView: View {
         .screen("New automation")
         .task { await loadWorkflows() }
         .task { await model.ensureTools(maxAge: 600) }
+        // The gateway's default memory, shown until a number is typed.
+        .task { if tokens == nil { tokens = try? await model.client.automationDefaults().growingMaxTokens } }
         // A new automation starts from the defaults (once: coming back from its Tools keeps them).
         .onAppear { if !started { started = true; model.startDraftTools() } }
         .sheet(isPresented: $choosingWorkflow) { workflowList }
@@ -160,7 +164,8 @@ struct NewAutomationView: View {
                 error = "Couldn't read your tools. Try again."
                 return
             }
-            let new = NewAutomation(task: text, target: target, when: when, buildsOnEarlierRuns: buildsOnEarlierRuns, tools: tools)
+            var new = NewAutomation(task: text, target: target, when: when, buildsOnEarlierRuns: buildsOnEarlierRuns, tools: tools)
+            new.growingMaxTokens = tokens
             let created = try await model.client.createAutomation(new)
             WKInterfaceDevice.current().play(.success)
             model.refreshAutomations()

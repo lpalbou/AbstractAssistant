@@ -16,7 +16,6 @@ struct AutomationEditView: View {
     @State private var active: Bool
     /// How much of its earlier runs a run reads, in tokens (the gateway's value; nil: not given).
     @State private var tokens: Int?
-    @State private var tokensProblem: String?
     @State private var saving = false
     @State private var error: String?
     @State private var choosingEvery = false
@@ -99,29 +98,7 @@ struct AutomationEditView: View {
                 }
                 // Memory: whether a run reads the earlier ones, and how much of them.
                 field("Memory") {
-                    Card {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Toggle("Builds on earlier runs", isOn: $remembers).font(.rounded(.footnote, weight: .semibold)).tint(Theme.indigoButton)
-                            if remembers {
-                                Divider().overlay(Theme.line)
-                                TextFieldLink(prompt: Text("Tokens (numbers only)")) {
-                                    HStack {
-                                        Text("Reads up to").font(.rounded(.footnote)).foregroundStyle(Theme.text2)
-                                        Spacer(minLength: 4)
-                                        Text(tokens.map(Self.tokensText) ?? "—").font(.rounded(.footnote, weight: .semibold)).monospacedDigit()
-                                            .foregroundStyle(Theme.cyan)
-                                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Theme.muted)
-                                    }
-                                    .contentShape(Rectangle())
-                                } onSubmit: { text in setTokens(text) }
-                                .buttonStyle(.tap)
-                                .accessibilityLabel("Reads up to \(tokens.map(Self.tokensText) ?? "the gateway's default")")
-                                .accessibilityIdentifier("edit.tokens")
-                                Text(tokensProblem ?? "of its earlier runs, in tokens.").font(.rounded(.caption2))
-                                    .foregroundStyle(tokensProblem == nil ? Theme.muted : Theme.red)
-                            }
-                        }
-                    }
+                    MemoryCard(remembers: $remembers, tokens: $tokens, id: "edit.tokens")
                 }
                 if let error { Text(error).font(.rounded(.caption2)).foregroundStyle(Theme.red).multilineTextAlignment(.center) }
                 Spacer(minLength: 8)
@@ -173,22 +150,6 @@ struct AutomationEditView: View {
             content()
         }
     }
-
-    /// What was typed: a whole number of tokens (spaces and thousands separators allowed), else it
-    /// says numbers only and keeps the value.
-    private func setTokens(_ text: String) {
-        let digits = text.filter { !$0.isWhitespace && $0 != "," && $0 != "." && $0 != "\u{2019}" && $0 != "'" }
-        guard !digits.isEmpty, digits.allSatisfy(\.isASCII), digits.allSatisfy(\.isNumber), let n = Int(digits), n > 0 else {
-            tokensProblem = "Numbers only, more than 0."
-            WKInterfaceDevice.current().play(.failure)
-            return
-        }
-        tokensProblem = nil
-        tokens = n
-    }
-
-    /// "50,000 tokens".
-    static func tokensText(_ n: Int) -> String { n.formatted(.number.grouping(.automatic)) + " tokens" }
 
     private var options: [String] {
         Self.presets.contains(every) || every.isEmpty ? Self.presets : [every] + Self.presets
@@ -254,4 +215,56 @@ struct AutomationEditView: View {
             self.error = AppModel.say(error)
         }
     }
+}
+
+/// Whether each run reads the automation's earlier runs, and how much of them ("Reads up to 50,000
+/// tokens": its own value, else the gateway's default); a new number is a whole number only. The
+/// same card in New automation and Edit.
+struct MemoryCard: View {
+    @Binding var remembers: Bool
+    @Binding var tokens: Int?
+    let id: String
+    @State private var problem: String?
+
+    var body: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle("Builds on earlier runs", isOn: $remembers).font(.rounded(.footnote, weight: .semibold)).tint(Theme.indigoButton)
+                if remembers {
+                    Divider().overlay(Theme.line)
+                    TextFieldLink(prompt: Text("Tokens (numbers only)")) {
+                        HStack {
+                            Text("Reads up to").font(.rounded(.footnote)).foregroundStyle(Theme.text2)
+                            Spacer(minLength: 4)
+                            Text(tokens.map(Self.text) ?? "—").font(.rounded(.footnote, weight: .semibold)).monospacedDigit()
+                                .foregroundStyle(Theme.cyan)
+                            Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Theme.muted)
+                        }
+                        .contentShape(Rectangle())
+                    } onSubmit: { set($0) }
+                    .buttonStyle(.tap)
+                    .accessibilityLabel("Reads up to \(tokens.map(Self.text) ?? "the gateway's default")")
+                    .accessibilityIdentifier(id)
+                    Text(problem ?? "of its earlier runs, in tokens.").font(.rounded(.caption2))
+                        .foregroundStyle(problem == nil ? Theme.muted : Theme.red)
+                }
+            }
+        }
+    }
+
+    /// What was typed: a whole number of tokens (spaces and thousands separators allowed), else it
+    /// says numbers only and keeps the value.
+    private func set(_ text: String) {
+        let digits = text.filter { !$0.isWhitespace && $0 != "," && $0 != "." && $0 != "\u{2019}" && $0 != "'" }
+        guard !digits.isEmpty, digits.allSatisfy(\.isASCII), digits.allSatisfy(\.isNumber), let n = Int(digits), n > 0 else {
+            problem = "Numbers only, more than 0."
+            WKInterfaceDevice.current().play(.failure)
+            return
+        }
+        problem = nil
+        tokens = n
+    }
+
+    /// "50,000 tokens".
+    static func text(_ n: Int) -> String { n.formatted(.number.grouping(.automatic)) + " tokens" }
 }

@@ -74,6 +74,8 @@ public protocol GatewayClient: Sendable {
     func discussAutomation(id: String, occurrenceIndex: Int, prompt: String) async throws -> Discussion
     /// `GET /api/gateway/automations?archived_only=true`: the archived automations.
     func archivedAutomations() async throws -> [AutomationSummary]
+    /// `GET /api/gateway/automations/defaults`: the gateway's defaults for a new automation.
+    func automationDefaults() async throws -> AutomationDefaults
     /// `GET /automations/{id}` → `summary`: one automation's row, fresh (e.g. its run in progress).
     func automation(id: String) async throws -> AutomationSummary
     /// `GET /bundles?executable_for=<interface>`: the workflows this account may schedule.
@@ -351,6 +353,10 @@ public actor LiveGatewayClient: GatewayClient {
     private struct Command: Encodable {
         var command_id = UUID().uuidString.lowercased()
         let type: String
+    }
+
+    public func automationDefaults() async throws -> AutomationDefaults {
+        try await get("api/gateway/automations/defaults", as: AutomationDefaults.self)
     }
 
     public func archivedAutomations() async throws -> [AutomationSummary] {

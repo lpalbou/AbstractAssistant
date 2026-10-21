@@ -350,6 +350,13 @@ public struct Discussion: Decodable, Sendable {
     enum CodingKeys: String, CodingKey { case sessionId = "session_id", runId = "run_id" }
 }
 
+/// `GET /api/gateway/automations/defaults`: what a new automation gets unless it says otherwise.
+public struct AutomationDefaults: Decodable, Sendable {
+    public var growingMaxTokens: Int?
+    public init(growingMaxTokens: Int?) { self.growingMaxTokens = growingMaxTokens }
+    enum CodingKeys: String, CodingKey { case growingMaxTokens = "growing_max_tokens" }
+}
+
 public struct OccurrencesPage: Codable, Sendable {
     public var items: [LastOccurrence]
     public var nextCursor: String?
@@ -691,6 +698,8 @@ public struct NewAutomation: Sendable {
     public var target: Target
     public var when: When
     public var buildsOnEarlierRuns: Bool
+    /// How much of its earlier runs each run reads, in tokens (nil: the gateway's default).
+    public var growingMaxTokens: Int?
     /// The tools its runs may use and which ask first (nil: the workflow's own and the gateway's
     /// grant for unattended runs).
     public var tools: ToolChoices.Plan?
@@ -744,7 +753,8 @@ public struct NewAutomation: Sendable {
             "title": .string(title),
             "target": target,
             "trigger": .object(["source_id": .string("schedule"), "source_version": .number(2), "config": .object(config)]),
-            "context": .object(["mode": .string(buildsOnEarlierRuns ? "growing" : "independent")]),
+            "context": .object(["mode": .string(buildsOnEarlierRuns ? "growing" : "independent")]
+                .merging(buildsOnEarlierRuns ? growingMaxTokens.map { ["growing": JSONValue.object(["max_tokens": .number(Double($0))])] } ?? [:] : [:]) { a, _ in a }),
             // With the tools chosen, their policy decides (the runtime keeps it); "ask" when one asks.
             "policy": .object(["tool_approval": .string(tools.map { $0.ask.isEmpty ? "auto" : "ask" } ?? "auto")]),
         ])

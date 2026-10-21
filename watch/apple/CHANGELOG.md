@@ -6,6 +6,12 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ## [Unreleased]
 
+### Added
+
+- **New automation sets how much it remembers.** With "Builds on earlier runs" on, it shows how
+  much of its earlier runs each run reads (the gateway's default, 50,000 tokens on yours) and takes
+  a new number, as Edit does.
+
 ### Changed
 
 - **Approve all, for a conversation and an automation alike.** An approval offers Deny, Approve

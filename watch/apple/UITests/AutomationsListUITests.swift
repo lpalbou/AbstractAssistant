@@ -97,3 +97,28 @@ final class AutomationsListUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Paused"].waitForExistence(timeout: 10), "not paused:\n\(app.debugDescription)")
     }
 }
+
+/// New automation: building on earlier runs shows how much of them it reads (the gateway's default,
+/// a number only), as Edit does.
+final class NewAutomationMemoryUITests: XCTestCase {
+    func testBuildsOnEarlierRunsShowsTheBudget() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--screen", "automation-new"]
+        app.launch()
+        let toggle = app.switches["Builds on earlier runs"].firstMatch
+        app.bring(toggle)
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.buttons["new.tokens"].exists, "a budget without building on earlier runs")
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        let tokens = app.buttons["new.tokens"].firstMatch
+        XCTAssertTrue(tokens.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(tokens.label.contains("50,000 tokens"), tokens.label)
+        app.bring(tokens); sleep(1)
+        tokens.tap(); sleep(1)
+        app.typeText("80000")
+        app.buttons["Done"].firstMatch.tap()
+        let end = Date().addingTimeInterval(5)
+        while Date() < end && !tokens.label.contains("80,000 tokens") { usleep(200_000) }
+        XCTAssertTrue(tokens.label.contains("80,000 tokens"), tokens.label)
+    }
+}

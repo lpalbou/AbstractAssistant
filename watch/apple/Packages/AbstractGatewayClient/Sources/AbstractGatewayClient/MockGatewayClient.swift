@@ -233,6 +233,7 @@ public actor MockGatewayClient: GatewayClient {
         default: break
         }
     }
+    public func automationDefaults() async throws -> AutomationDefaults { AutomationDefaults(growingMaxTokens: 50_000) }
     public func archivedAutomations() async throws -> [AutomationSummary] {
         var out: [AutomationSummary] = []
         for a in Self.sampleAutomations where archivedAutomationIds.contains(a.id) { out.append(try await automation(id: a.id)) }
