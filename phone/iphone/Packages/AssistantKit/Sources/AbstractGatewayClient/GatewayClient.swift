@@ -70,7 +70,7 @@ public protocol GatewayClient: Sendable {
     func automationCommand(id: String, type: String) async throws
     /// `GET /automations/{id}` → `summary`: one automation's row, fresh (e.g. its run in progress).
     func automation(id: String) async throws -> AutomationSummary
-    /// `GET /bundles?executable_for=<interface>`: the workflows this account may schedule.
+    /// Gateway bundle entrypoints; an empty interface lists all runnable workflows.
     func workflows(forInterface interface: String) async throws -> [WorkflowChoice]
     /// `GET /bundles/{b}/flows/{f}/input_schema?bundle_version=`: a workflow's inputs.
     func workflowInputs(_ w: WorkflowChoice) async throws -> WorkflowInputs
@@ -293,7 +293,7 @@ public actor LiveGatewayClient: GatewayClient {
     }
 
     public func workflows(forInterface interface: String) async throws -> [WorkflowChoice] {
-        WorkflowChoice.choices(from: try await get("api/gateway/bundles", query: [.init(name: "executable_for", value: interface)], as: JSONValue.self))
+        WorkflowChoice.choices(from: try await get("api/gateway/bundles", query: interface.isEmpty ? [] : [.init(name: "executable_for", value: interface)], as: JSONValue.self))
     }
 
     public func workflowInputs(_ w: WorkflowChoice) async throws -> WorkflowInputs {

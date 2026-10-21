@@ -433,6 +433,179 @@ final class PhoneUITests: XCTestCase {
         XCTAssertFalse(app.buttons["activity.review"].exists)
         capture(app, "Activity — completed after approval")
     }
+    @MainActor func testSessionApprovalShieldRevokesWithoutChangingToolModes() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--reset-tool-defaults", "--activity=approval", "--screen", "conversation"]; app.launch()
+        let shield = app.buttons["chat.approvals.revoke"]
+        XCTAssertTrue(app.buttons["activity.review"].waitForExistence(timeout: 15))
+        XCTAssertFalse(shield.exists)
+        app.buttons["activity.review"].tap()
+        XCTAssertTrue(app.buttons["Approve"].waitForExistence(timeout: 5)); app.swipeUp()
+        app.buttons["approval.all"].tap()
+        XCTAssertTrue(shield.waitForExistence(timeout: 15))
+        XCTAssertTrue(shield.isHittable)
+        capture(app, "Session approval — orange revoke shield in toolbar")
+        app.buttons["chat.tools"].tap()
+        XCTAssertTrue(app.buttons["tools.approvals.revoke"].waitForExistence(timeout: 8))
+        capture(app, "Session approval — temporary grant remains separate from modes")
+        app.buttons["tools.close"].tap()
+        shield.tap()
+        XCTAssertFalse(shield.exists)
+        app.buttons["chat.tools"].tap()
+        XCTAssertFalse(app.buttons["tools.approvals.revoke"].exists)
+        capture(app, "Session approval — asks again after one tap")
+    }
+
+    @MainActor func testGuardOrbOpensScopedApprovalInsteadOfStoppingRun() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--activity=approval", "--screen", "conversation"]; app.launch()
+        let guardOrb = app.buttons.matching(NSPredicate(format: "identifier == 'voice.orb' AND label == 'Review tool approval'")).firstMatch
+        XCTAssertTrue(guardOrb.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["Needs you"].exists)
+        capture(app, "Guard orb — orange hand awaits a decision")
+        guardOrb.tap()
+        XCTAssertTrue(app.buttons["Approve"].waitForExistence(timeout: 5))
+        app.swipeUp()
+        XCTAssertTrue(app.buttons["Deny"].exists)
+        XCTAssertTrue(app.buttons["approval.all"].exists)
+        capture(app, "Guard orb — opens the three approval choices")
+        app.buttons["approval.all"].tap()
+        XCTAssertTrue(app.buttons["answer.tools.activity-root"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.staticTexts["Run stopped."].exists)
+        XCTAssertFalse(guardOrb.exists)
+    }
+
+    @MainActor func testSpokenTurnAndReplyAreVisibleWithoutScrollingRestoredHistory() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--history-fixture", "--voice-fixture", "--speech-delay-fixture", "--screen", "history"]; app.launch()
+        let latestCopy = app.buttons["chat.latest-copy"]
+        XCTAssertTrue(latestCopy.waitForExistence(timeout: 15))
+        let restored = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: latestCopy)
+        XCTAssertEqual(XCTWaiter.wait(for: [restored], timeout: 5), .completed)
+        openSettings(app); app.buttons["Voice & reading"].tap()
+        for identifier in ["voice.autoSend", "voice.readAloud"] {
+            let toggle = app.switches[identifier]; XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
+        }
+        app.navigationBars["Voice"].buttons.element(boundBy: 0).tap(); app.buttons["Done"].tap()
+        let orb = app.buttons["voice.orb"]
+        // Repeat the exact spoken question; a new turn identity must still move the viewport.
+        for turn in 1...2 {
+            XCTAssertTrue(orb.waitForExistence(timeout: 5)); orb.tap()
+            let started = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == 'Stop assistant'"), object: orb)
+            XCTAssertEqual(XCTWaiter.wait(for: [started], timeout: 18), .completed)
+            let question = app.staticTexts["chat.latest-question"]
+            XCTAssertEqual(question.label, "Help me make room for focused work this week")
+            let visibleQuestion = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: question)
+            XCTAssertEqual(XCTWaiter.wait(for: [visibleQuestion], timeout: 3), .completed)
+            capture(app, "Spoken turn \(turn) — visible without scrolling")
+            let preparing = app.buttons.matching(NSPredicate(format: "identifier == 'voice.orb' AND label == 'Preparing speech. Tap to cancel'")).firstMatch
+            XCTAssertTrue(preparing.waitForExistence(timeout: 25))
+            let visibleReply = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: latestCopy)
+            XCTAssertEqual(XCTWaiter.wait(for: [visibleReply], timeout: 4), .completed)
+            capture(app, "Answer \(turn) — visible during speech preparation")
+            let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == 'Tap to speak'"), object: orb)
+            XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 20), .completed)
+            XCTAssertTrue(latestCopy.isHittable)
+        }
+        capture(app, "Completed speech — latest answer stays visible")
+    }
+
+    @MainActor func testLatestMessagesHidesWhenManuallyReturningToBottom() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--history-fixture", "--screen", "history"]; app.launch()
+        let copy = app.buttons["chat.latest-copy"]
+        XCTAssertTrue(copy.waitForExistence(timeout: 15))
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: copy)], timeout: 5), .completed)
+        let latest = app.buttons["chat.latest"], transcript = app.scrollViews["chat.transcript"]
+        XCTAssertFalse(latest.exists)
+        // Add enough content to move beyond the near-bottom tolerance. A short restored
+        // conversation can remain within that tolerance even at its oldest message.
+        app.buttons["composer.keyboard"].tap()
+        app.textFields["composer.input"].typeText("A longer conversation for testing manual return to the latest reply.")
+        app.buttons["Send message"].tap()
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == 'Tap to speak'"), object: app.buttons["voice.orb"])
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 30), .completed)
+        transcript.swipeDown()
+        XCTAssertTrue(latest.waitForExistence(timeout: 5))
+        capture(app, "Latest — offered while reading earlier messages")
+        // Return by dragging, without activating the jump button.
+        for _ in 0..<4 { transcript.swipeUp(); if !latest.exists { break } }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: latest)], timeout: 5), .completed)
+        XCTAssertTrue(copy.isHittable)
+        capture(app, "Latest — hidden at the bottom after manual scrolling")
+    }
+
+    @MainActor func testReadingEarlierMessagesIsPreservedUntilLatestOrNewSubmission() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--history-fixture", "--screen", "history"]; app.launch()
+        let keyboard = app.buttons["composer.keyboard"]
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 15))
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true AND hittable == true"), object: keyboard)], timeout: 10), .completed)
+        keyboard.tap()
+        let input = app.textFields["composer.input"]; input.typeText("A keyboard question with earlier history")
+        app.buttons["Send message"].tap()
+        let question = app.staticTexts["chat.latest-question"]
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: question)], timeout: 4), .completed)
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == 'Stop assistant'"), object: app.buttons["voice.orb"])], timeout: 10), .completed)
+        let transcript = app.scrollViews["chat.transcript"]
+        let earlier = app.staticTexts["Earlier question 1"]
+        for _ in 0..<5 { if earlier.isHittable { break }; transcript.swipeDown() }
+        XCTAssertTrue(earlier.isHittable)
+        let latest = app.buttons["chat.latest"]
+        XCTAssertTrue(latest.waitForExistence(timeout: 5))
+        capture(app, "Streaming — reading earlier messages")
+        let before = earlier.frame.minY
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == 'Tap to speak'"), object: app.buttons["voice.orb"])
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 25), .completed)
+        XCTAssertTrue(earlier.isHittable); XCTAssertEqual(earlier.frame.minY, before, accuracy: 8)
+        latest.tap()
+        let latestCopy = app.buttons["chat.latest-copy"]
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: latestCopy)], timeout: 5), .completed)
+        XCTAssertFalse(latest.exists)
+        capture(app, "Latest — answer visible without a pan")
+        transcript.swipeDown()
+        XCTAssertTrue(latest.waitForExistence(timeout: 5))
+        keyboard.tap(); input.typeText("A keyboard question with earlier history"); app.buttons["Send message"].tap()
+        XCTAssertFalse(latest.waitForExistence(timeout: 2))
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: question)], timeout: 4), .completed)
+        capture(app, "Repeated keyboard submission — following resumes")
+    }
+
+    @MainActor func testTranscriptionOrbCancelsPendingSpeechAndReturnsToEditableReview() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--voice-fixture", "--speech-delay-fixture"]; app.launch()
+        let orb = app.buttons["voice.orb"]
+        XCTAssertTrue(orb.waitForExistence(timeout: 10)); orb.tap()
+        let transcribing = app.buttons.matching(NSPredicate(format: "identifier == 'voice.orb' AND label == 'Transcribing. Tap to cancel'")).firstMatch
+        XCTAssertTrue(transcribing.waitForExistence(timeout: 10))
+        capture(app, "STT — geodesic while awaiting transcription")
+        orb.tap()
+        XCTAssertEqual(orb.label, "Tap to speak")
+        XCTAssertFalse(app.textFields["composer.input"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Copy answer"].exists)
+        orb.tap()
+        XCTAssertTrue(transcribing.waitForExistence(timeout: 10))
+        let input = app.textFields["composer.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 12))
+        XCTAssertEqual(input.value as? String, "Help me make room for focused work this week")
+        XCTAssertFalse(app.buttons["Copy answer"].exists)
+        capture(app, "STT — successful result remains an editable draft")
+    }
+
+    @MainActor func testSpeechPreparationOrbCancelsWithoutStartingMicrophoneAndCanPlayAgain() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--history-fixture", "--speech-delay-fixture", "--screen", "history"]; app.launch()
+        let reader = app.buttons["Read answer aloud"].firstMatch
+        XCTAssertTrue(reader.waitForExistence(timeout: 15)); reader.tap()
+        let preparing = app.buttons.matching(NSPredicate(format: "identifier == 'voice.orb' AND label == 'Preparing speech. Tap to cancel'")).firstMatch
+        XCTAssertTrue(preparing.waitForExistence(timeout: 5))
+        capture(app, "TTS — geodesic while awaiting speech")
+        preparing.tap()
+        XCTAssertEqual(app.buttons["voice.orb"].label, "Tap to speak")
+        XCTAssertFalse(app.staticTexts["Listening"].exists)
+        XCTAssertFalse(app.buttons["Stop reading"].waitForExistence(timeout: 5))
+        reader.tap()
+        XCTAssertTrue(preparing.waitForExistence(timeout: 5))
+        let speaking = app.buttons.matching(NSPredicate(format: "identifier == 'voice.orb' AND label == 'Reading aloud. Tap to speak'")).firstMatch
+        XCTAssertTrue(speaking.waitForExistence(timeout: 10))
+        capture(app, "TTS — geodesic returns to voice-reactive playback")
+        app.buttons["Stop reading"].firstMatch.tap()
+    }
+
     @MainActor func testFailedRunAndLostConnectionHaveDistinctFeedback() throws {
         let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--activity=failure", "--screen", "conversation"]; app.launch()
         XCTAssertTrue(app.staticTexts["Couldn’t finish"].waitForExistence(timeout: 15))
@@ -486,6 +659,33 @@ final class PhoneUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Your assistant is working…"].exists)
         capture(app, "Orb restored after stop")
     }
+    @MainActor func testStoppedRequestCanBeEditedAndResentWithoutChangingOriginal() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test"]; app.launch()
+        XCTAssertTrue(app.buttons["Find a little focus"].firstMatch.waitForExistence(timeout: 10))
+        app.buttons["Find a little focus"].firstMatch.tap(); app.buttons["Send message"].tap()
+        let orb = app.buttons["voice.orb"]
+        let working = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@ AND enabled == true", "Stop assistant"), object: orb)
+        XCTAssertEqual(XCTWaiter.wait(for: [working], timeout: 10), .completed); orb.tap()
+        let edit = app.buttons["Edit and resend"].firstMatch
+        XCTAssertTrue(edit.waitForExistence(timeout: 10)); edit.tap()
+        let field = app.textFields["request.edit.text"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        let original = "Help me make room for focused work this week."
+        XCTAssertEqual(field.value as? String, original)
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(edit.waitForExistence(timeout: 5)); edit.tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: original.count))
+        XCTAssertFalse(app.buttons["request.edit.send"].isEnabled)
+        field.typeText("Help me focus tomorrow instead.")
+        capture(app, "Edit stopped request")
+        app.buttons["request.edit.send"].tap()
+        XCTAssertTrue(app.staticTexts["Help me focus tomorrow instead."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts[original].exists)
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Stop assistant"), object: orb)], timeout: 10), .completed)
+        capture(app, "Resent request preserves stopped history")
+        orb.tap()
+    }
     @MainActor func testApprovalShowsActionAndReturnsToInbox() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--demo", "--ui-test", "--screen", "inbox"]
@@ -534,6 +734,7 @@ final class PhoneUITests: XCTestCase {
     @MainActor func testCreateAutomationOnThePhone() throws {
         let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--screen", "automations"]; app.launch()
         XCTAssertTrue(app.buttons["New automation"].waitForExistence(timeout: 10)); app.buttons["New automation"].tap()
+        let title = app.textFields["automation.title"]; XCTAssertTrue(title.waitForExistence(timeout: 5)); title.tap(); title.typeText("Daily briefing")
         let field = app.textFields["automation.task"].exists ? app.textFields["automation.task"] : app.textViews["automation.task"]
         XCTAssertTrue(field.waitForExistence(timeout: 10)); field.tap(); field.typeText("My phone daily briefing")
         app.staticTexts["What should it do?"].tap()
@@ -541,7 +742,7 @@ final class PhoneUITests: XCTestCase {
         let create = app.buttons["automation.create"]
         for _ in 0..<4 { if create.isHittable { break }; app.swipeUp() }
         XCTAssertTrue(create.isHittable); create.tap()
-        XCTAssertTrue(app.staticTexts["My phone daily briefing"].firstMatch.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Daily briefing"].firstMatch.waitForExistence(timeout: 20))
         capture(app, "Created automation")
     }
     @MainActor func testConversationFilesAreVisible() throws {
@@ -622,8 +823,41 @@ final class PhoneUITests: XCTestCase {
         XCTAssertEqual(app.textFields["composer.input"].value as? String, "Help me make room for focused work this week.")
         XCTAssertFalse(app.buttons["Copy answer"].waitForExistence(timeout: 5))
     }
+    @MainActor func testVoiceMessagesOpenAnEditableDraftByDefaultAndPreserveTypedText() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--voice-fixture"]; app.launch()
+        XCTAssertTrue(app.buttons["composer.keyboard"].waitForExistence(timeout: 10))
+        openSettings(app); app.buttons["Voice & reading"].tap()
+        let automatic = app.switches["voice.autoSend"]
+        XCTAssertTrue(automatic.waitForExistence(timeout: 5)); XCTAssertEqual(automatic.value as? String, "0")
+        capture(app, "Review voice before sending is the default")
+        app.navigationBars["Voice"].buttons.element(boundBy: 0).tap(); app.buttons["Done"].tap()
+        let input = app.textFields["composer.input"]
+        app.buttons["composer.keyboard"].tap(); input.typeText("Keep my typed introduction")
+        app.staticTexts["What’s on your mind?"].tap()
+        let orb = app.buttons["voice.orb"]; XCTAssertTrue(orb.waitForExistence(timeout: 5)); orb.tap()
+        let countdown = app.buttons.matching(NSPredicate(format: "identifier == 'voice.orb' AND label BEGINSWITH 'Preparing text in '")).firstMatch
+        XCTAssertTrue(countdown.waitForExistence(timeout: 6))
+        XCTAssertTrue(input.waitForExistence(timeout: 20))
+        let expected = "Keep my typed introduction\nHelp me make room for focused work this week"
+        XCTAssertEqual(input.value as? String, expected)
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        XCTAssertFalse(app.buttons["Copy answer"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.buttons["activity.toggle"].exists)
+        input.typeText(". Please keep it short.")
+        capture(app, "Voice transcription is editable before sending")
+        app.buttons["Send message"].tap()
+        XCTAssertTrue(app.staticTexts[expected + ". Please keep it short."].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Copy answer"].firstMatch.waitForExistence(timeout: 30))
+    }
     @MainActor func testTapSilenceCancelAndAutomaticVoiceSend() throws {
         let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--voice-fixture"]; app.launch()
+        openSettings(app); app.buttons["Voice & reading"].tap()
+        let automatic = app.switches["voice.autoSend"]
+        XCTAssertTrue(automatic.waitForExistence(timeout: 5)); XCTAssertEqual(automatic.value as? String, "0")
+        automatic.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
+        XCTAssertEqual(automatic.value as? String, "1")
+        capture(app, "Automatic voice sending enabled")
+        app.navigationBars["Voice"].buttons.element(boundBy: 0).tap(); app.buttons["Done"].tap()
         let orb = app.buttons["voice.orb"]
         XCTAssertTrue(orb.waitForExistence(timeout: 10))
         let input = app.textFields["composer.input"]
@@ -747,6 +981,7 @@ final class PhoneUITests: XCTestCase {
     @MainActor func testAutomationToolsCanOverrideSettingsAndPersistOnTheDefinition() throws {
         let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--reset-tool-defaults", "--screen", "automations"]; app.launch()
         XCTAssertTrue(app.buttons["New automation"].waitForExistence(timeout: 10)); app.buttons["New automation"].tap()
+        let title = app.textFields["automation.title"]; XCTAssertTrue(title.waitForExistence(timeout: 5)); title.tap(); title.typeText("Read my workspace every morning")
         let task = app.textFields["automation.task"]; XCTAssertTrue(task.waitForExistence(timeout: 5)); task.tap(); task.typeText("Read my workspace every morning")
         app.staticTexts["What should it do?"].tap()
         app.swipeUp()
@@ -774,6 +1009,7 @@ final class PhoneUITests: XCTestCase {
         app.segmentedControls["tool.read_file"].buttons["Off"].tap(); app.buttons["tools.save"].tap()
         app.tabBars.buttons["Automations"].tap()
         app.buttons["New automation"].tap()
+        let title = app.textFields["automation.title"]; XCTAssertTrue(title.waitForExistence(timeout: 5)); title.tap(); title.typeText("Read a file on schedule")
         let task = app.textFields["automation.task"]; XCTAssertTrue(task.waitForExistence(timeout: 5))
         task.tap(); task.typeText("Read a file on schedule"); app.staticTexts["What should it do?"].tap(); app.swipeUp()
         app.buttons["automation.tools"].tap(); searchTools(app, for: "read_file")
@@ -884,6 +1120,7 @@ final class PhoneUITests: XCTestCase {
     @MainActor func testGrowingAutomationBudgetValidatesAndInheritsByDefault() throws {
         let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--screen", "automations"]; app.launch()
         XCTAssertTrue(app.buttons["New automation"].waitForExistence(timeout: 10)); app.buttons["New automation"].tap()
+        let title = app.textFields["automation.title"]; XCTAssertTrue(title.waitForExistence(timeout: 5)); title.tap(); title.typeText("My inherited history briefing")
         let task = app.textFields["automation.task"]
         XCTAssertTrue(task.waitForExistence(timeout: 10)); task.tap(); task.typeText("My inherited history briefing")
         app.staticTexts["What should it do?"].tap()
@@ -911,6 +1148,30 @@ final class PhoneUITests: XCTestCase {
         XCTAssertTrue(create.isHittable); create.tap()
         XCTAssertTrue(app.staticTexts["My inherited history briefing"].firstMatch.waitForExistence(timeout: 20))
     }
+    @MainActor func testAutomationCanConfigureANonAssistantWorkflowWithMintCreateAction() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--screen", "automations"]; app.launch()
+        XCTAssertTrue(app.buttons["New automation"].waitForExistence(timeout: 10)); app.buttons["New automation"].tap()
+        let title = app.textFields["automation.title"]; XCTAssertTrue(title.waitForExistence(timeout: 5)); title.tap(); title.typeText("Hourly CSV report")
+        let task = app.textFields["automation.task"]; task.tap(); task.typeText("Prepare the report")
+        app.staticTexts["What should it do?"].tap()
+        app.buttons["automation.workflow"].tap()
+        XCTAssertTrue(app.buttons["CSV report"].waitForExistence(timeout: 5)); app.buttons["CSV report"].tap()
+        let source = app.textFields["automation.input.source_url"]
+        XCTAssertTrue(source.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.textFields["automation.task"].exists)
+        source.tap(); source.typeText("https://example.org/report.csv")
+        app.staticTexts["Source URL · Required"].tap()
+        let count = app.textFields["automation.input.row_limit"]
+        XCTAssertEqual(count.value as? String, "25")
+        capture(app, "Automation — non-Assistant workflow inputs")
+        let create = app.buttons["automation.create"]
+        for _ in 0..<5 { if create.isHittable { break }; app.swipeUp() }
+        XCTAssertTrue(create.isHittable); XCTAssertTrue(create.isEnabled)
+        capture(app, "Automation — mint primary creation action")
+        create.tap()
+        XCTAssertTrue(app.staticTexts["Hourly CSV report"].firstMatch.waitForExistence(timeout: 20))
+    }
+
     @MainActor func testOnlyTheSpeakingAnswerShowsStop() throws {
         let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test"]; app.launch()
         for index in 1...2 {

@@ -1,0 +1,17 @@
+{
+  "version": "0.6.22",
+  "build": "30",
+  "bundle_id": "ai.abstractframework.assistant.iphone",
+  "development_signed": true,
+  "normal_build": true,
+  "installed": true,
+  "launched": true,
+  "package_tests_passed": 252,
+  "testflight_candidate": {
+    "version": "0.6.22",
+    "build": "126.1",
+    "full_native_tests_passed": 81,
+    "upload": "human_gate_waiting"
+  },
+  "git_commit_or_push_after_user_stop": false
+}

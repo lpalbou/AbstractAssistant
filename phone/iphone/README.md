@@ -8,19 +8,27 @@ AbstractGateway, with the conversation at the center and the controls you need c
 ## Three small spaces
 
 - **Assistant.** Type a message, or **tap the orb to listen**. After you speak, three seconds
-  of silence sends your voice message automatically. Speaking again restarts the countdown;
-  tap the orb before sending to cancel. Separate floating **+**, **keyboard** and orb controls
+  of silence prepares your transcription for review in the text composer. Edit it, then tap
+  Send. Turn on **Send voice messages automatically** in **Settings → Voice & reading** for
+  direct sending. Speaking again restarts the countdown; tap the orb during capture to cancel. Separate floating **+**, **keyboard** and orb controls
   keep the conversation open. The keyboard button expands the editor across the available
   width and hides the orb. Tap outside to dismiss the keyboard and restore the controls,
   preserving your draft. While listening, only a small Listening label appears above the orb.
   The orb’s ribbons react to microphone and read-aloud playback levels. While the assistant
   works, it morphs into a lit rounded square with a mint/lavender Stop symbol: tap it
-  to stop the response. The same contour returns to the sphere when work ends. Progress appears once
+  to stop the response. After confirmation, **Edit and resend** opens the stopped request
+  with its original text and attachments; edit it and tap Send to start a new reply while
+  keeping the earlier turn. The same contour returns to the sphere when work ends. Progress appears once
   in a collapsible activity panel. It shows model cycles, tool calls, public results and
   failures. When a tool needs approval, **Approval needed → Review tools** appears directly
-  in the conversation. Connection loss is reported separately from run failure. The orb
+  in the conversation, and the orb’s cords morph into an orange raised hand. Tap the hand
+  to review **Approve**, **Deny** or **Approve all**; tapping it never approves automatically.
+  Connection loss is reported separately from run failure. The orb
   returns when the gateway confirms the run has ended. Completed activity moves into cycle
-  and tool-count buttons beside the answer’s speaker. Cycles opens a connected progression
+  and tool-count buttons beside the answer’s speaker.
+  New submissions reveal the latest messages. While following a reply, the conversation
+  stays with incoming text, media and keyboard changes. Scroll up to read earlier messages;
+  **Latest messages** returns to the reply and resumes following. Cycles opens a connected progression
   per agent, with expandable model details and approval context. Tools opens the individual
   calls with recorded input, output and timing, plus search.
   Positive-only file, email and web actions open compact source collections; file views
@@ -30,16 +38,26 @@ AbstractGateway, with the conversation at the center and the controls you need c
   reading old replies aloud. Tap the current name and chevron to choose **Assistant** or an entity, or create an entity.
   Share the conversation from the toolbar, copy an answer, or ask the gateway to read it
   aloud; pause, resume and stop playback.
-  Voice sends separately from your typed draft. The **+** button serves text and voice.
+  Review adds the transcription below any existing typed draft. Automatic sending keeps
+  that draft separate. The **+** button serves text and voice.
 - **Inbox.** Questions and tool approvals, followed by recent activity. Approvals show every
   action and its complete arguments. **Approve** allows the pending request; **Deny** refuses
-  it. For the open conversation, **Approve all** also switches its currently enabled tools
-  to Auto. Off, unavailable and newly added tools remain outside that grant. Change the
-  choices in **Tools** to revoke it. Questions still require an answer. Decisions already
-  made on another device cannot resume a different wait.
+  it. For the open conversation, **Approve all** temporarily permits its enabled Approve
+  tools while this iPhone follows the conversation. An orange shield beside **Tools** removes
+  those grants in one tap; Approve tools ask again from the next unanswered call. Auto and
+  Off settings stay unchanged, and already approved calls may finish. Off, unavailable and
+  newly added tools remain outside the grant. **Tools** also lists the temporary grants.
+  Older grants saved as Auto offer a one-time review to choose which tools should ask again.
+  Questions still require an answer. Decisions already made on another device cannot resume
+  a different wait.
 - **Automations.** See your routines and the latest 20 runs. Tap a dated run card for its explanation, attempts, recorded error and expandable activity; results refresh while the detail screen is open. Run an
-  active or paused routine now, pause it, or resume it. Tap **New automation** (or **+** above an existing list) to create a routine: describe the task, choose a workflow and
+  active or paused routine now, pause it, or resume it. Tap **New automation** (or **+** above an existing list) to create a routine: enter a short title, choose a workflow and its inputs, and select an
   interval or daily time, choose its tools, and decide whether it builds on earlier runs.
+  Assistant workflows keep the separate task-instructions field.
+  The picker includes all runnable workflows your gateway offers, including workflows without
+  an Assistant interface. Selecting one loads its named inputs with defaults; fill required
+  inputs before creating it. Booleans and choices have controls, and structured values accept
+  JSON. **Create automation** is the mint primary action.
   Daily times use your account’s time zone, which the creation screen displays. Editing
   an existing routine’s tools is available on its detail screen; other definition changes
   remain in the gateway console.
@@ -57,14 +75,20 @@ to another agent interface or runs models locally.
 
 ## Voice and files
 
-**Settings → Voice & reading** offers automatic reading of new replies, the gateway’s
+**Settings → Voice & reading** offers **Send voice messages automatically** (off by default),
+automatic reading of new replies, the gateway’s
 speaking voices and its transcription models. Voice choices stay on this iPhone, scoped
 to your account and gateway. **Gateway default** sends no override; entities retain their
 own speaking voice. Tap a voice to select and hear it automatically. Speed choices
 **1×, 1.15×, 1.3× and 1.5×** also play a sample and apply to all read-aloud playback.
 Restored history is never read automatically.
 
-**Tap → speak → three seconds of silence → send.** Capture stays on the iPhone until the
+**Tap → speak → three seconds of silence → review → Send.** By default, the transcription
+opens in the keyboard composer for corrections; no Assistant request starts until you tap Send.
+Pending attachments remain available, and existing typed text is preserved above the transcription.
+Enable **Send voice messages automatically** to send the transcription directly while preserving
+your separate typed draft. This preference is saved per account on this iPhone.
+Capture stays on the iPhone until the
 silence countdown ends. Speaking again restarts that countdown. Tap the orb
 to discard pending voice without uploading it. A tap without confirmed speech times out
 after eight seconds, and the one-minute recording limit discards an unfinished message.
@@ -75,6 +99,10 @@ The same tap interaction works with VoiceOver's double-tap activation.
 
 The orb uses measured microphone/playback energy for its silhouette, rings and light.
 Listening adapts to your microphone’s recent volume range; playback uses its own scale.
+While waiting for transcription or for speech to start playing, its cords morph into a rapidly
+rotating geodesic sphere with **Transcribing** or **Preparing speech** above it. Tap to cancel
+the pending speech operation. It returns to the listening orb for playback or an editable
+transcription for review.
 Reduce Motion retains signal-driven light while freezing geometry and rotation. Silence
 detection uses local microphone power; room noise and very quiet speech can affect it.
 
@@ -237,7 +265,8 @@ the public App Store automatically.
 - Voice capture is limited to one minute. Audio goes to your gateway, then the temporary
   recording is removed. Transcription and speech use the gateway providers you select;
   no model runs on the iPhone. The orb’s level response is local; the conversation still
-  proceeds through recording, transcription, a gateway run, then speech.
+  proceeds through recording and transcription, review unless automatic sending is enabled,
+  then a gateway run and optional speech.
 - Chat model overrides, editing existing automation definitions, push, CarPlay and iPad
   layouts remain outside this preview. The desktop and gateway console expose those controls.
 - Device microphone permissions, private-network reachability and real provider audio need

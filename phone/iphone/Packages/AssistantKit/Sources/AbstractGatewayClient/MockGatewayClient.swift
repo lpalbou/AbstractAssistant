@@ -100,6 +100,7 @@ public actor MockGatewayClient: GatewayClient {
     private var pending: [Wait]
     private var started: [String: (Date, String)] = [:]
     private var cancelledRunIDs: Set<String> = []
+    private nonisolated let speechPreparationDelay: TimeInterval
     private let wordInterval: TimeInterval
     private let mediaImage: Data?
     private let mediaVoice: Data?
@@ -111,7 +112,8 @@ public actor MockGatewayClient: GatewayClient {
     private let activityScenario: String?
     private var activityResolved = false
 
-    public init(waits: [Wait] = MockGatewayClient.sampleWaits, wordInterval: TimeInterval = 0.12, emptyAutomations: Bool = false, activityScenario: String? = nil, historyFixture: Bool = false, conversationListFixture: Bool = false, categoryFixture: Bool = false, emailFixture: Bool = false, accessFixture: Bool = false, mediaImage: Data? = nil, mediaVoice: Data? = nil) {
+    public init(waits: [Wait] = MockGatewayClient.sampleWaits, wordInterval: TimeInterval = 0.12, emptyAutomations: Bool = false, activityScenario: String? = nil, historyFixture: Bool = false, conversationListFixture: Bool = false, categoryFixture: Bool = false, emailFixture: Bool = false, accessFixture: Bool = false, mediaImage: Data? = nil, mediaVoice: Data? = nil, speechPreparationDelay: TimeInterval = 0) {
+        self.speechPreparationDelay = speechPreparationDelay
         self.mediaImage = mediaImage; self.mediaVoice = mediaVoice
         self.conversationListFixture = conversationListFixture; self.categoryFixture = categoryFixture
         self.historyFixture = historyFixture; self.emailFixture = emailFixture; self.accessFixture = accessFixture
@@ -194,10 +196,17 @@ public actor MockGatewayClient: GatewayClient {
     public func workflows(forInterface interface: String) async throws -> [WorkflowChoice] {
         [WorkflowChoice(bundleId: "basic-agent", bundleVersion: "0.0.5", flowId: "81795ea9", name: "Basic agent"),
          WorkflowChoice(bundleId: "deep-research", bundleVersion: "0.1.8", flowId: "deep-research", name: "Deep research"),
-         WorkflowChoice(bundleId: "memact-agent", bundleVersion: "0.1.0", flowId: "memact", name: "MemAct agent")]
+         WorkflowChoice(bundleId: "memact-agent", bundleVersion: "0.1.0", flowId: "memact", name: "MemAct agent")] + (interface.isEmpty ? [WorkflowChoice(bundleId: "csv-report", bundleVersion: "1.2.3", flowId: "build-report", name: "CSV report")] : [])
     }
     public func workflowInputs(_ w: WorkflowChoice) async throws -> WorkflowInputs {
-        WorkflowInputs(defaults: ["use_context": .bool(false)], required: w.bundleId == "memact-agent" ? ["prompt"] : [])
+        if w.bundleId == "csv-report" {
+            return WorkflowInputs.parse(.object(["inputs": .array([
+                .object(["id": .string("source_url"), "label": .string("Source URL"), "type": .string("string"), "required": .bool(true)]),
+                .object(["id": .string("row_limit"), "label": .string("Row limit"), "type": .string("integer"), "required": .bool(true), "default": .number(25)]),
+                .object(["id": .string("include_header"), "label": .string("Include header"), "type": .string("boolean"), "default": .bool(true)])
+            ])]))!
+        }
+        return WorkflowInputs(defaults: ["use_context": .bool(false)], required: w.bundleId == "memact-agent" ? ["prompt"] : [])
     }
     public func createAutomation(_ a: NewAutomation) async throws -> AutomationSummary {
         try await Task.sleep(for: .milliseconds(600))
@@ -354,18 +363,22 @@ public actor MockGatewayClient: GatewayClient {
     /// Two short synthetic "sentences" (a voiced tone with a syllable envelope), so the read screen and
     /// the orb can be exercised without a gateway.
     public func transcribe(wav: Data, sessionId: String) async throws -> String {
-        try await Task.sleep(for: .milliseconds(900))
+        try await Task.sleep(for: .seconds(max(0.9, speechPreparationDelay)))
         return "Help me make room for focused work this week"
     }
 
     public nonisolated func speech(text: String, scope: SpeechScope) -> AsyncThrowingStream<Data, Error> {
         AsyncThrowingStream { continuation in
-            Task {
-                try? await Task.sleep(for: .milliseconds(600))
-                continuation.yield(SyntheticSpeech.wav(seconds: 2.4, seed: 1))
-                continuation.yield(SyntheticSpeech.wav(seconds: 2.0, seed: 2))
-                continuation.finish()
+            let task = Task {
+                do {
+                    try await Task.sleep(for: .seconds(max(0.6, speechPreparationDelay)))
+                    continuation.yield(SyntheticSpeech.wav(seconds: 2.4, seed: 1))
+                    if speechPreparationDelay > 0 { try await Task.sleep(for: .seconds(2.4 + speechPreparationDelay)) }
+                    continuation.yield(SyntheticSpeech.wav(seconds: 2.0, seed: 2))
+                    continuation.finish()
+                } catch { continuation.finish(throwing: error) }
             }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 

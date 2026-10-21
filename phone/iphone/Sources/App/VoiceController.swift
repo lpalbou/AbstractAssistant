@@ -195,6 +195,8 @@ final class AudioSessionEvents: @unchecked Sendable {
                     player.enableRate = true; player.rate = Float(PhonePreferences.validSpeed(speed)); preparing = false
                     player.prepareToPlay(); if !paused, !player.play() { throw CocoaError(.fileReadCorruptFile) }
                     while player.isPlaying || paused { try await Task.sleep(for: .milliseconds(30)) }
+                    // A streamed response can wait again between playable chunks.
+                    preparing = true
                 }
             } catch { if epoch == generation, !(error is CancellationError) { self.error = error.localizedDescription; if error as? GatewayError == .unauthorized { onUnauthorized?() } } }
             if epoch == generation { speaking = false; preparing = false; paused = false; readingID = nil; stopSampling(); player = nil; deactivateAudio() }

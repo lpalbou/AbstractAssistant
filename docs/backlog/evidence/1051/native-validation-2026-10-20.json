@@ -1,0 +1,8 @@
+{
+  "manual_bottom_regression": "Passed in UITests-1792517312295126000.xcresult",
+  "reading_history_and_new_submission": "Passed in UITests-1792517123215402000.xcresult",
+  "spoken_repeated_submission": "Questions visible; second reply footer not yet hittable during speech preparation; visible after speech completion. Test failed at line 502.",
+  "refinements": "Distance now uses contentSize.height - visibleRect.maxY, avoiding double-counted safe-area insets. Coalescing waits 32 ms for a rendered layout rather than Task.yield.",
+  "latest_voice_retest": "Interrupted by Watch priority guard; frame coalescing refinement not yet verified in completed native test.",
+  "item_remains": "Planned"
+}

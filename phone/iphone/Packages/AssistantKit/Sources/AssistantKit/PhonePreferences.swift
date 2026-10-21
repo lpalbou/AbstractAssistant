@@ -3,6 +3,7 @@ import Observation
 import AbstractGatewayClient
 
 @MainActor @Observable public final class PhonePreferences {
+    public var autoSendVoice: Bool { didSet { defaults.set(autoSendVoice, forKey: prefix + "autoSendVoice") } }
     public var readAloud: Bool { didSet { defaults.set(readAloud, forKey: prefix + "readAloud") } }
     public var showMessageStats: Bool { didSet { defaults.set(showMessageStats, forKey: prefix + "showMessageStats") } }
     public var voice: VoiceChoice? { didSet { save(voice, "voice") } }
@@ -16,6 +17,7 @@ import AbstractGatewayClient
         self.defaults = defaults; prefix = "phone.preferences." + scope + "."
         speed = Self.validSpeed(defaults.double(forKey: prefix + "speed"))
         readAloud = defaults.bool(forKey: prefix + "readAloud")
+        autoSendVoice = defaults.bool(forKey: prefix + "autoSendVoice")
         showMessageStats = defaults.bool(forKey: prefix + "showMessageStats")
         voice = defaults.data(forKey: prefix + "voice").flatMap { try? JSONDecoder().decode(VoiceChoice.self, from: $0) }
         transcription = defaults.data(forKey: prefix + "transcription").flatMap { try? JSONDecoder().decode(TranscriptionChoice.self, from: $0) }

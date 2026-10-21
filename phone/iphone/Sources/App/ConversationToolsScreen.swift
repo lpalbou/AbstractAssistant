@@ -14,6 +14,7 @@ struct ConversationToolsScreen: View {
     @State private var modes: [String: ToolMode] = [:]
     @State private var inherit = true
     @State private var saving = false
+    @State private var legacyAskingAgain: Set<String> = []
     private var inheritedModes: [String: ToolMode] {
         let selection = scope == .settings ? nil : store.appTools
         return ConversationTools.snapshot(selection, inventory: inventory).modes
@@ -55,6 +56,37 @@ struct ConversationToolsScreen: View {
                         .listRowBackground(PhoneTheme.surface)
                 } else {
                     if let error { Section { Text(error).foregroundStyle(PhoneTheme.amber) }.listRowBackground(PhoneTheme.surface) }
+                    if scope == .conversation {
+                        if !store.sessionApprovalGrants.isEmpty {
+                            Section {
+                                Label("Allowed for this session", systemImage: "checkmark.shield.fill").foregroundStyle(PhoneTheme.amber)
+                                Text(store.sessionApprovalGrants.map(toolName).sorted().joined(separator: ", "))
+                                    .font(.caption).foregroundStyle(PhoneTheme.secondary)
+                                Button("Ask again", systemImage: "hand.raised") { store.revokeSessionApprovals() }
+                                    .foregroundStyle(PhoneTheme.amber).accessibilityIdentifier("tools.approvals.revoke")
+                                    .disabled(!validOrigin)
+                            } footer: { Text("Removes temporary approvals from the next unanswered call. Auto tools stay Auto. Calls already approved may finish.") }
+                                .listRowBackground(PhoneTheme.surface)
+                        }
+                        if !store.legacySessionApprovalNames.isEmpty {
+                            Section {
+                                Label("Review earlier approvals", systemImage: "checkmark.shield.fill").foregroundStyle(PhoneTheme.amber)
+                                Text("An earlier app version saved these approvals as Auto. Select the tools you want to ask again; the rest keep their current settings.")
+                                    .font(.caption).foregroundStyle(PhoneTheme.secondary)
+                                ForEach(store.legacySessionApprovalNames, id: \.self) { name in
+                                    Toggle(toolName(name), isOn: Binding(get: { legacyAskingAgain.contains(name) }, set: { enabled in
+                                        if enabled { legacyAskingAgain.insert(name) } else { legacyAskingAgain.remove(name) }
+                                    })).tint(PhoneTheme.amber).accessibilityIdentifier("tools.approvals.legacy." + name)
+                                }
+                                Button(legacyAskingAgain.isEmpty ? "Keep current settings" : "Make selected tools ask again") {
+                                    store.reviewLegacySessionApprovals(askingAgain: legacyAskingAgain)
+                                    legacyAskingAgain = []
+                                    if let selection = store.conversationTools { modes = selection.modes; inherit = false }
+                                }.disabled(!canSave).accessibilityIdentifier("tools.approvals.legacy.save")
+                            } footer: { Text("Applies from your next message. Original Auto and Approve choices were not retained by that version.") }
+                                .listRowBackground(PhoneTheme.surface)
+                        }
+                    }
                     Section {
                         Toggle(scope == .settings ? "Use gateway defaults" : "Use Settings defaults", isOn: $inherit)
                             .tint(PhoneTheme.mint).accessibilityIdentifier("tools.defaults")
@@ -91,6 +123,9 @@ struct ConversationToolsScreen: View {
                 }
             }.task { await load() }.interactiveDismissDisabled(saving)
         }
+    }
+    private func toolName(_ name: String) -> String {
+        inventory.first { $0.name == name }?.displayName ?? name.replacingOccurrences(of: "_", with: " ").capitalized
     }
     private func categoryHeader(_ group: ToolCatalogGroup) -> some View {
         let open = searching || expanded.contains(group.id)

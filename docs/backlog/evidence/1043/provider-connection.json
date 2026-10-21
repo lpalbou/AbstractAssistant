@@ -1,0 +1,36 @@
+{
+  "automation_started": false,
+  "available_assistant_workflows": [
+    {
+      "bundle": "abstractassistant-orchestrator",
+      "flow_id": "c53b1579",
+      "version": "0.0.15"
+    },
+    {
+      "bundle": "abstractassistant-orchestrator",
+      "flow_id": "d5d4e5a1",
+      "version": "0.0.15"
+    }
+  ],
+  "configuration_changed": false,
+  "discovery_error_mentions_401": false,
+  "discovery_ok": true,
+  "effective_key_configured": true,
+  "email_automation_targets": [
+    {
+      "automation_id": "2de2f21d-0340-5148-8173-600babbb34b0",
+      "bundle_ref": "abstractassistant-orchestrator@0.0.0",
+      "flow_id": "d5d4e5a1",
+      "latest_fired_at": "2026-10-19T11:38:02.719423+00:00",
+      "latest_index": 4,
+      "latest_status": "failed"
+    }
+  ],
+  "profile": {
+    "api_key_set": true,
+    "enabled": true,
+    "id": "airelays",
+    "provider_family": "openai-compatible",
+    "scope": "gateway"
+  }
+}

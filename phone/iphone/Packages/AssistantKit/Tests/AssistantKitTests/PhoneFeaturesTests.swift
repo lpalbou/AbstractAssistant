@@ -84,3 +84,16 @@ import AbstractGatewayClient
     #expect(restored[0].name == "atlas-one" && restored[0].displayName == "Atlas One")
     #expect(rows[1].name == "broken-home" && rows[1].extra["error"]?.stringValue == "Unreadable identity")
 }
+
+@Test @MainActor func voiceSendingRequiresAnExplicitAccountScopedOptIn() {
+    let defaults = UserDefaults(suiteName: "voice-send-\(UUID())")!
+    // Existing preferences migrate to review when this new key is absent.
+    defaults.set(true, forKey: "phone.preferences.alice.readAloud")
+    let alice = PhonePreferences(scope: "alice", defaults: defaults)
+    #expect(!alice.autoSendVoice && alice.readAloud)
+    alice.autoSendVoice = true
+    #expect(PhonePreferences(scope: "alice", defaults: defaults).autoSendVoice)
+    #expect(!PhonePreferences(scope: "bob", defaults: defaults).autoSendVoice)
+    alice.autoSendVoice = false
+    #expect(!PhonePreferences(scope: "alice", defaults: defaults).autoSendVoice)
+}

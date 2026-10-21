@@ -35,6 +35,273 @@ final class LiveGatewayMediaTests: XCTestCase {
         #endif
     }
 
+    @MainActor func testInspectProviderConnectionReadOnly() async throws {
+        #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
+        let connection = try XCTUnwrap(ConnectionVault.read())
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        _ = try await client.me()
+        var report: [String: JSONValue] = ["configuration_changed": .bool(false), "automation_started": .bool(false)]
+        defer { try? write(report, name: "provider-connection.json") }
+        let profiles = try await raw(connection, path: "api/gateway/config/provider-endpoint-profiles")
+        if case .array(let rows)? = profiles["profiles"], let profile = rows.first(where: { $0["id"]?.stringValue == "airelays" }) {
+            var visible: [String: JSONValue] = [:]
+            for key in ["id", "scope", "enabled", "provider_family", "api_key_set"] { visible[key] = profile[key] }
+            report["profile"] = .object(visible)
+            let body = try JSONEncoder().encode(JSONValue.object(["profile_id": .string("airelays")]))
+            let discovery = try await raw(connection, path: "api/gateway/config/provider-endpoint-profiles/discover-models", method: "POST", data: body, contentType: "application/json")
+            report["discovery_ok"] = discovery["ok"]
+            report["effective_key_configured"] = discovery["api_key_set"]
+            report["discovery_error_mentions_401"] = .bool(discovery["error"]?.stringValue?.contains("401") == true)
+        } else { report["profile_found"] = .bool(false) }
+        var targets: [JSONValue] = []
+        for automation in try await client.automations() where automation.name?.lowercased().contains("email") == true {
+            let definition = try await client.automationDefinition(id: automation.id)
+            var fields: [String: JSONValue] = ["automation_id": .string(automation.id)]
+            for key in ["kind", "interface", "bundle_id", "bundle_version", "flow_id", "bundle_ref", "provider", "model"] { fields[key] = definition.target?[key] }
+            for key in ["provider", "model"] { fields["input_" + key] = definition.target?["input_data"]?[key] }
+            fields["latest_status"] = automation.lastOccurrence?.status.map(JSONValue.string)
+            fields["latest_index"] = automation.lastOccurrence?.index.map { .number(Double($0)) }
+            fields["latest_fired_at"] = automation.lastOccurrence?.firedAt.map(JSONValue.string)
+            fields["current_status"] = automation.currentOccurrence?.status.map(JSONValue.string)
+            targets.append(.object(fields))
+        }
+        report["email_automation_targets"] = .array(targets)
+        report["available_assistant_workflows"] = .array(try await client.workflows(forInterface: "abstractassistant.agent.v1").filter { $0.bundleId == "abstractassistant-orchestrator" }.map {
+            .object(["bundle": .string($0.bundleId), "version": .string($0.bundleVersion), "flow_id": .string($0.flowId)])
+        })
+        #else
+        throw XCTSkip("Provider inventory verification is opt-in and device-only.")
+        #endif
+    }
+
+    @MainActor func testCompareAutomationWorkflowsWithoutTools() async throws {
+        #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
+        let connection = try XCTUnwrap(ConnectionVault.read())
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        _ = try await client.me()
+        var results: [JSONValue] = []
+        defer { try? write(["email_task_started": .bool(false), "configuration_changed": .bool(false), "results": .array(results)], name: "workflow-route-check.json") }
+        for version in ["0.0.0", "0.0.15"] {
+            let session = "iphone-provider-check-" + UUID().uuidString.lowercased()
+            var body = StartRunRequest(prompt: "Reply exactly: OK. Do not use any tools.", sessionId: session,
+                                       toolPolicy: .init(requireApprovalTools: [], autoApproveTools: []), system: "Reply only OK. Tools are unavailable.")
+            body.bundleId = "abstractassistant-orchestrator"; body.bundleVersion = version; body.flowId = "d5d4e5a1"
+            body.inputData.tools = []; body.inputData.runtime?.allowedTools = []; body.inputData.useSessionHistory = false
+            var result: [String: JSONValue] = ["version": .string(version), "tools_enabled": .bool(false)]
+            do {
+                let id = try await client.startRun(body)
+                result["run_id"] = .string(id)
+                let deadline = Date().addingTimeInterval(60)
+                var final: RunSummary?
+                while Date() < deadline {
+                    let run = try await client.run(id: id)
+                    if run.isTerminal { final = run; break }
+                    try await Task.sleep(for: .milliseconds(500))
+                }
+                if let final {
+                    result["status"] = .string(final.status)
+                    result["model_error_is_401"] = .bool(final.error?.contains("401") == true)
+                    result["reply_is_ok"] = .bool(final.conversationText?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == "OK")
+                    try await client.setArchived(sessionId: session, true)
+                    result["diagnostic_session_archived"] = .bool(true)
+                } else {
+                    try await client.cancel(runId: id)
+                    result["status"] = .string("cancel_requested_after_timeout")
+                }
+            } catch GatewayError.unauthorized { throw GatewayError.unauthorized }
+            catch GatewayError.http(let status, _) { result["gateway_http_status"] = .number(Double(status)) }
+            catch { result["verification_problem"] = .string("Diagnostic request could not complete") }
+            results.append(.object(result))
+        }
+        #else
+        throw XCTSkip("Tool-free generation-route comparison is opt-in and device-only.")
+        #endif
+    }
+
+    /// Inspect routing metadata in place; never export prompts, mailbox content or credentials.
+    @MainActor func testCompareRecordedAutomationRoutingReadOnly() async throws {
+        #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
+        let connection = try XCTUnwrap(ConnectionVault.read())
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        _ = try await client.me()
+        var report: [String: JSONValue] = ["read_only": .bool(true)]
+        defer { try? write(report, name: "recorded-routing.json") }
+        let automationID = "2de2f21d-0340-5148-8173-600babbb34b0"
+        let definition = try await client.automationDefinition(id: automationID)
+        report["target_routing"] = routingMetadata(.object(definition.target ?? [:]))
+        var rows: [JSONValue] = []
+        for root in [automationID, "1ed3d7f3-4371-5629-815c-3fd95d0c5572", "9f42432d-c4f6-5c16-be26-e57370baf1f7", "c7fec42f-69ce-4aa9-9707-b3d8b5de33e4", "39ddef44-aeed-4e61-a5fe-7ec9cdcae773"] {
+            var queue = [root]; var seen = Set<String>()
+            while let id = queue.first, seen.count < 25 {
+                queue.removeFirst(); guard seen.insert(id).inserted else { continue }
+                var item: [String: JSONValue] = ["root": .string(root), "run_id": .string(id)]
+                let run = try await client.run(id: id)
+                item["status"] = .string(run.status); item["error"] = run.error.map(JSONValue.string)
+                item["workflow_id"] = run.workflowId.map(JSONValue.string)
+                do {
+                    let input = try await raw(connection, path: "api/gateway/runs/\(id)/input_data")
+                    item["input_routing"] = routingMetadata(input)
+                    let ledger = try await raw(connection, path: "api/gateway/runs/\(id)/ledger")
+                    item["ledger_routing"] = routingMetadata(ledger)
+                } catch GatewayError.unauthorized { throw GatewayError.unauthorized }
+                catch GatewayError.http(let status, _) { item["inspection_http_status"] = .number(Double(status)) }
+                let children = try await client.childRuns(ofRunID: id)
+                queue.append(contentsOf: children.map(\.runId))
+                rows.append(.object(item))
+            }
+        }
+        report["runs"] = .array(rows)
+        #else
+        throw XCTSkip("Recorded routing inspection is opt-in and device-only.")
+        #endif
+    }
+
+    @MainActor func testAutomationControllerWithoutTools() async throws {
+        #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
+        let connection = try XCTUnwrap(ConnectionVault.read())
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        _ = try await client.me()
+        let original = try await client.automationDefinition(id: "2de2f21d-0340-5148-8173-600babbb34b0")
+        var runtime: [String: JSONValue] = ["allowed_tools": .array([])]
+        for key in ["provider", "model"] { runtime[key] = original.target?["input_data"]?["_runtime"]?[key] }
+        var input: [String: JSONValue] = ["prompt": .string("Reply exactly: OK. Tools are unavailable."), "tools": .array([]), "_runtime": .object(runtime)]
+        for key in ["provider", "model"] { input[key] = original.target?["input_data"]?[key] }
+        let body: JSONValue = .object([
+            "request_id": .string(UUID().uuidString.lowercased()), "title": .string("Temporary tool-free routing verification"),
+            "target": .object(["bundle_ref": original.target?["bundle_ref"] ?? .string("abstractassistant-orchestrator@0.0.0"), "flow_id": original.target?["flow_id"] ?? .string("d5d4e5a1"), "input_data": .object(input)]),
+            "trigger": .object(["source_id": .string("manual"), "source_version": .number(1), "config": .object([:])]),
+            "context": .object(["mode": .string("independent")]),
+            "policy": .object(["tool_approval": .string("ask"), "retry": .object(["max_attempts": .number(1)])]),
+            "notify": .object(["channels": .array([.string("console")])])
+        ])
+        let created = try await raw(connection, path: "api/gateway/automations", method: "POST", data: JSONEncoder().encode(body), contentType: "application/json")
+        let id = try XCTUnwrap(created["automation_id"]?.stringValue)
+        var report: [String: JSONValue] = ["diagnostic_automation_id": .string(id), "tools_enabled": .bool(false), "email_task_started": .bool(false)]
+        defer { try? write(report, name: "controller-route-check.json") }
+        do {
+            try await client.automationCommand(id: id, type: "automation.run_now")
+            let deadline = Date().addingTimeInterval(90)
+            while Date() < deadline {
+                let page = try await raw(connection, path: "api/gateway/automations/\(id)/occurrences")
+                if case .array(let items)? = page["items"], let row = items.first {
+                    if ["completed", "failed", "cancelled"].contains(row["status"]?.stringValue ?? "") {
+                        for key in ["run_id", "status", "failure", "attempts"] { report[key] = row[key] }
+                        report["reply_is_ok"] = .bool(row["answer"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == "OK")
+                        break
+                    }
+                }
+                try await Task.sleep(for: .seconds(1))
+            }
+            if report["status"] == nil { try await client.automationCommand(id: id, type: "automation.stop_current"); report["status"] = .string("timeout_stop_requested") }
+            try await client.automationCommand(id: id, type: "automation.archive")
+            report["archive_requested"] = .bool(true)
+        } catch {
+            try? await client.automationCommand(id: id, type: "automation.stop_current")
+            try? await client.automationCommand(id: id, type: "automation.archive")
+            throw error
+        }
+        #else
+        throw XCTSkip("Tool-free automation controller verification is opt-in and device-only.")
+        #endif
+    }
+
+    @MainActor func testAutomationToolCallingReadOnlyMetadata() async throws {
+        #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
+        let connection = try XCTUnwrap(ConnectionVault.read())
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        _ = try await client.me()
+        let originalID = "2de2f21d-0340-5148-8173-600babbb34b0"
+        let original = try await client.automationDefinition(id: originalID)
+        let inventory = try await client.tools()
+        guard inventory.contains(where: { $0.name == "list_email_accounts" && $0.isAvailable }) else { throw VerificationError.message("Read-only account metadata tool is unavailable") }
+        var runtime: [String: JSONValue] = ["allowed_tools": .array([.string("list_email_accounts")])]
+        for key in ["provider", "model"] { runtime[key] = original.target?["input_data"]?["_runtime"]?[key] }
+        var input: [String: JSONValue] = ["prompt": .string("Call list_email_accounts once to verify access to account metadata. Then reply exactly OK. Do not read email bodies or send messages."), "tools": .array([.string("list_email_accounts")]), "_runtime": .object(runtime)]
+        for key in ["provider", "model"] { input[key] = original.target?["input_data"]?[key] }
+        let body: JSONValue = .object([
+            "request_id": .string(UUID().uuidString.lowercased()), "title": .string("Temporary read-only tool routing verification"),
+            "target": .object(["bundle_ref": original.target?["bundle_ref"] ?? .string("abstractassistant-orchestrator@0.0.0"), "flow_id": original.target?["flow_id"] ?? .string("d5d4e5a1"), "input_data": .object(input)]),
+            "trigger": .object(["source_id": .string("manual"), "source_version": .number(1), "config": .object([:])]),
+            "context": .object(["mode": .string("independent")]),
+            "policy": .object(["tool_approval": .string("auto"), "retry": .object(["max_attempts": .number(1)])]),
+            "notify": .object(["channels": .array([.string("console")])])
+        ])
+        let created = try await raw(connection, path: "api/gateway/automations", method: "POST", data: JSONEncoder().encode(body), contentType: "application/json")
+        let id = try XCTUnwrap(created["automation_id"]?.stringValue)
+        var report: [String: JSONValue] = ["diagnostic_automation_id": .string(id), "allowed_tools": .array([.string("list_email_accounts")]), "email_task_started": .bool(false)]
+        defer { try? write(report, name: "controller-tool-check.json") }
+        do {
+            try await client.automationCommand(id: id, type: "automation.run_now")
+            let deadline = Date().addingTimeInterval(90)
+            while Date() < deadline {
+                let page = try await raw(connection, path: "api/gateway/automations/\(id)/occurrences")
+                if case .array(let items)? = page["items"], let row = items.first,
+                   ["completed", "failed", "cancelled"].contains(row["status"]?.stringValue ?? "") {
+                    for key in ["run_id", "status", "failure", "attempts"] { report[key] = row[key] }
+                    report["reply_is_ok"] = .bool(row["answer"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == "OK")
+                    if let root = row["run_id"]?.stringValue {
+                        var queue = [root]; var visited = Set<String>(); var calls = 0
+                        while let run = queue.first, visited.count < 12 {
+                            queue.removeFirst(); guard visited.insert(run).inserted else { continue }
+                            let page = try await client.ledger(runId: run, after: 0)
+                            for record in page.items {
+                                if record.effect?["type"]?.stringValue == "tool_calls", record.status == "completed" { calls += 1 }
+                            }
+                            queue.append(contentsOf: try await client.childRuns(ofRunID: run).map(\.runId))
+                        }
+                        report["completed_tool_batches"] = .number(Double(calls))
+                    }
+                    break
+                }
+                try await Task.sleep(for: .seconds(1))
+            }
+            if report["status"] == nil { try await client.automationCommand(id: id, type: "automation.stop_current"); report["status"] = .string("timeout_stop_requested") }
+            try await client.automationCommand(id: id, type: "automation.archive")
+            for _ in 0..<10 {
+                let state = try await raw(connection, path: "api/gateway/automations/\(id)")
+                if state["summary"]?["status"]?.stringValue == "archived" { report["archived"] = .bool(true); break }
+                try await Task.sleep(for: .milliseconds(300))
+            }
+            let state = try await raw(connection, path: "api/gateway/automations/\(originalID)")
+            var originalStatus: [String: JSONValue] = [:]
+            for key in ["status", "revision", "next_fire_at", "next_run_at"] { originalStatus[key] = state["summary"]?[key] }
+            for key in ["run_id", "index", "status", "fired_at", "finished_at", "attempts"] { originalStatus["last_" + key] = state["summary"]?["last_occurrence"]?[key] }
+            report["original_automation"] = .object(originalStatus)
+        } catch {
+            try? await client.automationCommand(id: id, type: "automation.stop_current")
+            try? await client.automationCommand(id: id, type: "automation.archive")
+            throw error
+        }
+        #else
+        throw XCTSkip("Read-only tool-calling verification is opt-in and device-only.")
+        #endif
+    }
+
+    private func routingMetadata(_ value: JSONValue) -> JSONValue {
+        switch value {
+        case .object(let fields):
+            var output: [String: JSONValue] = [:]
+            for (key, field) in fields {
+                if ["provider", "model", "provider_family", "workflow_id", "effect_type", "status", "error"].contains(key) {
+                    if case .string = field { output[key] = field }
+                    else if key == "error", let message = field["message"]?.stringValue { output[key] = .object(["message": .string(message)]) }
+                } else if key == "base_url", let text = field.stringValue, let url = URLComponents(string: text) {
+                    output[key] = .string((url.host ?? "") + url.path)
+                } else if key == "api_key" || key == "bearer_token" {
+                    output[key + "_present"] = .bool(!(field.stringValue ?? "").isEmpty)
+                } else {
+                    let nested = routingMetadata(field)
+                    if nested != .null { output[key] = nested }
+                }
+            }
+            return output.isEmpty ? .null : .object(output)
+        case .array(let items):
+            let visible = items.map(routingMetadata).filter { $0 != .null }
+            return visible.isEmpty ? .null : .array(visible)
+        default: return .null
+        }
+    }
+
     @MainActor func testDiscoverSavedGateway() async throws {
         #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
         var report: [String: JSONValue] = ["stage": .string("discovery")]

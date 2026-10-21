@@ -17,12 +17,37 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ### Added
 
+- An orange session-approval shield beside Tools revokes temporary approvals in one tap.
+  Approve tools ask again; Auto and Off settings remain unchanged. Tools lists active grants
+  and offers explicit review of older grants saved as Auto.
+
+- Automations can select any runnable Gateway workflow and configure its custom inputs on
+  the phone. Create/Retry and Run now use mint primary-action styling.
+
+- Speech preparation and transcription morph the orb into a rotating geodesic; tap to cancel.
+  Tool approval morphs its cords into an orange raised hand that opens the three decision choices.
+
+- Spoken messages open in the editable text composer by default. Settings → Voice & reading
+  offers automatic sending as an account-scoped opt-in; typed drafts and attachments are preserved.
+
+
+- Edit and resend confirmed stopped requests, including restored conversations and original
+  attachments, while retaining the earlier turn and any separate composer draft.
+- Separate required Title and task fields when creating an automation.
+
+
 - Dated, tappable automation runs with explanations, attempt counts, recorded errors,
   task/trigger details and expandable activity. Results refresh while the screen is active.
 - Settings shows the installed version/build, installation channel, Apple update controls,
   automatic-update instructions and the native version history.
 
 ### Fixed
+
+- New questions and replies stay visible without a manual scroll. Following adapts to media,
+  activity and keyboard layout changes; reading history offers a Latest messages action
+  that hides automatically when you reach the bottom.
+
+- Provider errors distinguish missing endpoints/models from authentication, and clarify that earlier failures describe recorded runs.
 
 - Failed automation occurrences retain the gateway’s failure details, including provider
   credential errors. Empty answers no longer leave blank result headings or status-only cards.

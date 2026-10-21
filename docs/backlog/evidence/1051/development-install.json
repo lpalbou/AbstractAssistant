@@ -1,0 +1,13 @@
+{
+  "version": "0.6.22",
+  "build": "34",
+  "bundle_id": "ai.abstractframework.assistant.iphone",
+  "channel": "development",
+  "build_result": "succeeded",
+  "signature": "verified",
+  "install": "succeeded",
+  "launch": "succeeded",
+  "native_regression_tests": "pending",
+  "git_committed": false,
+  "git_pushed": false
+}

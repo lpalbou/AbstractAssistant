@@ -1,0 +1,16 @@
+{
+  "date": "2026-10-20",
+  "reported_build": "0.6.22 (34)",
+  "change": "Restore following on near-bottom geometry and require actual bottom distance before displaying Latest messages.",
+  "regression_added": "PhoneUITests.testLatestMessagesHidesWhenManuallyReturningToBottom",
+  "selected_existing_regression": "PhoneUITests.testReadingEarlierMessagesIsPreservedUntilLatestOrNewSubmission",
+  "native_tests": "Not run to completion: two attempts interrupted by Watch priority guard (PID 55417), exit 75.",
+  "development_build": "Build 35 succeeded on redeploy after clearing obsolete generated iPhone build caches (initial linker failure: no space left on device).",
+  "installed_build": "0.6.22 (35), development signature verified, installed and launched successfully",
+  "checks": [
+    "git diff --check passed",
+    "documentation index check passed"
+  ],
+  "git_committed": false,
+  "git_pushed": false
+}

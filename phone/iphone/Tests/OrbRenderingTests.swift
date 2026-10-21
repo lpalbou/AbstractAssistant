@@ -131,6 +131,43 @@ final class OrbRenderingTests: XCTestCase {
         }
     }
 
+    @MainActor func testSpeechAndGuardGeometryMorphsMovesAndRespectsReducedMotion() throws {
+        func render(_ stop: Double, _ geo: Double, _ hand: Double, time: Double = 2, reduced: Bool = false) throws -> UIImage {
+            let renderer = ImageRenderer(content: HStack(spacing: 46) {
+                OrbArtwork(size: 68, stopProgress: stop, geodesicProgress: geo, approvalProgress: hand, active: true, animationTime: time, reduceMotion: reduced, paused: true)
+                OrbArtwork(size: 136, stopProgress: stop, geodesicProgress: geo, approvalProgress: hand, active: true, animationTime: time, reduceMotion: reduced, paused: true)
+            }.frame(width: 390, height: 260).background(PhoneTheme.ground))
+            renderer.scale = 3
+            return try XCTUnwrap(renderer.uiImage)
+        }
+        func record(_ image: UIImage, _ name: String) {
+            let attachment = XCTAttachment(image: image); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+        }
+        let sphere = try render(0, 0, 0), stop = try render(1, 0, 0)
+        let globe = try render(0, 1, 0), hand = try render(0, 0, 1)
+        record(globe, "Speech — rotating geodesic at 68 and 136 points")
+        record(hand, "Approval — orange cord hand at 68 and 136 points")
+        XCTAssertGreaterThan(try pixelDifference(sphere, globe), 0.5)
+        XCTAssertGreaterThan(try pixelDifference(stop, hand), 0.5)
+        for (name, source, target, frame) in [
+            ("Stop to guard", stop, hand, try render(0.5, 0, 0.5)),
+            ("Sphere to speech", sphere, globe, try render(0, 0.5, 0)),
+            ("Speech to guard", globe, hand, try render(0, 0.5, 0.5)),
+            ("Guard interrupted return", stop, hand, try render(0.7, 0, 0.3))
+        ] {
+            XCTAssertGreaterThan(try pixelDifference(source, frame), 0.05, name)
+            XCTAssertGreaterThan(try pixelDifference(target, frame), 0.05, name)
+            record(frame, name)
+        }
+        XCTAssertGreaterThan(try pixelDifference(globe, render(0, 1, 0, time: 2.3)), 0.05)
+        XCTAssertGreaterThan(try pixelDifference(hand, render(0, 0, 1, time: 2.3)), 0.05)
+        for (geo, guardHand) in [(1.0, 0.0), (0.0, 1.0)] {
+            let frozen = try render(0, geo, guardHand, time: 2, reduced: true)
+            XCTAssertEqual(try pixelDifference(frozen, render(0, geo, guardHand, time: 8, reduced: true)), 0)
+            record(frozen, "Reduced Motion — speech \(geo), guard \(guardHand)")
+        }
+    }
+
     private func pixelDifference(_ lhs: UIImage, _ rhs: UIImage) throws -> Double {
         func pixels(_ image: UIImage) throws -> [UInt8] {
             let image = try XCTUnwrap(image.cgImage)

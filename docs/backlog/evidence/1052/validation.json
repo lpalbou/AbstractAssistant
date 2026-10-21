@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-20",
+  "package_tests": {
+    "passed": 266
+  },
+  "native_session_approval_test": "passed twice; inspected screenshots",
+  "native_history_reading_test": "passed",
+  "native_manual_bottom_test": "passed after visibleRect correction and sufficient scroll distance",
+  "voice_following_regression": "pending after timing refinement",
+  "installed_version": "0.6.22 (36)",
+  "phone": {
+    "gateway": "https://forge.tail43a344.ts.net",
+    "user": "laurent",
+    "authentication": "verified from physical iPhone"
+  },
+  "watch": {
+    "gateway": "https://forge.tail43a344.ts.net",
+    "account_for_saved_token": "admin",
+    "saved_token": "verified against requested token without exporting to report",
+    "note": "Installed Watch version does not retain the --user hint; bearer token determines the authenticated account."
+  },
+  "temporary_credential_payloads": "removed on Mac, cleared on devices",
+  "git_committed": false,
+  "git_pushed": false,
+  "current_device_delivery": "Normal development build0.6.22(36), signed, installed and launched; authenticated as laurent on the local gateway.",
+  "pending_build": "37: display-frame follow timing and Ask again styling/context guard. Build and native recheck yielded to Watch priority; not installed."
+}

@@ -120,6 +120,8 @@ private actor SuspendedClient: GatewayClient {
     #expect(await client.cancels == 1)
     #expect(store.phase == .ready && !store.isStopping && !store.canStop)
     #expect(store.activeRunID == nil && store.completedReply == nil)
+    #expect(store.messages.first?.wasStopped == true && store.messages.first?.requestText == "hello")
+    #expect(store.messages.first?.runID == "root")
 }
 
 @Test @MainActor func stoppedEntityOpenClosesTheVisitWithoutSendingAPrompt() async {
@@ -170,11 +172,24 @@ private actor SuspendedClient: GatewayClient {
     #expect(store.activeEntityRunID == nil && store.completedReply == nil)
 }
 
+@Test @MainActor func aReplyThatFinishesBeforeStopIsNotMarkedAsCancelledForEditing() async {
+    let client = StoppingClient(stage: "start", completesBeforeStop: true)
+    let store = AssistantStore(defaults: UserDefaults(suiteName: "phone-stop-\(UUID())")!)
+    store.connect(nil, client: client); store.send("already finished")
+    while !(await client.waiting) { await Task.yield() }
+    let stopping = Task { await store.stopRun() }
+    while !store.isStopping { await Task.yield() }
+    await client.release(); await stopping.value
+    #expect(store.messages.first?.wasStopped == false)
+    #expect(store.canSend)
+}
+
 private actor StoppingClient: GatewayClient {
     let stage: String
     var cancels = 0, ends = 0, entityTurns = 0
     var conflictOnce: Bool
-    init(stage: String, conflictOnce: Bool = false) { self.stage = stage; self.conflictOnce = conflictOnce }
+    let completesBeforeStop: Bool
+    init(stage: String, conflictOnce: Bool = false, completesBeforeStop: Bool = false) { self.stage = stage; self.conflictOnce = conflictOnce; self.completesBeforeStop = completesBeforeStop }
     private func gate(_ point: String) async { if stage == point { await withCheckedContinuation { continuation = $0; waiting = true } } }
     private func state(_ status: String = "waiting") throws -> EntitySessionState {
         try JSONDecoder().decode(EntitySessionState.self, from: Data("{\"run_id\":\"visit\",\"status\":\"\(status)\",\"turn_n\":1,\"turn_complete\":true,\"reply\":\"Late answer\"}".utf8))
@@ -196,7 +211,7 @@ private actor StoppingClient: GatewayClient {
     func recentRuns(limit: Int) async throws -> [RunSummary] { try await mock.recentRuns(limit: limit) }
     func prompt(ofRun id: String) async throws -> String? { try await mock.prompt(ofRun: id) }
     func turns(ofSession id: String) async throws -> [RunSummary] { try await mock.turns(ofSession: id) }
-    func run(id: String) async throws -> RunSummary { RunSummary(runId: id, workflowId: nil, status: cancels > 0 ? "cancelled" : "completed", output: .string("Late answer")) }
+    func run(id: String) async throws -> RunSummary { RunSummary(runId: id, workflowId: nil, status: cancels > 0 && !completesBeforeStop ? "cancelled" : "completed", output: .string("Late answer")) }
     func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?) async throws -> String { if stage.hasPrefix("start") { await gate(stage) }; if stage == "start-fail" { throw GatewayError.invalidResponse }; return "root" }
     func tools() async throws -> [ToolInfo] { try await mock.tools() }
     func answer(_ wait: Wait, with answer: WaitAnswer) async throws { try await mock.answer(wait, with: answer) }

@@ -7,11 +7,11 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 
 ## Current Counts
 
-- Planned: 8
+- Planned: 9
 - Proposed: 17
-- Completed: 10
+- Completed: 16
 
-Counts recomputed from disk on 2026-10-19 after closing verified Apple delivery1042 and iPhone reliability items1043/1044 (topic tracks included).
+Counts recomputed from disk on 2026-10-20 after adding iPhone session approvals1052 (topic tracks included).
 - Deprecated: 0
 - Recurrent: 0
 
@@ -41,7 +41,8 @@ Counts recomputed from disk on 2026-10-19 after closing verified Apple delivery1
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
-| [1045](planned/1045_orb_animation_ci_presentation_sampling.md) | Reliable orb CI presentation checks | Planned | Release124.1 blocked by one wall-clock animation assertion;80/81 native passed, including new feature UI. |
+| [1052](planned/1052_revocable_session_tool_approvals.md) | Revocable session tool approvals | Planned | Orange revoke shield delivered in36, 266 package tests and native revoke pass; minor37 polish blocked by Watch guard. |
+| [1051](planned/1051_chat_message_visibility_and_following.md) | Chat visibility and bottom following | Planned | Normal36 delivered; manual bottom and history-reading checks pass. Repeated voice-following refinement still awaits completed native validation. |
 | [0009](planned/0009_shared_code_and_markdown_rendering.md) | # Planned: Share code and markdown rendering with abstractuic | Planned | Existing rich Markdown client work; retained in counts. |
 | [0851](planned/0851_settings_reads_the_gateway_on_the_gui_thread.md) | Settings reads the gateway on the GUI thread | Planned | Opening Settings blocks the event loop on synchronous 30 s HTTP — measured 61 s against a black-hole host, ~210 s worst case. The 2026-09-18 wave cut the Models page from 7 round trips to 2; threading and a short settings timeout remain. |
 | [0850](planned/0850_transcript_refresh_cost_and_answer_link_follow_ups.md) | Transcript refresh cost and clickable-link follow-ups | Planned | Rebuild-everything on each run event now carries per-card filesystem work; spoken paths; fenced-path edge. Follows the 2026-09-17 links/tool-identity wave. |
@@ -65,6 +66,12 @@ Counts recomputed from disk on 2026-10-19 after closing verified Apple delivery1
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
+| [1050](completed/1050_any_runnable_automation_workflow.md) | Any runnable automation workflow | Completed 2026-10-19 | Planned→completed; package260, final native3; typed workflow inputs, mint creation; normal33 installed, uncommitted. |
+| [1049](completed/1049_speech_and_approval_orb_states.md) | Speech-processing and approval orb states | Completed 2026-10-19 | Planned→completed; native22; inspected geodesic/hand/morph screenshots; normal33 installed, user validation pending. |
+| [1048](completed/1048_voice_message_review_setting.md) | Review spoken messages before sending | Completed 2026-10-19 | Planned→completed; package256, native16; default review, explicit auto-send; normal32 installed, uncommitted. |
+| [1046](completed/1046_edit_and_resend_stopped_requests.md) | Edit and resend stopped requests | Completed 2026-10-19 | Planned→completed; package255, native6; inspected screenshots and normal31 installed; user validation pending, uncommitted. |
+| [1047](completed/1047_explicit_automation_title.md) | Separate automation title from task | Completed 2026-10-19 | Planned→completed; explicit Gateway title, package255, native6; normal31 installed; uncommitted. |
+| [1045](completed/1045_orb_animation_ci_presentation_sampling.md) | Reliable orb CI presentation checks | Completed 2026-10-19 | Full CI81/81; combined126.1 candidate verified; human upload gate waiting. |
 | [1043](completed/1043_automation_run_diagnostics.md) | Automation run explanations and live results | Completed 2026-10-19 | Planned→completed; package250, native4 and physical read-only1; evidence and screenshots under1043. |
 | [1044](completed/1044_iphone_version_and_updates.md) | Installed version and supported app updates | Completed 2026-10-19 | Planned→completed; package250, native4 and physical read-only1; evidence and screenshots under1043. |
 | [0853](completed/0853_sessions_are_gateway_first.md) | Sessions are gateway-first: the local session index is a rebuildable cache | Completed (0.7.0, 2026-09-27) | Operator finding 2026-09-27 (purge + reinstall still listed old sessions): the list, titles and transcripts come from `~/.abstractassistant`, never the gateway, with no reconciliation. List = `/runs?root_only=true` folded by `session_id` as in AbstractCode; titles and transcripts from gateway history; local files a deletable cache; one-time migration. Prerequisite for 0852. |

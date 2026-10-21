@@ -80,7 +80,7 @@ struct AutomationDetailScreen: View {
                     Text(a.scheduleText ?? a.rowDetail).foregroundStyle(PhoneTheme.secondary)
                     if a.status == "active" || a.status == "paused" { HStack {
                         Button { Task { await runNow(a) } } label: { Label("Run now", systemImage: "play.fill") }
-                            .buttonStyle(.borderedProminent).disabled(a.currentOccurrence != nil)
+                            .buttonStyle(.borderedProminent).tint(PhoneTheme.mint).foregroundStyle(PhoneTheme.ground).disabled(a.currentOccurrence != nil)
                         Button(a.status == "active" ? "Pause" : "Resume") { Task { await store.automationAction(a, runNow: false); await load() } }.buttonStyle(.bordered)
                     }.controlSize(.large).disabled(store.automationBusy.contains(a.id) || savingTools || launching || definition == nil) }
                     Button { showingTools = true } label: {

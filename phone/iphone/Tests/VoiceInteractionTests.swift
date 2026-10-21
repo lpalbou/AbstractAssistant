@@ -49,6 +49,25 @@ final class VoiceInteractionTests: XCTestCase {
         while clock.time + 0.03 < target { clock.time += 0.03; voice.sample() }
         clock.time = target; voice.sample()
     }
+    @MainActor func testSpeechBufferingRemainsWorkingAndCancelPreventsLateChunks() async throws {
+        let voice = VoiceController(configureAudio: false)
+        defer { voice.stop() }
+        let client = MockGatewayClient(speechPreparationDelay: 0.7)
+        voice.read("Two streamed chunks", client: client, scope: .run("test"), messageID: "buffered")
+        XCTAssertTrue(voice.preparing)
+        func waitFor(_ predicate: () -> Bool) async throws {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(6))
+            while !predicate(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+            XCTAssertTrue(predicate())
+        }
+        try await waitFor { voice.speaking && !voice.preparing }
+        try await waitFor { voice.speaking && voice.preparing }
+        XCTAssertEqual(voice.readingID, "buffered")
+        voice.stop()
+        try await Task.sleep(for: .milliseconds(1000))
+        XCTAssertFalse(voice.preparing); XCTAssertFalse(voice.speaking); XCTAssertNil(voice.readingID)
+    }
+
     @MainActor func testSilenceMakesZeroGatewayCallsAndTouchDownCancelsAcrossDeadline() async throws {
         let clock = VoiceClock(); var recorder: TestRecording?
         let voice = VoiceController(now: { clock.time }, permission: { true }, recordingFactory: { url in let r = try TestRecording(url: url); recorder = r; return r }, configureAudio: false)

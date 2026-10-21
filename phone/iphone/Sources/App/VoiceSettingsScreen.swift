@@ -11,6 +11,12 @@ struct VoiceSettingsScreen: View {
     var body: some View {
         @Bindable var prefs = store.preferences
         List {
+            Section {
+                Toggle("Send voice messages automatically", isOn: $prefs.autoSendVoice)
+                    .accessibilityIdentifier("voice.autoSend")
+            } header: { Text("Voice messages") } footer: {
+                Text(prefs.autoSendVoice ? "Send after you stop speaking. Your separate typed draft stays saved." : "Review and edit your transcription in the text composer, then tap Send.")
+            }.listRowBackground(PhoneTheme.surface)
             Section { Toggle("Read replies aloud", isOn: $prefs.readAloud).accessibilityIdentifier("voice.readAloud") }
                 footer: { Text("Read new replies automatically.") }.listRowBackground(PhoneTheme.surface)
             if let catalog {

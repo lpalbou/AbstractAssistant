@@ -42,6 +42,30 @@ import AbstractGatewayClient
         #expect(await client.primaryImages.first??["$artifact"] == .string("source"))
         store.disconnect()
     }
+    @Test func cancelledHistoryRestoresAnEditablePromptAndResendsItsOriginalAttachments() async throws {
+        let (store, client, session) = try await fixture()
+        await client.restoreUploadedOnlyHistory()
+        var cancelled = try await client.run(id: "turn1"); cancelled.status = "cancelled"
+        await client.append(cancelled)
+        await store.openSession(session)
+        let original = try #require(store.messages.first(where: { $0.runID == "turn1" && $0.role == .user }))
+        #expect(original.wasStopped && original.requestText == "Question turn1")
+        #expect(original.artifacts.count == 1)
+        #expect(store.messages.first(where: { $0.runID == "turn2" && $0.role == .user })?.wasStopped == false)
+        #expect(!store.resendStoppedRequest(messageID: original.id, text: "Revised", attachments: original.artifacts, session: "other", context: store.contextID))
+        #expect(!store.resendStoppedRequest(messageID: original.id, text: "Revised", attachments: original.artifacts, session: store.sessionID, context: UUID()))
+        let foreign = PhoneArtifact(artifactId: "foreign", runId: "other", filename: "other.png", contentType: "image/png")
+        #expect(!store.resendStoppedRequest(messageID: original.id, text: "Revised", attachments: [foreign], session: store.sessionID, context: store.contextID))
+        #expect(store.resendStoppedRequest(messageID: original.id, text: "Revised", attachments: original.artifacts, session: store.sessionID, context: store.contextID))
+        #expect(!store.resendStoppedRequest(messageID: original.id, text: "Duplicate", attachments: [], session: store.sessionID, context: store.contextID))
+        #expect(store.messages.first(where: { $0.id == original.id }) == original)
+        let resent = try #require(store.messages.last(where: { $0.role == .user }))
+        #expect(resent.requestText == "Revised" && resent.artifacts == original.artifacts)
+        #expect(resent.text.components(separatedBy: "📎").count == 2)
+        for _ in 0..<1000 { if store.activeRunID == "root" { break }; await Task.yield() }
+        #expect(await client.primaryImages.first??["$artifact"] == .string("source"))
+        store.disconnect()
+    }
     @Test func newUploadWinsOverOldGeneratedImage() async throws {
         let (store, client, session) = try await fixture(); await store.openSession(session)
         store.send("Edit this", attachments: [.init(artifactId: "upload", runId: "session_memory_history", filename: "new.png", contentType: "image/png")])

@@ -48,6 +48,16 @@ writer lease. The square stays in its stopping state until confirmation; failure
 a retry action and conversation recovery available. Completed stopped turns cannot trigger
 automatic reading, and late send responses cannot restore the stopped visit. Tool approvals re-read the current run and wait key before sending a decision.
 
+Stopped user prompts retain their run ID, original request text and confirmed cancellation
+state. Rehydration derives that state from the Gateway run. The stopped-request editor holds
+its own text and removable attachment list, preserving the main composer. A resend is a new
+turn through the ordinary send path; the store rechecks session, connection context, readiness,
+original prompt identity and attachment provenance before starting. Unconfirmed stops and
+runs that completed during the cancellation race do not become editable stopped requests.
+Automation creation carries an explicit title separately from its task; the existing derived
+title remains the model fallback for clients that omit it. The form requires a title of at most
+120 characters and includes it in the pending request fingerprint for idempotent retry.
+
 ## Relationship to the Watch app
 
 The initial client snapshot comes from `watch/apple/Packages/AbstractGatewayClient`.
@@ -75,7 +85,13 @@ over 250 ms reset the quiet/onset window; unobserved time is never inferred as s
 Camera/navigation/account/session/background/audio-interruption paths cancel pending voice.
 Permission completion checks current UIApplication state and generation before recording;
 it briefly waits for prompt dismissal to activate the app and otherwise requires a new tap.
-A voice turn sends separately from any typed draft, with currently staged attachments.
+`PhonePreferences.autoSendVoice` is false when no preference is stored, including upgrades.
+After transcription and the existing foreground/session/context checks, Chat opens the normal
+composer by default. It appends recognized text below any typed draft, preserves pending
+attachments and waits for Send. Explicit automatic sending retains the prior independent voice
+turn and separate typed draft. The preference is local and scoped to the signed-in account and
+Gateway. Both modes use the same capture, transcription, cancellation and temporary-file cleanup;
+the capture countdown announces preparing text or sending to match the selected mode.
 
 `VoiceController` owns recorder/player lifetime and temporary-file cleanup. Chat owns the
 cancelable transcription task. A main-actor Task samples every 33 ms independently of run
@@ -87,14 +103,14 @@ playback. A low-variance window can update the visual baseline after 45 stable s
 without changing the raw speech decision. A perfectly sustained sound may therefore soften
 visually. `AudioEnvelope` retains the playback soft knee for actual AVAudioPlayer power. Only the
 small `VoicePresence` subtree observes the envelope. Continuous phase survives state changes;
-voice rendering requests up to 60 Hz, working-state rendering up to 30 Hz; idle rendering is slower
+active rendering requests up to 30 Hz; idle rendering is slower
 and background rendering stops. The soft knee preserves differences
 between loud syllables without saturating at ordinary playback levels. Energy changes
 the ribbons’ curvature, spacing, rotation and stroke, independently of the raw silence gate. Reduce Motion freezes geometry
 and rotation while retaining responsive light.
 
 During a gateway turn, the same orb contour morphs into a rounded square with a stable
-mint/lavender Stop glyph on a dark inset. One animatable progress value drives its contour,
+mint/lavender Stop glyph on a dark inset. Animatable progress drives its contour,
 ribbons, lighting and symbol outside the timeline renderer, with 0.65-second easing in both
 directions. The illuminated rim and surrounding ribbons continue moving; working size is
 96% of the sphere. The hit target stays 84 × 80 points.
@@ -102,15 +118,39 @@ The sole progress row belongs to the conversation. Touch-down consumes the Stop 
 so releasing after cancellation cannot activate the microphone. Repeated touches within
 450 ms of cancellation are consumed. Reduce Motion keeps a static, recognizable square.
 
+VoicePresence projects preparation/transcription directly from VoiceController state. Pending
+STT and TTS preparation (including gaps between streamed chunks) morph the five cords into a rotating, depth-shaded
+subdivided icosahedron. Once audio arrives, the ordinary voice-reactive orb returns. Touch-down
+cancels pending speech through the existing generation/task guards and cannot start recording.
+Approval takes priority over speech and Stop; cancellation already in progress takes priority
+over approval. Only the current conversation’s actionable tool approval selects Guard mode.
+Its cords interpolate into a moving orange raised-hand outline, with no SF Symbol overlay.
+Guard activation opens the existing scoped WaitDetailScreen with Approve, Deny and Approve all;
+it never sends a decision itself. A stale tap rechecks the scoped wait before opening.
+Touch-down captures the intended tap action, so an approval resolved during that touch
+cannot turn its release into microphone activation.
+Stop, geodesic and hand progress animate together outside TimelineView, so midflight reversal
+starts from the current presentation. Geodesic/hand frames request 30 Hz while visible;
+Reduce Motion freezes their geometry and rotation, and background rendering pauses.
+
+ConversationScrollView owns transcript positioning independently of voice/run state. The lazy
+list follows measured content height and viewport/inset changes after layout, with coalesced
+nonanimated corrections rather than restarting an animation for every partial text update.
+New user-turn identity and conversation changes resume following, including identical prompts.
+User tracking/drag/deceleration suppresses corrections; actual drags update proximity, and idle
+reconciliation uses the scroll phase’s current geometry. Reading earlier messages retains its
+viewport until Latest messages or a new submission. Stable latest-question/answer action IDs
+allow native tests to assert hittability without forcing a scroll. Speech preparation remains
+independent: a completed visible answer may await TTS without implying agent execution.
+
 The composer uses separate floating + and keyboard buttons on the left and the orb on the
 right, without a shared panel. The keyboard button cancels pending capture and expands
 the editor into the available width while hiding the orb. A separate composing state
 mounts the editor before requesting keyboard focus; its cancelable task checks that the
 editor is still open before focusing. The field is removed while minimized, including
 from accessibility. The keyboard button's accessibility value reports a preserved draft.
-Outside taps dismiss editing and restore the floating controls. Only a small Listening
-label sits above the
-active orb; there is no visible voice Cancel/countdown or Done
+Outside taps dismiss editing and restore the floating controls. A small Listening,
+Transcribing, Preparing speech or Needs you label identifies the current orb action; there is no visible voice Cancel/countdown or Done
 button in chat. `OutsideInputDismissal` installs a screen-owned UIKit recognizer rather
 than a window handler. It excludes text/caret/selection touches, allows simultaneous
 recognition, never cancels the outside control's event and defers focus changes until that
@@ -182,8 +222,18 @@ legacy copies left by interrupted processes; originals and Documents are outside
 Creation and deletion reject namespace symlinks that could lead outside owned directories.
 Picker origin and task generations prevent stale files crossing accounts or conversations.
 
-Automation creation shares the Watch’s NewAutomation schema, eligible-workflow endpoint,
-input-schema preflight and schedule@2 presets. Per-tool choices use a durable named snapshot. Daily clock
+Automation creation uses the Gateway’s NewAutomation schema and schedule@2 presets.
+It discovers all runnable bundle entrypoints with GET /bundles without executable_for filtering;
+chat’s Assistant-specific picker keeps its interface filter. Gateway catalog visibility remains
+authoritative, and archived, deprecated or explicitly non-runnable records are excluded.
+Selection loads the version-pinned input_schema. WorkflowInput projects labels, required fields,
+defaults, basic types and enum choices into the creation form. Structured inputs use JSON;
+primitive types and required fields are validated before submission, while Gateway validation
+remains authoritative for full schema constraints. Prompt/tools pins are filled only when
+declared; custom values retain their types and exact bundle version/entrypoint. The named
+policy snapshot still travels through the shared automation grant contract.
+Selected-workflow/context checks discard stale schema responses, and the input values join
+the creation retry fingerprint. The primary creation/retry and Run now actions use mint. Per-tool choices use a durable named snapshot. Daily clock
 times follow the account time zone reported by the gateway. A pending creation retains its
 request ID across retries, preventing uncertain responses from duplicating routines. The
 creation response is retained for navigation even if refreshing the list fails. Shared
@@ -269,13 +319,17 @@ turn's activity without reading conversation history aloud. Backgrounding cancel
 account and conversation changes invalidate pending responses.
 
 **Approve** and **Deny** send the existing exact-key decision. **Approve all** is scoped to
-the open conversation's currently enabled tool names, stored with its account, responder
-and session preferences. It sends the same ordinary approval for the current batch and
-uses named Auto policies for future turns. For an already running workflow, the client
-answers later qualifying approval waits only while connected and active. Every tool in a
-batch must still be available, covered by the grant and set to Auto; questions never qualify.
-Manually saving Tools revokes the grant. The action is unavailable for unrelated Inbox
-items, preventing a decision there from changing the open conversation's permissions.
+the open conversation's currently enabled Approve tools, stored separately from mode choices
+with its account, responder and session preferences. It sends the same ordinary approval for
+the current batch; future runs retain their configured approval requirements. While connected
+and active, the client answers later qualifying waits: every tool in the batch must remain
+available and either be Auto or an Approve tool covered by the grant. Questions never qualify.
+The orange toolbar shield and Tools' Ask again action revoke temporary grants without changing
+modes; already submitted decisions may finish. Inventory awaits are guarded by a trust revision
+and activity/session identity, so revocation or editing prevents a stale automatic decision.
+Manually saving Tools revokes the grant. The action is unavailable for unrelated Inbox items.
+Legacy records saved as Auto retain their settings and require explicit review because they
+contain no original mode provenance; only selected names are changed back to Approve.
 
 
 ## iPhone tool defaults and conversation overrides

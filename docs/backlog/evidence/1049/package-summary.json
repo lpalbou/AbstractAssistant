@@ -1,0 +1,7 @@
+{
+  "assistantKit": 179,
+  "gatewayClient": 81,
+  "total": 260,
+  "result": "Passed",
+  "command": "swift test --package-path phone/iphone/Packages/AssistantKit --jobs 1"
+}

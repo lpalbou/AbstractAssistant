@@ -63,3 +63,14 @@ import AbstractGatewayClient
     #expect(first.occurrenceKey == next.occurrenceKey)
     #expect(first.occurrenceKey != later.occurrenceKey)
 }
+
+@Test func providerNotFoundRemainsDistinctFromAuthenticationAndGatewayRoutes() {
+    let failed = LastOccurrence(status: "failed", excerpt: nil)
+    let upstream = "OpenAI-compatible server API error (404): Not Found"
+    let explanation = AutomationRunExplanation(occurrence: failed, runError: upstream)
+    #expect(explanation.message.contains("endpoint or model"))
+    #expect(explanation.technicalDetail == upstream)
+    #expect(explanation.nextStep?.contains("credential") == false)
+    let gateway = AutomationRunExplanation(occurrence: failed, runError: "404: automation route not found")
+    #expect(gateway.message == "404: automation route not found")
+}

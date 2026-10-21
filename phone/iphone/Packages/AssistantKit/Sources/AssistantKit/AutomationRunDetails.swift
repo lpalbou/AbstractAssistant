@@ -24,7 +24,10 @@ public struct AutomationRunExplanation: Sendable {
             let lower = detail?.lowercased() ?? ""
             if lower.contains("401") && (lower.contains("airelays") || lower.contains("server api error") || lower.contains("provider")) {
                 message = "The model provider rejected the gateway’s sign-in. Your iPhone is connected."
-                nextStep = "Ask the gateway administrator to check the model provider’s API credential, then run the automation again."
+                nextStep = "Ask the gateway administrator to check the provider connection used by this automation, then try Run now. This error describes the recorded run."
+            } else if lower.contains("404") && (lower.contains("server api error") || lower.contains("model provider")) {
+                message = "The model provider could not find the requested endpoint or model."
+                nextStep = "Ask the gateway administrator to check the provider endpoint and model used by this automation."
             } else if lower.contains("429") || lower.contains("rate limit") {
                 message = "The model provider limited this request."
                 nextStep = "Check the provider’s quota or wait before trying again."

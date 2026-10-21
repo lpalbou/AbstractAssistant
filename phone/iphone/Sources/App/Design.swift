@@ -58,38 +58,44 @@ struct AssistantOrb: View {
     var active = false
     var level: Double = 0
     var working = false
+    var speechWorking = false
+    var approval = false
     var listening = false
     var animationTime: TimeInterval? = nil
     var morphDuration: TimeInterval = 0.65
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     var body: some View {
-        OrbArtwork(size: size, stopProgress: working ? 1 : 0, active: active, level: level,
+        OrbArtwork(size: size, stopProgress: working && !speechWorking && !approval ? 1 : 0, geodesicProgress: speechWorking && !approval ? 1 : 0, approvalProgress: approval ? 1 : 0, active: active, level: level,
                    listening: listening, animationTime: animationTime, reduceMotion: reduceMotion,
                    paused: scenePhase != .active)
             .animation(reduceMotion ? nil : .timingCurve(0.4, 0, 0.2, 1, duration: morphDuration), value: working)
+            .animation(reduceMotion ? nil : .timingCurve(0.4, 0, 0.2, 1, duration: morphDuration), value: speechWorking)
+            .animation(reduceMotion ? nil : .timingCurve(0.4, 0, 0.2, 1, duration: morphDuration), value: approval)
             .frame(width: size, height: size).accessibilityHidden(true)
     }
 }
 
-/// A single interpolated value shapes the shell, ribbons, light and stop mark in both directions.
+/// Interpolated geometry shapes the shell and cords continuously across action states.
 struct OrbArtwork: View, Animatable {
     var size: CGFloat
     nonisolated var stopProgress: Double
+    nonisolated var geodesicProgress: Double = 0
+    nonisolated var approvalProgress: Double = 0
     var active = false
     var level: Double = 0
     var listening = false
     var animationTime: TimeInterval? = nil
     var reduceMotion = false
     var paused = false
-    nonisolated var animatableData: Double {
-        get { stopProgress }
-        set { stopProgress = newValue }
+    nonisolated var animatableData: AnimatablePair<Double, AnimatablePair<Double, Double>> {
+        get { .init(stopProgress, .init(geodesicProgress, approvalProgress)) }
+        set { stopProgress = newValue.first; geodesicProgress = newValue.second.first; approvalProgress = newValue.second.second }
     }
     var body: some View {
-        TimelineView(.animation(minimumInterval: active ? (stopProgress > 0 ? 1.0 / 30 : 1.0 / 60) : 1.0 / 12,
+        TimelineView(.animation(minimumInterval: active || geodesicProgress > 0 || approvalProgress > 0 ? 1.0 / 30 : 1.0 / 12,
                                 paused: reduceMotion || paused)) { frame in
-            OrbFrame(size: size, stopProgress: stopProgress, level: level, listening: listening,
+            OrbFrame(size: size, stopProgress: stopProgress, geodesicProgress: geodesicProgress, approvalProgress: approvalProgress, level: level, listening: listening,
                      time: reduceMotion ? 0 : animationTime ?? frame.date.timeIntervalSinceReferenceDate,
                      reduceMotion: reduceMotion)
         }
@@ -100,12 +106,16 @@ struct OrbArtwork: View, Animatable {
 struct OrbFrame: View {
     var size: CGFloat
     var stopProgress: Double
+    var geodesicProgress: Double = 0
+    var approvalProgress: Double = 0
     var level: Double = 0
     var listening = false
     var time: TimeInterval
     var reduceMotion = false
     var body: some View {
         let progress = min(1, max(0, stopProgress))
+        let geo = min(1, max(0, geodesicProgress)), hand = min(1, max(0, approvalProgress))
+        let weave = min(1, max(geo, hand) * 8)
         let energy = level.isFinite ? min(1, max(0, level)) : 0
         let motionEnergy = reduceMotion ? 0 : energy
         let pulse = reduceMotion ? 0 : sin(time * 1.8)
@@ -113,10 +123,10 @@ struct OrbFrame: View {
         let shape = OrbContour(squareness: progress)
         ZStack {
             shape.fill(PhoneTheme.mint.opacity(0.10 + energy * 0.32 + progress * (0.10 + pulse * 0.035)))
-                .blur(radius: size * 0.14).padding(-size * (0.04 + energy * 0.09))
+                .blur(radius: size * 0.14).padding(-size * (0.04 + energy * 0.09)).opacity(1 - hand)
             shape.fill(RadialGradient(colors: [PhoneTheme.mint.opacity(0.30 + energy * 0.35 + progress * 0.16),
                                              PhoneTheme.lavender.opacity(0.28 + progress * 0.16), PhoneTheme.ground],
-                                      center: .init(x: 0.32, y: 0.28), startRadius: 1, endRadius: size * 0.8))
+                                      center: .init(x: 0.32, y: 0.28), startRadius: 1, endRadius: size * 0.8)).opacity(1 - hand * 0.94)
             ForEach(0..<5) { index in
                 OrbContour(squareness: progress, energy: motionEnergy,
                            phase: time * 3 + Double(index) * 1.7 + (listening ? motionEnergy * 3 : 0), ribbon: true)
@@ -126,13 +136,15 @@ struct OrbFrame: View {
                     .frame(width: size * (0.53 + Double(index) * 0.055 + motionEnergy * 0.16),
                            height: size * (0.39 + motionEnergy * 0.33 + progress * 0.16))
                     .rotationEffect(.degrees(Double(index) * 34 + time * 9 + motionEnergy * Double(index - 2) * 28))
+                    .opacity(1 - weave)
             }
+            OrbWeave(stop: progress, geodesic: geo, approval: hand, energy: motionEnergy, time: time).opacity(weave)
             shape.stroke(PhoneTheme.lavender.opacity(0.28 + energy * 0.42 + progress * 0.35),
-                         lineWidth: 0.8 + energy + progress * 0.5)
+                         lineWidth: 0.8 + energy + progress * 0.5).opacity(1 - hand)
             shape.stroke(AngularGradient(colors: [PhoneTheme.mint.opacity(0.95), PhoneTheme.lavender.opacity(0.25),
                                                    PhoneTheme.lavender, PhoneTheme.mint.opacity(0.95)],
                                          center: .center, angle: .degrees(time * 28)), lineWidth: 1.3)
-                .opacity(progress)
+                .opacity(progress * (1 - hand) * (1 - geo))
             // A dark inset keeps the familiar stop symbol legible over moving ribbons.
             RoundedRectangle(cornerRadius: size * 0.12)
                 .fill(PhoneTheme.ground.opacity(0.90))
@@ -144,7 +156,7 @@ struct OrbFrame: View {
                                              startPoint: .topLeading, endPoint: .bottomTrailing))
                         .frame(width: size * 0.25, height: size * 0.25)
                 }
-                .opacity(progress).scaleEffect(0.65 + progress * 0.35)
+                .opacity(progress * (1 - hand) * (1 - geo)).scaleEffect(0.65 + progress * 0.35)
         }
         .frame(width: size, height: size)
         .scaleEffect((1 - progress * 0.04) * (1 + breath + motionEnergy * 0.08))
@@ -219,31 +231,48 @@ struct ErrorBanner: View {
 struct VoicePresence: View {
     let voice: VoiceController
     var generatedMedia: MessageMediaController? = nil
+    var autoSendVoice = false
     var working: Bool
     var stopping: Bool
     var enabled: Bool
+    var needsApproval = false
+    var onReviewApproval: () -> Void = {}
     var onTap: () -> Void
     var onCancel: () -> Void
     var onStop: () -> Void
+    private var guardActive: Bool { needsApproval && !stopping }
+    private var speechBusy: Bool { !guardActive && !stopping && (voice.preparing || voice.transcribing || voice.inputPhase == .ready) }
+    private var stopActive: Bool { working && !guardActive && !speechBusy }
     private var status: String {
-        if working { return stopping ? "Stopping assistant" : "Stop assistant" }
+        if stopping { return "Stopping assistant" }
+        if guardActive { return "Review tool approval" }
+        if speechBusy { return voice.preparing ? "Preparing speech. Tap to cancel" : "Transcribing. Tap to cancel" }
+        if stopActive { return "Stop assistant" }
         switch voice.inputPhase {
         case .authorizing: return "Starting microphone"
         case .recording: return "Listening. Tap to cancel"
-        case .countdown: return "Sending in \(voice.secondsRemaining) seconds. Tap to cancel"
+        case .countdown: return autoSendVoice ? "Sending in \(voice.secondsRemaining) seconds. Tap to cancel" : "Preparing text in \(voice.secondsRemaining) seconds. Tap to cancel"
         case .ready, .transcribing: return "Transcribing. Tap to cancel"
-        case .idle: return voice.speaking ? "Reading aloud. Tap to speak" : working ? "Thinking" : "Tap to speak"
+        case .idle: return voice.speaking ? "Reading aloud. Tap to speak" : "Tap to speak"
         }
+    }
+    private var hint: String {
+        if guardActive { return "Opens Approve, Deny and Approve all for this request." }
+        if stopActive { return "Stops the current agent response." }
+        if speechBusy { return "Cancels speech processing." }
+        if voice.inputPending { return "Cancels this voice message." }
+        return autoSendVoice ? "Speak, then pause for three seconds to send automatically." : "Speak, then pause to review and edit the transcription before sending."
     }
     var body: some View {
         ZStack {
-            AssistantOrb(size: 68, active: voice.recording || voice.speaking || working || (generatedMedia?.playingID != nil && generatedMedia?.paused == false), level: max(voice.meter.level, generatedMedia?.level ?? 0), working: working, listening: voice.recording)
-            OrbTouchSurface(enabled: enabled, label: status, working: working, cancelOnTouchDown: voice.inputPending || working, onTap: onTap, onCancel: working ? onStop : onCancel)
+            AssistantOrb(size: 68, active: voice.recording || voice.speaking || working || guardActive || speechBusy || (generatedMedia?.playingID != nil && generatedMedia?.paused == false), level: max(voice.meter.level, generatedMedia?.level ?? 0), working: stopActive, speechWorking: speechBusy, approval: guardActive, listening: voice.recording)
+            OrbTouchSurface(enabled: enabled, label: status, working: stopActive, hint: hint, cancelActionLabel: voice.preparing ? "Cancel speech preparation" : "Cancel voice message", cancelOnTouchDown: !guardActive && (voice.inputPending || speechBusy || stopActive), onTap: guardActive ? onReviewApproval : onTap, onCancel: stopActive ? onStop : onCancel)
                 .frame(width: 84, height: 80)
         }.frame(width: 84, height: 80)
             .overlay(alignment: .top) {
-                if voice.recording {
-                    Text("Listening").font(.caption2).foregroundStyle(PhoneTheme.secondary)
+                if guardActive || speechBusy || voice.recording {
+                    Text(guardActive ? "Needs you" : speechBusy ? (voice.preparing ? "Preparing speech" : "Transcribing") : "Listening")
+                        .font(.caption2).foregroundStyle(guardActive ? PhoneTheme.approval : PhoneTheme.secondary)
                         .fixedSize().offset(y: -14).allowsHitTesting(false)
                 }
             }

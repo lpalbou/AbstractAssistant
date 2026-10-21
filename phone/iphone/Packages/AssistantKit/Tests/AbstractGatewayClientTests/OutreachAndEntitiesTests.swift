@@ -114,3 +114,14 @@ import Testing
     #expect(AutomationDefinition.title(afterTask: "b" + long, oldTitle: String(long.prefix(120)), oldTask: long) == String(("b" + long).prefix(120)))
     #expect(AutomationDefinition.title(afterTask: "new task", oldTitle: "Morning digest", oldTask: "old task") == nil)
 }
+
+@Test func explicitAutomationTitleDoesNotReplaceOrTruncateItsTask() {
+    let task = "Read the workspace notes.\nReport the important changes and their sources."
+    let named = NewAutomation(task: task, target: .gatewayDefault(interface: "abstractassistant.agent.v1"), when: .every("24h"), buildsOnEarlierRuns: false, askBeforeTools: true, title: "  Morning briefing  ")
+    #expect(named.body["title"] == .string("Morning briefing"))
+    #expect(named.body["target"]?["input_data"]?["prompt"] == .string(task))
+    var legacy = named; legacy.customTitle = "  "
+    #expect(legacy.title == "Read the workspace notes.")
+    legacy.task = String(repeating: "a", count: 200)
+    #expect(legacy.title.count == 120)
+}

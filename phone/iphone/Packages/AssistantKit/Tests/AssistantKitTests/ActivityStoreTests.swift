@@ -70,7 +70,7 @@ import AbstractGatewayClient
         #expect(store.activity.modelCalls == 2)
         store.disconnect()
     }
-    @Test func approveAllSnapshotsEnabledSelectionAndUsesOrdinaryChildApproval() async throws {
+    @Test func approveAllKeepsModesAndUsesOrdinaryChildApproval() async throws {
         let client = try await nestedClient()
         let store = try await store(client, selection: .init(modes: ["read_file": .approve, "write_file": .off, "disabled_tool": .approve]))
         await store.followActiveRun()
@@ -78,10 +78,104 @@ import AbstractGatewayClient
         #expect(await store.approveAll(wait))
         #expect(await client.answered == ["leaf"])
         #expect(await client.answers == [.approve])
-        #expect(store.conversationTools?.modes["read_file"] == .auto)
+        #expect(store.conversationTools?.modes["read_file"] == .approve)
+        #expect(store.sessionApprovalGrants == ["read_file"])
         #expect(store.conversationTools?.modes["write_file"] != .auto)
         #expect(store.conversationTools?.modes["disabled_tool"] != .auto)
-        #expect(store.conversationTools?.allowed == ["read_file"])
+        #expect(store.conversationTools == .init(modes: ["read_file": .approve, "write_file": .off, "disabled_tool": .approve]))
+        store.disconnect()
+    }
+    @Test func revokingSessionApprovalsDuringARunPreservesAutoAndOffModes() async throws {
+        let client = try await nestedClient()
+        await client.keepRunningAfterAnswer()
+        let original = ConversationTools(modes: ["read_file": .approve, "write_file": .auto, "disabled_tool": .off])
+        let store = try await store(client, selection: original)
+        await store.followActiveRun()
+        #expect(await store.approveAll(try #require(store.conversationWait)))
+        #expect(store.conversationTools == original && store.sessionApprovalGrants == ["read_file"])
+        await client.nextApproval(names: ["read_file", "write_file"], key: "mixed")
+        await store.followActiveRun()
+        #expect(await client.answered.count == 2)
+        store.revokeSessionApprovals()
+        #expect(store.sessionApprovalGrants.isEmpty && store.conversationTools == original)
+        await client.nextApproval(names: ["read_file"], key: "after-revoke")
+        await store.followActiveRun()
+        #expect(await client.answered.count == 2)
+        #expect(store.conversationWait?.details?.first?.name == "read_file")
+        store.disconnect()
+    }
+    @Test func approveAllWithInheritedDefaultsDoesNotCreateAutoOverrides() async throws {
+        let client = try await nestedClient(), store = try await store(client)
+        store.setAppTools(.init(modes: ["read_file": .approve, "write_file": .auto]))
+        let original = store.appTools
+        await store.followActiveRun()
+        #expect(await store.approveAll(try #require(store.conversationWait)))
+        #expect(store.conversationTools == nil && store.appTools == original)
+        #expect(store.sessionApprovalGrants == ["read_file"])
+        store.revokeSessionApprovals()
+        #expect(store.conversationTools == nil && store.appTools == original)
+        store.disconnect()
+    }
+    @Test func revokedGrantCannotApproveAfterInventoryAwait() async throws {
+        let client = try await nestedClient()
+        await client.keepRunningAfterAnswer()
+        let store = try await store(client)
+        await store.followActiveRun()
+        #expect(await store.approveAll(try #require(store.conversationWait)))
+        await client.nextApproval(names: ["read_file"], key: "race")
+        await client.gateInventory()
+        let follow = Task { await store.followActiveRun() }
+        for _ in 0..<1000 { if await client.inventoryWaiting { break }; await Task.yield() }
+        #expect(await client.inventoryWaiting)
+        store.revokeSessionApprovals()
+        await client.releaseInventory(); await follow.value
+        #expect(await client.answered.count == 1)
+        #expect(store.conversationWait != nil && store.sessionApprovalGrants.isEmpty)
+        store.disconnect()
+    }
+    @Test func failedApprovalDoesNotCreateAGrant() async throws {
+        let client = try await nestedClient(), store = try await store(client)
+        await store.followActiveRun(); await client.failAnswers()
+        #expect(!(await store.approveAll(try #require(store.conversationWait))))
+        #expect(store.sessionApprovalGrants.isEmpty && store.conversationTools == nil)
+        store.disconnect()
+    }
+    @Test func grantsSurviveReopenButAreIsolatedFromOtherSessions() async throws {
+        let client = try await nestedClient()
+        await client.keepRunningAfterAnswer()
+        let defaults = UserDefaults(suiteName: "approval-persistence-\(UUID())")!
+        let store = AssistantStore(defaults: defaults); store.connect(nil, client: client)
+        store.send("Inspect environment")
+        for _ in 0..<1000 { if store.activeRunID != nil { break }; await Task.yield() }
+        let session = store.sessionID
+        await client.setRootSession(session)
+        await store.followActiveRun()
+        #expect(await store.approveAll(try #require(store.conversationWait)))
+        store.disconnect()
+        let reopened = AssistantStore(defaults: defaults); reopened.connect(nil, client: client)
+        #expect(reopened.sessionApprovalGrants.isEmpty)
+        await reopened.openSession(try #require(SessionSummary.group(await client.recentRuns(limit: 10)).first))
+        #expect(reopened.sessionID == session && reopened.sessionApprovalGrants.contains("read_file"))
+        reopened.revokeSessionApprovals(); reopened.disconnect()
+        let again = AssistantStore(defaults: defaults); again.connect(nil, client: client)
+        await again.openSession(try #require(SessionSummary.group(await client.recentRuns(limit: 10)).first))
+        #expect(again.sessionApprovalGrants.isEmpty)
+        again.disconnect()
+    }
+    @Test func legacyReviewNeverGuessesWhichAutoModesWereIntentional() async throws {
+        let client = try await nestedClient(), defaults = UserDefaults(suiteName: "legacy-trust-\(UUID())")!
+        let store = AssistantStore(defaults: defaults); store.connect(nil, client: client)
+        let key = "phone.tools.demo.assistant." + store.sessionID
+        let original = ConversationTools(modes: ["read_file": .auto, "write_file": .auto, "disabled_tool": .off])
+        defaults.set(try JSONEncoder().encode(original), forKey: key)
+        defaults.set(["read_file", "write_file"], forKey: key + ".grant")
+        #expect(store.sessionApprovalGrants.isEmpty && store.legacySessionApprovalNames.count == 2)
+        #expect(store.conversationTools == original)
+        store.reviewLegacySessionApprovals(askingAgain: ["read_file"])
+        #expect(store.conversationTools?.modes["read_file"] == .approve)
+        #expect(store.conversationTools?.modes["write_file"] == .auto)
+        #expect(store.conversationTools?.modes["disabled_tool"] == .off)
+        #expect(store.legacySessionApprovalNames.isEmpty)
         store.disconnect()
     }
     @Test func approveAllCannotAuthorizeAnUnrelatedRun() async throws {
@@ -343,6 +437,14 @@ private actor ActivityClient: GatewayClient {
     var inventory = [ToolInfo(name: "read_file", riskTier: "observe", riskRank: 1),
                      ToolInfo(name: "write_file", riskTier: "act", riskRank: 2),
                      ToolInfo(name: "disabled_tool", riskTier: "act", riskRank: 2, enabled: false)]
+    var inventoryWaiting = false
+    var inventoryGate = false
+    var inventoryContinuation: CheckedContinuation<Void, Never>?
+    var answersFail = false
+    func failAnswers() { answersFail = true }
+    func setRootSession(_ id: String) { states["root"]?.sessionId = id; originalStates["root"]?.sessionId = id }
+    func gateInventory() { inventoryGate = true }
+    func releaseInventory() { inventoryWaiting = false; inventoryContinuation?.resume(); inventoryContinuation = nil }
     func keepRunningAfterAnswer() { finishOnAnswer = false }
     func disableReadTool() { inventory[0].enabled = false }
     func nextApproval(names: [String], key: String) {
@@ -397,8 +499,15 @@ private actor ActivityClient: GatewayClient {
     }
     func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?) async throws -> String { "root" }
     func startRun(prompt: String, sessionId: String?, attachments: [JSONValue], tools: ConversationTools?) async throws -> String { "root" }
-    func tools() async throws -> [ToolInfo] { inventory }
+    func tools() async throws -> [ToolInfo] {
+        if inventoryGate {
+            inventoryGate = false; inventoryWaiting = true
+            await withCheckedContinuation { inventoryContinuation = $0 }
+        }
+        return inventory
+    }
     func answer(_ wait: Wait, with answer: WaitAnswer) async throws {
+        if answersFail { throw GatewayError.http(status: 500, body: "Approval failed") }
         answered.append(wait.runId); answers.append(answer)
         if !finishOnAnswer { states["leaf"]?.status = "running"; states["leaf"]?.waiting = nil; return }
         states["leaf"]?.status = "completed"; states["leaf"]?.waiting = nil

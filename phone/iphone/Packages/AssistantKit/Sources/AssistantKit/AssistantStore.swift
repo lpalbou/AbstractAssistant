@@ -317,6 +317,7 @@ public final class AssistantStore {
     }
     public var canEditToolPreferences: Bool { client != nil && !isOpening && !isRestoring && !isStopping && !sendInFlight }
     private var appToolRevision = 0
+    private var approvalTrustRevision = 0
     private var appToolsKey: String { "phone.tools.defaults." + (connection?.scope ?? "demo") }
     private func migrateToolDefaults() {
         let marker = appToolsKey + ".global"
@@ -336,7 +337,7 @@ public final class AssistantStore {
         guard canEditToolPreferences else { return }
         if let tools, let data = try? JSONEncoder().encode(tools) { defaults.set(data, forKey: appToolsKey) }
         else { defaults.removeObject(forKey: appToolsKey) }
-        appToolRevision += 1
+        appToolRevision += 1; approvalTrustRevision += 1
     }
     private var toolsKey: String { "phone.tools." + (connection?.scope ?? "demo") + "." + (selectedEntity ?? "assistant") + "." + sessionID }
     public var conversationTools: ConversationTools? {
@@ -346,10 +347,34 @@ public final class AssistantStore {
     }
     public func setConversationTools(_ tools: ConversationTools?) {
         guard canEditToolPreferences else { return }
+        revokeSessionApprovals()
         defaults.removeObject(forKey: toolsKey + ".grant")
         toolSelections[toolsKey] = tools
         if let tools, let data = try? JSONEncoder().encode(tools) { defaults.set(data, forKey: toolsKey) }
         else { defaults.removeObject(forKey: toolsKey) }
+    }
+    /// Temporary Approve grants never change the configured Off / Auto / Approve modes.
+    public var sessionApprovalGrants: Set<String> {
+        _ = approvalTrustRevision
+        return Set(defaults.stringArray(forKey: toolsKey + ".approvalTrust") ?? []).filter {
+            effectiveTools == nil || effectiveTools?.modes[$0] == .approve
+        }
+    }
+    public func revokeSessionApprovals() {
+        defaults.removeObject(forKey: toolsKey + ".approvalTrust")
+        approvalTrustRevision += 1
+    }
+    /// Older builds overwrote the modes and lost their origin. Never guess which Auto
+    /// settings were intentional: the person explicitly chooses which should ask again.
+    public var legacySessionApprovalNames: [String] {
+        _ = approvalTrustRevision
+        return (defaults.stringArray(forKey: toolsKey + ".grant") ?? []).sorted()
+    }
+    public func reviewLegacySessionApprovals(askingAgain names: Set<String>) {
+        guard canEditToolPreferences, !legacySessionApprovalNames.isEmpty,
+              names.isSubset(of: Set(legacySessionApprovalNames)), var selection = conversationTools else { return }
+        for name in names where selection.modes[name] == .auto { selection.modes[name] = .approve }
+        setConversationTools(selection)
     }
     public func loadMessageStats() async {
         guard preferences.showMessageStats, let client else { return }
@@ -365,6 +390,16 @@ public final class AssistantStore {
             } catch { if epoch == generation { handle(error) } }
         }
     }
+    /// A resend starts a new turn; confirmed history is never rewritten.
+    @discardableResult public func resendStoppedRequest(messageID: String, text: String, attachments: [PhoneArtifact], session: String, context: UUID) -> Bool {
+        guard context == contextID, session == sessionID, canSend,
+              let original = messages.first(where: { $0.id == messageID && $0.role == .user && $0.wasStopped }),
+              attachments.allSatisfy({ original.artifacts.contains($0) }),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
+        send(text, attachments: attachments)
+        return phase == .sending
+    }
+
     public func send(_ text: String, attachments: [PhoneArtifact] = []) {
         let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard (!prompt.isEmpty || !attachments.isEmpty), canSend, let client else { return }
@@ -374,7 +409,8 @@ public final class AssistantStore {
         let tools = effectiveTools, requestVersion = stopVersion, requestID = UUID()
         stopRequested = false; isStopping = false; unknownStart = false; cancelledRunID = nil; completedReply = nil; sendInFlight = true; sendID = requestID
         resetActivity(); activityState = .connecting
-        messages.append(.init(role: .user, text: prompt + (attachments.isEmpty ? "" : "\n" + attachments.map { "📎 " + $0.filename }.joined(separator: "\n")), artifacts: attachments)); phase = .sending; error = nil
+        let request = ConversationMessage(role: .user, text: prompt + (attachments.isEmpty ? "" : "\n" + attachments.map { "📎 " + $0.filename }.joined(separator: "\n")), artifacts: attachments, requestText: prompt)
+        messages.append(request); phase = .sending; error = nil
         turn = Task {
             defer { if epoch == generation, view == conversationGeneration, sendID == requestID { sendInFlight = false; sendID = nil } }
             do {
@@ -427,7 +463,7 @@ public final class AssistantStore {
                             guard epoch == generation, view == conversationGeneration else { return }
                             if requestVersion != stopVersion {
                                 messages.append(.init(role: .notice, text: "Reply dismissed. This gateway cannot stop entity work already sent."))
-                                finishStop(); return
+                                finishStop(requestWasStopped: false); return
                             }
                             let reply = ConversationMessage(role: .assistant, text: answer)
                             messages.append(reply); completedReply = reply; phase = .ready
@@ -439,6 +475,7 @@ public final class AssistantStore {
                     let id = try await client.startRun(prompt: prompt.isEmpty ? "Please review the attached files." : prompt, sessionId: session, attachments: attachments.map(\.ref), tools: tools, primaryImage: primaryImage?.ref)
                     guard epoch == generation, view == conversationGeneration else { return }
                     unknownStart = false; activeRunID = id; phase = .working
+                    if let index = messages.firstIndex(where: { $0.id == request.id }) { messages[index].runID = id }
                     beginActivity(id)
                     if foreground { await followActiveRun() }
                 }
@@ -494,12 +531,12 @@ public final class AssistantStore {
                 activityWaits = []; waits.removeAll { activityRunIDs.contains($0.runId) }
                 if !stopRequested, quietActivityRootID != id, run.status == "completed", let reply = messages.first(where: { $0.id == "answer-" + id }) { completedReply = reply }
                 if run.status == "failed" { error = activityFailure }
-                if run.status == "cancelled" { messages.append(.init(role: .notice, text: "Run stopped.")) }
+                if run.status == "cancelled" { markStoppedRequest(runID: id); messages.append(.init(role: .notice, text: "Run stopped.")) }
                 phase = .ready; activeRunID = nil
                 if stopRequested {
                     if let current = try? await client.waits(), epoch == activityEpoch { waits = current }
                     guard epoch == activityEpoch else { return }
-                    finishStop(); return
+                    finishStop(requestWasStopped: run.status == "cancelled"); return
                 }
                 if preferences.showMessageStats { await loadMessageStats() }
             } else {
@@ -640,7 +677,11 @@ public final class AssistantStore {
         stopping = task
         await task.value
     }
-    private func finishStop() {
+    private func markStoppedRequest(runID: String? = nil) {
+        if let index = messages.lastIndex(where: { $0.role == .user && (runID == nil || $0.runID == runID) }) { messages[index].wasStopped = true }
+    }
+    private func finishStop(requestWasStopped: Bool = true) {
+        if requestWasStopped { markStoppedRequest() }
         pauseActivityStreams(); activityWaits = []
         activityState = .cancelled; activity.finish(status: "cancelled")
         stopRequested = false; isStopping = false; phase = .ready; cancelledRunID = nil
@@ -680,7 +721,7 @@ public final class AssistantStore {
             var restored: [ConversationMessage] = []
             for turn in hydrated {
                 let id = turn.run.runId
-                if turn.input.prompt != nil || !turn.input.attachments.isEmpty { restored.append(.init(id: "prompt-" + id, role: .user, text: turn.input.prompt ?? "", runID: id, artifacts: turn.input.attachments)) }
+                if turn.input.prompt != nil || !turn.input.attachments.isEmpty { restored.append(.init(id: "prompt-" + id, role: .user, text: turn.input.prompt ?? "", runID: id, artifacts: turn.input.attachments, requestText: turn.input.prompt ?? "", wasStopped: turn.run.status == "cancelled")) }
                 if !(turn.run.conversationText ?? "").isEmpty || !turn.run.mediaArtifacts.isEmpty {
                     restored.append(.init(id: "answer-" + id, role: .assistant, text: turn.run.conversationText ?? "", runID: id, artifacts: turn.run.mediaArtifacts))
                 }
@@ -734,7 +775,7 @@ public final class AssistantStore {
         }
     }
     public func canApproveAll(_ wait: Wait) -> Bool {
-        wait.kind == .toolApproval && activityRunIDs.contains(wait.runId) && !(wait.details ?? []).isEmpty
+        wait.kind == .toolApproval && activityRunIDs.contains(wait.runId) && !(wait.details ?? []).isEmpty && legacySessionApprovalNames.isEmpty
     }
     /// Like the desktop assistant, conversation trust is client owned. The wire
     /// decision is still approved:true; no invented resume fields or endpoints.
@@ -742,27 +783,23 @@ public final class AssistantStore {
         guard canApproveAll(wait), !approvingAll.contains(wait.id), let client else { return false }
         approvingAll.insert(wait.id)
         defer { approvingAll.remove(wait.id) }
-        let epoch = activityEpoch, key = toolsKey, selected = effectiveTools
+        let epoch = activityEpoch, key = toolsKey, selected = effectiveTools, revision = approvalTrustRevision
         do {
             let inventory: [ToolInfo]
             if let entity = selectedEntity { inventory = try await client.entityTools(name: entity) }
             else { inventory = try await client.tools() }
-            guard epoch == activityEpoch, key == toolsKey else { return false }
-            var modes: [String: ToolMode] = [:]
-            for tool in inventory {
-                let enabled = tool.isAvailable && (selected.map { $0.modes[tool.name] ?? .off } ?? (tool.approvalDefault == "off" || tool.approvalDefault == "disabled" ? .off : .approve)) != .off
-                modes[tool.name] = enabled ? .auto : .off
-            }
-            let granted = Set(modes.filter { $0.value == .auto }.keys)
-            guard let calls = wait.details, !calls.isEmpty, calls.allSatisfy({ granted.contains($0.name) }) else {
+            guard epoch == activityEpoch, key == toolsKey, revision == approvalTrustRevision else { return false }
+            let selection = ConversationTools.snapshot(selected, inventory: inventory)
+            let enabled = Set(selection.allowed)
+            guard let calls = wait.details, !calls.isEmpty, calls.allSatisfy({ enabled.contains($0.name) }) else {
                 error = "Some requested tools are not enabled in this conversation. Review Tools before approving all."; return false
             }
-            guard await answer(wait, .approve), epoch == activityEpoch, key == toolsKey else { return false }
+            guard await answer(wait, .approve), epoch == activityEpoch, key == toolsKey,
+                  revision == approvalTrustRevision else { return false }
             autoAnsweredWaits.insert(wait.id)
-            let selection = ConversationTools(modes: modes)
-            toolSelections[key] = selection
-            defaults.set(try JSONEncoder().encode(selection), forKey: key)
-            defaults.set(Array(granted).sorted(), forKey: key + ".grant")
+            let granted = sessionApprovalGrants.union(selection.modes.filter { $0.value == .approve }.keys)
+            defaults.set(Array(granted).sorted(), forKey: key + ".approvalTrust")
+            approvalTrustRevision += 1
             await followActiveRun()
             return true
         } catch {
@@ -771,27 +808,25 @@ public final class AssistantStore {
         }
     }
     private func applyConversationTrust(epoch: UUID) async {
-        guard let client, let names = defaults.stringArray(forKey: toolsKey + ".grant"), !names.isEmpty else { return }
-        let granted = Set(names)
+        guard let client else { return }
+        let granted = sessionApprovalGrants
+        guard !granted.isEmpty else { return }
+        let key = toolsKey, revision = approvalTrustRevision
         activityWaits.removeAll { autoAnsweredWaits.contains($0.id) }
         waits.removeAll { activityRunIDs.contains($0.runId) && autoAnsweredWaits.contains($0.id) }
-        guard activityWaits.contains(where: { wait in
-            wait.kind == .toolApproval && !(wait.details ?? []).isEmpty && (wait.details ?? []).allSatisfy {
-                granted.contains($0.name) && conversationTools?.modes[$0.name] == .auto
-            }
-        }) else { return }
+        guard activityWaits.contains(where: { $0.kind == .toolApproval && !($0.details ?? []).isEmpty }) else { return }
         // Refresh availability for every pending batch; trust never enables an Off,
         // unavailable or newly added tool and never answers a question.
         do {
             let inventory: [ToolInfo]
             if let entity = selectedEntity { inventory = try await client.entityTools(name: entity) }
             else { inventory = try await client.tools() }
-            guard epoch == activityEpoch else { return }
-            let available = Set(inventory.filter { $0.isAvailable }.map(\.name))
+            guard epoch == activityEpoch, key == toolsKey, revision == approvalTrustRevision else { return }
+            let modes = ConversationTools.snapshot(effectiveTools, inventory: inventory).modes
             for wait in activityWaits {
-                guard epoch == activityEpoch, !stopRequested else { return }
+                guard epoch == activityEpoch, key == toolsKey, revision == approvalTrustRevision, !stopRequested else { return }
                 guard wait.kind == .toolApproval, let calls = wait.details, !calls.isEmpty,
-                      calls.allSatisfy({ granted.contains($0.name) && available.contains($0.name) && conversationTools?.modes[$0.name] == .auto }) else { continue }
+                      calls.allSatisfy({ modes[$0.name] == .auto || (modes[$0.name] == .approve && granted.contains($0.name)) }) else { continue }
                 if !autoAnsweredWaits.contains(wait.id) {
                     guard await answer(wait, .approve), epoch == activityEpoch else { continue }
                     autoAnsweredWaits.insert(wait.id)

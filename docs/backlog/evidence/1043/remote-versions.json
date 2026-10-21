@@ -1,0 +1,6 @@
+{
+  "abstractframework": "0.11.14",
+  "abstractgateway": "0.15.11",
+  "abstractruntime": "0.10.6",
+  "abstractcore": "2.26.3"
+}

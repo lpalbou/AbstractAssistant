@@ -10,6 +10,7 @@ struct ChatScreen: View {
     @Environment(AssistantStore.self) private var store
     @Environment(\.scenePhase) private var scenePhase
     @State private var draft = ""
+    @State private var editingStoppedRequest: ConversationMessage?
     @State private var history = false
     @State private var choosingEntity = false
     @State private var showWait: Wait?
@@ -36,21 +37,19 @@ struct ChatScreen: View {
 
     var body: some View {
         NavigationStack {
-            ScrollViewReader { scroll in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 24) {
-                        if let message = store.error, message != store.activityFailure, store.activityIssue?.contains(message) != true { ErrorBanner(message: message, dismiss: store.dismissError) }
-                        if let message = attachments.error { ErrorBanner(message: message, dismiss: { attachments.error = nil }) }
-                        if let message = voice.error { ErrorBanner(message: message, dismiss: { voice.error = nil }) }
-                        if store.messages.isEmpty { emptyState }
-                        ForEach(store.messages) { message in messageView(message) }
-                        if (store.activityState != .idle && store.activityState != .completed) || store.phase != .ready || store.isStopping || (store.selectedEntity != nil && store.activityIssue != nil) { RunActivityPanel { showWait = $0 } }
-                        else if store.isRestoring || store.isOpening { ProgressView("Opening your conversation…").padding(.vertical, 28).frame(maxWidth: .infinity) }
-                        Color.clear.frame(height: 1).id("bottom")
-                    }.padding(22)
-                }
-                .scrollDismissesKeyboard(.interactively)
-                .onChange(of: store.messages.last?.text) { _, _ in withAnimation(.easeOut(duration: 0.2)) { scroll.scrollTo("bottom", anchor: .bottom) } }
+            ConversationScrollView(conversationID: store.contextID.uuidString + store.sessionID,
+                userTurnID: store.messages.last(where: { $0.role == .user })?.id,
+                latestID: store.messages.last?.id, latestText: store.messages.last?.text) {
+                LazyVStack(alignment: .leading, spacing: 24) {
+                    if let message = store.error, message != store.activityFailure, store.activityIssue?.contains(message) != true { ErrorBanner(message: message, dismiss: store.dismissError) }
+                    if let message = attachments.error { ErrorBanner(message: message, dismiss: { attachments.error = nil }) }
+                    if let message = voice.error { ErrorBanner(message: message, dismiss: { voice.error = nil }) }
+                    if store.messages.isEmpty { emptyState }
+                    ForEach(store.messages) { message in messageView(message) }
+                    if (store.activityState != .idle && store.activityState != .completed) || store.phase != .ready || store.isStopping || (store.selectedEntity != nil && store.activityIssue != nil) { RunActivityPanel { showWait = $0 } }
+                    else if store.isRestoring || store.isOpening { ProgressView("Opening your conversation…").padding(.vertical, 28).frame(maxWidth: .infinity) }
+                    Color.clear.frame(height: 1).id("bottom")
+                }.padding(22)
             }
             .background(PhoneTheme.ground)
             .fullScreenCover(isPresented: Binding(get: { media.preview != nil }, set: { if !$0 { media.preview = nil } })) {
@@ -82,6 +81,18 @@ struct ChatScreen: View {
                         Button { prepareNavigation(); showTools = true } label: {
                             Image(systemName: "wrench.and.screwdriver").foregroundStyle(PhoneTheme.tool).frame(width: 44, height: 44)
                         }.accessibilityLabel("Tools").accessibilityIdentifier("chat.tools")
+                        if !store.sessionApprovalGrants.isEmpty || !store.legacySessionApprovalNames.isEmpty {
+                            Button {
+                                if !store.legacySessionApprovalNames.isEmpty { prepareNavigation(); showTools = true }
+                                else { store.revokeSessionApprovals() }
+                            } label: {
+                                Image(systemName: "checkmark.shield.fill").foregroundStyle(PhoneTheme.amber)
+                                    .frame(width: 44, height: 44)
+                            }.accessibilityLabel(store.legacySessionApprovalNames.isEmpty ? "Ask tools again" : "Review earlier tool approvals")
+                                .accessibilityValue(store.legacySessionApprovalNames.isEmpty ? "\(store.sessionApprovalGrants.count) tools allowed in this session" : "Earlier approvals need review")
+                                .accessibilityHint("Auto tools keep their settings.")
+                                .accessibilityIdentifier("chat.approvals.revoke")
+                        }
                     }.font(.body).buttonStyle(.plain).padding(.horizontal, 6)
                         .glassEffect(.regular, in: Capsule())
                 }
@@ -100,6 +111,11 @@ struct ChatScreen: View {
                 }.buttonStyle(.plain).accessibilityLabel("Choose who answers").accessibilityValue(store.conversationTitle)
                     .frame(maxWidth: .infinity).background(PhoneTheme.ground.opacity(0.96))
             }
+            .sheet(item: $editingStoppedRequest) { request in
+                StoppedRequestEditor(request: request, session: store.sessionID, context: store.contextID)
+            }
+            .onChange(of: store.contextID) { _, _ in editingStoppedRequest = nil }
+            .onChange(of: store.sessionID) { _, _ in editingStoppedRequest = nil }
             .sheet(item: $sharedConversation) { ConversationSharePreparation(snapshot: $0) }
             .onChange(of: store.contextID) { _, _ in sharedConversation = nil }
             .safeAreaInset(edge: .bottom, spacing: 0) { composer }
@@ -195,7 +211,18 @@ struct ChatScreen: View {
     @ViewBuilder private func messageView(_ message: ConversationMessage) -> some View {
         switch message.role {
         case .user:
-            Text(message.text).textSelection(.enabled).padding(17).background(PhoneTheme.lavender.opacity(0.12), in: RoundedRectangle(cornerRadius: 22)).frame(maxWidth: .infinity, alignment: .trailing)
+            VStack(alignment: .trailing, spacing: 8) {
+                Text(message.text).textSelection(.enabled).padding(17).background(PhoneTheme.lavender.opacity(0.12), in: RoundedRectangle(cornerRadius: 22))
+                    .accessibilityIdentifier(message.id == store.messages.last(where: { $0.role == .user })?.id ? "chat.latest-question" : "question." + message.id)
+                if message.wasStopped {
+                    Button {
+                        prepareNavigation(); media.stop(); editingStoppedRequest = message
+                    } label: { Label("Edit and resend", systemImage: "square.and.pencil").font(.subheadline.weight(.medium)) }
+                        .foregroundStyle(PhoneTheme.mint).buttonStyle(.plain).frame(minHeight: 44)
+                        .disabled(!store.canSend || attachments.busy || mediaLoading)
+                        .accessibilityIdentifier("request.edit." + message.id)
+                }
+            }.frame(maxWidth: .infinity, alignment: .trailing)
         case .notice: Text(message.text).font(.footnote).foregroundStyle(PhoneTheme.secondary)
         case .assistant:
             VStack(alignment: .leading, spacing: 14) {
@@ -212,7 +239,7 @@ struct ChatScreen: View {
                 ScrollView(.horizontal) {
                 HStack(spacing: 16) {
                     if !message.text.isEmpty {
-                    Button { UIPasteboard.general.string = message.text } label: { Image(systemName: "document.on.document") }.accessibilityLabel("Copy answer")
+                    Button { UIPasteboard.general.string = message.text } label: { Image(systemName: "document.on.document") }.accessibilityLabel("Copy answer").accessibilityIdentifier(message.id == store.messages.last(where: { $0.role == .assistant })?.id ? "chat.latest-copy" : "answer.copy." + message.id)
                     if let client = store.client, let scope = store.selectedEntity.map({ SpeechScope.entity($0) }) ?? message.runID.map({ SpeechScope.run($0) }) {
                         Button { if voice.speaking && voice.readingID == message.id { voice.togglePause() } else { cancelVoice(); media.stop(); voice.read(message.text, client: client, scope: scope, choice: store.preferences.voice, speed: store.preferences.speed, messageID: message.id) } } label: { Image(systemName: voice.speaking && voice.readingID == message.id ? (voice.paused ? "play.fill" : "pause.fill") : "speaker.wave.2") }.accessibilityLabel(voice.speaking && voice.readingID == message.id ? "Pause or resume reading" : "Read answer aloud")
                     }
@@ -276,7 +303,12 @@ struct ChatScreen: View {
                 .clipped()
                 if !composing {
                     Spacer(minLength: 0)
-                    VoicePresence(voice: voice, generatedMedia: media, working: store.canStop, stopping: store.isStopping, enabled: store.canStop ? !store.isStopping : store.canSend && !attachments.busy && !mediaLoading, onTap: beginVoice, onCancel: cancelVoice, onStop: { voice.stop(); Task { await store.stopRun() } })
+                    VoicePresence(voice: voice, generatedMedia: media, autoSendVoice: store.preferences.autoSendVoice, working: store.canStop, stopping: store.isStopping, enabled: store.canStop ? !store.isStopping : store.canSend && !attachments.busy && !mediaLoading,
+                        needsApproval: store.conversationWait?.kind == .toolApproval,
+                        onReviewApproval: {
+                            guard let wait = store.conversationWait, wait.kind == .toolApproval, !store.isStopping else { return }
+                            cancelVoice(); showWait = wait
+                        }, onTap: beginVoice, onCancel: cancelVoice, onStop: { voice.stop(); Task { await store.stopRun() } })
                         .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 }
             }
@@ -316,12 +348,18 @@ struct ChatScreen: View {
     private func finishVoice() {
         guard let origin = voiceOrigin, origin.0 == store.contextID, origin.1 == store.sessionID, scenePhase == .active, store.canSend, let client = store.client else { cancelVoice(); return }
         let model = store.preferences.transcription
+        let autoSend = store.preferences.autoSendVoice
         voiceTask = Task {
             guard let text = await voice.finish(client: client, sessionID: origin.1, model: model), !Task.isCancelled,
                   origin.0 == store.contextID, origin.1 == store.sessionID, scenePhase == .active, store.canSend else { return }
-            store.send(text, attachments: attachments.pending)
-            if store.phase == .sending { attachments.sent() }
             voiceOrigin = nil
+            if autoSend {
+                store.send(text, attachments: attachments.pending)
+                if store.phase == .sending { attachments.sent() }
+            } else {
+                draft = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? text : draft + (draft.hasSuffix("\n") ? "" : "\n") + text
+                beginTyping()
+            }
         }
     }
     private func read(_ reply: ConversationMessage) {
@@ -342,4 +380,59 @@ struct ChatScreen: View {
     }
     private var filesSheet: some View { SessionFilesScreen(files: sessionFiles, runIDs: sessionRunIDs) }
 
+}
+
+/// A separate draft preserves the conversation and anything already typed in the composer.
+private struct StoppedRequestEditor: View {
+    let request: ConversationMessage
+    let session: String
+    let context: UUID
+    @Environment(AssistantStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @State private var text: String
+    @State private var files: [PhoneArtifact]
+    @FocusState private var focused: Bool
+    init(request: ConversationMessage, session: String, context: UUID) {
+        self.request = request; self.session = session; self.context = context
+        _text = State(initialValue: request.requestText ?? request.text)
+        _files = State(initialValue: request.artifacts)
+    }
+    private var available: Bool { store.canSend && store.sessionID == session && store.contextID == context }
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Request") {
+                    TextField("Your request…", text: $text, axis: .vertical)
+                        .lineLimit(3...10).focused($focused).accessibilityIdentifier("request.edit.text")
+                }
+                if !files.isEmpty {
+                    Section("Attachments") {
+                        ForEach(files) { file in
+                            HStack {
+                                Label(file.filename, systemImage: "paperclip")
+                                Spacer()
+                                Button { files.removeAll { $0.id == file.id } } label: { Image(systemName: "xmark.circle.fill") }
+                                    .buttonStyle(.plain).foregroundStyle(PhoneTheme.secondary)
+                                    .accessibilityLabel("Remove " + file.filename)
+                            }
+                        }
+                    }
+                }
+                Section { Text("Your stopped request stays in the conversation. Send starts a new reply.").font(.footnote).foregroundStyle(PhoneTheme.secondary) }
+            }
+            .scrollContentBackground(.hidden).background(PhoneTheme.ground)
+            .scrollDismissesKeyboard(.interactively)
+            .navigationTitle("Edit request").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Send") {
+                        if store.resendStoppedRequest(messageID: request.id, text: text, attachments: files, session: session, context: context) { dismiss() }
+                    }.disabled(!available || (text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && files.isEmpty))
+                        .accessibilityIdentifier("request.edit.send")
+                }
+            }
+            .task { focused = true }
+        }
+    }
 }

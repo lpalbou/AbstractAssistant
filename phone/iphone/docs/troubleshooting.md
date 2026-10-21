@@ -21,9 +21,15 @@ The run modal refreshes on opening and with **Refresh details**. The scheduled t
 A failed run and an unavailable connection are different problems:
 
 - **The model provider rejected the gateway’s sign-in:** the phone reached the gateway, but
-  the provider rejected its credential. Ask the gateway administrator to check that endpoint’s
-  API credential. Changing phone tool permissions or signing in again on the phone does not
-  repair the provider credential.
+  the provider rejected the request recorded for this occurrence. Check the provider connection
+  actually used by the automation, including its endpoint and credential. A saved credential
+  and a successful model-discovery test do not prove which credential an earlier generation
+  request used. Changing phone tool permissions or signing in again does not repair this path.
+  Earlier failed runs keep their recorded errors after the server configuration is repaired;
+  they are history, not a live provider-health check.
+- **The model provider could not find the endpoint or model:** a provider404 is distinct from
+  a credential401. Verify the configured API base URL and model, including the expected API
+  prefix; a missing Gateway route is a separate server/client compatibility problem.
 - **A service did not respond:** check gateway/provider connectivity, then review the recorded
   error before starting another run.
 - **Provider request limit:** check quota or wait before trying again.

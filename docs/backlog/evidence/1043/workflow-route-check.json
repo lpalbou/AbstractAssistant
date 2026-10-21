@@ -1,0 +1,24 @@
+{
+  "configuration_changed": false,
+  "email_task_started": false,
+  "results": [
+    {
+      "diagnostic_session_archived": true,
+      "model_error_is_401": false,
+      "reply_is_ok": true,
+      "run_id": "c7fec42f-69ce-4aa9-9707-b3d8b5de33e4",
+      "status": "completed",
+      "tools_enabled": false,
+      "version": "0.0.0"
+    },
+    {
+      "diagnostic_session_archived": true,
+      "model_error_is_401": false,
+      "reply_is_ok": true,
+      "run_id": "39ddef44-aeed-4e61-a5fe-7ec9cdcae773",
+      "status": "completed",
+      "tools_enabled": false,
+      "version": "0.0.15"
+    }
+  ]
+}

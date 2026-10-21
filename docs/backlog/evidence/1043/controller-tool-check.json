@@ -1,0 +1,25 @@
+{
+  "allowed_tools" : [
+    "list_email_accounts"
+  ],
+  "archived" : true,
+  "attempts" : 1,
+  "completed_tool_batches" : 1,
+  "diagnostic_automation_id" : "111c5df8-bae1-515e-99d2-3d793d2ea13f",
+  "email_task_started" : false,
+  "original_automation" : {
+    "last_attempts" : 3,
+    "last_finished_at" : "2026-10-19T11:39:33.137919+00:00",
+    "last_fired_at" : "2026-10-19T11:38:02.719423+00:00",
+    "last_index" : 4,
+    "last_run_id" : "9f42432d-c4f6-5c16-be26-e57370baf1f7",
+    "last_status" : "failed",
+    "next_fire_at" : "2026-10-20T05:56:44.933235+00:00",
+    "next_run_at" : "2026-10-20T05:56:44.933235+00:00",
+    "revision" : 3,
+    "status" : "active"
+  },
+  "reply_is_ok" : true,
+  "run_id" : "9f959f13-f299-5f44-ae4e-cf155e1792b3",
+  "status" : "completed"
+}

@@ -30,6 +30,7 @@ public enum JSONValue: Codable, Hashable, Sendable {
         }
     }
 
+    public var arrayValue: [JSONValue]? { if case .array(let values) = self { values } else { nil } }
     public var stringValue: String? { if case .string(let s) = self { s } else { nil } }
     public subscript(key: String) -> JSONValue? { if case .object(let o) = self { o[key] } else { nil } }
 
@@ -517,8 +518,7 @@ public struct AutomationDefinition: Decodable, Sendable {
 
 struct AutomationDefinitionResponse: Decodable { var definition: AutomationDefinition }
 
-/// One workflow an automation can run: an entrypoint of a bundle the gateway lists for the app's
-/// interface (`GET /bundles?executable_for=<interface>`; the gateway decides what is offered).
+/// One runnable bundle entrypoint offered by the Gateway catalog.
 public struct WorkflowChoice: Hashable, Sendable, Identifiable {
     public var bundleId: String
     public var bundleVersion: String
@@ -533,10 +533,11 @@ public struct WorkflowChoice: Hashable, Sendable, Identifiable {
     static func choices(from page: JSONValue) -> [WorkflowChoice] {
         guard case .array(let items)? = page["items"] else { return [] }
         return items.flatMap { b -> [WorkflowChoice] in
-            guard let id = b["bundle_id"]?.stringValue, let v = b["bundle_version"]?.stringValue,
+            guard b["archived"] != .bool(true), b["actions"]?["can_run"] != .bool(false),
+                  let id = b["bundle_id"]?.stringValue, let v = b["bundle_version"]?.stringValue,
                   case .array(let eps)? = b["entrypoints"] else { return [] }
             return eps.compactMap { e in
-                guard let f = e["flow_id"]?.stringValue else { return nil }
+                guard e["deprecated"] != .bool(true), e["actions"]?["can_run"] != .bool(false), let f = e["flow_id"]?.stringValue else { return nil }
                 return WorkflowChoice(bundleId: id, bundleVersion: v, flowId: f, name: e["name"]?.stringValue ?? f)
             }
         }
@@ -549,34 +550,51 @@ public struct WorkflowChoice: Hashable, Sendable, Identifiable {
 public struct WorkflowInputs: Sendable, Equatable {
     public var defaults: [String: JSONValue]
     public var required: [String]
-    public init(defaults: [String: JSONValue], required: [String]) { self.defaults = defaults; self.required = required }
+    public var fields: [WorkflowInput]? = nil
+    public init(defaults: [String: JSONValue], required: [String], fields: [WorkflowInput]? = nil) { self.defaults = defaults; self.required = required; self.fields = fields }
+    public var editableFields: [WorkflowInput] { (fields ?? []).filter { !["prompt", "tools", "_runtime"].contains($0.id) } }
 
     public static func parse(_ v: JSONValue) -> WorkflowInputs? {
+        var defaults = v["defaults"]?.objectValue ?? [:]
+        let fields: [WorkflowInput]
         if case .array(let inputs)? = v["inputs"] {
-            var d: [String: JSONValue] = [:], r: [String] = []
-            for i in inputs {
-                guard let id = i["id"]?.stringValue else { continue }
-                if let def = i["default"], def != .null { d[id] = def }
-                if case .bool(true)? = i["required"] { r.append(id) }
+            fields = inputs.compactMap { item in
+                guard let id = item["id"]?.stringValue else { return nil }
+                let schema = item["schema"] ?? item
+                if let value = item["default"] ?? schema["default"], value != .null || WorkflowInput.nullable(schema) { defaults[id] = value }
+                return WorkflowInput(id: id, label: item["label"]?.stringValue ?? schema["title"]?.stringValue ?? id,
+                    type: WorkflowInput.type(in: schema, fallback: item["type"]?.stringValue ?? "unknown"),
+                    required: item["required"] == .bool(true), description: schema["description"]?.stringValue, choices: schema["enum"]?.arrayValue, allowsNull: WorkflowInput.nullable(schema))
             }
-            return WorkflowInputs(defaults: d, required: r)
+        } else if case .object(let props)? = v["input_data_schema"]?["properties"] {
+            let required = v["input_data_schema"]?["required"]?.arrayValue?.compactMap(\.stringValue) ?? []
+            fields = props.keys.sorted().map { id in
+                let schema = props[id]!
+                if let value = schema["default"], value != .null || WorkflowInput.nullable(schema) { defaults[id] = value }
+                return WorkflowInput(id: id, label: schema["title"]?.stringValue ?? id, type: WorkflowInput.type(in: schema),
+                    required: required.contains(id), description: schema["description"]?.stringValue, choices: schema["enum"]?.arrayValue, allowsNull: WorkflowInput.nullable(schema))
+            }
+        } else { return nil }
+        return WorkflowInputs(defaults: defaults, required: fields.filter(\.required).map(\.id), fields: fields)
+    }
+
+    public func overrides(from text: [String: String]) throws -> [String: JSONValue] {
+        var result: [String: JSONValue] = [:]
+        for field in editableFields {
+            guard let raw = text[field.id], !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            result[field.id] = try field.value(from: raw)
         }
-        guard let schema = v["input_data_schema"], case .object(let props)? = schema["properties"] else { return nil }
-        var d: [String: JSONValue] = [:]
-        if case .object(let top)? = v["defaults"] { d = top }
-        for (k, p) in props { if let def = p["default"], def != .null { d[k] = def } }
-        var r: [String] = []
-        if case .array(let req)? = schema["required"] { r = req.compactMap(\.stringValue) }
-        return WorkflowInputs(defaults: d, required: r)
+        return result
     }
 
     /// The new automation's `input_data`: the workflow's defaults and the task, or the inputs it
     /// still needs (a required one with no default and not the task).
-    public func inputData(task: String, tools: [String]? = nil) -> Result<[String: JSONValue], WorkflowInputsMissing> {
+    public func inputData(task: String, tools: [String]? = nil, overrides: [String: JSONValue] = [:]) -> Result<[String: JSONValue], WorkflowInputsMissing> {
         var out = defaults
-        out["prompt"] = .string(task)
-        if let tools { out["tools"] = .array(tools.map(JSONValue.string)) }
-        let missing = required.filter { out[$0] == nil }
+        out.merge(overrides) { _, new in new }
+        if fields == nil || fields!.contains(where: { $0.id == "prompt" }) { out["prompt"] = .string(task) }
+        if let tools, fields == nil || fields!.contains(where: { $0.id == "tools" }) { out["tools"] = .array(tools.map(JSONValue.string)) }
+        let missing = required.filter { id in out[id] == nil || (out[id] == .null && fields?.first(where: { $0.id == id })?.allowsNull != true) }
         return missing.isEmpty ? .success(out) : .failure(WorkflowInputsMissing(names: missing))
     }
 }
@@ -602,13 +620,16 @@ public struct NewAutomation: Sendable {
     public var askBeforeTools: Bool
     public var growingMaxTokens: Int?
     public var tools: ConversationTools?
-    public init(task: String, target: Target, when: When, buildsOnEarlierRuns: Bool, askBeforeTools: Bool, growingMaxTokens: Int? = nil, tools: ConversationTools? = nil) {
+    public var customTitle: String?
+    public init(task: String, target: Target, when: When, buildsOnEarlierRuns: Bool, askBeforeTools: Bool, growingMaxTokens: Int? = nil, tools: ConversationTools? = nil, title: String? = nil) {
         self.task = task; self.target = target; self.when = when
         self.buildsOnEarlierRuns = buildsOnEarlierRuns; self.askBeforeTools = askBeforeTools; self.growingMaxTokens = growingMaxTokens; self.tools = tools
+        self.customTitle = title
     }
 
-    /// The task's first line, at most 120 characters (the other clients' default title).
+    /// Explicit name, or the task's first line at most 120 characters for older callers.
     public var title: String {
+        if let custom = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !custom.isEmpty { return custom }
         let first = task.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n", omittingEmptySubsequences: false).first.map(String.init) ?? ""
         let line = first.trimmingCharacters(in: .whitespaces)
         return line.count <= 120 ? line : String(line.prefix(119)) + "…"
