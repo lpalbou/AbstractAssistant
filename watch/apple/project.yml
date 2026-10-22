@@ -17,9 +17,16 @@ targets:
     type: application
     platform: watchOS
     scheme: {}
-    sources: [Sources/App, Resources]
+    sources: [Sources/App, Sources/Face, Resources]
     dependencies:
       - package: AbstractGatewayClient
+      # The Orb clock complication, embedded in the app (Sources/Complication).
+      - target: AbstractAssistantComplication
+    # The app group it shares with the complication (what the face shows: Sources/Face).
+    entitlements:
+      path: Resources/AbstractAssistantWatch.entitlements
+      properties:
+        com.apple.security.application-groups: [group.ai.abstractframework.assistant]
     info:
       path: Resources/Info.plist
       properties:
@@ -54,6 +61,35 @@ targets:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
           # The build deployed to the watch is Debug (scripts/deploy-watch.sh): optimised, so the
           # orbs' per-frame maths does not run several times slower than the release.
+          SWIFT_OPTIMIZATION_LEVEL: "-O"
+
+  # The Orb clock: a WidgetKit complication for the watch faces (circular, rectangular, corner,
+  # inline). It reads what the app shares in their app group; it never calls the gateway itself.
+  AbstractAssistantComplication:
+    type: app-extension
+    platform: watchOS
+    sources: [Sources/Complication, Sources/Face, Complication/PrivacyInfo.xcprivacy]
+    entitlements:
+      path: Complication/AbstractAssistantComplication.entitlements
+      properties:
+        com.apple.security.application-groups: [group.ai.abstractframework.assistant]
+    info:
+      path: Complication/Info.plist
+      properties:
+        CFBundleDisplayName: Assistant
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.abstractframework.assistant.watch.orbclock
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: K3R4D6HP2A
+        SKIP_INSTALL: YES
+        SWIFT_STRICT_CONCURRENCY: complete
+      configs:
+        Debug:
           SWIFT_OPTIMIZATION_LEVEL: "-O"
 
   # UI checks that need a real tap (e.g. a text field opens with its current text). Own scheme:
