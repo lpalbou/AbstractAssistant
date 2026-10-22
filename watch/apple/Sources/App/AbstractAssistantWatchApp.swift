@@ -27,10 +27,21 @@ struct AbstractAssistantWatchApp: App {
         AnswerNotifier.shared.openWait = { [weak model] w in model?.show([w.kind == .askUser ? .askUser(w) : .approval(w)]) }
     }
 
+    /// `--screen face` (debug builds): the watch face's Orb clock on each slot, to look at.
+    private var showsFace: Bool {
+        #if DEBUG
+        options.screen == "face"
+        #else
+        false
+        #endif
+    }
+
     var body: some Scene {
         WindowGroup {
             Group {
-            if model.needsSignIn {
+            if showsFace {
+                FacePreview()
+            } else if model.needsSignIn {
                 SignInView()
             } else if !orbChosen {
                 // First launch, after sign-in: the orb is the assistant, so its look is the first choice.
