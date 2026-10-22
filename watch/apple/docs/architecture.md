@@ -22,7 +22,7 @@ flowchart LR
     BG --> Kit
     Kit --> Store
     Face[(app group<br/>FaceSnapshot)]
-    Clock[Orb clock<br/>WidgetKit complication]
+    Clock[Assistant complication<br/>WidgetKit]
     Model --> Face
     BG --> Face
     Face --> Clock
@@ -87,7 +87,7 @@ sequenceDiagram
 | `SVGDocument`, `SVGView` | SVG drawn on the watch (it has no web view): the client library reads a drawing into shapes and texts with their transforms, inherited styles, gradients, dashes and blur or drop-shadow filters (rect, circle, ellipse, line, polyline, polygon, every path command with arcs, text, groups); the app draws them in one `Canvas`, fitted with their aspect kept. Not drawn: embedded images, `use`, masks, clip paths, patterns, CSS stylesheets. Used by the file preview (`FilePreviewView`, a vertical pager over the conversation's files) and the media page. |
 | `MediaStore` | Downloads an answer's images, recordings and videos from the gateway's artifact route once, keeps them in the watch's caches (150 MB at most) and makes pictures small on the watch. |
 | `AnswerNotifier` | Hands a run's ledger stream to a background URLSession once the app leaves the foreground (one per run, ended when the app sees the run end), posts answers and waits as notifications, background refresh for new waits. |
-| `FaceSnapshot`, Orb clock | What the watch face shows (waits for you, the first of them, the next automation, the results not seen), kept in the app group `group.ai.abstractframework.assistant` and written by `AppModel` when its waits or automations change and by the background refresh; a write that changes it asks WidgetKit for a new timeline. The complication (`Sources/Complication`, the `AbstractAssistantComplication` extension embedded in the app) reads it and lays out a dial a minute for the next hour; it never calls the gateway itself. The dial and its texts (`Sources/Face`) are shared by the app (`--screen face` shows them in debug builds). |
+| `FaceSnapshot`, Assistant complication | What the watch face shows (your avatar, waits for you, the first of them, the next automation, the results not seen), kept in the app group `group.ai.abstractframework.assistant`: written by `AppModel` when its waits or automations change and by the background refresh; the avatar is the chosen orb style drawn at rest by the app (`FaceSnapshot.drawAvatar`, trimmed to the drawing) whenever the style changes. A write that changes it asks WidgetKit for a new timeline. The complication (`Sources/Complication`, the `AbstractAssistantComplication` extension embedded in the app) reads it every five minutes for two hours; it never calls the gateway itself. Its views (`Sources/Face`) are shared by the app (`--screen face` shows them in debug builds). |
 | `RuntimeKeeper` | An extended runtime session while the app listens, works or speaks, so the voice continues with the wrist down. |
 | `AbstractGatewayClient` (SwiftPM) | Typed async client: models, endpoints, markdown and speech text, sign-in; reads (GET) that time out, lose their connection or meet a server error are tried 3 times before they fail, writes are sent once ([ADR-0039](https://github.com/lpalbou/AbstractFramework/blob/main/docs/adr/0039-loading-states-spinner-until-a-read-has-failed.md) of AbstractFramework); `MockGatewayClient` with the same protocol for previews and screenshots. Tested with `swift test`. |
 
@@ -149,7 +149,7 @@ sequenceDiagram
   stream is skipped); the app's own automation reads post the same notification, shown as a banner
   (none for an automation whose orb page is open). Both follow
   Settings → Notifications.
-- **Watch face**: the Orb clock shows what the app last read; the same refresh writes the waits
+- **Watch face**: the Assistant complication shows what the app last read; the same refresh writes the waits
   and the automations it reads to the app group, and the face redraws only when they changed.
 - **Keep awake**: `WKExtendedRuntimeSession` (`WKBackgroundModes: self-care`, up to 10 minutes)
   from the tap that starts a turn until the voice ends, a new conversation is started, or the

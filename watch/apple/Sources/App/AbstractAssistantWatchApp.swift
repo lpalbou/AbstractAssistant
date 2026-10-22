@@ -7,6 +7,7 @@ struct AbstractAssistantWatchApp: App {
     @StateObject private var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(OrbDesign.chosenKey) private var orbChosen = false
+    @AppStorage(OrbDesign.storageKey) private var orbDesign = OrbDesign.a.rawValue
     private let options: LaunchOptions
 
     init() {
@@ -27,7 +28,7 @@ struct AbstractAssistantWatchApp: App {
         AnswerNotifier.shared.openWait = { [weak model] w in model?.show([w.kind == .askUser ? .askUser(w) : .approval(w)]) }
     }
 
-    /// `--screen face` (debug builds): the watch face's Orb clock on each slot, to look at.
+    /// `--screen face` (debug builds): the watch face's Assistant complication on each slot, to look at.
     private var showsFace: Bool {
         #if DEBUG
         options.screen == "face"
@@ -100,6 +101,8 @@ struct AbstractAssistantWatchApp: App {
             .environmentObject(model)
             .tint(Theme.indigo)
             .preferredColorScheme(.dark)
+            // The watch face's avatar follows the orb style chosen.
+            .onChange(of: orbDesign, initial: true) { _, d in FaceSnapshot.drawAvatar(OrbDesign(rawValue: d) ?? .a) }
         }
         // The background session that follows an Ask's run wakes the app here when the run ends.
         .backgroundTask(.urlSession(AnswerNotifier.sessionIdentifier)) {

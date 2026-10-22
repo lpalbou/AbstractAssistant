@@ -20,7 +20,7 @@ targets:
     sources: [Sources/App, Sources/Face, Resources]
     dependencies:
       - package: AbstractGatewayClient
-      # The Orb clock complication, embedded in the app (Sources/Complication).
+      # The Assistant complication (your avatar on the watch face), embedded in the app (Sources/Complication).
       - target: AbstractAssistantComplication
     # The app group it shares with the complication (what the face shows: Sources/Face).
     entitlements:
@@ -63,7 +63,7 @@ targets:
           # orbs' per-frame maths does not run several times slower than the release.
           SWIFT_OPTIMIZATION_LEVEL: "-O"
 
-  # The Orb clock: a WidgetKit complication for the watch faces (circular, rectangular, corner,
+  # The Assistant complication: your avatar on the watch faces (circular, rectangular, corner,
   # inline). It reads what the app shares in their app group; it never calls the gateway itself.
   AbstractAssistantComplication:
     type: app-extension
