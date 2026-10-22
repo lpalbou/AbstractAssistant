@@ -1,14 +1,13 @@
 import SwiftUI
-import UIKit
 import WidgetKit
 
-/// Your avatar on the watch face: the orb style you chose, as the app last drew it (a soft cyan glow
-/// until it has), and, when approvals or questions wait for you, their number on an amber badge.
-/// Never greyed out (the face's gallery and a locked watch grey out what a complication shows; the
-/// avatar and a count hide nothing).
-struct FaceAvatar: View {
+/// The app's blue orb (its icon) on the watch face and, when approvals or questions wait for you,
+/// their number on an amber badge. Never greyed out (the face's gallery and a locked watch grey out
+/// what a complication shows; the orb and a count hide nothing). A face that draws its
+/// complications in one tint shows it in that tint.
+struct FaceOrb: View {
     var needYou = 0
-    /// The badge (a slot too small for it shows the avatar alone).
+    /// The badge (a slot too small for it shows the orb alone).
     var showsCount = true
 
     var body: some View {
@@ -32,22 +31,16 @@ struct FaceAvatar: View {
         .unredacted()
     }
 
-    @ViewBuilder private func picture(_ side: CGFloat) -> some View {
-        if let data = FaceSnapshot.avatar(), let image = UIImage(data: data) {
-            Image(uiImage: image)
-                .resizable()
-                .widgetAccentedRenderingMode(.fullColor)
-                .scaledToFit()
-                .clipShape(Circle())
-        } else {
-            Circle()
-                .fill(RadialGradient(colors: [.white, Color(red: 0.36, green: 0.7, blue: 1).opacity(0.8), .clear],
-                                     center: .center, startRadius: 0, endRadius: side * 0.45))
-        }
+    private func picture(_ side: CGFloat) -> some View {
+        Image("Orb")
+            .resizable()
+            .widgetAccentedRenderingMode(.fullColor)
+            .scaledToFit()
+            .clipShape(Circle())
     }
 }
 
-/// The rectangular slot (and the Smart Stack): the avatar, then what waits for you, else the
+/// The rectangular slot (and the Smart Stack): the orb, then what waits for you, else the
 /// results not seen, and the next automation.
 struct FaceCard: View {
     let date: Date
@@ -57,7 +50,7 @@ struct FaceCard: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            FaceAvatar(needYou: face.needYou, showsCount: false)
+            FaceOrb(needYou: face.needYou, showsCount: false)
                 .frame(width: 46, height: 46)
             VStack(alignment: .leading, spacing: 1) {
                 Text(FaceLine.needYou(face) ?? "All clear")

@@ -17,10 +17,10 @@ targets:
     type: application
     platform: watchOS
     scheme: {}
-    sources: [Sources/App, Sources/Face, Resources]
+    sources: [Sources/App, Sources/Face, Resources, Complication/Assets.xcassets]
     dependencies:
       - package: AbstractGatewayClient
-      # The Assistant complication (your avatar on the watch face), embedded in the app (Sources/Complication).
+      # The Assistant complication (the app's blue orb on the watch face), embedded in the app (Sources/Complication).
       - target: AbstractAssistantComplication
     # The app group it shares with the complication (what the face shows: Sources/Face).
     entitlements:
@@ -63,12 +63,12 @@ targets:
           # orbs' per-frame maths does not run several times slower than the release.
           SWIFT_OPTIMIZATION_LEVEL: "-O"
 
-  # The Assistant complication: your avatar on the watch faces (circular, rectangular, corner,
+  # The Assistant complication: the app's blue orb on the watch faces (circular, rectangular, corner,
   # inline). It reads what the app shares in their app group; it never calls the gateway itself.
   AbstractAssistantComplication:
     type: app-extension
     platform: watchOS
-    sources: [Sources/Complication, Sources/Face, Complication/PrivacyInfo.xcprivacy]
+    sources: [Sources/Complication, Sources/Face, Complication/PrivacyInfo.xcprivacy, Complication/Assets.xcassets]
     entitlements:
       path: Complication/AbstractAssistantComplication.entitlements
       properties:

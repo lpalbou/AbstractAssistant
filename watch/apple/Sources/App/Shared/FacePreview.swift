@@ -21,7 +21,7 @@ struct FacePreview: View {
                     FaceLine.text(.sample, at: Date())
                 }
                 .font(.footnote)
-                FaceAvatar(needYou: 2, showsCount: false).frame(width: 30, height: 30)
+                FaceOrb(needYou: 2, showsCount: false).frame(width: 30, height: 30)
             }
             .padding(.top, 40)
         }
@@ -31,7 +31,7 @@ struct FacePreview: View {
     private func circular(_ face: FaceSnapshot) -> some View {
         ZStack {
             Circle().fill(.white.opacity(0.1))
-            FaceAvatar(needYou: face.needYou)
+            FaceOrb(needYou: face.needYou)
         }
         .frame(width: 54, height: 54)
     }

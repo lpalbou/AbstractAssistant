@@ -61,14 +61,14 @@ approval can be allowed or denied from the notification itself. An automation th
 posts a notification ("Morning digest finished"; a tap opens it), shown as a banner when the app
 is open; Settings → Notifications turns this off.
 
-**See it on your watch face.** The **Assistant** complication puts your avatar (the orb style
-you chose) on a face, with an amber badge giving the number of approvals and questions waiting for
-you; a tap opens the app. It fits the circular, corner and inline slots of a face, and the
+**See it on your watch face.** The **Assistant** complication puts the app's blue orb on a face,
+with an amber badge giving the number of approvals and questions waiting for you; a tap opens the
+app. It is there from the moment the app is installed. It fits the circular, corner and inline slots of a face, and the
 rectangular one (and the Smart Stack) adds what needs you first, your next automation ("Morning
 digest · 2h") and the results you have not seen. Add it from the face's Edit screen, under
 Assistant. It shows what the app last read: the app updates it as it reads, and the background
-check about every 15 minutes while it is closed; a new orb style reaches it the next time the app
-is open.
+check about every 15 minutes while it is closed. A face that draws its complications in one tint
+shows the orb in that tint; faces such as Infograph and Modular Duo keep its colours.
 
 **Make it yours.** Settings has Connection (the gateway and account you use), Tools (the defaults
 for new conversations), Voice (the speaking voice, its speed and the transcription model), Read

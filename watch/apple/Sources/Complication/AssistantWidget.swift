@@ -1,47 +1,47 @@
 import SwiftUI
 import WidgetKit
 
-/// The Assistant's complication: your avatar, on every slot a face offers.
+/// The Assistant's complication: the app's blue orb, on every slot a face offers.
 @main
 struct AssistantComplications: WidgetBundle {
-    var body: some Widget { AvatarWidget() }
+    var body: some Widget { AssistantWidget() }
 }
 
-struct AvatarEntry: TimelineEntry {
+struct AssistantEntry: TimelineEntry {
     let date: Date
     let face: FaceSnapshot
 }
 
 /// What the app last said, redrawn every five minutes for two hours (the next automation counts
 /// down); the app asks for a new timeline whenever what it shows changes.
-struct AvatarProvider: TimelineProvider {
-    func placeholder(in context: Context) -> AvatarEntry { AvatarEntry(date: Date(), face: FaceSnapshot.read()) }
+struct AssistantProvider: TimelineProvider {
+    func placeholder(in context: Context) -> AssistantEntry { AssistantEntry(date: Date(), face: FaceSnapshot.read()) }
 
-    func getSnapshot(in context: Context, completion: @escaping (AvatarEntry) -> Void) {
-        completion(AvatarEntry(date: Date(), face: FaceSnapshot.read()))
+    func getSnapshot(in context: Context, completion: @escaping (AssistantEntry) -> Void) {
+        completion(AssistantEntry(date: Date(), face: FaceSnapshot.read()))
     }
 
-    func getTimeline(in context: Context, completion: @escaping (Timeline<AvatarEntry>) -> Void) {
+    func getTimeline(in context: Context, completion: @escaping (Timeline<AssistantEntry>) -> Void) {
         let face = FaceSnapshot.read()
         let start = Date()
-        let entries = (0..<24).map { AvatarEntry(date: start.addingTimeInterval(Double($0) * 300), face: face) }
+        let entries = (0..<24).map { AssistantEntry(date: start.addingTimeInterval(Double($0) * 300), face: face) }
         completion(Timeline(entries: entries, policy: .atEnd))
     }
 }
 
-struct AvatarWidget: Widget {
+struct AssistantWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: FaceSnapshot.kind, provider: AvatarProvider()) { entry in
-            AvatarEntryView(entry: entry)
+        StaticConfiguration(kind: FaceSnapshot.kind, provider: AssistantProvider()) { entry in
+            AssistantEntryView(entry: entry)
         }
         .configurationDisplayName("Assistant")
-        .description("Your assistant's avatar, and what needs you.")
+        .description("Your assistant's orb, and what needs you.")
         .supportedFamilies([.accessoryCircular, .accessoryRectangular, .accessoryCorner, .accessoryInline])
     }
 }
 
-struct AvatarEntryView: View {
-    let entry: AvatarEntry
+struct AssistantEntryView: View {
+    let entry: AssistantEntry
     @Environment(\.widgetFamily) private var family
 
     var body: some View {
@@ -53,14 +53,14 @@ struct AvatarEntryView: View {
         case .accessoryRectangular:
             FaceCard(date: entry.date, face: entry.face)
         case .accessoryCorner:
-            FaceAvatar(needYou: entry.face.needYou, showsCount: false)
+            FaceOrb(needYou: entry.face.needYou, showsCount: false)
                 .widgetLabel { FaceLine.text(entry.face, at: entry.date) }
         case .accessoryInline:
             Label { FaceLine.text(entry.face, at: entry.date) } icon: { Image(systemName: "circle.hexagongrid.fill") }
         default:
             ZStack {
                 AccessoryWidgetBackground()
-                FaceAvatar(needYou: entry.face.needYou)
+                FaceOrb(needYou: entry.face.needYou)
             }
         }
     }

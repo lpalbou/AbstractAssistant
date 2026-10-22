@@ -1,9 +1,8 @@
 import Foundation
 import WidgetKit
 
-/// What the watch face shows of the assistant (the Assistant complication): your avatar (the orb
-/// style you chose, drawn by the app), how many approvals and questions wait for you, the first of
-/// them, the next automation to run and the automations' results not seen yet. The app writes it
+/// What the watch face shows of the assistant (the Assistant complication, the app's blue orb): how
+/// many approvals and questions wait for you, the first of them, the next automation to run and the automations' results not seen yet. The app writes it
 /// (and the background check, when the app is closed); the complication reads it. It lives in the
 /// app group both share.
 struct FaceSnapshot: Codable, Equatable, Sendable {
@@ -35,22 +34,6 @@ struct FaceSnapshot: Codable, Equatable, Sendable {
         change(&s)
         guard s != before, let data = try? JSONEncoder().encode(s) else { return }
         UserDefaults(suiteName: group)?.set(data, forKey: key)
-        WidgetCenter.shared.reloadTimelines(ofKind: kind)
-    }
-
-    private static let avatarKey = "face.avatar", avatarIdKey = "face.avatar.id"
-
-    /// Your avatar as a picture (PNG), as the app last drew it; nil before it has.
-    static func avatar() -> Data? { UserDefaults(suiteName: group)?.data(forKey: avatarKey) }
-
-    /// What the avatar was drawn from (its orb style), to draw it again only when that changes.
-    static var avatarId: String? { UserDefaults(suiteName: group)?.string(forKey: avatarIdKey) }
-
-    /// Keeps a new picture of the avatar and redraws the face.
-    static func setAvatar(_ png: Data, id: String) {
-        let store = UserDefaults(suiteName: group)
-        store?.set(png, forKey: avatarKey)
-        store?.set(id, forKey: avatarIdKey)
         WidgetCenter.shared.reloadTimelines(ofKind: kind)
     }
 
