@@ -31,9 +31,11 @@ final class BrowserNavigationUITests: XCTestCase {
         app.launchArguments = ["--mock", "--no-notification-prompt"]
         app.launch()
         XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 15))
-        // At startup neither swipe goes anywhere.
+        // At startup, forward opens the clock and back comes Home; back from Home goes nowhere.
         forward()
-        XCTAssertTrue(onHome, "forward from Home went somewhere")
+        XCTAssertTrue(app.buttons["clock.orb"].exists, "forward from Home is not the clock")
+        back()
+        XCTAssertTrue(onHome, "back from the clock is not Home")
         back()
         XCTAssertTrue(onHome, "back from Home went somewhere")
         // Sessions; nothing ahead; back to Home; forward to Sessions.

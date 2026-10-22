@@ -5142,7 +5142,15 @@ approval can be allowed or denied from the notification itself. An automation th
 posts a notification ("Morning digest finished"; a tap opens it), shown as a banner when the app
 is open; Settings → Notifications turns this off.
 
-**See it on your watch face.** The **Orb clock** complication tells the time in particles round
+**Use it as your watch face.** Swipe left on Home for the **clock**: your orb, alive, in the
+middle of a dial of particles (the rim's minutes light up through the hour, the hour is a comet
+orbiting the orb), the date top left, what waits for you bottom left in amber, and your next
+automation bottom right. A tap on the orb talks; a swipe right goes back. Settings → Start on the
+clock opens the app on it, and brings it back after two minutes away. watchOS keeps watch faces to
+Apple's own: to keep the clock in front instead of the face, set the watch's Settings → General →
+Return to Clock → Assistant → Return to App. Wrist down, the orb holds still and the dial dims.
+
+**See it on any watch face.** The **Orb clock** complication tells the time in particles round
 a small orb: the rim lights up minute by minute through the hour, the hour hand is a stream of
 light ending in a comet, and the orb glows amber with the number of approvals and questions waiting
 for you. It fits the circular, corner and inline slots of a face, and the rectangular one (and the
@@ -5227,6 +5235,11 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Added
 
+- **The clock: the app as a watch face.** Swipe left on Home: your orb, alive, in a dial of
+  particles (the minutes light up round the rim, the hour is a comet orbiting the orb), the date,
+  what waits for you and the next automation in the corners; a tap on the orb talks. Settings →
+  Start on the clock opens the app on it; with the watch's Return to Clock set to return to the app,
+  it stays in front as your face.
 - **The Orb clock on your watch face.** A complication for the circular, corner, inline and
   rectangular slots (and the Smart Stack): the time in particles round a small orb, which glows
   amber with the number of approvals and questions waiting for you; the rectangular slot adds what
@@ -5718,6 +5731,7 @@ sequenceDiagram
 | `SVGDocument`, `SVGView` | SVG drawn on the watch (it has no web view): the client library reads a drawing into shapes and texts with their transforms, inherited styles, gradients, dashes and blur or drop-shadow filters (rect, circle, ellipse, line, polyline, polygon, every path command with arcs, text, groups); the app draws them in one `Canvas`, fitted with their aspect kept. Not drawn: embedded images, `use`, masks, clip paths, patterns, CSS stylesheets. Used by the file preview (`FilePreviewView`, a vertical pager over the conversation's files) and the media page. |
 | `MediaStore` | Downloads an answer's images, recordings and videos from the gateway's artifact route once, keeps them in the watch's caches (150 MB at most) and makes pictures small on the watch. |
 | `AnswerNotifier` | Hands a run's ledger stream to a background URLSession once the app leaves the foreground (one per run, ended when the app sees the run end), posts answers and waits as notifications, background refresh for new waits. |
+| `ClockFaceView`, `FaceDial` | The clock page (`Route.clock`): the live `Orb` in a dial of particles drawn as paths (`Dots`, shared with the complication), redrawn every minute (`TimelineView(.everyMinute)`, which also runs with the screen dimmed); its corners read `AppModel` (the waits, the automations). `AppModel.goForward` opens it from Home with nothing ahead; `ClockFace.startOnIt` (Settings → Start on the clock) makes it the first page at launch and after two minutes in the background. |
 | `FaceSnapshot`, Orb clock | What the watch face shows (waits for you, the first of them, the next automation, the results not seen), kept in the app group `group.ai.abstractframework.assistant` and written by `AppModel` when its waits or automations change and by the background refresh; a write that changes it asks WidgetKit for a new timeline. The complication (`Sources/Complication`, the `AbstractAssistantComplication` extension embedded in the app) reads it and lays out a dial a minute for the next hour; it never calls the gateway itself. The dial and its texts (`Sources/Face`) are shared by the app (`--screen face` shows them in debug builds). |
 | `RuntimeKeeper` | An extended runtime session while the app listens, works or speaks, so the voice continues with the wrist down. |
 | `AbstractGatewayClient` (SwiftPM) | Typed async client: models, endpoints, markdown and speech text, sign-in; reads (GET) that time out, lose their connection or meet a server error are tried 3 times before they fail, writes are sent once ([ADR-0039](https://github.com/lpalbou/AbstractFramework/blob/main/docs/adr/0039-loading-states-spinner-until-a-read-has-failed.md) of AbstractFramework); `MockGatewayClient` with the same protocol for previews and screenshots. Tested with `swift test`. |

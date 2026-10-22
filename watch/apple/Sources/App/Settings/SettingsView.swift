@@ -6,6 +6,7 @@ struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @AppStorage("ask.speak") private var speakAnswers = true
     @AppStorage(AutomationNotices.key) private var automationNotices = true
+    @AppStorage(ClockFace.key) private var startOnClock = false
     @AppStorage(OrbDesign.storageKey) private var orbDesign = OrbDesign.a.rawValue
 
     var body: some View {
@@ -38,6 +39,16 @@ struct SettingsView: View {
                 Card {
                     Toggle("Read aloud", isOn: $speakAnswers)
                         .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text).tint(Theme.indigoButton)
+                }
+                // The clock (swipe left on Home): the app as a watch face.
+                Card {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle("Start on the clock", isOn: $startOnClock)
+                            .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text).tint(Theme.indigoButton)
+                            .accessibilityIdentifier("settings.startOnClock")
+                        Text("Swipe left on Home for the clock. To keep it as your face: the watch's Settings, General, Return to Clock, Assistant, Return to App.")
+                            .font(.rounded(.caption2)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 // A notification when an automation finishes a run.
                 Card {

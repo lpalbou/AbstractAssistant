@@ -73,8 +73,8 @@ struct AbstractAssistantWatchApp: App {
                     .offset(x: model.settingsIn ? 0 : -WKInterfaceDevice.current().screenBounds.width)
                     .zIndex(1)
                 }
-                // The one corner button, over every page: the gear on Home, Back elsewhere.
-                CornerButton().zIndex(2)
+                // The one corner button, over every page but the clock: the gear on Home, Back elsewhere.
+                if !model.onClock { CornerButton().zIndex(2) }
             }
             // Swipes as in a browser: to the right goes back (as the system's own Back), to the left
             // goes forward (to a page went back from, or from the orb page to its conversation). A
@@ -134,6 +134,7 @@ struct RoutePage: View {
         case .automation(let a): AskView(automation: a)
         case .automationInfo(let a): AutomationInfoView(automation: a)
         case .automationSearch(let q): AutomationSearchView(query: q)
+        case .clock: ClockFaceView()
         case .automationEdit(let a): AutomationEditView(automation: a)
         case .newAutomation: NewAutomationView()
         case .message(let title, let e): MessageView(title: title, exchange: e)
