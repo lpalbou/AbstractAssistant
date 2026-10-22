@@ -500,6 +500,18 @@ def symbol_icon(name: str, *, color: str = "", size: int = 18) -> QIcon:
         _remember_spec(icon, name, requested, size)
         return icon
 
+    if resolved in {"checkmark.shield.fill", "checkmark.seal.fill"}:
+        outline = (_ICON_PATHS["shield"][0] if resolved == "checkmark.shield.fill" else
+                   "M12 2l3 2 3.6.4.4 3.6 2 4-2 3-.4 3.6-3.6.4-3 2-3-2-3.6-.4L5 15l-2-3 2-4 .4-3.6L9 4Z")
+        # Filled shield/seal with a transparent check, matching the watch symbols.
+        document = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+                    f'<path d="{outline} M7 12l1.5-1.5 2.5 2.5 4.5-5 1.5 1.5-6 6.5Z" '
+                    f'fill="{color}" fill-rule="evenodd"/></svg>')
+        icon = QIcon(_render_document(document, size))
+        _ICON_CACHE[key] = icon
+        _remember_spec(icon, name, requested, size)
+        return icon
+
     if resolved in _KIT_GLYPHS:
         document = _kit_glyph_document(resolved, color)
         icon = QIcon(_render_document(document, size))

@@ -6062,7 +6062,8 @@ class AssistantPalette(QMainWindow):
         tools.setIconSize(QSize(16, 16))
         tools.setFixedSize(28, 28)
         tools.setToolTip("Tools & permissions")
-        tools.clicked.connect(self._open_tool_settings)
+        tools.clicked.connect(self._on_tools_indicator_clicked)
+        self.tools_button = tools
         header_actions.addWidget(tools)
 
         schedule = QPushButton()
@@ -6520,6 +6521,7 @@ class AssistantPalette(QMainWindow):
             return
         self._elide_session_button()
         self._refresh_workspace_hint()
+        self._refresh_tool_indicator()
 
     def _elide_session_button(self) -> None:
         """Fit the session name to the control, leaving room for the chevron."""
@@ -7651,6 +7653,10 @@ class AssistantPalette(QMainWindow):
         notice another source just raised (the bootstrap used to clear an
         error banner the instant it finished).
         """
+        # Each notice owns its expiry: an older timer must never clear a newer
+        # warning, even if it uses the same source key and text.
+        revision = int(self._state("_banner_revision", 0)) + 1
+        self._banner_revision = revision
         message = str(text or "").strip()
         if not message:
             self._banner_key = ""
@@ -7668,6 +7674,14 @@ class AssistantPalette(QMainWindow):
         self.banner_label.setMaximumHeight(16777215)
         self._refresh_widget_style(self.banner_label)
         self.banner_label.show()
+
+        # Device/volume announcements are notifications, including muted output.
+        # Persistent errors and requests awaiting the user retain their lifetime.
+        if key == "speech":
+            def expire() -> None:
+                if self._state("_banner_revision") == revision:
+                    self._clear_banner("speech")
+            QTimer.singleShot(5000, expire)
 
     def _note_user_wait(self, *, wait_key: str, kind: str, label: str) -> None:
         """Record that a run is parked on the user until they answer."""
@@ -10539,6 +10553,73 @@ class AssistantPalette(QMainWindow):
         self._refresh_workflows()
         self.refresh_history()
 
+    def _refresh_tool_indicator(self) -> None:
+        button = self._state("tools_button")
+        if button is None:
+            return
+        controller = self._controller
+
+        def render(inventory: Any) -> None:
+            if controller.session_tool_auto_approval_active():
+                icon, color = "checkmark.shield.fill", THEME.attention
+                label = "Session approval active — click to restore tool defaults"
+            else:
+                items = inventory.get("items", []) if isinstance(inventory, dict) else []
+                modes = {row.get("selected_mode", "ask") for row in items
+                         if isinstance(row, dict) and row.get("available") is not False
+                         and row.get("selected_mode") != "disabled"}
+                if modes == {"ask"}:
+                    icon, color, label = "shield", THEME.positive, "Ask before every enabled tool"
+                elif modes == {"approve"}:
+                    icon, color, label = "checkmark.seal.fill", "#4f46e5", "Auto-approve enabled tools"
+                else:
+                    icon, color = "shield", THEME.text_muted
+                    label = "Mixed tool defaults" if modes else "Tools & permissions"
+            button.setIcon(_symbol_icon(icon, color=color, size=18))
+            button.setToolTip(label)
+            button.setAccessibleName(label)
+
+        render(self._state("_indicator_inventory", {}))
+        if self._state("_indicator_loading", False):
+            return
+        hub = self._state("_automations")
+        if hub is None:
+            return
+        self._indicator_loading = True
+
+        def loaded(ok: bool, inventory: Any) -> None:
+            self._indicator_loading = False
+            self._indicator_inventory = inventory if ok else {}
+            render(self._indicator_inventory)
+
+        hub.run(controller.tool_inventory, loaded)
+
+    def _on_tools_indicator_clicked(self) -> None:
+        if not self._controller.session_tool_auto_approval_active():
+            self._open_tool_settings()
+            return
+        sid = self._active_session_id()
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Restore tool defaults?")
+        dialog.setText("Remove temporary approval for this chat?")
+        dialog.setInformativeText(
+            "Future runs will use your saved tool defaults. Calls already approved or "
+            "running are unaffected."
+        )
+        dialog.setStandardButtons(QMessageBox.Yes | QMessageBox.Cancel)
+        dialog.setDefaultButton(QMessageBox.Cancel)
+        dialog.button(QMessageBox.Yes).setText("Restore defaults")
+
+        def decided(result: int) -> None:
+            if result == QMessageBox.Yes:
+                self._controller.revoke_session_tool_auto_approval(session_id=sid)
+                self._clear_banner("trust")
+                self._refresh_tool_indicator()
+            dialog.deleteLater()
+
+        dialog.finished.connect(decided)
+        self._show_aux_dialog(dialog)
+
     def _open_tool_settings(self) -> None:
         """Tools & permissions is a page of Settings now."""
         self._open_settings(section="tools")
@@ -10731,17 +10812,8 @@ class AssistantPalette(QMainWindow):
         if decision == "session":
             rank = int(details.get("trust_rank") or 0) or None
             self._controller.grant_session_tool_auto_approval(max_rank=rank)
-            if rank and rank >= 3:
-                message = (
-                    "Trusting enabled tools in this chat, including ones that reach outside or destroy. "
-                    "Disabled tools stay disabled; gateway limits still apply."
-                )
-            else:
-                message = (
-                    "Trusting enabled tools in this chat. Calls that reach outside or destroy will still ask; "
-                    "disabled tools stay disabled and gateway limits still apply."
-                )
-            self._set_banner(message, tone="info", key="trust")
+            self._clear_banner("trust")
+            self._refresh_tool_indicator()
         worker = self._state("_worker")
         if worker is not None:
             try:
@@ -10949,6 +11021,7 @@ class AssistantPalette(QMainWindow):
         dialog.activateWindow()
 
     def _on_settings_saved(self) -> None:
+        self._refresh_tool_indicator()
         if self._state("_auto_speak_before_voice") is None:
             self.auto_speak.setChecked(bool(self._controller.preferences.auto_speak))
         self._refresh_capability_state()

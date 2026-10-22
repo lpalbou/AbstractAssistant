@@ -1852,6 +1852,14 @@ class AssistantController:
         wanted = max(1, min(4, wanted))
         ranks[sid] = max(int(ranks.get(sid, 0)), wanted)
 
+    def revoke_session_tool_auto_approval(self, *, session_id: Optional[str] = None) -> None:
+        """Remove this chat's temporary grant; keep saved tool defaults intact."""
+        sid = str(session_id or self.active_session_id or "").strip()
+        self._session_auto_approve_all.discard(sid)
+        ranks = getattr(self, "_session_trust_rank", None)
+        if isinstance(ranks, dict):
+            ranks.pop(sid, None)
+
     def session_tool_auto_approval_active(self, *, session_id: Optional[str] = None) -> bool:
         sid = str(session_id or self.active_session_id or "").strip()
         return bool(sid and sid in self._session_auto_approve_all)
