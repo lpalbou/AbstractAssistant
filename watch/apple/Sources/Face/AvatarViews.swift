@@ -4,6 +4,8 @@ import WidgetKit
 
 /// Your avatar on the watch face: the orb style you chose, as the app last drew it (a soft cyan glow
 /// until it has), and, when approvals or questions wait for you, their number on an amber badge.
+/// Never greyed out (the face's gallery and a locked watch grey out what a complication shows; the
+/// avatar and a count hide nothing).
 struct FaceAvatar: View {
     var needYou = 0
     /// The badge (a slot too small for it shows the avatar alone).
@@ -27,6 +29,7 @@ struct FaceAvatar: View {
             .frame(width: side, height: side)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .unredacted()
     }
 
     @ViewBuilder private func picture(_ side: CGFloat) -> some View {

@@ -15,10 +15,10 @@ struct AvatarEntry: TimelineEntry {
 /// What the app last said, redrawn every five minutes for two hours (the next automation counts
 /// down); the app asks for a new timeline whenever what it shows changes.
 struct AvatarProvider: TimelineProvider {
-    func placeholder(in context: Context) -> AvatarEntry { AvatarEntry(date: Date(), face: .sample) }
+    func placeholder(in context: Context) -> AvatarEntry { AvatarEntry(date: Date(), face: FaceSnapshot.read()) }
 
     func getSnapshot(in context: Context, completion: @escaping (AvatarEntry) -> Void) {
-        completion(AvatarEntry(date: Date(), face: context.isPreview ? .sample : FaceSnapshot.read()))
+        completion(AvatarEntry(date: Date(), face: FaceSnapshot.read()))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<AvatarEntry>) -> Void) {
