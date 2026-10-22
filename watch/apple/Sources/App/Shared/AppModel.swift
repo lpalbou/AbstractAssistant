@@ -51,8 +51,7 @@ struct Exchange: Identifiable, Hashable {
 
 @MainActor
 final class AppModel: ObservableObject {
-    /// (The watch face's Orb clock shows how many, and the first: `FaceSnapshot`.)
-    @Published var waits: [Wait] = [] { didSet { if waits != oldValue { FaceSnapshot.waits(waits) } } }
+    @Published var waits: [Wait] = []
     @Published var runs: [RunSummary] = []
     /// Conversations (turns grouped by session), newest activity first.
     var sessions: [SessionSummary] { SessionSummary.group(runs) }
@@ -190,8 +189,7 @@ final class AppModel: ObservableObject {
     /// Set by "Continue" on a session: Ask opens on its last exchange, in that session.
     struct Resuming { let sessionId, title, prompt, answer, runId, status: String; var media: [MediaItem] = [] }
     var resuming: Resuming?
-    /// (The watch face's Orb clock shows the next to run and the results not seen.)
-    @Published var automations: [AutomationSummary] = [] { didSet { if automations != oldValue { FaceSnapshot.automations(automations) } } }
+    @Published var automations: [AutomationSummary] = []
     @Published var principal: Principal?
     @Published var lastError: String?
     /// Polls that failed in a row, and since when: a watch's radio takes seconds to come up, so the

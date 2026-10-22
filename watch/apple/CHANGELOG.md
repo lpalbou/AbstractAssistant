@@ -8,11 +8,6 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Added
 
-- **The Orb clock on your watch face.** A complication for the circular, corner, inline and
-  rectangular slots (and the Smart Stack): the time in particles round a small orb, which glows
-  amber with the number of approvals and questions waiting for you; the rectangular slot adds what
-  needs you first, your next automation and the results you have not seen. Under Assistant in the
-  face's Edit screen.
 - **Notifications when an automation finishes.** "Morning digest finished", with the first words of
   its answer (a tap opens it): a banner when the app is open, a notification from the background
   check otherwise. Settings → Notifications turns it off.

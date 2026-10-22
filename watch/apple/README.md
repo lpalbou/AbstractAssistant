@@ -61,15 +61,6 @@ approval can be allowed or denied from the notification itself. An automation th
 posts a notification ("Morning digest finished"; a tap opens it), shown as a banner when the app
 is open; Settings → Notifications turns this off.
 
-**See it on your watch face.** The **Orb clock** complication tells the time in particles round
-a small orb: the rim lights up minute by minute through the hour, the hour hand is a stream of
-light ending in a comet, and the orb glows amber with the number of approvals and questions waiting
-for you. It fits the circular, corner and inline slots of a face, and the rectangular one (and the
-Smart Stack) adds what needs you first, your next automation ("Morning digest · 2h") and the results
-you have not seen. Add it from the face's Edit screen, under Assistant. It shows what the app last
-read: the app updates it as it reads, and the background check about every 15 minutes while it is
-closed.
-
 **Make it yours.** Settings has Connection (the gateway and account you use), Tools (the defaults
 for new conversations), Voice (the speaking voice, its speed and the transcription model), Read
 aloud, Orb style (thirty-four styles in six families: Orbs, Forms, Cosmos, Nature, Faces and Machines, each previewed live through listening, thinking, working and speaking) and About.

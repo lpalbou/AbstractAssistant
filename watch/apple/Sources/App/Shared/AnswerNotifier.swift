@@ -154,8 +154,7 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
     }
 
     /// Background refresh: posts each new wait (an approval or a question) once, and each
-    /// automation that finished a run (Settings → Notifications), keeps the watch face's Orb clock
-    /// current, then reschedules.
+    /// automation that finished a run (Settings → Automation results), then reschedules.
     func checkWaits() async {
         await MainActor.run { scheduleRefresh() }
         guard let saved = SavedSignIn.load() else { return }
@@ -170,9 +169,7 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
     /// Each automation that finished a run since the last look: "Morning digest finished" and the
     /// first words of its answer (a tap opens it). Not for a run already posted (Run now, then left).
     private func checkAutomations(_ client: LiveGatewayClient) async {
-        guard let list = try? await client.automations() else { return }
-        FaceSnapshot.automations(list)                              // the watch face's Orb clock
-        guard AutomationNotices.on else { return }
+        guard AutomationNotices.on, let list = try? await client.automations() else { return }
         for a in AutomationNotices.finished(in: list) { await postFinished(a) }
     }
 
@@ -196,7 +193,6 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
 
     private func postWaits(_ client: LiveGatewayClient) async {
         guard let waits = try? await client.waits() else { return }
-        FaceSnapshot.waits(waits)                                   // the watch face's Orb clock
         var seen = Set(UserDefaults.standard.stringArray(forKey: "notify.waits") ?? [])
         let unseen = waits.filter { !seen.contains($0.id) }
         guard !unseen.isEmpty else { return }                     // nothing new: no more requests

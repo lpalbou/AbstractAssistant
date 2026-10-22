@@ -12,14 +12,12 @@
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>
 		<dict>
-			<!-- UserDefaults: the app's own settings and sign-in (CA92.1: read/write by the app itself), and what
-			     it shares with its Orb clock complication in their app group (1C8F.1). -->
+			<!-- UserDefaults: the app's own settings and sign-in (CA92.1: read/write by the app itself). -->
 			<key>NSPrivacyAccessedAPIType</key>
 			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
 				<string>CA92.1</string>
-				<string>1C8F.1</string>
 			</array>
 		</dict>
 	</array>
