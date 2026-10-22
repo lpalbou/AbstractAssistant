@@ -76,16 +76,16 @@ struct OrbClockDial: View {
 
     /// The sixty points of the rim: the ones gone by this hour (`lit`), with the current minute the
     /// brightest and a few sparks round them, or the ones still to come.
-    static func rim(minute: Int, lit: Bool, radius: Double = 0.88, scale: Double = 1) -> [Dot] {
+    static func rim(minute: Int, lit: Bool) -> [Dot] {
         var dots: [Dot] = []
         for i in 0..<60 where (i <= minute) == lit {
             let turn = Double(i) / 60
-            let r = radius + 0.04 * (noise(i, 1) - 0.5)
-            if !lit { dots.append(at(turn, r, size: scale * (i % 5 == 0 ? 0.03 : 0.02))); continue }
-            dots.append(at(turn, r, size: scale * (i == minute ? 0.065 : 0.032 + 0.012 * noise(i, 2))))
+            let r = 0.88 + 0.04 * (noise(i, 1) - 0.5)
+            if !lit { dots.append(at(turn, r, size: i % 5 == 0 ? 0.03 : 0.02)); continue }
+            dots.append(at(turn, r, size: i == minute ? 0.065 : 0.032 + 0.012 * noise(i, 2)))
             // Sparks: two tiny points drifting off each lit minute, fewer towards the start of the hour.
             for k in 0..<2 where noise(i, Double(3 + k)) < 0.35 + 0.5 * Double(i) / 60 {
-                dots.append(at(turn + 0.006 * (noise(i, Double(5 + k)) - 0.5), r + 0.09 * scale * (noise(i, Double(7 + k)) - 0.5), size: 0.012 * scale))
+                dots.append(at(turn + 0.006 * (noise(i, Double(5 + k)) - 0.5), r + 0.09 * (noise(i, Double(7 + k)) - 0.5), size: 0.012))
             }
         }
         return dots

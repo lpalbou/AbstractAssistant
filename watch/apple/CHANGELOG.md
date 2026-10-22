@@ -8,11 +8,6 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Added
 
-- **The clock: the app as a watch face.** Swipe left on Home: your orb, alive, in a dial of
-  particles (the minutes light up round the rim, the hour is a comet orbiting the orb), the date,
-  what waits for you and the next automation in the corners; a tap on the orb talks. Settings →
-  Start on the clock opens the app on it; with the watch's Return to Clock set to return to the app,
-  it stays in front as your face.
 - **The Orb clock on your watch face.** A complication for the circular, corner, inline and
   rectangular slots (and the Smart Stack): the time in particles round a small orb, which glows
   amber with the number of approvals and questions waiting for you; the rectangular slot adds what

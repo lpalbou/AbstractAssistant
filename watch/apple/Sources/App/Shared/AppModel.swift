@@ -10,7 +10,7 @@ enum Route: Hashable {
         switch self {
         case .ask, .sessions, .session, .automations, .automation, .automationInfo, .automationSearch, .conversation, .settings, .voiceSettings,
              .orbStyle, .about, .tools, .toolGroup, .connection, .archivedSessions, .sessionSearch,
-             .archivedAutomations, .clock: true
+             .archivedAutomations: true
         // `.answer`: a notification's answer (it would be read aloud again); `.waits`: it closes once empty.
         case .approval, .askUser, .draft, .waits, .answer, .picker, .automationEdit, .newAutomation, .message,
              .read, .link, .orbStylePreview, .workflow, .media, .activity, .filePreview: false
@@ -26,8 +26,6 @@ enum Route: Hashable {
     case automationInfo(AutomationSummary)
     /// The automations whose name or task holds these words.
     case automationSearch(String)
-    /// The clock: the app as a watch face (swiped to from Home).
-    case clock
 
     /// A page with the orb that talks (a conversation or an automation): one is on screen at a time.
     var isOrbPage: Bool {
@@ -273,8 +271,6 @@ final class AppModel: ObservableObject {
         }
     }
     private var forwarding = false
-    /// When the app last left for the background (Start on the clock counts from there).
-    private var backgroundSince: Date?
     /// The last moment a finger moved sideways (a swipe under way, or one that just ended).
     private var swipedAt: Date?
     /// Settings and its pages, a stack of its own that slides in from the left (the gear is at the
@@ -284,8 +280,6 @@ final class AppModel: ObservableObject {
     @Published var settingsIn = false
     /// Home, with nothing over it: the corner button is the gear.
     var atHome: Bool { path.isEmpty && !settingsIn }
-    /// The clock is on screen: no corner button over it (a watch face; a swipe goes back).
-    var onClock: Bool { path.last == .clock && !settingsIn }
     func openSettings() {
         guard settingsPath == nil else { return }
         forward = []                                      // opening something else forgets the pages ahead
@@ -386,10 +380,6 @@ final class AppModel: ObservableObject {
             // conversation's: its stats page).
             if let d = discussion, d.automation == a.id, d.session == askSessionId { path.append(.conversation(askSessionId)) }
             else { path.append(.automationInfo(a)) }
-        // Home, with nothing ahead: the clock.
-        case nil where forward.isEmpty:
-            forwarding = true
-            path.append(.clock)
         case .ask:
             guard responder == .assistant, hasMessages(askSessionId) else { return }
             forwarding = true; forward = []
@@ -510,14 +500,9 @@ final class AppModel: ObservableObject {
     /// and stops there; background stops at once.
     func scene(_ phase: ScenePhase) {
         switch phase {
-        case .active:
-            onScreen = true; startPolling()
-            // Back after a while on Home, with Start on the clock: the clock, as a face.
-            if ClockFace.startOnIt, path.isEmpty, settingsPath == nil,
-               let away = backgroundSince, Date().timeIntervalSince(away) >= ClockFace.awayBeforeClock { path = [.clock] }
-            backgroundSince = nil
+        case .active: onScreen = true; startPolling()
         case .inactive: onScreen = false
-        case .background: onScreen = false; stopPolling(); if backgroundSince == nil { backgroundSince = Date() }
+        case .background: onScreen = false; stopPolling()
         @unknown default: onScreen = false
         }
     }
@@ -1314,19 +1299,10 @@ struct LaunchOptions {
         case "settings": return [.settings]
         case "orblab", "orbstyle": return [.settings, .orbStyle]
         case "about": return [.settings, .about]
-        case "clock": return [.clock]
         case "voice": return [.settings, .voiceSettings]
         case "link": return [.link(URL(string: "https://abstractframework.ai")!)]
         case "read": return [.read(ReadItem(title: "Answer", text: MockGatewayClient.cannedAnswer, scope: .run("7c1e02aa")))]
-        default: return ClockFace.startOnIt && screen == "home" ? [.clock] : []
+        default: return []
         }
     }
-}
-
-/// Settings → Start on the clock: the app opens on its clock, and comes back to it after a while away.
-enum ClockFace {
-    static let key = "clock.start"
-    static var startOnIt: Bool { UserDefaults.standard.bool(forKey: key) }
-    /// Away this long (in the background), the app comes back on the clock.
-    static let awayBeforeClock: TimeInterval = 120
 }

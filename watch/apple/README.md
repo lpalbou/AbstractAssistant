@@ -61,15 +61,7 @@ approval can be allowed or denied from the notification itself. An automation th
 posts a notification ("Morning digest finished"; a tap opens it), shown as a banner when the app
 is open; Settings → Notifications turns this off.
 
-**Use it as your watch face.** Swipe left on Home for the **clock**: your orb, alive, in the
-middle of a dial of particles (the rim's minutes light up through the hour, the hour is a comet
-orbiting the orb), the date top left, what waits for you bottom left in amber, and your next
-automation bottom right. A tap on the orb talks; a swipe right goes back. Settings → Start on the
-clock opens the app on it, and brings it back after two minutes away. watchOS keeps watch faces to
-Apple's own: to keep the clock in front instead of the face, set the watch's Settings → General →
-Return to Clock → Assistant → Return to App. Wrist down, the orb holds still and the dial dims.
-
-**See it on any watch face.** The **Orb clock** complication tells the time in particles round
+**See it on your watch face.** The **Orb clock** complication tells the time in particles round
 a small orb: the rim lights up minute by minute through the hour, the hour hand is a stream of
 light ending in a comet, and the orb glows amber with the number of approvals and questions waiting
 for you. It fits the circular, corner and inline slots of a face, and the rectangular one (and the
