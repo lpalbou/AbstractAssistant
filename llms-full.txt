@@ -1196,9 +1196,31 @@ mounted folder; shell commands are not sandboxed, so approve them with that in m
 Discuss is disabled on a run in progress, and the palette asks you to let a running reply finish
 (or stop it) before it opens a discussion.
 
-## Notifications and the two polls
+## Notifications and your event stream
 
-The Assistant reads the automation list from the gateway on two cadences:
+On a gateway that keeps a per-person event stream (`GET /api/gateway/me/events` and its live
+`/me/events/stream`), the Assistant follows it from launch: it reads what happened since it last
+looked, then stays connected and reconnects on its own after a sleep or a network change, resuming
+exactly where it stopped. With the stream connected:
+
+- an automation event (a trigger fired, a run of an automation started or finished, a result
+  raised or seen) refreshes the automation list within a second; a slow check every **5 minutes**
+  still catches an automation created or renamed elsewhere, which sends no event;
+- a run in **another conversation** that stops for your approval or your answer shows one tray
+  notification ("Approval needed" or "A question for you"), unless that conversation is the one on
+  screen. Its sheet opens in that conversation, as before;
+- a line above the transcript says what is waiting for you across every conversation and
+  automation ("A conversation is waiting for you · 2 new results from your automations"), with
+  **Open**. Open first asks the gateway whether that run still waits; it opens the conversation
+  when it does, and says so when it no longer does. For results it opens the Automations tab;
+- the menu bar icon shows the amber "needs you" badge while a run elsewhere waits for you, and its
+  tooltip repeats the line.
+
+What happened while the Assistant was closed is read when it starts, but it never notifies you
+for it: notifications are for what arrives while the app is open.
+
+On a gateway without the event stream, the Assistant reads the automation list on two cadences
+instead:
 
 - every **60 seconds** while the palette is visible, and once each time you show the palette or
   open the switcher;
@@ -1696,7 +1718,9 @@ flowchart LR
     Switcher["Session switcher\nSessions | Automations tabs · discussion badge"]
     View["Automation view (ui/automations)\nruns as chat pairs · controls · waits · Discuss"]
     Sheet["Schedule this conversation…\nwhat · when (UTC) · context · tools"]
-    Hub["AutomationsHub\ncalls off the GUI thread\npolls 60 s visible / 5 min hidden"]
+    Hub["AutomationsHub\ncalls off the GUI thread\nrefetch on stream events · 5 min reconcile"]
+    Follower["gateway/me_events\nEventFollower: catch-up then SSE\nLast-Event-ID reconnect"]
+    Model["core/attention\nAttentionModel: raised minus seen\nbanner · tray badge"]
     Rules["core/automations\nlabels · controls · create body\nnotification ledger"]
     Client["gateway/automations\nAutomationsClient (ten calls)"]
     Tray["Tray: Automations… (count)\nnotifications"]
@@ -1713,6 +1737,10 @@ flowchart LR
     Disc["Discussion session\nforked · read-only workspace"]
   end
   Switcher --> Hub
+  Follower --> Model
+  Follower -- "automation events" --> Hub
+  Model --> Tray
+  Follower --> Stream["/me/events · /me/events/stream"]
   View --> Hub
   Sheet --> Hub
   Hub --> Rules
@@ -1734,10 +1762,23 @@ flowchart LR
   poll has confirmed it. Unreadable capabilities are reported as an error, never as "absent".
 - **Legacy schedules.** A summary marked `legacy` opens read-only with a notice; the view calls none
   of its routes.
+- **Event stream.** `gateway/me_events.EventFollower` (one daemon thread) reads
+  `GET /me/events?after=` pages, then tails `GET /me/events/stream` (SSE), reconnecting with
+  `Last-Event-ID` (1 to 30 s backoff); every event is delivered once, in `sequence` order, with
+  `live=False` for the catch-up. It stops on 404 (a gateway without the stream) or two 401/403.
+  `core/attention.AttentionModel` folds it: new results = `attention.raised` items above the latest
+  `attention.seen` `seq` of their automation; needs you = `attention.raised` approvals/questions
+  (`wait_key`) not closed by an `attention.seen` (same `record_key` or run + wait key) or the run's
+  `run.finished`. Waits read from history are confirmed against `GET /runs/{id}` once caught up and
+  again before **Open** acts on one (the run is the live fact). The palette shows the banner and
+  the tray badge from the model; a LIVE approval/question in another conversation notifies once
+  (key `wait:<run>:<wait_key>` in the notification ledger).
 - **Polling.** `AutomationsHub` reads every page of `GET /automations` (there is no change cursor)
-  and, for each automation with unseen items, its `…/attention` pages. It polls every 60 seconds
-  while the palette is visible, every 5 minutes while it is hidden, and at once when the palette
-  is shown or the switcher opens. One poll runs at a time.
+  and, for each automation with unseen items, its `…/attention` pages. While the event stream is
+  live it refetches on automation events (`trigger.event`, `attention.*`, `wake.*`, an occurrence's
+  `run.started|finished`, coalesced over 250 ms) and reconciles every 5 minutes; without the stream
+  it polls every 60 seconds while the palette is visible, every 5 minutes while it is hidden, and at
+  once when the palette is shown or the switcher opens. One poll runs at a time.
 - **Notifications.** New attention items (notable results, final failures) and pending waits
   become one tray notification each; their keys are kept in `automations_notified.json` (bounded)
   so a relaunch does not repeat them. The gateway's per-user seen cursor moves only when the user
@@ -2044,9 +2085,11 @@ quiet. Details: [automations.md](automations.md).
 
 ## Does the Assistant have to stay open for automations to run?
 
-No. The gateway runs them. The Assistant only reads them: every 60 seconds while the palette is
-visible and every 5 minutes while it is hidden, so notifications reach the tray. Results that
-arrive while the Assistant is closed are waiting in the automation, marked new, when you open it.
+No. The gateway runs them. The Assistant only reads them: it follows your event stream on the
+gateway, so a result or a run waiting for you reaches the tray within seconds (on a gateway without
+the stream: every 60 seconds while the palette is visible and every 5 minutes while it is hidden).
+Results that arrive while the Assistant is closed are waiting in the automation, marked new, when
+you open it.
 
 ## Why can't I approve a tool call when a scheduled run uses it?
 
@@ -2749,6 +2792,22 @@ All notable changes to AbstractAssistant are documented in this file. Entries de
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
 ## [Unreleased]
+
+### Added
+
+- The desktop app follows your event stream on the gateway (`/me/events`, then the live
+  `/me/events/stream`, resuming with `Last-Event-ID` after a sleep or a network change). A line above
+  the transcript says what waits for you across every conversation and automation ("A conversation
+  is waiting for you · 2 new results from your automations") with **Open**, which first checks with
+  the gateway that the run still waits; the menu bar icon shows the "needs you" badge for a run
+  waiting in another conversation, and its tooltip repeats the line. A run in another conversation
+  that stops for your approval or answer while the app is open notifies once.
+
+### Changed
+
+- The automation list is refreshed by the event stream (within a second of a trigger, a result or a
+  run) instead of the 60-second / 5-minute full-page polls; a 5-minute check still catches an
+  automation created or renamed elsewhere. A gateway without the stream keeps the polls.
 
 - Unified iPhone + independent Watch Store delivery through the existing AbstractAssistant listing, with one human-approved archive and preserved developer identities.
 
@@ -5137,8 +5196,10 @@ how much of them it reads, in tokens); once read, a page opens at once. Every sc
 its information is in, and an error only once reading it has failed several times.
 
 **Get answers while away.** An answer that arrives after you left the app comes as a notification.
-New approvals and questions are checked in the background about every 15 minutes; an ordinary tool
-approval can be allowed or denied from the notification itself. An automation that finishes a run
+New approvals and questions, and new results from your automations, are read from your gateway's
+event stream in the background about every 15 minutes and when the app opens: what needs you comes
+as a time-sensitive notification, results as quiet news. (With an older gateway the watch reads the
+waits instead, and an ordinary tool approval can be allowed or denied from the notification itself.) An automation that finishes a run
 posts a notification ("Morning digest finished"; a tap opens it), shown as a banner when the app
 is open; Settings → Notifications turns this off.
 
@@ -5229,6 +5290,13 @@ channel (TestFlight, then the App Store); the Python package's history is in
 ## [Unreleased]
 
 ### Added
+
+- **What happened while the app was closed, from your event stream.** The background check (about
+  every 15 minutes) and each launch read your gateway's event stream once (`/me/events`, one request,
+  no stream in the background): a new approval or question is a time-sensitive notification ("Approval
+  needed", "A question for you"; a tap opens what waits for you), a new automation result is a quiet
+  notification ("Morning digest has a result"), and the complication's "needs you" and "news" follow
+  it. Nothing from before the watch first looked is posted. An older gateway keeps the previous check.
 
 - **Your avatar on your watch face.** The Assistant complication, for the circular, corner, inline
   and rectangular slots (and the Smart Stack): the orb style you chose, as the app draws it (the
@@ -5723,7 +5791,7 @@ sequenceDiagram
 | `RunActivity` | Follows a question's run down to the run doing the work and reads its new step records (thinking, tool calls, media, waits) into the steps under the orb and the orb's pulses and satellites. |
 | `SVGDocument`, `SVGView` | SVG drawn on the watch (it has no web view): the client library reads a drawing into shapes and texts with their transforms, inherited styles, gradients, dashes and blur or drop-shadow filters (rect, circle, ellipse, line, polyline, polygon, every path command with arcs, text, groups); the app draws them in one `Canvas`, fitted with their aspect kept. Not drawn: embedded images, `use`, masks, clip paths, patterns, CSS stylesheets. Used by the file preview (`FilePreviewView`, a vertical pager over the conversation's files) and the media page. |
 | `MediaStore` | Downloads an answer's images, recordings and videos from the gateway's artifact route once, keeps them in the watch's caches (150 MB at most) and makes pictures small on the watch. |
-| `AnswerNotifier` | Hands a run's ledger stream to a background URLSession once the app leaves the foreground (one per run, ended when the app sees the run end), posts answers and waits as notifications, background refresh for new waits. |
+| `AnswerNotifier` | Hands a run's ledger stream to a background URLSession once the app leaves the foreground (one per run, ended when the app sees the run end), posts answers and waits as notifications; the background refresh and each launch read the event stream once (`GET /me/events?after=`) and post what is new. |
 | `FaceSnapshot`, Assistant complication | What the watch face shows (your avatar, waits for you, the first of them, the next automation, the results not seen), kept in the app group `group.ai.abstractframework.assistant`: written by `AppModel` when its waits or automations change and by the background refresh; the avatar is the chosen orb style drawn by the app (`FaceSnapshot.drawAvatar`, trimmed to the drawing) whenever the style changes, in the face's three states (`FaceState`: at rest; speaking for news, results or messages not seen; listening for what needs you), two PNGs per state in the group's `Library` folder: in colour, and its light as transparency for a face that draws its complications in one tint (the complication draws that one as a mask in the face's accent, scaled to the slot's pixels: a face refuses a picture much larger than its slot). Until the app has drawn it, the complication shows the app's own orb from its assets (`Complication/Assets.xcassets`, `Orb` and its mask `OrbMask`). A write that changes it asks WidgetKit for a new timeline. The complication (`Sources/Complication`, the `AbstractAssistantComplication` extension embedded in the app) reads it every five minutes for two hours; it never calls the gateway itself. Its views (`Sources/Face`) are shared by the app (`--screen face` shows them in debug builds). |
 | `RuntimeKeeper` | An extended runtime session while the app listens, works or speaks, so the voice continues with the wrist down. |
 | `AbstractGatewayClient` (SwiftPM) | Typed async client: models, endpoints, markdown and speech text, sign-in; reads (GET) that time out, lose their connection or meet a server error are tried 3 times before they fail, writes are sent once ([ADR-0039](https://github.com/lpalbou/AbstractFramework/blob/main/docs/adr/0039-loading-states-spinner-until-a-read-has-failed.md) of AbstractFramework); `MockGatewayClient` with the same protocol for previews and screenshots. Tested with `swift test`. |
@@ -5735,6 +5803,7 @@ sequenceDiagram
 | Sign in with a token | `GET /api/gateway/me` (must name the account typed) |
 | Sign in with an email | `POST /api/gateway/session/recovery/request`, then `POST /api/gateway/session/recovery/redeem` (`remember: true`); the session and CSRF values are sent as `X-AbstractGateway-Session` / `X-AbstractGateway-CSRF` |
 | Needs you | `GET /api/gateway/runs?status=waiting`, then `GET /api/gateway/runs/{id}` for each waiting row (the approval lives on the agent's child run) |
+| What happened while closed | `GET /api/gateway/me/events?after=<sequence>&limit=` (one request per background refresh and per launch; CloudEvents `attention.raised`/`attention.seen`/`run.finished`) |
 | Allow / deny / answer | `POST /api/gateway/commands` `{type: "resume", payload: {wait_key, payload: {approved} or {response}}}`; the run is read again first, and a wait answered elsewhere is not answered twice |
 | Approve all (an approval) | for the run's owner, read from the run itself (`session_id`, `automation_id`, also on an agent's run below an occurrence): a conversation (its tools: the watch's defaults and its own changes) or an automation (its own tools: `input_data._runtime.allowed_tools` and `tool_policy`). It allows that owner's tools on Ask, up to the risk of the call approved (at least "makes changes"); Off tools stay off, sends and tools whose destination the assistant picks keep asking. Allowed tools stay on Ask in the run's `_runtime.tool_policy` (fixed when a run starts); the watch answers their approvals (`POST /api/gateway/commands` resume) when every call is allowed for that owner: while it follows the run, and in its regular check of what needs you (there only what Approve all allowed, never the watch's defaults). The shield, Ask again on the Tools page or on the automation's details clear them, so the next call asks |
 | Ask the Assistant | `POST /api/gateway/runs/start` `{flow_id: "@default", interface: "abstractcode.agent.v1", session_id, input_data: {prompt, use_session_history: true, system, tools, _runtime.allowed_tools}}`, then `GET /api/gateway/runs/{id}`; `tools` lists every tool `GET /api/gateway/discovery/tools` reports enabled and available (as the desktop assistant), and `system` is added after the agent's own loop and tool rules. With the Assistant's workflow (`interface: "abstractassistant.agent.v1"`), the conversation's newest image goes as `primary_image_artifact` (`{$artifact, run_id, content_type}`, also in `context`) with `has_primary_image_context`, as the iPhone and the menu-bar Assistant send it: an edit, an upscale or an image-to-video starts from it |
@@ -5776,18 +5845,30 @@ sequenceDiagram
   when the app is left. The stream is ended when the app itself sees the run end or park on a
   person, and given up after an hour (15 minutes a connection, three reconnections). No
   notification is posted for an answer that is on screen.
-- **New waits while closed**: a background refresh, about every 15 minutes at the system's
-  discretion, reads the waits (one request; the tools' risk tiers only when there is a new one)
-  and posts each new approval or question once. An ordinary tool approval offers Allow
-  (the watch must be unlocked) and Deny; a send or a destructive call opens the app.
-- **Notifications (automations)**: the same refresh reads the automations (`GET /api/gateway/automations`,
-  alongside the waits) and posts one notification per automation whose latest run is newer than
-  the one known on this watch (the first look only notes them; a run already posted by its answer
-  stream is skipped); the app's own automation reads post the same notification, shown as a banner
-  (none for an automation whose orb page is open). Both follow
-  Settings → Notifications.
-- **Watch face**: the Assistant complication shows what the app last read; the same refresh writes the waits
-  and the automations it reads to the app group, and the face redraws only when they changed.
+- **While closed: your event stream, one request**: a background refresh, about every 15 minutes at
+  the system's discretion, and each launch in front read `GET /api/gateway/me/events?after=<last
+  sequence read>` once (no stream in the background). `AttentionState` (AbstractGatewayClient,
+  `MeEvents.swift`, kept in the app's defaults) folds it: approvals and questions raised and not
+  seen or ended (`attention.raised` with a `wait_key`, closed by `attention.seen` or the run's
+  `run.finished`), automation results raised above the automation's latest `attention.seen`.
+  Each new approval or question is posted once as **time-sensitive** ("Approval needed" / "A question
+  for you"; a tap opens the waits list, which reads the waits live); each new automation result is
+  posted once as **passive** news ("Morning digest has a result" / "… failed", names from the last
+  automation list read; a tap opens it); an automation's run that finished without a result posts
+  "… finished" (Settings → Notifications; a run already posted by its answer stream is skipped). The
+  first read only takes stock: what happened before the watch first looked never notifies.
+  Time-sensitive needs the `com.apple.developer.usernotifications.time-sensitive` entitlement to
+  break through a Focus; without it watchOS delivers it as an ordinary notification.
+- **Older gateway (no `/me/events`, 404)**: the refresh reads the waits (the tools' risk tiers only
+  when there is a new one) and posts each new approval or question once (an ordinary tool approval
+  offers Allow, the watch must be unlocked, and Deny; a send or a destructive call opens the app),
+  and reads the automations (`GET /api/gateway/automations`) to post one notification per automation
+  whose latest run is newer than the one known on this watch. The app's own automation reads post
+  the same notification, shown as a banner (none for an automation whose orb page is open).
+- **Watch face**: the Assistant complication shows what the app last read; the refresh writes what
+  the event stream says (needs you from the open approvals and questions, news from the unseen
+  results) to the app group, the app writes its live waits and automations, and the face redraws
+  only when they changed.
 - **Keep awake**: `WKExtendedRuntimeSession` (`WKBackgroundModes: self-care`, up to 10 minutes)
   from the tap that starts a turn until the voice ends, a new conversation is started, or the
   player is dropped; never past the turn. A session about to expire while still held is renewed
@@ -7419,6 +7500,7 @@ from abstractassistant.core.gateway_voice_manager import GatewayVoiceManager
 from abstractassistant.core.llm_manager import LLMManager
 from abstractassistant.gateway import GatewayClient, GatewayClientConfig, session_memory_run_id
 from abstractassistant.gateway.automations import AutomationsClient
+from abstractassistant.gateway.me_events import MeEventsClient
 from abstractassistant.gateway.client import wait_answer_payload
 from abstractassistant.gateway.run_input import MEDIA_OVERRIDE_INPUT_KEYS
 from abstractassistant.gateway.tool_usage import (
@@ -8721,6 +8803,15 @@ class AssistantController:
         if gateway is None:
             raise RuntimeError("Gateway client is not configured")
         return AutomationsClient(gateway)
+
+    def me_events_client(self) -> Optional[MeEventsClient]:
+        """The person's event stream over the CURRENT gateway connection (None
+        when no gateway is configured). Called at every reconnect."""
+        try:
+            gateway = self.llm_manager.gateway_client()
+        except Exception:
+            return None
+        return MeEventsClient(gateway) if gateway is not None else None
 
     def automations_available(self) -> bool:
         """Whether the gateway advertises the Automations API (capabilities
