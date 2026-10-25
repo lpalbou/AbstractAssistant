@@ -65,6 +65,7 @@ class EventsStub:
         self.status = 200
         self.cond = threading.Condition()
         self.stream_requests: List[Dict[str, Any]] = []
+        self.reports: List[Dict[str, Any]] = []
         self.drop = threading.Event()
         self.closed = False
         stub = self
@@ -72,6 +73,20 @@ class EventsStub:
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *args: Any) -> None:
                 return
+
+            def do_POST(self) -> None:  # noqa: N802
+                if urlparse(self.path).path == "/api/gateway/me/events/notifications":
+                    body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+                    stub.reports.append(body)
+                    raw = b'{"ok": true, "created": true}'
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(raw)))
+                    self.end_headers()
+                    self.wfile.write(raw)
+                    return
+                self.send_response(404)
+                self.end_headers()
 
             def do_GET(self) -> None:  # noqa: N802
                 url = urlparse(self.path)
@@ -284,6 +299,7 @@ def test_palette_banner_tray_and_notifications_follow_the_stream(palette, stub, 
     live_runs = {"run-other"}
     window._wait_is_live = lambda _controller, wait: wait.run_id in live_runs  # GET /runs/{id}, faked
     controller.me_events_client = events.client
+    window._attention_notify_grace_ms = 50
     window._start_me_events()
     _until(lambda: window._me_events.live and window._attention.cursor == 5, pump=pump)
     # The verification against the runs drops the wait whose run is not waiting any more.
@@ -299,7 +315,7 @@ def test_palette_banner_tray_and_notifications_follow_the_stream(palette, stub, 
     polls_before = len(stub.calls("GET", AUTOMATIONS_PATH))
     events.append(_wait(6, "run-new", "tool_approval:run-new:act", session_id="sess-third"))
     _until(lambda: window._attention.cursor == 6, pump=pump)
-    assert window._notified[notified_at_start:] == [("Approval needed", "A conversation is waiting for your answer. Click the menu bar icon to open it.")]
+    _until(lambda: window._notified[notified_at_start:] == [("Approval needed", "A conversation is waiting for your answer. Click the menu bar icon to open it.")], pump=pump)
     assert "2 conversations are waiting for you" in window.attention_banner.text()
     # Live automation attention refetches the list (no timer involved).
     events.append(_raised(7, TRIAGE, 3))
@@ -314,3 +330,89 @@ def test_palette_banner_tray_and_notifications_follow_the_stream(palette, stub, 
     assert window.attention_banner.isHidden()
     assert window._tray_feedback_state() != "waiting"
     assert len([n for n in window._notified[notified_at_start:] if n[0] == "Approval needed"]) == 1
+
+
+# -------------------------------------------------- one notifier per record
+
+
+def _now_iso(offset_s: float = 0.0) -> str:
+    from datetime import datetime, timedelta, timezone
+
+    return (datetime.now(timezone.utc) + timedelta(seconds=offset_s)).isoformat()
+
+
+def _shown(sequence: int, record_key: str, channel: str, *, offset_s: float = 0.0, device: str = "") -> Dict[str, Any]:
+    """The gateway's `notification.sent` for a notice a client showed (`device`: this Mac's by default)."""
+    from abstractassistant.core.attention import device_id
+
+    data = {"channel": channel, "notice": f"attention:{record_key}", "record_key": record_key, "device": device or device_id()}
+    return {"specversion": "1.0", "id": f"notification.sent:{channel}:attention:{record_key}", "type": "notification.sent",
+            "source": f"/abstractgateway/notifications/{channel}", "time": _now_iso(offset_s), "sequence": sequence, "data": data}
+
+
+@pytest.mark.basic
+def test_another_client_on_this_mac_within_a_minute_silences_this_app() -> None:
+    import hashlib
+    import platform
+
+    from abstractassistant.core.attention import device_id
+
+    # The tray's id, computed the gateway's way (abstractgateway/tray/client.py device_id).
+    me = hashlib.sha256(str(platform.node() or "unknown").strip().lower().encode("utf-8")).hexdigest()[:16]
+    assert device_id() == me
+    m = AttentionModel()
+    m.apply(_raised(1, "a", 3))
+    rk = "automation:completed:a:3"
+    assert m.record_key_for("item:a:att1:3") == rk
+    assert m.notified_elsewhere(rk, device=me) == ""
+    m.apply(_shown(2, rk, "console"))  # the gateway's own record: not a client
+    m.apply(_shown(3, rk, "assistant"))  # this app's own report
+    m.apply(_shown(4, rk, "watch", device="watch-1234"))  # another device: the watch always notifies
+    assert m.notified_elsewhere(rk, device=me) == ""
+    m.apply(_shown(5, rk, "tray"))
+    assert m.notified_elsewhere(rk, device=me) == "tray"
+    assert m.notified_elsewhere(rk, device="") == "", "no device id: nothing to compare"
+    old = "automation:completed:a:4"
+    m.apply(_raised(6, "a", 4))
+    m.apply(_shown(7, old, "tray", offset_s=-300))
+    assert m.notified_elsewhere(old, device=me) == "", "shown five minutes ago: not within the minute"
+    m.apply(_wait(7, "run9", "tool_approval:run9:act", session_id="s", step_id="st"))
+    assert m.record_key_for("wait:run9:tool_approval:run9:act:st") == "wait:run9:tool_approval:run9:act:st"
+
+
+@pytest.mark.basic
+def test_the_tray_notifies_first_and_this_app_reports_what_it_shows(palette, stub, events) -> None:
+    import test_automations
+
+    window, controller = palette
+    pump = test_automations._APP.processEvents
+    window._attention_notify_grace_ms = 300
+    window._wait_is_live = lambda _controller, wait: True
+    controller.me_events_client = events.client
+    window._start_me_events()
+    _until(lambda: window._me_events.live, pump=pump)
+    window._poll_automations()
+    shown_before = len(window._notified)
+
+    # A new automation result: the gateway tray shows it (within the grace): this app stays silent.
+    fresh = {**test_automations._fixture("attention.json")["items"][0], "cursor": "att1:3", "title": "Fresh result", "index": 9}
+    stub.attention[TRIAGE].append(fresh)
+    rk = f"automation:completed:{TRIAGE}:9"
+    events.append(_ev(1, "attention.raised", automation_id=TRIAGE, seq=3, kind="notify", record_key=rk, index=9, channels=["console"]))
+    events.append(_shown(2, rk, "tray"))
+    from abstractassistant.core.attention import device_id
+
+    _until(lambda: window._attention.notified_elsewhere(rk, device=device_id()) == "tray", pump=pump)
+    deadline = time.time() + 1.5
+    while time.time() < deadline:
+        pump()
+        time.sleep(0.02)
+    assert [t for t, _ in window._notified[shown_before:]] == [], "the tray showed it: one notification per record"
+    assert events.reports == []
+
+    # An approval nobody showed: this app shows it after the grace and records it as its own.
+    events.append(_wait(3, "run-x", "tool_approval:run-x:act", session_id="sess-other"))
+    _until(lambda: [t for t, _ in window._notified[shown_before:]] == ["Approval needed"], pump=pump)
+    _until(lambda: events.reports, pump=pump)
+    assert events.reports == [{"channel": "assistant", "outcome": "sent", "record_key": "wait:run-x:tool_approval:run-x:act:s1",
+                               "device": device_id()}]

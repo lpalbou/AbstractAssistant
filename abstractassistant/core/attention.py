@@ -15,14 +15,26 @@ two numbers the palette and the tray show:
 
 Pure: no Qt, no network. A wait read from history is only a hint — the caller
 confirms it against the run itself (``GET /runs/{id}``) before acting on it.
+
+It also remembers who already notified the person of a record
+(``notification.sent {channel, record_key, device}``): the gateway's rule
+(``events_stream.already_notified``) is that an app stays silent when another
+client channel (the tray, Code, the watch) on the SAME device showed it less
+than a minute ago — the tray is the default notifier.
 """
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Dict, List, Mapping, Optional, Set, Tuple
 
 __all__ = [
+    "DEVICE_CHANNELS",
+    "NOTIFY_DEDUPE_S",
+    "OWN_CHANNEL",
+    "device_id",
     "AttentionModel",
     "PendingWait",
     "RaisedItem",
@@ -31,6 +43,27 @@ __all__ = [
 ]
 
 WAIT_KINDS = frozenset({"approval", "question"})
+# The client channels that show a person a notification on a device (the
+# gateway's CLIENT_CHANNELS). `console` and `email` never silence this app.
+DEVICE_CHANNELS = frozenset({"tray", "assistant", "code", "watch"})
+OWN_CHANNEL = "assistant"
+NOTIFY_DEDUPE_S = 60.0
+
+
+def device_id() -> str:
+    """This machine's opaque id for the dedupe rule, exactly as the gateway tray computes it
+    (`abstractgateway.tray.client.device_id`): sha256 of the lower-cased host name, 16 hex."""
+    import hashlib
+    import platform
+
+    return hashlib.sha256(str(platform.node() or "unknown").strip().lower().encode("utf-8")).hexdigest()[:16]
+
+
+def _epoch(value: Any) -> Optional[float]:
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+    except (TypeError, ValueError):
+        return None
 
 
 @dataclass(frozen=True)
@@ -91,6 +124,10 @@ class AttentionModel:
     _seen: Dict[str, int] = field(default_factory=dict)
     _waits: Dict[Tuple[str, str, str], PendingWait] = field(default_factory=dict)
     _resolved: Set[str] = field(default_factory=set)
+    # (automation id, item seq) -> the record key of its attention item.
+    _record_keys: Dict[Tuple[str, int], str] = field(default_factory=dict)
+    # record key -> [(client channel, device id, when it was shown in epoch s or None)].
+    _notified: Dict[str, List[Tuple[str, str, Optional[float]]]] = field(default_factory=dict)
     cursor: int = 0
 
     def reset(self) -> None:
@@ -98,6 +135,8 @@ class AttentionModel:
         self._seen.clear()
         self._waits.clear()
         self._resolved.clear()
+        self._record_keys.clear()
+        self._notified.clear()
         self.cursor = 0
 
     # ------------------------------------------------------------ folding
@@ -112,7 +151,9 @@ class AttentionModel:
         data = _data(event)
         if typ == "attention.raised":
             return self._raise(data)
-        if typ == "attention.seen":
+        if typ == "notification.sent":
+            self._note_notification(event, data)
+        elif typ == "attention.seen":
             self._see(data)
         elif typ == "run.finished":
             run_id = str(data.get("run_id") or "")
@@ -147,6 +188,8 @@ class AttentionModel:
         seq = _int(data.get("seq"))
         if not aid or seq <= 0:
             return None
+        if record_key:
+            self._record_keys[(aid, seq)] = record_key
         known = seq in self._raised.get(aid, set())
         self._raised.setdefault(aid, set()).add(seq)
         if known or seq <= self._seen.get(aid, 0):
@@ -174,6 +217,47 @@ class AttentionModel:
             return
         self._seen[aid] = max(self._seen.get(aid, 0), seq)
         self._raised[aid] = {s for s in self._raised.get(aid, set()) if s > self._seen[aid]}
+
+    def _note_notification(self, event: Mapping[str, Any], data: Mapping[str, Any]) -> None:
+        channel = str(data.get("channel") or "")
+        if channel not in DEVICE_CHANNELS:
+            return
+        record_key = str(data.get("record_key") or "")
+        notice = str(data.get("notice") or "")
+        if not record_key and notice.startswith("attention:"):
+            record_key = notice[len("attention:"):]
+        if not record_key:
+            return
+        device = str(data.get("device") or "")
+        self._notified.setdefault(record_key, []).append((channel, device, _epoch(event.get("time"))))
+
+    def notified_elsewhere(
+        self, record_key: str, *, device: str, now: Optional[float] = None, within_s: float = NOTIFY_DEDUPE_S
+    ) -> str:
+        """The client channel (not this app) that showed ``record_key`` on ``device``
+        less than ``within_s`` seconds ago, else "" (the gateway's ``already_notified``)."""
+        clock = time.time() if now is None else float(now)
+        for channel, on, when in self._notified.get(str(record_key or ""), []):
+            if channel == OWN_CHANNEL or not device or on != device or when is None:
+                continue
+            if 0 <= clock - when <= float(within_s):
+                return channel
+        return ""
+
+    def record_key_for(self, notice_key: str) -> str:
+        """The stream's record key behind a notification-ledger key
+        (``item:<automation>:att1:<seq>`` or ``wait:<run>:<wait_key>[...]``), "" if unknown."""
+        key = str(notice_key or "")
+        if key.startswith("item:"):
+            aid, _, cursor = key[len("item:"):].partition(":")
+            seq = _int(cursor.rpartition(":")[2])
+            return self._record_keys.get((aid, seq), "")
+        if key.startswith("wait:"):
+            run_id, _, rest = key[len("wait:"):].partition(":")
+            for wait in self._waits.values():
+                if wait.run_id == run_id and (rest == wait.wait_key or rest.startswith(wait.wait_key + ":")):
+                    return wait.record_key
+        return ""
 
     def drop_wait(self, run_id: str, wait_key: str = "") -> bool:
         """The live run says it no longer waits: forget it (True if one went)."""

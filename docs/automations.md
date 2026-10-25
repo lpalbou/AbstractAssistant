@@ -306,6 +306,12 @@ exactly where it stopped. With the stream connected:
 What happened while the Assistant was closed is read when it starts, but it never notifies you
 for it: notifications are for what arrives while the app is open.
 
+One notification per thing on this Mac: the gateway's tray icon is the default notifier. Before
+showing one, the Assistant waits a few seconds and stays silent when the tray (or Code) on the same
+Mac already showed it less than a minute ago; when it does show one, it tells the gateway
+(`POST /api/gateway/me/events/notifications {channel: "assistant", device}`; the device is this Mac's
+id, computed as the tray computes it). The watch is another device: it notifies on its own.
+
 On a gateway without the event stream, the Assistant reads the automation list on two cadences
 instead:
 

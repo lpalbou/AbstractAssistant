@@ -204,7 +204,12 @@ flowchart LR
   `run.finished`. Waits read from history are confirmed against `GET /runs/{id}` once caught up and
   again before **Open** acts on one (the run is the live fact). The palette shows the banner and
   the tray badge from the model; a LIVE approval/question in another conversation notifies once
-  (key `wait:<run>:<wait_key>` in the notification ledger).
+  (key `wait:<run>:<wait_key>:<step>` in the notification ledger). With the stream live, every
+  notification (automation items and waits) waits `_attention_notify_grace_ms` (3 s) and is dropped
+  when the stream holds a `notification.sent` for the same `record_key` from another client channel
+  on the same device (`device_id()` = sha256 of the lower-cased host name, 16 hex, as the gateway
+  tray) less than 60 s old — the gateway's `events_stream.already_notified` rule; a shown one is
+  reported with `channel: "assistant"` and the device.
 - **Polling.** `AutomationsHub` reads every page of `GET /automations` (there is no change cursor)
   and, for each automation with unseen items, its `…/attention` pages. While the event stream is
   live it refetches on automation events (`trigger.event`, `attention.*`, `wake.*`, an occurrence's

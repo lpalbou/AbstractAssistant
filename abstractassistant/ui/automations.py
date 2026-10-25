@@ -2251,11 +2251,15 @@ class AutomationsHub(QObject):
         notify: Callable[[str, str], None],
         ledger: NotificationLedger,
         parent: Optional[QObject] = None,
+        notify_notice: Optional[Callable[[Any], None]] = None,
     ) -> None:
         super().__init__(parent)
         self._client_factory = client_factory
         self._available = available
         self._notify = notify
+        # When given, it receives each AttentionNotice instead (the palette
+        # decides with the event stream whether another device showed it).
+        self._notify_notice = notify_notice
         self.ledger = ledger
         self.synchronous = False
         self.summaries: List[Dict[str, Any]] = []
@@ -2351,7 +2355,10 @@ class AutomationsHub(QObject):
                 self.summaries = [dict(s) for s in summaries]
                 notices = new_attention_notices(self.summaries, pages, self.ledger)
                 for notice in notices:
-                    self._notify(notice.title, notice.body or notice.title)
+                    if self._notify_notice is not None:
+                        self._notify_notice(notice)
+                    else:
+                        self._notify(notice.title, notice.body or notice.title)
                 self.ledger.add(n.key for n in notices)
             else:
                 self.error = self.error_text(value)

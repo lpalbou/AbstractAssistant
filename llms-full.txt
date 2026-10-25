@@ -1219,6 +1219,12 @@ exactly where it stopped. With the stream connected:
 What happened while the Assistant was closed is read when it starts, but it never notifies you
 for it: notifications are for what arrives while the app is open.
 
+One notification per thing on this Mac: the gateway's tray icon is the default notifier. Before
+showing one, the Assistant waits a few seconds and stays silent when the tray (or Code) on the same
+Mac already showed it less than a minute ago; when it does show one, it tells the gateway
+(`POST /api/gateway/me/events/notifications {channel: "assistant", device}`; the device is this Mac's
+id, computed as the tray computes it). The watch is another device: it notifies on its own.
+
 On a gateway without the event stream, the Assistant reads the automation list on two cadences
 instead:
 
@@ -1772,7 +1778,12 @@ flowchart LR
   `run.finished`. Waits read from history are confirmed against `GET /runs/{id}` once caught up and
   again before **Open** acts on one (the run is the live fact). The palette shows the banner and
   the tray badge from the model; a LIVE approval/question in another conversation notifies once
-  (key `wait:<run>:<wait_key>` in the notification ledger).
+  (key `wait:<run>:<wait_key>:<step>` in the notification ledger). With the stream live, every
+  notification (automation items and waits) waits `_attention_notify_grace_ms` (3 s) and is dropped
+  when the stream holds a `notification.sent` for the same `record_key` from another client channel
+  on the same device (`device_id()` = sha256 of the lower-cased host name, 16 hex, as the gateway
+  tray) less than 60 s old — the gateway's `events_stream.already_notified` rule; a shown one is
+  reported with `channel: "assistant"` and the device.
 - **Polling.** `AutomationsHub` reads every page of `GET /automations` (there is no change cursor)
   and, for each automation with unseen items, its `…/attention` pages. While the event stream is
   live it refetches on automation events (`trigger.event`, `attention.*`, `wake.*`, an occurrence's
@@ -2802,6 +2813,9 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   the gateway that the run still waits; the menu bar icon shows the "needs you" badge for a run
   waiting in another conversation, and its tooltip repeats the line. A run in another conversation
   that stops for your approval or answer while the app is open notifies once.
+- One notification per thing on this Mac: the gateway's tray is the default notifier. The desktop app
+  stays silent for an item the tray (or Code) on the same Mac showed less than a minute ago, and records
+  each notification it shows on your event stream (`channel: "assistant"`, this Mac's device id).
 
 ### Changed
 
@@ -5297,6 +5311,8 @@ channel (TestFlight, then the App Store); the Python package's history is in
   needed", "A question for you"; a tap opens what waits for you), a new automation result is a quiet
   notification ("Morning digest has a result"), and the complication's "needs you" and "news" follow
   it. Nothing from before the watch first looked is posted. An older gateway keeps the previous check.
+  Each notification the watch shows is recorded on your event stream (`channel: "watch"`, the watch's
+  own device id; one request per notification shown, none otherwise), so your other devices can tell.
 
 - **Your avatar on your watch face.** The Assistant complication, for the circular, corner, inline
   and rectangular slots (and the Smart Stack): the orb style you chose, as the app draws it (the
@@ -5857,6 +5873,9 @@ sequenceDiagram
   automation list read; a tap opens it); an automation's run that finished without a result posts
   "… finished" (Settings → Notifications; a run already posted by its answer stream is skipped). The
   first read only takes stock: what happened before the watch first looked never notifies.
+  The watch is its own device: it always notifies, then records each notice it showed with
+  `POST /api/gateway/me/events/notifications {channel: "watch", outcome: "sent", record_key, device}`
+  (its device id is kept on the watch; one request per notice shown, none otherwise).
   Time-sensitive needs the `com.apple.developer.usernotifications.time-sensitive` entitlement to
   break through a Focus; without it watchOS delivers it as an ordinary notification.
 - **Older gateway (no `/me/events`, 404)**: the refresh reads the waits (the tools' risk tiers only

@@ -14,6 +14,9 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   the gateway that the run still waits; the menu bar icon shows the "needs you" badge for a run
   waiting in another conversation, and its tooltip repeats the line. A run in another conversation
   that stops for your approval or answer while the app is open notifies once.
+- One notification per thing on this Mac: the gateway's tray is the default notifier. The desktop app
+  stays silent for an item the tray (or Code) on the same Mac showed less than a minute ago, and records
+  each notification it shows on your event stream (`channel: "assistant"`, this Mac's device id).
 
 ### Changed
 

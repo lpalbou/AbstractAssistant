@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 
 ME_EVENTS_PATH = "/api/gateway/me/events"
 ME_EVENTS_STREAM_PATH = "/api/gateway/me/events/stream"
+ME_NOTIFICATIONS_PATH = "/api/gateway/me/events/notifications"
 PAGE_LIMIT = 1000
 # The server sends a keep-alive comment every heartbeat; a socket silent for
 # several of them is a dead connection, not a quiet one.
@@ -105,6 +106,27 @@ class MeEventsClient:
         if not isinstance(body, dict) or not isinstance(body.get("events"), list):
             raise GatewayHttpError("me/events answered without an events list", status=200)
         return body
+
+    def report_notification(
+        self, record_key: str, *, outcome: str = "sent", channel: str = "assistant", device: str = "", error: str = ""
+    ) -> Dict[str, Any]:
+        """``POST /me/events/notifications {channel, outcome, record_key[, device, error]}``:
+        this app showed (or could not show) the notice on ``device``."""
+        body: Dict[str, Any] = {"channel": channel, "outcome": outcome, "record_key": str(record_key)}
+        if device:
+            body["device"] = str(device)
+        if error:
+            body["error"] = str(error)
+        headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        headers.update(self._gateway._headers(mutating=True))
+        req = urllib.request.Request(self._gateway._url(ME_NOTIFICATIONS_PATH), data=json.dumps(body).encode("utf-8"), headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=self._gateway.config.timeout_s) as resp:
+                raw = resp.read() or b""
+        except urllib.error.HTTPError as exc:
+            raise GatewayHttpError(f"me/events/notifications failed: HTTP {exc.code}", status=int(exc.code or 0)) from None
+        out = json.loads(raw.decode("utf-8") or "{}")
+        return out if isinstance(out, dict) else {}
 
     def open_stream(self, *, last_event_id: int = 0, heartbeat_s: float = HEARTBEAT_S) -> Any:
         """Open the SSE tail; the resume point rides ``Last-Event-ID``."""

@@ -182,7 +182,7 @@ from .gateway.live_deltas import (
 )
 from .ui.session_switcher import SessionSwitcher
 from .core.automations import NotificationLedger, discussion_banner, target_from_workflow
-from .core.attention import AttentionModel, attention_banner_text
+from .core.attention import AttentionModel, attention_banner_text, device_id as attention_device_id
 from .gateway.me_events import EventFollower
 from .ui.automations import (
     AUTOMATION_GATEWAY_DEFAULT_TARGET,
@@ -5914,6 +5914,7 @@ class AssistantPalette(QMainWindow):
             client_factory=self._controller.automations_client,
             available=self._controller.automations_available,
             notify=self._notify_automation,
+            notify_notice=self._notify_automation_notice,
             ledger=NotificationLedger(self._controller.automation_notification_ledger_path()),
             parent=self,
         )
@@ -6730,8 +6731,53 @@ class AssistantPalette(QMainWindow):
             return
         title = "Approval needed" if wait.kind == "approval" else "A question for you"
         body = "A conversation is waiting for your answer. Click the menu bar icon to open it."
-        self._notify(title, body, duration_ms=7000)
         ledger.add([wait.notice_key])
+        self._announce_attention(wait.record_key, title, body)
+
+    # One notification per record on this Mac (the gateway tray is the default
+    # notifier): with the stream live, wait a moment, then stay silent when the
+    # tray or Code on THIS device reported a `notification.sent` for the record
+    # less than a minute ago (the gateway's `already_notified` rule); after
+    # showing one, record it (`POST /me/events/notifications {channel:
+    # "assistant", device}`).
+    _attention_notify_grace_ms = 3000
+
+    def _notify_automation_notice(self, notice: Any) -> None:
+        model = self._state("_attention")
+        record_key = model.record_key_for(notice.key) if model is not None else ""
+        self._announce_attention(record_key, str(notice.title or "Automation"), str(notice.body or notice.title or ""))
+
+    def _announce_attention(self, record_key: str, title: str, body: str) -> None:
+        if not record_key or not self._me_events_live():
+            # No stream (or no record to match): nothing can say another device showed it.
+            self._notify(title, body, duration_ms=7000)
+            return
+        QTimer.singleShot(
+            int(self._attention_notify_grace_ms),
+            lambda: self._announce_attention_now(record_key, title, body),
+        )
+
+    def _announce_attention_now(self, record_key: str, title: str, body: str) -> None:
+        model = self._state("_attention")
+        if model is not None and model.notified_elsewhere(record_key, device=attention_device_id()):
+            return  # the tray (or Code) on this Mac already showed it
+        self._notify(title, body, duration_ms=7000)
+        self._report_attention_notice(record_key)
+
+    def _report_attention_notice(self, record_key: str) -> None:
+        factory = getattr(self._state("_controller"), "me_events_client", None)
+        if not callable(factory):
+            return
+
+        def work() -> None:
+            try:
+                client = factory()
+                if client is not None:
+                    client.report_notification(record_key, outcome="sent", channel="assistant", device=attention_device_id())
+            except Exception:  # noqa: BLE001 - a gateway without the channel: shown, not recorded
+                pass
+
+        threading.Thread(target=work, name="attention-report", daemon=True).start()
 
     def _attention_waits_elsewhere(self) -> int:
         model = self._state("_attention")
