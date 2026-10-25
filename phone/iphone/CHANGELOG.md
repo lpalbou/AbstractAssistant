@@ -25,6 +25,13 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
   a result" / "<automation> failed" (opens Automations), a published alert with its title. A push for
   an earlier sign-in says "From an earlier sign-in"; when the gateway cannot be read in time, the
   generic text stays. Pushes are sent only once your gateway's push relay is on.
+- **Sign a development iPhone in from the Mac (Debug builds only).** `scripts/deploy-phone.sh`
+  builds the signed Debug app, installs it over CoreDevice and launches it with
+  `--gateway URL --token TOKEN [--user ID]`: the app checks the token with GET /api/gateway/me,
+  seals the sign-in, hands it to the watch and registers for push, as the account-token sign-in does;
+  `--forget-gateway` clears it. `--console` shows the app's `phone-trace` lines (sign-in, watch
+  handoff, push registration) and `--dump-trace` prints the last 40 at launch. Release builds
+  compile all of this out.
 
 ### Changed
 

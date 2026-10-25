@@ -62,20 +62,36 @@ struct PhoneRoot: View {
                                           shown: { store.attention.reportShown(notice) })
             }
             #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("--demo") { demo(); return }
-            // Development-device provisioning: verify before replacing the saved sign-in.
-            // Credentials arrive through the launch environment, never source files.
-            let environment = ProcessInfo.processInfo.environment
-            if let address = environment["ASSISTANT_PAIR_GATEWAY"],
-               let token = environment["ASSISTANT_PAIR_TOKEN"], !token.isEmpty {
-                do {
-                    let gateway = try SavedConnection.parseURL(address)
-                    let credential = GatewayCredential.token(token)
-                    let client = LiveGatewayClient(baseURL: gateway, credential: credential, session: PhoneTransport.makeSession())
-                    let principal = try await client.me()
-                    guard let user = principal.userId, !user.isEmpty else { throw GatewayError.invalidResponse }
-                    connect(SavedConnection(gateway: gateway, user: user, tenant: principal.tenantId ?? "default", credential: credential))
-                } catch { storageError = error.localizedDescription }
+            let arguments = ProcessInfo.processInfo.arguments
+            if arguments.contains("--dump-trace") { PhoneTrace.dump() }
+            if arguments.contains("--demo") { demo(); return }
+            // Development-device provisioning from the Mac (scripts/deploy-phone.sh): launch arguments
+            // `--gateway URL --token TOKEN [--user ID]` (or the launch environment's
+            // ASSISTANT_PAIR_GATEWAY / ASSISTANT_PAIR_TOKEN), verified before replacing the saved sign-in;
+            // `--forget-gateway` clears it. Credentials never live in source files.
+            do {
+                let environment = ProcessInfo.processInfo.environment
+                var request = try LaunchSignIn.parse(arguments)
+                if request == nil, let address = environment["ASSISTANT_PAIR_GATEWAY"],
+                   let token = environment["ASSISTANT_PAIR_TOKEN"], !token.isEmpty {
+                    request = try LaunchSignIn.parse(["", "--gateway", address, "--token", token])
+                }
+                switch request {
+                case .forget?:
+                    let signIn = ConnectionVault.current()
+                    try ConnectionVault.remove()
+                    PhonePush.signedOut(signIn)
+                    PhoneTrace.note("launch: sign-in forgotten")
+                    return
+                case .signIn(let gateway, let token, let user)?:
+                    PhoneTrace.note("launch: signing in to \(gateway.host() ?? gateway.absoluteString) as \(user ?? "(the token's user)")")
+                    await provision(gateway: gateway, token: token, user: user)
+                    return
+                case nil: break
+                }
+            } catch {
+                storageError = error.localizedDescription
+                PhoneTrace.note("launch: \(error.localizedDescription)")
                 return
             }
             #endif
@@ -102,6 +118,25 @@ struct PhoneRoot: View {
             PhonePush.start()
         } catch { storageError = error.localizedDescription }
     }
+    #if DEBUG
+    /// The account-token sign-in (WelcomeScreen), from launch arguments: GET /api/gateway/me checks the
+    /// token (and that it is `user`'s), then `connect` seals it, hands it to the watch and registers push.
+    private func provision(gateway: URL, token: String, user: String?) async {
+        do {
+            let transport = PhoneTransport.makeSession()
+            let principal: Principal
+            if let user { principal = try await GatewaySignIn.verify(gateway: gateway, user: user, token: token, session: transport) }
+            else { principal = try await LiveGatewayClient(baseURL: gateway, credential: .token(token), session: transport).me() }
+            guard let id = principal.userId ?? user, !id.isEmpty else { throw GatewayError.invalidResponse }
+            PhoneTrace.note("launch: verified \(id) (tenant \(principal.tenantId ?? "default"))")
+            connect(SavedConnection(gateway: gateway, user: id, tenant: principal.tenantId ?? "default", credential: .token(token)))
+            PhoneTrace.note(storageError.map { "launch: not saved: \($0)" } ?? "launch: signed in and sealed")
+        } catch {
+            storageError = error.localizedDescription
+            PhoneTrace.note("launch: sign-in refused: \(error.localizedDescription)")
+        }
+    }
+    #endif
     private func demo() {
         #if DEBUG
         let emptyAutomations = ProcessInfo.processInfo.arguments.contains("--empty-automations")

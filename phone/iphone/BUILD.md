@@ -63,6 +63,18 @@ xcrun devicectl device install app --device <iphone-id> \
 xcrun devicectl device process launch --device <iphone-id> ai.abstractframework.assistant
 ```
 
+To sign that iPhone in from the Mac without typing on it (Debug builds only; the app checks the
+token with GET /api/gateway/me, seals it, hands it to the watch and registers for push, as the
+account-token sign-in does):
+
+```sh
+scripts/deploy-phone.sh --device <iphone-id> --gateway https://<your-gateway> --token <token> --user <user>
+```
+
+`--no-build` reinstalls the last build, `--forget` clears the sign-in, `--console` stays attached and
+prints the app's `phone-trace` lines (sign-in, watch handoff, push registration), and
+`--shoot FILE.png` takes a screenshot. Release builds ignore these launch arguments.
+
 This uses Xcode's automatic development provisioning and may register the five app
 identifiers (with Push Notifications, Time Sensitive Notifications and the app group) and the
 device with your developer account. It does not upload or distribute the app. iOS offers to
