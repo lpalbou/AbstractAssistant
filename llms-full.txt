@@ -81,7 +81,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/voice.md](docs/voice.md): spoken replies, dictation, the hands-free conversation loop and its failure handling
 - [docs/automations.md](docs/automations.md): configurable growing-context budgets and result email; scheduled tasks on the gateway as the Assistant shows them: the Sessions | Automations tabs, New automation and Schedule this conversation (Gateway default first; When = Repeat / Daily / Weekly / Monthly / Once at / email, the gateway's schedule-preview sentence and the account time-zone line; stop after / stop at), served schedule and next run, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications from your event stream (the attention line, the menu-bar badge, one notification per item on a Mac), the capability gate, limits
 
-- [phone/iphone/README.md](phone/iphone/README.md): native iPhone assistant, scoped tools and automations, notifications and tab badges from your event stream, generated images and voice attached to restored messages; [phone/iphone/CHANGELOG.md](phone/iphone/CHANGELOG.md) records native release history; [phone/iphone/docs/architecture.md](phone/iphone/docs/architecture.md) covers authenticated artifact previews and session restoration; [phone/iphone/BUILD.md](phone/iphone/BUILD.md) covers isolated builds; [phone/iphone/docs/distribution.md](phone/iphone/docs/distribution.md) explains combined iPhone + independent Watch delivery in one Store listing, credential-free CI, human-approved uploads and TestFlight-to-Store promotion
+- [phone/iphone/README.md](phone/iphone/README.md): AbstractAssistant for iPhone (0.16.0), the container of the watch app (one product; sealed sign-in shared with the watch; Apple push with notification service extensions, [phone/iphone/BUILD.md](phone/iphone/BUILD.md) lists the five targets and bundle ids), native iPhone assistant, scoped tools and automations, notifications and tab badges from your event stream, generated images and voice attached to restored messages; [phone/iphone/CHANGELOG.md](phone/iphone/CHANGELOG.md) records native release history; [phone/iphone/docs/architecture.md](phone/iphone/docs/architecture.md) covers authenticated artifact previews and session restoration; [phone/iphone/BUILD.md](phone/iphone/BUILD.md) covers isolated builds; [phone/iphone/docs/distribution.md](phone/iphone/docs/distribution.md) explains combined iPhone + independent Watch delivery in one Store listing, credential-free CI, human-approved uploads and TestFlight-to-Store promotion
 
 - [phone/iphone/docs/troubleshooting.md](phone/iphone/docs/troubleshooting.md): dated automation runs, failure explanations, provider versus phone authentication, installed version/build and Apple-managed updates
 
@@ -89,7 +89,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records
 - [docs/adr/0001_gateway_native_assistant_v2.md](docs/adr/0001_gateway_native_assistant_v2.md): the gateway-native boundary
 - [docs/backlog/overview.md](docs/backlog/overview.md): planned and proposed work
-- [watch/apple/README.md](watch/apple/README.md): AbstractAssistant for Apple Watch (0.5.0, pre-release through TestFlight), a watch-only watchOS 26+ client of the same gateway: voice Ask around the orb with the work shown live (steps under the orb, pulses), tools and workflow per conversation, images and recordings in answers, approvals (Approve all for the run's own conversation or automation), sessions with search and archive, automations, notifications from your event stream, your avatar on the watch face (the Assistant complication); [watch/apple/docs/README.md](watch/apple/docs/README.md) indexes its pages; [watch/apple/docs/architecture.md](watch/apple/docs/architecture.md) maps each screen to its gateway call; [watch/apple/BUILD.md](watch/apple/BUILD.md) builds and tests it; [watch/apple/CHANGELOG.md](watch/apple/CHANGELOG.md) is its release history
+- [watch/apple/README.md](watch/apple/README.md): AbstractAssistant for Apple Watch (0.16.0, pre-release through TestFlight), the independent companion of the iPhone app (one product, one project `phone/iphone/project.yml`, one sign-in, Apple push), a watchOS 26+ client of the same gateway: voice Ask around the orb with the work shown live (steps under the orb, pulses), tools and workflow per conversation, images and recordings in answers, approvals (Approve all for the run's own conversation or automation), sessions with search and archive, automations, notifications from your event stream, your avatar on the watch face (the Assistant complication); [watch/apple/docs/README.md](watch/apple/docs/README.md) indexes its pages; [watch/apple/docs/architecture.md](watch/apple/docs/architecture.md) maps each screen to its gateway call; [watch/apple/BUILD.md](watch/apple/BUILD.md) builds and tests it; [watch/apple/CHANGELOG.md](watch/apple/CHANGELOG.md) is its release history
 
 ## Contributing
 - [CONTRIBUTING.md](CONTRIBUTING.md): development setup, tests, style
@@ -149,13 +149,14 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   music, sound) that ride each request without touching the gateway's shared defaults.
 - Per-answer statistics (tokens, tools, files, duration, model) with clickable detail views.
 - Multi-attachment composer with an image gallery, drag and drop, and artifact previews.
-- On your wrist: **AbstractAssistant for Apple Watch** (pre-release, TestFlight) talks to the same
-  gateway by voice around the orb, answers approvals and questions, continues your sessions and
-  runs your automations; your avatar on the watch face shows what needs you and what is new. See
-  [watch/apple/README.md](watch/apple/README.md).
-- In your pocket: **AbstractAssistant for iPhone** has the same conversations, tools and
-  automations, with notifications and tab badges for what needs you. See
-  [phone/iphone/README.md](phone/iphone/README.md).
+- In your pocket and on your wrist: **AbstractAssistant for iPhone and Apple Watch** is one app
+  (0.16.0, pre-release through TestFlight): the iPhone app carries the watch app, one sign-in
+  serves both, and notifications reach you while the app is closed (Apple push, once your gateway's
+  relay is on). The iPhone has the same conversations, tools and automations, with tab badges for
+  what needs you ([phone/iphone/README.md](phone/iphone/README.md)); the watch talks to the same
+  gateway by voice around the orb, answers approvals and questions, continues your sessions and runs
+  your automations, and your avatar on the watch face shows what needs you
+  ([watch/apple/README.md](watch/apple/README.md)).
 
 ## Install
 
@@ -285,13 +286,13 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 - [voice.md](voice.md) — speaking replies, dictation, and the hands-free voice conversation loop
 - [automations.md](automations.md) — scheduled tasks on the gateway: the Sessions | Automations tabs, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and your event stream (the attention line, the menu-bar badge, one notification per item on a Mac), the capability gate, offline behavior, limits
 
-- [../phone/iphone/README.md](../phone/iphone/README.md) — AbstractAssistant for iPhone: conversations, scoped tools, automations, notifications and tab badges from your event stream, restorable image previews and voice playback; [architecture](../phone/iphone/docs/architecture.md), [release history](../phone/iphone/CHANGELOG.md), [run troubleshooting and app updates](../phone/iphone/docs/troubleshooting.md), [testing/distribution](../phone/iphone/docs/distribution.md) and [build guide](../phone/iphone/BUILD.md)
+- [../phone/iphone/README.md](../phone/iphone/README.md) — AbstractAssistant for iPhone (0.16.0, carries the watch app; one sign-in; Apple push): conversations, scoped tools, automations, notifications and tab badges from your event stream, restorable image previews and voice playback; [architecture](../phone/iphone/docs/architecture.md), [release history](../phone/iphone/CHANGELOG.md), [run troubleshooting and app updates](../phone/iphone/docs/troubleshooting.md), [testing/distribution](../phone/iphone/docs/distribution.md) and [build guide](../phone/iphone/BUILD.md)
 
 ## Design records
 
 - [adr/README.md](adr/README.md) — architecture decision records (the gateway-native boundary)
 - [backlog/overview.md](backlog/overview.md) — planned and proposed work
-- [../watch/apple/README.md](../watch/apple/README.md) — AbstractAssistant for Apple Watch (0.5.0, pre-release through TestFlight): voice around the orb with the work shown live, tools and workflow per conversation, images and recordings in answers, approvals, sessions with search and archive, automations, notifications from your event stream and your avatar on the watch face; its pages are indexed in [../watch/apple/docs/README.md](../watch/apple/docs/README.md)
+- [../watch/apple/README.md](../watch/apple/README.md) — AbstractAssistant for Apple Watch (0.16.0, the iPhone app's independent companion, pre-release through TestFlight): voice around the orb with the work shown live, tools and workflow per conversation, images and recordings in answers, approvals, sessions with search and archive, automations, notifications from your event stream and your avatar on the watch face; its pages are indexed in [../watch/apple/docs/README.md](../watch/apple/docs/README.md)
 
 ## Project
 
@@ -2393,6 +2394,8 @@ This directory records durable architecture decisions for AbstractAssistant.
 
 - [ADR 0003](0003_unified_apple_product.md) — Accepted — One Store listing and archive for iPhone + independent Watch; generated Store composition and shared release ownership.
 
+- [ADR 0004](0004_one_apple_project.md) — Accepted — One project and one product: the iPhone app is the container, the watch app its independent companion (`.watchkitapp`); shared sealed sign-in and push package; amends ADR 0003.
+
 ## Related Docs
 
 - [../architecture.md](../architecture.md)
@@ -2574,7 +2577,7 @@ app can be added later if separate device data or app records become necessary.
 --- docs/adr/0003_unified_apple_product.md ---
 # ADR 0003 — One AbstractAssistant product for iPhone and Watch
 
-Status: Accepted
+Status: Accepted; amended by [ADR 0004](0004_one_apple_project.md) (one project, the `.watchkitapp` id, no generated composition)
 Date: 2026-10-19
 
 ## Context
@@ -2847,6 +2850,15 @@ All notable changes to AbstractAssistant are documented in this file. Entries de
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
 ## [Unreleased]
+
+### Added
+
+- **AbstractAssistant for iPhone and Apple Watch is one product (0.16.0).** The iPhone app
+  (`ai.abstractframework.assistant`) carries the watch app as its companion
+  (`ai.abstractframework.assistant.watchkitapp`), built from one project (`phone/iphone/project.yml`);
+  one sign-in for both (the watch takes the iPhone's); Apple push on both apps (registration with the
+  gateway and notification service extensions, framework backlog 1049). See the iPhone and watch
+  changelogs.
 
 ### Changed
 
@@ -3851,7 +3863,10 @@ abstractassistant --config custom.toml # Custom config
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**iPhone · 0.7.0 · iOS 26+**
+**iPhone · 0.16.0 · iOS 26+** · with the [Apple Watch app](../../watch/apple/README.md) inside
+
+AbstractAssistant is one product for iPhone and Apple Watch: install it on the iPhone and the
+watch app comes with it. Sign in once on the iPhone and the watch is signed in too.
 
 ## Three small spaces
 
@@ -4085,19 +4100,18 @@ Enter your own gateway’s address. There is no preselected public server.
 - **Registered email + one-time code:** request the code and enter it. Email sign-in must be
   enabled on your gateway, with a mailbox connected for your account.
 
-Sign-in data lives in the iPhone Keychain (`WhenUnlockedThisDeviceOnly`), outside iCloud
-sync and ordinary preferences. HTTPS is required outside the local network. Local HTTP
+Your sign-in is sealed in the app's own storage on this iPhone (shared with its notification
+extension and handed to your Apple Watch), outside iCloud sync and ordinary preferences. HTTPS is required outside the local network. Local HTTP
 addresses are accepted for development. A phone’s `localhost` is the phone itself; use
 your Mac’s LAN address to reach a gateway running there.
 
 **Take a look around** opens a separate demo with sample data. Its navigation label stays visible;
-demo actions do not contact a gateway or overwrite an existing Keychain sign-in.
+demo actions do not contact a gateway or overwrite an existing sign-in.
 
 ## Build and try it
 
-See [BUILD.md](BUILD.md). The project has its own bundle ID, Xcode project, build directory
-and gateway-client snapshot. Local developer builds do not modify the Watch application;
-Store builds embed the independent Watch companion as described below.
+See [BUILD.md](BUILD.md). One project builds the iPhone app and the Watch companion it embeds,
+with the iPhone's own gateway-client snapshot; the watch keeps its client in `watch/apple`.
 
 ## Testing and distribution
 
@@ -4114,9 +4128,10 @@ the public App Store automatically.
 
 ## What to expect from this preview
 
-- Foreground updates only: active runs are checked every three seconds; the lists every
-  fifteen seconds. No push notifications or background polling. The gateway continues work
-  after you leave the app. Open it again to catch up.
+- In front, active runs are checked every three seconds and the lists every fifteen seconds.
+  While the app is closed, approvals, questions, published alerts and automation results arrive
+  as notifications through Apple push once your gateway's push relay is on (nothing to set up:
+  the app registers itself at sign-in; the system's notification permission is the only switch).
 - Answers use the gateway’s run output; the phone does not implement token-by-token SSE.
 - The conversation picker shows the most recent 60 chat/discussion runs and opens up to
   30 turns per conversation. Older history remains on the gateway.
@@ -4128,7 +4143,7 @@ the public App Store automatically.
   no model runs on the iPhone. The orb’s level response is local; the conversation still
   proceeds through recording and transcription, review unless automatic sending is enabled,
   then a gateway run and optional speech.
-- Chat model overrides, editing existing automation definitions, push, CarPlay and iPad
+- Chat model overrides, editing existing automation definitions, CarPlay and iPad
   layouts remain outside this preview. The desktop and gateway console expose those controls.
 - Device microphone permissions, private-network reachability and real provider audio need
   verification on your own iPhone and gateway before daily use.
@@ -4216,10 +4231,40 @@ category controls apply in Settings, a session, and an automation.
 --- phone/iphone/CHANGELOG.md ---
 # iPhone release history
 
-The native iPhone client has its own version and build number. Desktop package releases are
+The iPhone app and its Apple Watch companion share one version and build number (since 0.16.0). Desktop package releases are
 listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
+
+### Added
+
+- **One product with the Apple Watch (version 0.16.0, build 39).** The iPhone app is now
+  AbstractAssistant (`ai.abstractframework.assistant`, the existing App Store record) and carries
+  the watch app as its companion (`ai.abstractframework.assistant.watchkitapp`). One project builds
+  both, their watch face complication and two notification service extensions. The iPhone and the
+  watch share one version from now on: 0.16.0 for both, the next number after the desktop app's
+  0.15.0, so the family reads as one release line.
+- **Sign in once.** After you sign in on the iPhone (account token or emailed code), the watch takes
+  the same sign-in through WatchConnectivity. A watch without its iPhone still signs in on its own;
+  the latest sign-in wins on either device.
+- **Notifications while the app is closed (Apple push, framework backlog 1049).** The app registers
+  itself with your gateway at each sign-in, on each new push token and at most once a day, and
+  forgets the registration when you sign out; there is nothing to set up and no push setting (the
+  system's notification permission is the switch, asked once after your first sign-in). The
+  notification service extension reads the event from your own gateway and shows it as the app
+  would: "Approval needed" / "A question for you" (time-sensitive, opens the Inbox), "<automation> has
+  a result" / "<automation> failed" (opens Automations), a published alert with its title. A push for
+  an earlier sign-in says "From an earlier sign-in"; when the gateway cannot be read in time, the
+  generic text stays. Pushes are sent only once your gateway's push relay is on.
+
+### Changed
+
+- **Your sign-in is sealed in the app's own storage, no longer in the iPhone Keychain** (ChaChaPoly
+  under a private key file in the app group, readable by the notification extension; framework rule:
+  no OS keychain). The earlier developer app `ai.abstractframework.assistant.iphone` is retired: sign
+  in once in AbstractAssistant.
+- A notification for an approval, a question or a result now has the same identifier as its push
+  (the gateway's collapse id), and the app never shows again what a push already showed.
 
 ### Changed
 
@@ -4314,11 +4359,20 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 --- phone/iphone/docs/architecture.md ---
 # iPhone architecture
 
+The iPhone app is the container of the AbstractAssistant product: it carries the Apple Watch
+app as its companion and both are built from one project (`project.yml`, see [BUILD](../BUILD.md)).
+The watch side is described in [watch/apple/docs/architecture.md](../../../watch/apple/docs/architecture.md).
+
 ```mermaid
 flowchart LR
     Views[SwiftUI screens] --> Store[AssistantStore]
     Views --> Voice[Microphone and playback]
-    Vault[iPhone Keychain] --> Store
+    Vault[Sealed sign-in in the app group] --> Store
+    Vault --> Push[AssistantPush: registration, handoff]
+    Push --> Watch[Watch app over WatchConnectivity]
+    APNs[Apple push] --> NSE[Notification service extension]
+    Vault --> NSE
+    NSE --> Gateway
     Store --> Client[AbstractGatewayClient snapshot]
     Voice --> Client
     Views --> Files[Attachment import and authenticated preview]
@@ -4330,7 +4384,8 @@ flowchart LR
     Gateway --> Runtime[AbstractRuntime / providers]
 ```
 
-`Sources/App` owns native views, Keychain access, recording and playback. The `AssistantKit`
+`Sources/App` owns native views, the sealed sign-in (`ConnectionVault`), push registration
+(`PhonePush`), the watch handoff (`WatchLink`), recording and playback. The `AssistantKit`
 Swift package owns account-scoped state and URL validation. Its second target,
 `AbstractGatewayClient`, contains the HTTP wire types and protocol.
 
@@ -4345,8 +4400,8 @@ preferences are stored locally, scoped by gateway/tenant/account.
 The HTTP client uses an ephemeral URLSession, explicit bearer or session/CSRF headers,
 and refuses redirects. A 401 locks the client out; the store removes the sign-in and stops
 polling rather than repeatedly hitting the gateway’s failed-sign-in limit. Credentials are
-Keychain items, with device-only accessibility, and are never encoded in a URL or passed
-as launch arguments.
+sealed in the app group (see below), never in the OS keychain, never encoded in a URL or
+passed as launch arguments.
 
 Store generations separate account changes and conversation changes. Old refreshes and
 answers cannot repopulate a later account’s screen. Restoring a persisted session also
@@ -4935,9 +4990,9 @@ that archive without rebuilding; keys remain in a private temporary directory. T
 validation and manual same-build App Store submission/release are separate stages. See
 [distribution](distribution.md) and [ADR 0002](../../../docs/adr/0002_iphone_release_stages.md).
 
-Store projects compose both canonical client specs without rewriting developer projects. The
-iPhone Store target uses `ai.abstractframework.assistant` and embeds the independent Watch
-companion. Both package suites and the Watch companion build precede device archiving.
+One project is the Store product: the iPhone target `ai.abstractframework.assistant` embeds
+the independent Watch companion `ai.abstractframework.assistant.watchkitapp`. The package
+suites and the Watch companion build precede device archiving.
 Archive inspection runs before the iPhone native suite; successful tests then permit packaging
 the candidate and entering the approval gate. [ADR0003](../../../docs/adr/0003_unified_apple_product.md)
 records identity, module composition and shared release ownership.
@@ -4952,10 +5007,39 @@ summary and 20 newest occurrences while visible; run details load the existing r
 No diagnostic action launches tools or retries a failed task automatically.
 
 `AppUpdateInfo` owns version/build and update destinations. `InstalledPhoneApp` verifies StoreKit
-`AppTransaction` environment for Store builds; local `.iphone` installs remain development copies.
+`AppTransaction` environment for Store builds; a development-signed install of the same bundle ID reports itself as such.
 An unavailable transaction is reported as unverified. Apple manages binary updates and automatic
 update permissions. The app opens TestFlight/App Store, never embeds App Store Connect credentials
 or downloads executable updates. See [troubleshooting](troubleshooting.md).
+
+## One sign-in, Apple push and the watch
+
+`Packages/AssistantPush` is shared by the iPhone app, the watch app and both notification
+service extensions (framework backlog 1049):
+
+- **Sealed sign-in.** `SharedSignInStore` keeps the gateway, account and credential (token, or
+  session + CSRF) sealed with ChaChaPoly under a 0600 key file in the app group
+  `group.ai.abstractframework.assistant` (`Library/Sealed/`), readable after first unlock so the
+  extension can read it while the phone is locked. No OS keychain. Each save is a sign-in and
+  takes a new `reg` (16 random bytes as hex).
+- **Watch handoff.** After a sign-in (token or emailed code) `WatchLink` sends it to the watch
+  (`updateApplicationContext`, plus `transferUserInfo`). The watch takes it when it is newer than
+  its own sign-in; a watch without its iPhone still signs in on its own.
+- **Registration.** `PhonePush` asks for the APNs token at launch with a sign-in and after each
+  sign-in; `PushRegistrar` sends `PUT /api/gateway/me/push/devices/{device_id}` with exactly
+  `{token, topic, env, app: "phone", reg, name}` on a new token, a new sign-in, or once a day,
+  and `DELETE` at sign-out. `device_id` is the id the notification reports already carry.
+  `relay: off` changes nothing on the phone; there is no push setting.
+- **The extension.** The relay's push names only a kind (`push.<kind>.title/body` in
+  `Localization/en.lproj`), `s` (the stream sequence) and `r` (the sign-in handle). A push whose
+  `r` differs from the sealed sign-in's is shown passive as "From an earlier sign-in"; otherwise
+  the extension reads `GET /me/events?after=s-1&limit=1` (8 s) and renders it like the app's
+  catch-up: approval/question time-sensitive (tab Inbox), result/failure passive with the
+  automation's name (tab Automations), a published alert passive with its title. On timeout the
+  generic text stays.
+- **No double alert.** The notification id of an attention item is the gateway's collapse id,
+  `sha256("attention:" + record_key)[:32]`, on both paths; `PhoneNotifier` skips an id that is
+  already delivered.
 
 --- phone/iphone/docs/distribution.md ---
 # Apple testing and distribution
@@ -4963,7 +5047,9 @@ or downloads executable updates. See [troubleshooting](troubleshooting.md).
 AbstractAssistant uses one App Store Connect listing for iPhone and Apple Watch. The
 [Apple app (iPhone + Watch) workflow](../../../.github/workflows/iphone.yml) is the Store
 release entrypoint. It packages the iPhone app as `ai.abstractframework.assistant`, with
-`ai.abstractframework.assistant.watch` embedded as an independent Watch companion.
+`ai.abstractframework.assistant.watchkitapp` embedded as an independent Watch companion (one
+project, `phone/iphone/project.yml`, since 0.16.0; the earlier watch id
+`ai.abstractframework.assistant.watch` is retired).
 Use the existing **AbstractAssistant** app record; no second iPhone listing is needed.
 
 ```mermaid
@@ -4989,8 +5075,8 @@ Watch companion simulator build, iPhone hosted tests and critical UI journeys. M
 requests always run the full iPhone UI suite. Live gateway tests are excluded; CI does not
 need gateway credentials or generate paid media.
 
-Store projects are generated from the canonical client specs without changing developer
-projects or source files. CI builds and archives the same generated iPhone target. Both apps
+CI generates the one project (`xcodegen generate --spec phone/iphone/project.yml`) and builds
+and archives its iPhone target, which embeds the watch app. Both apps
 receive the marketing version from `phone/iphone/project.yml` and a shared CI build number
 `(workflow run number + 100).run attempt`. The manifest records the source commit, both bundle
 IDs, native test scope and SHA256 digest. Upload rejects missing Watch content, incompatible
@@ -5041,10 +5127,10 @@ support returning that listing to a watch-only app.
 
 ## Developer installs and test data
 
-Local iPhone developer builds keep `ai.abstractframework.assistant.iphone`; standalone Watch
-projects retain their developer setup. Store composition does not rewrite either project. The
-Store iPhone app has a separate sandbox from the developer iPhone install: configure its gateway
-and sign in again; local credentials/caches are not automatically migrated. Both clients can load
+Developer builds use the Store bundle IDs (`ai.abstractframework.assistant`, `.watchkitapp`);
+the earlier developer-only `ai.abstractframework.assistant.iphone` and the watch's
+`ai.abstractframework.assistant.watch` are retired. Their installs keep their own sandbox:
+sign in again once in the new app (the watch then follows the iPhone's sign-in). Both clients can load
 authorized sessions from the gateway.
 
 TestFlight and App Store share one Store bundle ID and replace one another on a device. To keep
@@ -5145,24 +5231,43 @@ opens the [native changelog](../CHANGELOG.md); it documents changes and is not a
 service.
 
 --- phone/iphone/BUILD.md ---
-# Build the iPhone app
+# Build AbstractAssistant (iPhone and Apple Watch)
 
-Requirements: Xcode 27.1 (Swift 6.2 or later), an iOS 26+ SDK/runtime, and XcodeGen.
+AbstractAssistant is one product: the iPhone app (`ai.abstractframework.assistant`) carries the
+Apple Watch app (`ai.abstractframework.assistant.watchkitapp`) as its companion. One XcodeGen
+spec, `project.yml` in this folder, builds both apps, the watch face complication and the two
+notification service extensions; the watch sources stay in [`../../watch/apple`](../../watch/apple/BUILD.md).
+
+Requirements: Xcode 27.1 (Swift 6.2 or later), iOS 26+ and watchOS 26+ SDKs/runtimes, and XcodeGen.
 The package tests run on macOS 14+ without a simulator or signing account.
 
 From `abstractassistant/phone/iphone/`:
 
 ```sh
 swift test --package-path Packages/AssistantKit --scratch-path build/SwiftTests --jobs 1
+swift test --package-path Packages/AssistantPush --scratch-path build/PushTests --jobs 1
 python3 scripts/build.py
 ```
 
-The build script generates `AbstractAssistantPhone.xcodeproj`, builds with one job at lower
+| Target | Bundle ID | What it is |
+|---|---|---|
+| AbstractAssistantPhone | `ai.abstractframework.assistant` | the iPhone app, the container (shown as AbstractAssistant) |
+| AbstractAssistantPhoneNotifications | `ai.abstractframework.assistant.notifications` | iPhone notification service extension (push) |
+| AbstractAssistantWatch | `ai.abstractframework.assistant.watchkitapp` | the watch app, an independent companion |
+| AbstractAssistantComplication | `ai.abstractframework.assistant.watchkitapp.orbclock` | the watch face complication |
+| AbstractAssistantWatchNotifications | `ai.abstractframework.assistant.watchkitapp.notifications` | watch notification service extension (push) |
+
+All five share the app group `group.ai.abstractframework.assistant` and one version
+(`MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` in `project.yml`). The two apps carry the
+`aps-environment` and Time Sensitive Notifications entitlements.
+
+The build script generates `AbstractAssistant.xcodeproj`, builds with one job at lower
 CPU priority and keeps DerivedData in `build/DerivedData`. It does not boot, reset, shut down
 or change any simulator. If another command-line Xcode build starts, the script stops only
 its own build and exits with status 75 so the other development takes priority.
-The simulator app is signed locally with an ad-hoc identity so Keychain works; this needs
-no developer account and does not sign a physical-device build.
+The simulator app is signed locally with an ad-hoc identity so the app group (where the
+sealed sign-in lives) works; this needs no developer account and does not sign a
+physical-device build. The iPhone build compiles the watch app too (it is embedded).
 
 Xcode’s GUI build service is shared: also check for other active builds before starting,
 particularly while the Watch client is being developed. Do not launch both apps’ build
@@ -5172,13 +5277,14 @@ scripts together. A simulator is not required to compile the app.
 
 ```sh
 xcodegen generate --spec project.yml
-open AbstractAssistantPhone.xcodeproj
+open AbstractAssistant.xcodeproj
 ```
 
-Select **AbstractAssistantPhone**, an iPhone simulator, then Run. For a physical iPhone,
-select your developer team for this target. The phone’s bundle ID is
-`ai.abstractframework.assistant.iphone` for local developer installs, distinct from the Store
-carrier. No signing team is pinned in the project.
+Select **AbstractAssistantPhone**, an iPhone simulator, then Run; **AbstractAssistantWatch**
+runs the watch app on its own. The project signs automatically with team `K3R4D6HP2A`
+(`DEVELOPMENT_TEAM` in `project.yml`); pass another team on the command line. The developer
+build and the Store build share the bundle ID `ai.abstractframework.assistant` (the
+earlier developer-only `ai.abstractframework.assistant.iphone` is retired: sign in again once).
 
 For a connected physical iPhone, the guarded command-line build accepts your device and
 development team IDs without saving either in the project:
@@ -5187,11 +5293,14 @@ development team IDs without saving either in the project:
 python3 scripts/build.py --device <iphone-id> --team <development-team-id>
 xcrun devicectl device install app --device <iphone-id> \
   build/DeviceDerivedData/Build/Products/Debug-iphoneos/AbstractAssistantPhone.app
-xcrun devicectl device process launch --device <iphone-id> ai.abstractframework.assistant.iphone
+xcrun devicectl device process launch --device <iphone-id> ai.abstractframework.assistant
 ```
 
-This uses Xcode's automatic development provisioning and may register the app identifier
-and device with your existing developer account. It does not upload or distribute the app.
+This uses Xcode's automatic development provisioning and may register the five app
+identifiers (with Push Notifications, Time Sensitive Notifications and the app group) and the
+device with your developer account. It does not upload or distribute the app. iOS offers to
+install the embedded watch app on the paired watch; `../../watch/apple/scripts/deploy-watch.sh`
+installs and launches it on the watch directly.
 
 The project is generated; change `project.yml`, not the generated project. The checked-in
 app icon can be regenerated with `swift scripts/make-icon.swift`.
@@ -5201,20 +5310,20 @@ app icon can be regenerated with `swift scripts/make-icon.swift`.
 Choose **Take a look around** on the welcome screen, or launch a Debug build with:
 
 ```sh
-xcrun simctl launch <your-own-iphone-simulator-id> ai.abstractframework.assistant.iphone --demo
+xcrun simctl launch <your-own-iphone-simulator-id> ai.abstractframework.assistant --demo
 ```
 
 Use an explicit iPhone simulator ID. Do not use `booted`: another developer’s Watch
 simulator may also be running.
 
 Debug screenshot states: `--demo --screen conversation`, `--demo --screen inbox`,
-`--demo --screen automations`. Release builds ignore launch arguments; the visible demo
+`--demo --screen automations`, `--demo --screen settings`. Release builds ignore launch arguments; the visible demo
 entry is still available without credentials.
 
 ## UI tests
 
 The separate **AbstractAssistantPhoneUITests** scheme drives the demo and runs the hosted
-Keychain test. When resources are available, use the guarded script against your own
+tests (the sealed sign-in store among them). When resources are available, use the guarded script against your own
 iPhone simulator with isolated DerivedData and one job:
 
 ```sh
@@ -5229,8 +5338,9 @@ pressure. Omit it for normal builds.
 
 ## CI and App Store Connect
 
-The [iPhone workflow](../../.github/workflows/iphone.yml) runs credential-free checks and creates
-an unsigned Release candidate. Manual upload requests on main require the full native suite
+The [iPhone workflow](../../.github/workflows/iphone.yml) runs credential-free checks and builds
+the same project. The apps now carry explicit entitlements (push, time-sensitive, app group),
+so its unsigned-candidate step refuses by design until an archive-signing configuration exists. Manual upload requests on main require the full native suite
 and approval of the protected **app-store** environment before signing/upload. See
 [Testing and distribution](docs/distribution.md) for first-time setup, TestFlight delivery and
 manual promotion of the same build to the public App Store.
@@ -5238,7 +5348,7 @@ manual promotion of the same build to the public App Store.
 ## Opt-in live media verification
 
 Use a development-signed iPhone with an existing gateway sign-in. The hosted test reads
-its Keychain credential in place; it never exports it. This starts real, potentially billed
+its sealed sign-in in place; it never exports it. This starts real, potentially billed
 provider generations on that account and uploads the reviewed orchestrator bundle if absent.
 
 ```sh
@@ -5280,8 +5390,13 @@ listing (`ai.abstractframework.assistant`). Local developer identity/data are re
 
 **Your AI, everywhere. On your wrist.** A voice-first Apple Watch app for your AbstractGateway.
 
-Version 0.5.0 · watchOS 26 or later · independent (no iPhone app needed) · pre-release through
-TestFlight. See [CHANGELOG.md](CHANGELOG.md) for what changed.
+Version 0.16.0 · watchOS 26 or later · the companion of the [AbstractAssistant iPhone
+app](../../phone/iphone/README.md), and independent (it also works with no iPhone nearby) ·
+pre-release through TestFlight. See [CHANGELOG.md](CHANGELOG.md) for what changed.
+
+**One product.** AbstractAssistant is one app for iPhone and Apple Watch: the watch app ships
+inside the iPhone app. Sign in on the iPhone and the watch takes the same sign-in; with no paired
+iPhone, sign in on the watch itself as before.
 
 The watch app is a thin client of AbstractGateway, like the desktop assistant: the gateway owns
 workflows, runs, tools, policy, speech and search, and the watch keeps only your sign-in, your
@@ -5359,12 +5474,17 @@ aloud, Orb style (thirty-four styles in six families: Orbs, Forms, Cosmos, Natur
 
 ## Sign in
 
-The first screen asks for your **user or email**, on `gateway.abstractframework.ai` by default (tap
-the server line to change it):
+The first screen shows the **gateway** (`gateway.abstractframework.ai` by default, then the last one
+you signed into; tap it to pick another gateway you have used or type a new address), then asks for
+your **user or email**:
 
 - a user name asks for its account token;
 - a registered email receives an 8-digit one-time code from the gateway, which signs you in for
   30 days.
+
+Sign out (Settings, or Settings → Connection) asks whether to **keep your sign-in**: a kept sign-in
+shows on the sign-in page as "Sign in as <user>" for its gateway, and one tap signs you in again.
+"Sign out and forget" removes it, and so does the gateway refusing it.
 
 Give the watch its own gateway account with the `user` role; do not put an admin token on a watch.
 
@@ -5383,16 +5503,19 @@ curl https://<host>.<tailnet>.ts.net/api/health
 
 ## Install
 
-- **TestFlight.** Testers invited to the TestFlight build install it from the TestFlight app; the
-  watch app installs on the paired watch.
+- **TestFlight.** Testers invited to the TestFlight build install AbstractAssistant on the
+  iPhone from the TestFlight app; the watch app installs on the paired watch with it.
 - **From source.** Build and run in the simulator or on your own watch with Xcode: see
   [BUILD.md](BUILD.md) and [docs/pairing.md](docs/pairing.md).
 
 ## Current limits
 
-- No push notifications: the app polls the gateway every 15 seconds while it is on screen, and
-  watchOS decides when background checks run.
-- Your sign-in is kept in the app's storage on the watch, not in a sealed store.
+- While the app is on screen it polls the gateway every 15 seconds. While it is closed,
+  approvals, questions, published alerts and automation results arrive through Apple push once
+  your gateway's push relay is on (the app registers itself at sign-in; nothing to set up);
+  until then watchOS decides when background checks run.
+- Your sign-in is sealed on the watch (shared with its notification extension). The sign-ins you
+  keep at Sign out ("Keep my sign-in") are still in the app's plain storage.
 - Tools allowed with Approve all are approved by the watch when it sees their approvals (on the orb
   page, or in its regular check while the app is open); with the app closed, they ask. Approve all
   covers the run's own conversation, or its automation, by that one's own tools.
@@ -5421,11 +5544,88 @@ AbstractAssistant listing. Use **Actions → Apple app (iPhone + Watch)**; see
 --- watch/apple/CHANGELOG.md ---
 # Changelog — AbstractAssistant for Apple Watch
 
-The watch app has its own version (`MARKETING_VERSION` in `project.yml`) and its own release
-channel (TestFlight, then the App Store); the Python package's history is in
+Since 0.16.0 the watch app shares the iPhone app's version (`MARKETING_VERSION` in
+`../../phone/iphone/project.yml`) and its release channel (TestFlight, then the App Store, inside the
+iPhone app); the Python package's history is in
 [../../CHANGELOG.md](../../CHANGELOG.md).
 
 ## [Unreleased]
+
+### Added
+
+- **One product with the iPhone (version 0.16.0, build 39).** The watch app is now the companion of
+  the AbstractAssistant iPhone app: it ships inside it (bundle id
+  `ai.abstractframework.assistant.watchkitapp`, complication `….watchkitapp.orbclock`), installs on
+  the paired watch with it, and still runs and signs in on its own. The iPhone and the watch share
+  one version from now on: 0.16.0, the next number after the desktop app's 0.15.0.
+- **The iPhone's sign-in signs the watch in.** When you sign in on the iPhone, the watch takes the
+  same gateway and credential (WatchConnectivity), unless you signed in on the watch more recently.
+- **Notifications while the app is closed (Apple push, framework backlog 1049).** The watch
+  registers its push token with your gateway at each sign-in, on each new token and at most once a
+  day, and removes it at sign-out; nothing to set up. Its notification service extension fetches the
+  event from your gateway and shows "Approval needed" / "A question for you" (time-sensitive; a tap
+  opens what waits for you), "<automation> has a result" / "<automation> failed", or a published
+  alert's title; "From an earlier sign-in" for a push meant for another sign-in. The app's own catch-up
+  never shows an item a push already showed. Pushes are sent once your gateway's push relay is on.
+
+### Changed
+
+- **Your sign-in is sealed** (ChaChaPoly under a private key file in the app group, readable by the
+  notification extension), no longer in the app's plain storage; a sign-in kept by 0.5.0 is sealed
+  at the first launch. Sign-ins kept with "Keep my sign-in" stay in the app's storage for now.
+- The project moved: one XcodeGen spec for the iPhone and the watch, `phone/iphone/project.yml`
+  (`AbstractAssistant.xcodeproj`); `scripts/build.sh`, `test-watch.sh`, `deploy-watch.sh`,
+  `run-live.sh` and `testflight.sh` use it. The empty iOS container target is gone.
+
+### Added
+
+- **Choose the gateway on the sign-in page, and come back with one tap.** The sign-in page has two
+  lines in the same capsule: the gateway (the last one signed into, else
+  `gateway.abstractframework.ai`) and "Sign in with user or email". A tap on the gateway opens a
+  chooser with every gateway the watch has signed into (most recent first, at most 8, the current
+  one ticked) and "Another gateway…" to type an address. Sign out now asks first: "Keep my sign-in",
+  "Sign out and forget" or Cancel. A kept sign-in shows on the sign-in page, for its gateway, as
+  "Sign in as <user>" (at most 3), and one tap signs in with it. It is forgotten when the gateway
+  refuses it, when you sign out and forget, or replaced when you sign in again as that user with a
+  new credential. Kept sign-ins are stored like the current one (the app's storage, not a sealed
+  store). The field starts with the user signed in last only when no kept row offers that user
+  (one way into an account, never two), and empties when another gateway is chosen.
+
+### Changed
+
+- **The top row sits on the time's line, on every page.** Back (and the gear on Home), the page's
+  title and the icons beside Back (Share, Stop, the shield, the voice button) are centred on the
+  system time, 10 pt higher than before, and the row's band is 48 pt instead of 58: every page
+  starts 10 pt higher. The title leaves the time its room at the right. The orb page's tools, which
+  mirror the keyboard's distance from the top, follow the band.
+
+- **A readout of the notifier, for a debug build.** Launching with `--dump-notify` (the console
+  attached: `xcrun devicectl device process launch --console …`) prints the system's permission,
+  the toggle, when the watch last looked (the background refresh and launches, the last 40, kept
+  on the watch), the runs and waits already posted, the notifications still in Notification
+  Center and the face's snapshot: what to read first when a notification seems missing.
+
+- **Settings → Connection's "Sign in as someone else" is "Sign out"**, a red button, and asks
+  whether to keep the sign-in, as Sign out at the bottom of Settings (red too) now does.
+
+### Fixed
+
+- **A background look that could not read the event stream read nothing else.** The 15-minute
+  check asked `/me/events` first and ran the older reads (`/automations`, `/waits`, which feed the
+  face's badge and the "finished" notifications) only on a 404; a timeout, a 401 or a proxy's HTML
+  page ended the look with nothing updated. The look now answers three ways (read, no stream,
+  failed) and the older reads run in the last two. A gateway without the stream is remembered for
+  a day, per gateway, so it is not asked again on every look.
+- **An image opened full screen started a band too low, its Share button with it.** The image page
+  and the web link page each drew the top row twice (`.screen("")` beside `.besideBack`), and each row
+  took its own 58 pt band: the picture started 116 pt down, letterboxed in the half-screen left,
+  and Share sat a band under Back. Each page now draws the row once; a page that draws two stops a
+  debug build with a message, and the UI tests check that Share sits on Back's line.
+- **An image opened full screen is centred on the page.** A wide picture is centred on the whole
+  screen (its top clear of the row); a taller one sits as near the screen's centre as the row
+  allows, starting right under it, not centred in the area below the row, which left it low.
+  Zoom (the crown), drag and double tap keep the picture within the screen from wherever it
+  rests. The UI test checks the picture's own frame against the rule.
 
 ## [0.5.0] - 2026-10-25
 
@@ -5849,11 +6049,13 @@ First TestFlight build.
 
 The watch app follows ADR 0001 of this repository: the gateway is the authority for workflows,
 runs, tools, policy and speech; the watch holds a credential and what it shows, and every action it
-takes is a gateway request.
+takes is a gateway request. Since 0.16.0 it is the companion of the AbstractAssistant iPhone app
+(one product, one project: [`../../phone/iphone/project.yml`](../../phone/iphone/BUILD.md)) and stays
+independent: it signs in and runs with no iPhone nearby.
 
 ```mermaid
 flowchart LR
-  subgraph Watch["Apple Watch (watchOS 26+, watch-only)"]
+  subgraph Watch["Apple Watch (watchOS 26+, the iPhone app's independent companion)"]
     UI[SwiftUI screens]
     Model[AppModel<br/>polling · haptics · state]
     Media[Listener · Speaker<br/>microphone · voice playback]
@@ -5861,7 +6063,11 @@ flowchart LR
     Files[MediaStore<br/>images · recordings · cache]
     BG[AnswerNotifier · RuntimeKeeper<br/>background · notifications · keep awake]
     Kit[AbstractGatewayClient<br/>Swift package]
-    Store[(app storage<br/>gateway · credential · choices)]
+    Store[(app group, sealed<br/>gateway · credential · reg)]
+    Push[WatchPush · WatchLink<br/>APNs registration · iPhone handoff]
+    NSE[notification service extension<br/>renders a push from the event]
+    Push --> Store
+    NSE --> Store
     UI --> Model --> Kit
     UI --> Media --> Kit
     UI --> Work --> Kit
@@ -6025,14 +6231,35 @@ sequenceDiagram
   interruption pauses the reading and resumes it when the system allows; the app coming back in
   front plays on from where the voice stopped. Only the voice playing turns the audio session off
   when it ends (an idle player leaving the screen does not).
-- **No push**: the gateway has no push channel; see the backlog track.
+- **Push (framework backlog 1049)**: `WatchPush` asks for the APNs token at launch with a sign-in
+  and after each sign-in; the shared `PushRegistrar` (package `AssistantPush`) sends
+  `PUT /api/gateway/me/push/devices/{device_id}` with exactly `{token, topic, env, app: "watch",
+  reg, name}` on a new token, a new sign-in or once a day, and `DELETE` at sign-out; `device_id`
+  is the watch's notification-report id (`notify.device`). A gateway answering `relay: off` keeps
+  the registration and nothing changes. The notification service extension (one source with the
+  iPhone's) reads `s` and `r` from the push: another sign-in's `r` shows passive "From an earlier
+  sign-in"; otherwise it reads `GET /me/events?after=s-1&limit=1` (8 s) and renders it as the
+  catch-up would (approval/question time-sensitive with the `needs` user info; result/failure
+  passive with the automation's name, kept in the app group; a published alert with its title).
+  On timeout the generic localized text stays. Every attention notification's id is the gateway's
+  collapse id, `sha256("attention:" + record_key)[:32]`, so the catch-up skips what a push showed.
+- **One sign-in with the iPhone**: `WatchLink` takes the iPhone's sign-in from WatchConnectivity
+  (application context, or the queued user info) when it is newer than the watch's own and names
+  another account or credential; it then signs in as the sign-in page would (a new `reg`).
 
 ## Security
 
 - The watch sends no `user_id` or `tenant_id`: the gateway derives the principal from the
   credential.
-- The credential (an account token, or a 30-day session with its CSRF value) is kept in the app's
-  storage on the watch (`UserDefaults`), not in a sealed store; Sign out forgets it.
+- The credential (an account token, or a 30-day session with its CSRF value) is sealed in the
+  app group (`SharedSignInStore`: ChaChaPoly under a 0600 key file, readable after first unlock so
+  the notification extension can read it; never the OS keychain); the address and account name
+  also stay in UserDefaults for the sign-in page. A credential kept by an earlier version in
+  UserDefaults is sealed and removed there at the first read. Sign out forgets it, unless the
+  person chooses "Keep my sign-in", which keeps it in the app's plain storage (`KeptSignIns`, one
+  per gateway host and user; a known gap) for a one-tap return. A kept credential the gateway rejects (401) is
+  forgotten, and a fresh sign-in as the same user on that gateway replaces it. The gateways signed
+  into are remembered (`KnownGateways`, at most 8) for the sign-in page's chooser.
 - After a 401 the client sends nothing more (the gateway locks out an address after repeated
   failures) and the app returns to the sign-in screen.
 - Transport is HTTPS; plain HTTP is accepted only for local-network addresses (development).
@@ -6043,7 +6270,8 @@ sequenceDiagram
 | Gap | Effect on the watch |
 |---|---|
 | No device pairing, one token per account | the watch signs in with an account token or an emailed code; rotating the token signs out every client |
-| No push channel | waits arrive on the next poll or background refresh, not within a second |
+| Push relay off by default (`--push-relay off`) | until the gateway operator turns the relay on, waits arrive on the next poll or background refresh |
+| The gateway's packaged push topics are still `….assistant.watch` / `….assistant.iphone` | the new apps' registrations (`….assistant`, `….assistant.watchkitapp`) are refused (422) until the gateway lists them |
 | No risk level in the wait payload | the risk comes from the tool catalog; Double Tap allows only approvals that neither send nor destroy |
 | No compact view of a run's records | the live steps read the run's full records (a thinking record carries the conversation); reads are skipped when the run has not changed |
 | No "seen" state for conversations | new answers are tracked on each watch |

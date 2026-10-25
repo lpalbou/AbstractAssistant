@@ -536,7 +536,11 @@ final class AppModel: ObservableObject {
     /// the cached state, polls. A sign-in kept for this user on this gateway with another
     /// credential is forgotten: the new one replaces it.
     func connect(_ signIn: SavedSignIn) {
-        signIn.save()
+        signIn.save()                                    // sealed, with a new push handle
+        // Push (backlog 1049): the token is registered with this sign-in's handle; the one-time
+        // permission question comes now, as a closed app's alerts need it.
+        WatchPush.start()
+        AnswerNotifier.shared.requestPermission()
         KnownGateways.add(signIn.gateway)
         if let user = signIn.user, let kept = KeptSignIns.entry(gateway: signIn.gateway, user: user),
            kept.signIn?.credential != signIn.credential {
@@ -558,6 +562,9 @@ final class AppModel: ObservableObject {
     /// page. Otherwise a sign-in kept for this user on this gateway is forgotten with it: "Sign out
     /// and forget", or the gateway rejecting the credential (a 401), so its row does not come back.
     func signOut(keep: Bool = false, notice: String? = nil) {
+        // The person signing out: the gateway forgets this watch's push token. A credential the
+        // gateway rejected (401, `notice`) sends nothing more (it locks out an address after failures).
+        if notice == nil { WatchPush.signedOut(SavedSignIn.current()) }
         if let current = SavedSignIn.load(), let user = current.user ?? principal?.userId {
             if keep { KeptSignIns.keep(current, user: user) }
             else { KeptSignIns.forget(gateway: current.gateway, user: user) }

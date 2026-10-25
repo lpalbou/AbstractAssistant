@@ -3,7 +3,9 @@
 AbstractAssistant uses one App Store Connect listing for iPhone and Apple Watch. The
 [Apple app (iPhone + Watch) workflow](../../../.github/workflows/iphone.yml) is the Store
 release entrypoint. It packages the iPhone app as `ai.abstractframework.assistant`, with
-`ai.abstractframework.assistant.watch` embedded as an independent Watch companion.
+`ai.abstractframework.assistant.watchkitapp` embedded as an independent Watch companion (one
+project, `phone/iphone/project.yml`, since 0.16.0; the earlier watch id
+`ai.abstractframework.assistant.watch` is retired).
 Use the existing **AbstractAssistant** app record; no second iPhone listing is needed.
 
 ```mermaid
@@ -29,8 +31,8 @@ Watch companion simulator build, iPhone hosted tests and critical UI journeys. M
 requests always run the full iPhone UI suite. Live gateway tests are excluded; CI does not
 need gateway credentials or generate paid media.
 
-Store projects are generated from the canonical client specs without changing developer
-projects or source files. CI builds and archives the same generated iPhone target. Both apps
+CI generates the one project (`xcodegen generate --spec phone/iphone/project.yml`) and builds
+and archives its iPhone target, which embeds the watch app. Both apps
 receive the marketing version from `phone/iphone/project.yml` and a shared CI build number
 `(workflow run number + 100).run attempt`. The manifest records the source commit, both bundle
 IDs, native test scope and SHA256 digest. Upload rejects missing Watch content, incompatible
@@ -81,10 +83,10 @@ support returning that listing to a watch-only app.
 
 ## Developer installs and test data
 
-Local iPhone developer builds keep `ai.abstractframework.assistant.iphone`; standalone Watch
-projects retain their developer setup. Store composition does not rewrite either project. The
-Store iPhone app has a separate sandbox from the developer iPhone install: configure its gateway
-and sign in again; local credentials/caches are not automatically migrated. Both clients can load
+Developer builds use the Store bundle IDs (`ai.abstractframework.assistant`, `.watchkitapp`);
+the earlier developer-only `ai.abstractframework.assistant.iphone` and the watch's
+`ai.abstractframework.assistant.watch` are retired. Their installs keep their own sandbox:
+sign in again once in the new app (the watch then follows the iPhone's sign-in). Both clients can load
 authorized sessions from the gateway.
 
 TestFlight and App Store share one Store bundle ID and replace one another on a device. To keep

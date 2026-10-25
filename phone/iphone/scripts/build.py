@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""One low-priority iPhone build; yield to other Xcode builds (Watch has priority)."""
+"""One low-priority build of the AbstractAssistant iPhone app (with its embedded watch app);
+yield to other Xcode builds (a watch build or test has priority)."""
 import argparse
 from pathlib import Path
 import os
@@ -13,13 +14,29 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def other_builds(own=None, idle_watch_test=None):
-    rows = subprocess.check_output(["ps", "-axo", "pid=,%cpu=,comm=,args="], text=True).splitlines()
-    busy = []
+    rows = subprocess.check_output(["ps", "-axo", "pid=,ppid=,%cpu=,comm=,args="], text=True).splitlines()
+    parents = {}
+    table = []
     for row in rows:
-        parts = row.split(maxsplit=3)
-        if len(parts) < 4:
+        parts = row.split(maxsplit=4)
+        if len(parts) < 5:
             continue
-        pid, cpu, arguments = int(parts[0]), float(parts[1]), parts[3]
+        parents[int(parts[0])] = int(parts[1])
+        table.append(parts)
+
+    def ours(pid):
+        # The iPhone app embeds the watch app: our own build compiles watch/apple sources too.
+        seen = set()
+        while pid and pid not in seen:
+            if pid == own:
+                return True
+            seen.add(pid)
+            pid = parents.get(pid, 0)
+        return False
+
+    busy = []
+    for parts in table:
+        pid, cpu, arguments = int(parts[0]), float(parts[2]), parts[4]
         # Darwin truncates the comm column when args is also requested. argv[0] keeps
         # the full executable path (the Xcode command paths here contain no spaces).
         executable = Path(arguments.split(maxsplit=1)[0]).name
@@ -30,6 +47,8 @@ def other_builds(own=None, idle_watch_test=None):
             continue
         # The explicitly allowed Watch test can keep its UI/voice animation running.
         # Compilation and memory pressure still take priority over this nice(10) job.
+        if own and ours(pid):
+            continue
         if (executable == "xcodebuild" and pid != own) or (executable in {"swift-frontend", "clang"} and "/watch/apple/" in arguments):
             busy.append(pid)
     if idle_watch_test:
@@ -68,7 +87,7 @@ def main():
     destination = ("platform=iOS,id=" + device if device else
                    "platform=iOS Simulator,id=" + options.ui_test if testing else "generic/platform=iOS Simulator")
     derived = ROOT / "build" / ("DeviceDerivedData" if device else "DerivedData")
-    args = ["nice", "-n", "10", "xcodebuild", "-project", "AbstractAssistantPhone.xcodeproj", "-scheme", scheme,
+    args = ["nice", "-n", "10", "xcodebuild", "-project", "AbstractAssistant.xcodeproj", "-scheme", scheme,
             "-destination", destination, "-derivedDataPath", str(derived),
             "-jobs", "1", "test" if testing else "build", "CODE_SIGNING_ALLOWED=YES", "ARCHS=arm64", "ONLY_ACTIVE_ARCH=YES", "-quiet"]
     if device:
@@ -84,7 +103,7 @@ def main():
         parser.error("--only-testing requires --ui-test or --live-media-test")
     selected = options.only_testing or (["AbstractAssistantPhoneTests/LiveGatewayMediaTests"] if options.live_media_test else [])
     args += ["-only-testing:" + value for value in selected]
-    print("iPhone only, one job, isolated DerivedData. " + ("Testing only on the named physical iPhone." if options.live_media_test else "Testing only on the named iPhone simulator." if testing else "No simulator will be booted."), flush=True)
+    print("iPhone app (with the watch app inside), one job, isolated DerivedData. " + ("Testing only on the named physical iPhone." if options.live_media_test else "Testing only on the named iPhone simulator." if testing else "No simulator will be booted."), flush=True)
     with log.open("w") as out:
         process = subprocess.Popen(args, cwd=ROOT, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
         try:

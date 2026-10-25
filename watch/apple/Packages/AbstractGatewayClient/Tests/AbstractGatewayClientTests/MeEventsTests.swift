@@ -73,7 +73,10 @@ struct MeEventsTests {
                          .needsYou(runId: "r2", waitKey: "q", kind: "question", sessionId: "s", recordKey: "wait:r2:q:st"),
                          .news(automationId: "a", seq: 1, failed: true, recordKey: "automation:completed:a:1")])
         #expect(told.map(\.recordKey) == ["wait:r1:k1:st", "wait:r2:q:st", "automation:completed:a:1"])
-        #expect(told.map(\.identifier) == ["wait-r1:k1", "wait-r2:q", "attention-a-1"])
+        // The gateway's push collapse ids (sha256("attention:" + record_key)[:32]): a pushed alert
+        // and the catch-up's notification are one.
+        #expect(told.map(\.identifier) == ["c9ece7c314e9a39da7d4407c0aa87900", "a0a90b72d74c0b8000e41a7c0c766b15", "0b1ddd6269d7d6bb68c9d69cb95e8db3"])
+        #expect(AttentionNotice.needsYou(runId: "r1", waitKey: "k1", kind: "approval", sessionId: nil).identifier == "wait-r1:k1")
         // The same page read again (a retried refresh) tells nothing.
         #expect(s.apply(page([wait(1, run: "r1", key: "k1"), result(3, "a", 1)])).isEmpty)
         #expect(s.needYou == 2 && s.newResults == 1)

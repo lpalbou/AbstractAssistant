@@ -1,41 +1,69 @@
 import AbstractGatewayClient
+import AssistantPush
 import SwiftUI
 import WatchKit
 
-/// The watch's sign-in, kept in UserDefaults (scaffold storage; a sealed store is a known gap):
-/// the gateway, the account, and either its token or a 30-day session from an emailed code.
+/// The watch's sign-in: the gateway, the account, and either its token or a 30-day session from an
+/// emailed code. Kept sealed in the app group (`SharedSignInStore`: a ChaChaPoly file under a 0600
+/// key file, never the OS keychain) so the notification service extension reads the same sign-in;
+/// the address and the account name (no secret) also stay in UserDefaults for the sign-in page.
+/// A save is a sign-in: it takes a new push registration handle (`reg`). It comes from the sign-in
+/// page, the launch arguments, or the iPhone (`WatchPush` adopts the iPhone's sign-in).
 struct SavedSignIn {
     var gateway: URL
     var user: String?
     var credential: GatewayCredential
 
     static let defaultGateway = "https://gateway.abstractframework.ai"
+    private static let legacyKeys = ["gateway.token", "gateway.session", "gateway.csrf"]
 
-    static func load(_ d: UserDefaults = .standard) -> SavedSignIn? {
-        guard let url = d.string(forKey: "gateway.url").flatMap(URL.init(string:)) else { return nil }
-        if let sid = d.string(forKey: "gateway.session"), let csrf = d.string(forKey: "gateway.csrf") {
-            return SavedSignIn(gateway: url, user: d.string(forKey: "gateway.user"), credential: .session(id: sid, csrf: csrf))
-        }
-        if let token = d.string(forKey: "gateway.token") {
-            return SavedSignIn(gateway: url, user: d.string(forKey: "gateway.user"), credential: .token(token))
-        }
-        return nil
+    init(gateway: URL, user: String?, credential: GatewayCredential) {
+        self.gateway = gateway; self.user = user; self.credential = credential
     }
 
-    func save(_ d: UserDefaults = .standard) {
+    init?(_ s: SharedSignIn) {
+        if let token = s.token, !token.isEmpty { credential = .token(token) }
+        else if let sid = s.session, let csrf = s.csrf, !sid.isEmpty { credential = .session(id: sid, csrf: csrf) }
+        else { return nil }
+        gateway = s.gateway; user = s.user
+    }
+
+    /// The sealed record (its push handle and sign-in time).
+    static func current() -> SharedSignIn? { SharedSignInStore.load() }
+
+    static func load(_ d: UserDefaults = .standard) -> SavedSignIn? {
+        if let sealed = SharedSignInStore.load(), let s = SavedSignIn(sealed) { return s }
+        // A sign-in kept by an earlier version in UserDefaults: sealed once, then removed there.
+        guard let url = d.string(forKey: "gateway.url").flatMap(URL.init(string:)) else { return nil }
+        let legacy: SavedSignIn
+        if let sid = d.string(forKey: "gateway.session"), let csrf = d.string(forKey: "gateway.csrf") {
+            legacy = SavedSignIn(gateway: url, user: d.string(forKey: "gateway.user"), credential: .session(id: sid, csrf: csrf))
+        } else if let token = d.string(forKey: "gateway.token") {
+            legacy = SavedSignIn(gateway: url, user: d.string(forKey: "gateway.user"), credential: .token(token))
+        } else { return nil }
+        legacy.save(d)
+        return legacy
+    }
+
+    /// `at`: when it was signed in (the iPhone's time for a sign-in it handed over).
+    func save(_ d: UserDefaults = .standard, at date: Date = Date()) {
         d.set(gateway.absoluteString, forKey: "gateway.url")
         d.set(user, forKey: "gateway.user")
+        try? SharedSignInStore.save(shared(at: date))
+        for k in Self.legacyKeys { d.removeObject(forKey: k) }
+    }
+
+    func shared(at date: Date = Date()) -> SharedSignIn {
         switch credential {
-        case .token(let t):
-            d.set(t, forKey: "gateway.token"); d.removeObject(forKey: "gateway.session"); d.removeObject(forKey: "gateway.csrf")
-        case .session(let id, let csrf):
-            d.set(id, forKey: "gateway.session"); d.set(csrf, forKey: "gateway.csrf"); d.removeObject(forKey: "gateway.token")
+        case .token(let t): SharedSignIn(gateway: gateway, user: user, token: t, signedInAt: date)
+        case .session(let id, let csrf): SharedSignIn(gateway: gateway, user: user, session: id, csrf: csrf, signedInAt: date)
         }
     }
 
     /// Signing out forgets the credential; the gateway address stays as the next sign-in's default.
     static func clear(_ d: UserDefaults = .standard) {
-        for k in ["gateway.token", "gateway.session", "gateway.csrf"] { d.removeObject(forKey: k) }
+        SharedSignInStore.clear()
+        for k in legacyKeys { d.removeObject(forKey: k) }
     }
 
     /// "gateway.example.org" → "https://gateway.example.org"; plain http only when typed.

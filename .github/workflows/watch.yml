@@ -1,16 +1,23 @@
 name: Watch developer checks
 
-# Standalone developer checks. Store uploads are owned by iphone.yml, which packages both apps.
+# Watch developer checks. The watch app is the AbstractAssistant iPhone app's companion: one
+# project for both (phone/iphone/project.yml). Store uploads are owned by iphone.yml.
 
 on:
   push:
     branches: [main]
     paths:
       - "watch/apple/**"
+      - "phone/iphone/project.yml"
+      - "phone/iphone/NotificationService/**"
+      - "phone/iphone/Packages/AssistantPush/**"
       - ".github/workflows/watch.yml"
   pull_request:
     paths:
       - "watch/apple/**"
+      - "phone/iphone/project.yml"
+      - "phone/iphone/NotificationService/**"
+      - "phone/iphone/Packages/AssistantPush/**"
       - ".github/workflows/watch.yml"
   workflow_dispatch:
 
@@ -20,7 +27,7 @@ permissions:
 env:
   # The newest released (not beta) Xcode of this major version (the xcode-27 runner image).
   XCODE_MAJOR: "27"
-  PROJECT_DIR: watch/apple
+  PROJECT_DIR: phone/iphone
   SCHEME: AbstractAssistantWatch
   TEAM_ID: K3R4D6HP2A
 
@@ -52,29 +59,35 @@ jobs:
         run: xcodegen generate --spec project.yml
 
       - name: Package tests (AbstractGatewayClient)
-        working-directory: ${{ env.PROJECT_DIR }}/Packages/AbstractGatewayClient
+        working-directory: watch/apple/Packages/AbstractGatewayClient
+        run: swift test
+
+      - name: Package tests (AssistantPush)
+        working-directory: ${{ env.PROJECT_DIR }}/Packages/AssistantPush
         run: swift test
 
       - name: Simulator build
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          xcodebuild -project AbstractAssistantWatch.xcodeproj -scheme "$SCHEME" \
+          xcodebuild -project AbstractAssistant.xcodeproj -scheme "$SCHEME" \
             -destination "generic/platform=watchOS Simulator" -configuration Debug \
             -derivedDataPath build/DerivedData build CODE_SIGNING_ALLOWED=NO -quiet
 
       - name: Device build (Release, unsigned)
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          xcodebuild -project AbstractAssistantWatch.xcodeproj -scheme "$SCHEME" \
+          xcodebuild -project AbstractAssistant.xcodeproj -scheme "$SCHEME" \
             -destination "generic/platform=watchOS" -configuration Release \
             -derivedDataPath build/DerivedData build CODE_SIGNING_ALLOWED=NO -quiet
 
-      - name: The app is watch-only (a missing WKWatchOnly builds fine and fails at install)
+      - name: The app is the iPhone app's independent companion
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           plist=build/DerivedData/Build/Products/Release-watchos/AbstractAssistantWatch.app/Info.plist
-          test "$(plutil -extract WKWatchOnly raw "$plist")" = "true"
+          test "$(plutil -extract WKCompanionAppBundleIdentifier raw "$plist")" = "ai.abstractframework.assistant"
+          test "$(plutil -extract WKRunsIndependentlyOfCompanionApp raw "$plist")" = "true"
           test "$(plutil -extract WKApplication raw "$plist")" = "true"
+          ! plutil -extract WKWatchOnly raw "$plist" >/dev/null 2>&1
           echo "version $(plutil -extract CFBundleShortVersionString raw "$plist")"
 
       - name: Store release entrypoint

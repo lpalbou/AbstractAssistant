@@ -12,8 +12,8 @@ APP=$ROOT/build/DerivedData/Build/Products/Debug-watchsimulator/AbstractAssistan
 xcrun simctl boot "$SIM" 2>/dev/null || true
 xcrun simctl bootstatus "$SIM" >/dev/null
 xcrun simctl install "$SIM" "$APP" >/dev/null
-xcrun simctl terminate "$SIM" ai.abstractframework.assistant.watch >/dev/null 2>&1 || true
-xcrun simctl launch "$SIM" ai.abstractframework.assistant.watch --live --gateway "$GW_URL" --token "$GW_WATCH_TOKEN" --screen "$SCREEN" ${EXTRA:+${=EXTRA}} >/dev/null
+xcrun simctl terminate "$SIM" ai.abstractframework.assistant.watchkitapp >/dev/null 2>&1 || true
+xcrun simctl launch "$SIM" ai.abstractframework.assistant.watchkitapp --live --gateway "$GW_URL" --token "$GW_WATCH_TOKEN" --screen "$SCREEN" ${EXTRA:+${=EXTRA}} >/dev/null
 sleep "${WAIT:-8}"
 mkdir -p "$ROOT/screenshots/live"
 xcrun simctl io "$SIM" screenshot "$ROOT/screenshots/live/$SCREEN.png" >/dev/null 2>&1

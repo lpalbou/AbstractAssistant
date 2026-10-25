@@ -1,4 +1,5 @@
 import AbstractGatewayClient
+import AssistantPush
 import Foundation
 import UserNotifications
 import WatchKit
@@ -285,6 +286,11 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
     /// it was handed to the system (false: skipped, or the system refused it).
     @discardableResult
     func post(_ notice: AttentionNotice) async -> Bool {
+        // A push (backlog 1049) showed it already under the same identifier (the gateway's collapse
+        // id): never twice.
+        if await UNUserNotificationCenter.current().deliveredNotifications().contains(where: { $0.request.identifier == notice.identifier }) {
+            trace("already shown by a push \(notice.identifier)"); return false
+        }
         let content = UNMutableNotificationContent()
         content.sound = .default
         switch notice {
@@ -493,6 +499,8 @@ enum AutomationNames {
         var names = UserDefaults.standard.dictionary(forKey: key) as? [String: String] ?? [:]
         for a in list { if let n = a.name, !n.isEmpty { names[a.id] = n } }
         UserDefaults.standard.set(names, forKey: key)
+        // The notification service extension reads them from the app group.
+        AutomationNameBook.remember(names)
     }
     static func name(_ id: String) -> String {
         (UserDefaults.standard.dictionary(forKey: key) as? [String: String])?[id] ?? "An automation"

@@ -1,10 +1,19 @@
 # iPhone architecture
 
+The iPhone app is the container of the AbstractAssistant product: it carries the Apple Watch
+app as its companion and both are built from one project (`project.yml`, see [BUILD](../BUILD.md)).
+The watch side is described in [watch/apple/docs/architecture.md](../../../watch/apple/docs/architecture.md).
+
 ```mermaid
 flowchart LR
     Views[SwiftUI screens] --> Store[AssistantStore]
     Views --> Voice[Microphone and playback]
-    Vault[iPhone Keychain] --> Store
+    Vault[Sealed sign-in in the app group] --> Store
+    Vault --> Push[AssistantPush: registration, handoff]
+    Push --> Watch[Watch app over WatchConnectivity]
+    APNs[Apple push] --> NSE[Notification service extension]
+    Vault --> NSE
+    NSE --> Gateway
     Store --> Client[AbstractGatewayClient snapshot]
     Voice --> Client
     Views --> Files[Attachment import and authenticated preview]
@@ -16,7 +25,8 @@ flowchart LR
     Gateway --> Runtime[AbstractRuntime / providers]
 ```
 
-`Sources/App` owns native views, Keychain access, recording and playback. The `AssistantKit`
+`Sources/App` owns native views, the sealed sign-in (`ConnectionVault`), push registration
+(`PhonePush`), the watch handoff (`WatchLink`), recording and playback. The `AssistantKit`
 Swift package owns account-scoped state and URL validation. Its second target,
 `AbstractGatewayClient`, contains the HTTP wire types and protocol.
 
@@ -31,8 +41,8 @@ preferences are stored locally, scoped by gateway/tenant/account.
 The HTTP client uses an ephemeral URLSession, explicit bearer or session/CSRF headers,
 and refuses redirects. A 401 locks the client out; the store removes the sign-in and stops
 polling rather than repeatedly hitting the gateway’s failed-sign-in limit. Credentials are
-Keychain items, with device-only accessibility, and are never encoded in a URL or passed
-as launch arguments.
+sealed in the app group (see below), never in the OS keychain, never encoded in a URL or
+passed as launch arguments.
 
 Store generations separate account changes and conversation changes. Old refreshes and
 answers cannot repopulate a later account’s screen. Restoring a persisted session also
@@ -621,9 +631,9 @@ that archive without rebuilding; keys remain in a private temporary directory. T
 validation and manual same-build App Store submission/release are separate stages. See
 [distribution](distribution.md) and [ADR 0002](../../../docs/adr/0002_iphone_release_stages.md).
 
-Store projects compose both canonical client specs without rewriting developer projects. The
-iPhone Store target uses `ai.abstractframework.assistant` and embeds the independent Watch
-companion. Both package suites and the Watch companion build precede device archiving.
+One project is the Store product: the iPhone target `ai.abstractframework.assistant` embeds
+the independent Watch companion `ai.abstractframework.assistant.watchkitapp`. The package
+suites and the Watch companion build precede device archiving.
 Archive inspection runs before the iPhone native suite; successful tests then permit packaging
 the candidate and entering the approval gate. [ADR0003](../../../docs/adr/0003_unified_apple_product.md)
 records identity, module composition and shared release ownership.
@@ -638,7 +648,37 @@ summary and 20 newest occurrences while visible; run details load the existing r
 No diagnostic action launches tools or retries a failed task automatically.
 
 `AppUpdateInfo` owns version/build and update destinations. `InstalledPhoneApp` verifies StoreKit
-`AppTransaction` environment for Store builds; local `.iphone` installs remain development copies.
+`AppTransaction` environment for Store builds; a development-signed install of the same bundle ID reports itself as such.
 An unavailable transaction is reported as unverified. Apple manages binary updates and automatic
 update permissions. The app opens TestFlight/App Store, never embeds App Store Connect credentials
 or downloads executable updates. See [troubleshooting](troubleshooting.md).
+
+## One sign-in, Apple push and the watch
+
+`Packages/AssistantPush` is shared by the iPhone app, the watch app and both notification
+service extensions (framework backlog 1049):
+
+- **Sealed sign-in.** `SharedSignInStore` keeps the gateway, account and credential (token, or
+  session + CSRF) sealed with ChaChaPoly under a 0600 key file in the app group
+  `group.ai.abstractframework.assistant` (`Library/Sealed/`), readable after first unlock so the
+  extension can read it while the phone is locked. No OS keychain. Each save is a sign-in and
+  takes a new `reg` (16 random bytes as hex).
+- **Watch handoff.** After a sign-in (token or emailed code) `WatchLink` sends it to the watch
+  (`updateApplicationContext`, plus `transferUserInfo`). The watch takes it when it is newer than
+  its own sign-in; a watch without its iPhone still signs in on its own.
+- **Registration.** `PhonePush` asks for the APNs token at launch with a sign-in and after each
+  sign-in; `PushRegistrar` sends `PUT /api/gateway/me/push/devices/{device_id}` with exactly
+  `{token, topic, env, app: "phone", reg, name}` on a new token, a new sign-in, or once a day,
+  and `DELETE` at sign-out. `device_id` is the id the notification reports already carry.
+  `relay: off` changes nothing on the phone; there is no push setting.
+- **The extension.** The relay's push names only a kind (`push.<kind>.title/body` in
+  `Localization/en.lproj`), `s` (the stream sequence) and `r` (the sign-in handle). A push whose
+  `r` differs from the sealed sign-in's is shown passive as "From an earlier sign-in"; otherwise
+  the extension reads `GET /me/events?after=s-1&limit=1` (8 s) and renders it like the app's
+  catch-up: approval/question time-sensitive (tab Inbox), result/failure passive with the
+  automation's name (tab Automations), a published alert passive with its title. On timeout the
+  generic text stays.
+- **No double alert.** The notification id of an attention item is the gateway's collapse id,
+  `sha256("attention:" + record_key)[:32]`, on both paths; `PhoneNotifier` skips an id that is
+  already delivered.
+

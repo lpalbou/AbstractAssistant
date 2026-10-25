@@ -1,31 +1,63 @@
-name: AbstractAssistantPhone
+# AbstractAssistant for iPhone and Apple Watch: one product, one project (2026-10-25).
+# The iPhone app (ai.abstractframework.assistant) is the container; the watch app is its companion
+# (ai.abstractframework.assistant.watchkitapp, independent: it also runs without the iPhone). Both
+# share the version, the app group group.ai.abstractframework.assistant (the sealed sign-in, what the
+# watch face shows, the automations' names) and the AssistantPush package (sign-in store, push
+# registration, how a push is rendered). The watch sources stay in ../../watch/apple.
+# Generated: `xcodegen generate --spec project.yml` → AbstractAssistant.xcodeproj (gitignored).
+name: AbstractAssistant
 options:
   bundleIdPrefix: ai.abstractframework.assistant
   deploymentTarget:
     iOS: "26.0"
+    watchOS: "26.0"
 settings:
   base:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
-    MARKETING_VERSION: "0.7.0"
-    CURRENT_PROJECT_VERSION: "38"
+    # The family's version: the iPhone app, the watch app and their extensions ship together.
+    MARKETING_VERSION: "0.16.0"
+    CURRENT_PROJECT_VERSION: "39"
+    # Device installs: automatic signing with the developer's team. CLI/CI simulator builds pass
+    # CODE_SIGNING_ALLOWED=NO (or CODE_SIGN_IDENTITY=-) and ignore this.
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: K3R4D6HP2A
 packages:
   AssistantKit:
     path: Packages/AssistantKit
+  AssistantPush:
+    path: Packages/AssistantPush
 targets:
+  # ── iPhone ────────────────────────────────────────────────────────────────────────────────────
   AbstractAssistantPhone:
     type: application
     platform: iOS
-    sources: [Sources/App, Resources]
+    # Localization: the push strings (push.<kind>.title/body), shared with the extension.
+    sources: [Sources/App, Resources, Localization]
     dependencies:
       - package: AssistantKit
         product: AssistantKit
       - package: AssistantKit
         product: AbstractGatewayClient
+      - package: AssistantPush
+      - target: AbstractAssistantPhoneNotifications
+      # The watch app ships inside the iPhone app (Watch/), as its companion.
+      - target: AbstractAssistantWatch
+        embed: true
+        link: false
+        copy:
+          destination: productsDirectory
+          subpath: $(CONTENTS_FOLDER_PATH)/Watch
+    entitlements:
+      path: Resources/AbstractAssistant.entitlements
+      properties:
+        aps-environment: development
+        com.apple.developer.usernotifications.time-sensitive: true
+        com.apple.security.application-groups: [group.ai.abstractframework.assistant]
     info:
       path: Resources/Info.plist
       properties:
-        CFBundleDisplayName: Assistant
+        CFBundleDisplayName: AbstractAssistant
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ITSAppUsesNonExemptEncryption: false
@@ -39,13 +71,41 @@ targets:
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: ai.abstractframework.assistant.iphone
+        PRODUCT_BUNDLE_IDENTIFIER: ai.abstractframework.assistant
         TARGETED_DEVICE_FAMILY: "1"
-        CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_USER_SCRIPT_SANDBOXING: YES
     scheme:
       gatherCoverageData: false
+
+  # A push's generic text replaced by the real one, read from the person's gateway (backlog 1049).
+  AbstractAssistantPhoneNotifications:
+    type: app-extension
+    platform: iOS
+    sources:
+      - NotificationService/NotificationService.swift
+      - Localization
+    dependencies:
+      - package: AssistantPush
+    entitlements:
+      path: NotificationService/iOS/AbstractAssistantPhoneNotifications.entitlements
+      properties:
+        com.apple.security.application-groups: [group.ai.abstractframework.assistant]
+    info:
+      path: NotificationService/iOS/Info.plist
+      properties:
+        CFBundleDisplayName: AbstractAssistant
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.abstractframework.assistant.notifications
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: YES
+
   AbstractAssistantPhoneUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -55,7 +115,7 @@ targets:
     settings:
       base:
         TEST_TARGET_NAME: AbstractAssistantPhone
-        PRODUCT_BUNDLE_IDENTIFIER: ai.abstractframework.assistant.iphone.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: ai.abstractframework.assistant.uitests
         GENERATE_INFOPLIST_FILE: YES
     scheme:
       testTargets: [AbstractAssistantPhoneTests, AbstractAssistantPhoneUITests]
@@ -73,7 +133,151 @@ targets:
         product: AssistantKit
       - package: AssistantKit
         product: AbstractGatewayClient
+      - package: AssistantPush
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: ai.abstractframework.assistant.iphone.tests
+        PRODUCT_BUNDLE_IDENTIFIER: ai.abstractframework.assistant.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+  # ── Apple Watch ───────────────────────────────────────────────────────────────────────────────
+  AbstractAssistantWatch:
+    type: application
+    platform: watchOS
+    scheme: {}
+    sources:
+      - ../../watch/apple/Sources/App
+      - ../../watch/apple/Sources/Face
+      - ../../watch/apple/Resources
+      - ../../watch/apple/Localization
+      - ../../watch/apple/Complication/Assets.xcassets
+    dependencies:
+      - target: WatchGatewayClient
+        embed: false
+      - package: AssistantPush
+      # The Assistant complication (the app's orb on the watch face), embedded in the app.
+      - target: AbstractAssistantComplication
+      - target: AbstractAssistantWatchNotifications
+    entitlements:
+      path: ../../watch/apple/Resources/AbstractAssistantWatch.entitlements
+      properties:
+        aps-environment: development
+        com.apple.developer.usernotifications.time-sensitive: true
+        com.apple.security.application-groups: [group.ai.abstractframework.assistant]
+    info:
+      path: ../../watch/apple/Resources/Info.plist
+      properties:
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true   # plain http to the gateway on the LAN (192.168.x.x, .local); internet stays https
+        WKApplication: true
+        # The iPhone app's companion, and still independent: it signs in and runs without the iPhone.
+        WKCompanionAppBundleIdentifier: ai.abstractframework.assistant
+        WKRunsIndependentlyOfCompanionApp: true
+        CFBundleDisplayName: Assistant
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # Export compliance: only the system's HTTPS (exempt); no answer is asked on each upload.
+        ITSAppUsesNonExemptEncryption: false
+        # Keeps the app running with the screen off while the assistant listens, works or speaks
+        # (WKExtendedRuntimeSession; Sources/App/Shared/RuntimeKeeper.swift).
+        WKBackgroundModes: [self-care]
+        NSMicrophoneUsageDescription: "Ask speaks with your assistant: what you say is sent to your gateway to be transcribed."
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.abstractframework.assistant.watchkitapp
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Shipped inside the iPhone app (App Store / TestFlight): never a second top-level app.
+        SKIP_INSTALL: YES
+      configs:
+        Debug:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+          # The build deployed to the watch is Debug (watch/apple/scripts/deploy-watch.sh): optimised,
+          # so the orbs' per-frame maths does not run several times slower than the release.
+          SWIFT_OPTIMIZATION_LEVEL: "-O"
+
+  # The watch's gateway client (../../watch/apple/Packages/AbstractGatewayClient, tested there with
+  # `swift test`), compiled here as a static framework: the iPhone's AssistantKit package exports a
+  # module of the same name, and SwiftPM refuses two packages with one target name in one project.
+  WatchGatewayClient:
+    type: framework
+    platform: watchOS
+    sources: [../../watch/apple/Packages/AbstractGatewayClient/Sources/AbstractGatewayClient]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.abstractframework.assistant.watchkitapp.client
+        PRODUCT_NAME: AbstractGatewayClient
+        PRODUCT_MODULE_NAME: AbstractGatewayClient
+        MACH_O_TYPE: staticlib
+        SKIP_INSTALL: YES
+        GENERATE_INFOPLIST_FILE: YES
+
+  # The Assistant complication: the app's orb on the watch faces (circular, rectangular, corner,
+  # inline). It reads what the app shares in their app group; it never calls the gateway itself.
+  AbstractAssistantComplication:
+    type: app-extension
+    platform: watchOS
+    sources:
+      - ../../watch/apple/Sources/Complication
+      - ../../watch/apple/Sources/Face
+      - ../../watch/apple/Complication/PrivacyInfo.xcprivacy
+      - ../../watch/apple/Complication/Assets.xcassets
+    entitlements:
+      path: ../../watch/apple/Complication/AbstractAssistantComplication.entitlements
+      properties:
+        com.apple.security.application-groups: [group.ai.abstractframework.assistant]
+    info:
+      path: ../../watch/apple/Complication/Info.plist
+      properties:
+        CFBundleDisplayName: Assistant
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.abstractframework.assistant.watchkitapp.orbclock
+        SKIP_INSTALL: YES
+      configs:
+        Debug:
+          SWIFT_OPTIMIZATION_LEVEL: "-O"
+
+  AbstractAssistantWatchNotifications:
+    type: app-extension
+    platform: watchOS
+    sources:
+      - NotificationService/NotificationService.swift
+      - ../../watch/apple/Localization
+    dependencies:
+      - package: AssistantPush
+    entitlements:
+      path: NotificationService/watchOS/AbstractAssistantWatchNotifications.entitlements
+      properties:
+        com.apple.security.application-groups: [group.ai.abstractframework.assistant]
+    info:
+      path: NotificationService/watchOS/Info.plist
+      properties:
+        CFBundleDisplayName: Assistant
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.abstractframework.assistant.watchkitapp.notifications
+        SKIP_INSTALL: YES
+
+  # UI checks that need a real tap on the watch. Own scheme: the apps' schemes and the release
+  # archive do not build it.
+  AbstractAssistantWatchUITests:
+    type: bundle.ui-testing
+    platform: watchOS
+    sources: [../../watch/apple/UITests]
+    dependencies:
+      - target: AbstractAssistantWatch
+    scheme:
+      testTargets: [AbstractAssistantWatchUITests]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.abstractframework.assistant.watchkitapp.uitests
+        TEST_TARGET_NAME: AbstractAssistantWatch
         GENERATE_INFOPLIST_FILE: YES

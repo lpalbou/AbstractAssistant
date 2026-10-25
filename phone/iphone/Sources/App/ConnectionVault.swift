@@ -1,34 +1,27 @@
 import Foundation
-import Security
 import AssistantKit
+import AbstractGatewayClient
+import AssistantPush
 
+/// The iPhone's sign-in, sealed in the app group (`SharedSignInStore`: a ChaChaPoly file under a
+/// 0600 key file, never the OS keychain) so the notification service extension reads the same one.
+/// Saving is a sign-in: it takes a new push registration handle (`reg`).
 enum ConnectionVault {
-    private static let service = "ai.abstractframework.assistant.iphone.connection"
-    private static var query: [String: Any] { [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: "gateway"] }
     static func read() throws -> SavedConnection? {
-        var request = query
-        request[kSecReturnData as String] = true; request[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(request as CFDictionary, &result)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = result as? Data else { throw VaultError(status: status) }
-        return try JSONDecoder().decode(SavedConnection.self, from: data)
+        guard let s = SharedSignInStore.load(), s.hasCredential else { return nil }
+        let credential: GatewayCredential = s.token.map { .token($0) } ?? .session(id: s.session ?? "", csrf: s.csrf ?? "")
+        return SavedConnection(gateway: s.gateway, user: s.user ?? "", tenant: s.tenant ?? "default", credential: credential)
     }
+    /// The sealed record itself (its push handle and sign-in time).
+    static func current() -> SharedSignIn? { SharedSignInStore.load() }
     static func save(_ connection: SavedConnection) throws {
-        let data = try JSONEncoder().encode(connection)
-        let values: [String: Any] = [kSecValueData as String: data, kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly]
-        let status = SecItemUpdate(query as CFDictionary, values as CFDictionary)
-        if status == errSecItemNotFound {
-            let added = SecItemAdd(query.merging(values) { _, new in new } as CFDictionary, nil)
-            guard added == errSecSuccess else { throw VaultError(status: added) }
-        } else if status != errSecSuccess { throw VaultError(status: status) }
+        do { try SharedSignInStore.save(signIn(connection)) } catch { throw VaultError() }
     }
-    static func remove() throws {
-        let status = SecItemDelete(query as CFDictionary)
-        if status != errSecSuccess && status != errSecItemNotFound { throw VaultError(status: status) }
+    static func remove() throws { SharedSignInStore.clear() }
+    static func signIn(_ c: SavedConnection) -> SharedSignIn {
+        SharedSignIn(gateway: c.gateway, user: c.user, tenant: c.tenant, token: c.token, session: c.session, csrf: c.csrf)
     }
     struct VaultError: LocalizedError {
-        let status: OSStatus
-        var errorDescription: String? { "The iPhone couldn’t access your saved sign-in. Unlock your phone and try again." }
+        var errorDescription: String? { "The iPhone couldn’t save your sign-in. Unlock your phone and try again." }
     }
 }

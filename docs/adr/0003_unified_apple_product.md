@@ -1,6 +1,6 @@
 # ADR 0003 — One AbstractAssistant product for iPhone and Watch
 
-Status: Accepted
+Status: Accepted; amended by [ADR 0005](0005_one_apple_project.md) (one project, the `.watchkitapp` id, no generated composition)
 Date: 2026-10-19
 
 ## Context

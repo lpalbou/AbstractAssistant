@@ -1,10 +1,37 @@
 # Changelog — AbstractAssistant for Apple Watch
 
-The watch app has its own version (`MARKETING_VERSION` in `project.yml`) and its own release
-channel (TestFlight, then the App Store); the Python package's history is in
+Since 0.16.0 the watch app shares the iPhone app's version (`MARKETING_VERSION` in
+`../../phone/iphone/project.yml`) and its release channel (TestFlight, then the App Store, inside the
+iPhone app); the Python package's history is in
 [../../CHANGELOG.md](../../CHANGELOG.md).
 
 ## [Unreleased]
+
+### Added
+
+- **One product with the iPhone (version 0.16.0, build 39).** The watch app is now the companion of
+  the AbstractAssistant iPhone app: it ships inside it (bundle id
+  `ai.abstractframework.assistant.watchkitapp`, complication `….watchkitapp.orbclock`), installs on
+  the paired watch with it, and still runs and signs in on its own. The iPhone and the watch share
+  one version from now on: 0.16.0, the next number after the desktop app's 0.15.0.
+- **The iPhone's sign-in signs the watch in.** When you sign in on the iPhone, the watch takes the
+  same gateway and credential (WatchConnectivity), unless you signed in on the watch more recently.
+- **Notifications while the app is closed (Apple push, framework backlog 1049).** The watch
+  registers its push token with your gateway at each sign-in, on each new token and at most once a
+  day, and removes it at sign-out; nothing to set up. Its notification service extension fetches the
+  event from your gateway and shows "Approval needed" / "A question for you" (time-sensitive; a tap
+  opens what waits for you), "<automation> has a result" / "<automation> failed", or a published
+  alert's title; "From an earlier sign-in" for a push meant for another sign-in. The app's own catch-up
+  never shows an item a push already showed. Pushes are sent once your gateway's push relay is on.
+
+### Changed
+
+- **Your sign-in is sealed** (ChaChaPoly under a private key file in the app group, readable by the
+  notification extension), no longer in the app's plain storage; a sign-in kept by 0.5.0 is sealed
+  at the first launch. Sign-ins kept with "Keep my sign-in" stay in the app's storage for now.
+- The project moved: one XcodeGen spec for the iPhone and the watch, `phone/iphone/project.yml`
+  (`AbstractAssistant.xcodeproj`); `scripts/build.sh`, `test-watch.sh`, `deploy-watch.sh`,
+  `run-live.sh` and `testflight.sh` use it. The empty iOS container target is gone.
 
 ### Added
 
