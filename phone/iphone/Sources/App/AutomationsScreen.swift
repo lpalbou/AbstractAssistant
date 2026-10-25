@@ -4,6 +4,7 @@ import AbstractGatewayClient
 
 struct AutomationsScreen: View {
     @Environment(AssistantStore.self) private var store
+    @State private var archiving: AutomationSummary?
     @State private var creating = false
     @State private var createdID: String?
     @State private var pendingCreatedID: String?
@@ -25,24 +26,109 @@ struct AutomationsScreen: View {
                             }.buttonStyle(.plain).padding(.top, 12).accessibilityIdentifier("automations.create")
                         }.frame(maxWidth: .infinity).padding(.horizontal, 8).padding(.vertical, 32)
                     }
-                    ForEach(store.automations) { automation in NavigationLink { AutomationDetailScreen(automationID: automation.id) } label: { automationCard(automation) }.buttonStyle(.plain).accessibilityIdentifier("automation.open." + automation.id) }
+                    NavigationLink { ArchivedAutomationsScreen() } label: {
+                        Label("Archived", systemImage: "archivebox").foregroundStyle(PhoneTheme.secondary)
+                    }.accessibilityIdentifier("automations.archived")
+                    ForEach(store.automations) { automation in
+                        PhoneCard {
+                            ZStack(alignment: .topTrailing) {
+                                NavigationLink { AutomationDetailScreen(automationID: automation.id) } label: { automationCard(automation) }
+                                    .buttonStyle(.plain).accessibilityIdentifier("automation.open." + automation.id)
+                                Button { archiving = automation } label: {
+                                    Image(systemName: "archivebox").foregroundStyle(PhoneTheme.lavender)
+                                        .frame(width: 44, height: 44).background(PhoneTheme.lavender.opacity(0.08), in: Circle())
+                                }.buttonStyle(.plain).disabled(store.automationBusy.contains(automation.id))
+                                    .accessibilityLabel("Archive automation").accessibilityIdentifier("automation.archive." + automation.id)
+                            }
+                        }
+                    }
                 }.padding(22)
             }.background(PhoneTheme.ground).navigationTitle("Automations").navigationBarTitleDisplayMode(.inline).refreshable { await store.refresh() }
                 .toolbar { ToolbarItem(placement: .principal) { NavigationCaption(title: "Automations", demo: store.isDemo) }; ToolbarItem(placement: .topBarTrailing) { if !store.automations.isEmpty { Button("New automation", systemImage: "plus") { creating = true } } } }
                 .sheet(isPresented: $creating, onDismiss: { if let id = pendingCreatedID { pendingCreatedID = nil; createdID = id } }) { NewAutomationScreen { pendingCreatedID = $0.id } }
+                .confirmationDialog("Archive automation?", isPresented: Binding(get: { archiving != nil }, set: { if !$0 { archiving = nil } }), titleVisibility: .visible) {
+                    if let automation = archiving {
+                        Button("Archive") { archiving = nil; Task { await store.setAutomationArchived(automation, true) } }
+                    }
+                    Button("Cancel", role: .cancel) { archiving = nil }
+                } message: { Text("This stops future scheduled runs and hides the automation on all your devices. Its history is kept. You can restore it from Archived.") }
                 .navigationDestination(item: $createdID) { id in AutomationDetailScreen(automationID: id) }
         }
     }
     private func automationCard(_ a: AutomationSummary) -> some View {
-        PhoneCard {
-            VStack(alignment: .leading, spacing: 15) {
+        VStack(alignment: .leading, spacing: 15) {
                 HStack { Image(systemName: "clock").foregroundStyle(PhoneTheme.lavender); Spacer(); QuietLabel(text: (a.status ?? "Unknown").capitalized, color: a.status == "active" ? PhoneTheme.mint : PhoneTheme.secondary) }
+                    .padding(.trailing, 56).frame(minHeight: 44)
                 Text(a.name ?? "Automation").font(.system(.title3, design: .rounded, weight: .semibold))
                 Text(a.scheduleText ?? a.rowDetail).font(.footnote).foregroundStyle(PhoneTheme.secondary)
-                if let excerpt = a.lastOccurrence?.excerpt { Text(excerpt).font(.subheadline).foregroundStyle(PhoneTheme.secondary).lineLimit(3) }
+                if let excerpt = a.lastOccurrence?.excerpt {
+                    AutomationMarkdownPreview(text: excerpt)
+                }
                 HStack { if let next = a.nextFireAt.flatMap(ISO8601.date) { Text("Next "); Text(next, style: .relative) }; Spacer(); Image(systemName: "arrow.up.right") }.font(.caption).foregroundStyle(PhoneTheme.lavender)
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// One compact text flow lets the preview wrap and truncate at a complete line.
+/// Full report typography belongs in the run sheet, not inside a height-clipped card.
+private struct AutomationMarkdownPreview: View {
+    let text: String
+    private var formatted: AttributedString {
+        var result = AttributedString()
+        for block in MarkdownBlock.parse(text) {
+            let source: String
+            var heading = false
+            switch block {
+            case .heading(_, let value): source = value; heading = true
+            case .paragraph(let value), .quote(let value), .code(let value): source = value
+            case .item(let marker, _, let value): source = marker + " " + value
+            case .table(let rows): source = rows.prefix(2).map { $0.joined(separator: " · ") }.joined(separator: "\n")
+            case .rule: continue
             }
+            if !result.characters.isEmpty { result.append(AttributedString("\n")) }
+            var line = (try? AttributedString(markdown: source, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(source)
+            line.font = heading ? .subheadline.weight(.semibold) : .footnote
+            result.append(line)
         }
+        return result
+    }
+    var body: some View {
+        Text(formatted).foregroundStyle(PhoneTheme.secondary)
+            .lineSpacing(3).lineLimit(5).truncationMode(.tail)
+            .multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .allowsHitTesting(false)
+    }
+}
+
+private struct ArchivedAutomationsScreen: View {
+    @Environment(AssistantStore.self) private var store
+    @State private var rows: [AutomationSummary] = []
+    @State private var loading = true
+    @State private var error: String?
+    var body: some View {
+        List {
+            if loading { ProgressView("Loading archived automations…") }
+            if let error { Text(error).foregroundStyle(PhoneTheme.amber) }
+            if !loading && rows.isEmpty && error == nil { Text("Nothing archived") }
+            ForEach(rows) { automation in
+                HStack {
+                    Text(automation.name ?? "Automation"); Spacer()
+                    Button { Task {
+                        if await store.setAutomationArchived(automation, false) { rows.removeAll { $0.id == automation.id } }
+                        else { error = store.error }
+                    } } label: { Image(systemName: "arrow.uturn.backward").frame(width: 44, height: 44) }
+                        .buttonStyle(.plain).disabled(store.automationBusy.contains(automation.id))
+                        .accessibilityLabel("Restore automation").accessibilityIdentifier("automation.restore." + automation.id)
+                }
+            }
+        }.navigationTitle("Archived").task { await load() }.refreshable { await load() }
+    }
+    private func load() async {
+        guard let client = store.client else { return }
+        loading = true; defer { loading = false }
+        do { rows = try await client.archivedAutomations(); error = nil }
+        catch { self.error = error.localizedDescription }
     }
 }
 

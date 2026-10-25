@@ -63,6 +63,7 @@ public protocol GatewayClient: Sendable {
     /// `POST /api/gateway/commands` with `type: "resume"`.
     func answer(_ wait: Wait, with answer: WaitAnswer) async throws
     /// `GET /api/gateway/automations` (first page).
+    func archivedAutomations() async throws -> [AutomationSummary]
     func automations() async throws -> [AutomationSummary]
     /// `POST /api/gateway/automations/{id}/commands` `{type: "automation.run_now"}`.
     func runAutomationNow(id: String) async throws
@@ -258,6 +259,10 @@ public actor LiveGatewayClient: GatewayClient {
         let current = try await run(id: wait.runId)
         guard current.status == "waiting", current.waiting?.waitKey == wait.waitKey else { throw GatewayError.alreadyHandled }
         _ = try await request("POST", "api/gateway/commands", body: ResumeCommand(runId: wait.runId, waitKey: wait.waitKey, answer: answer))
+    }
+
+    public func archivedAutomations() async throws -> [AutomationSummary] {
+        try await get("api/gateway/automations", query: [.init(name: "archived_only", value: "true")], as: AutomationsPage.self).items
     }
 
     public func automations() async throws -> [AutomationSummary] {

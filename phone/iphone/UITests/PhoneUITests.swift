@@ -508,6 +508,30 @@ final class PhoneUITests: XCTestCase {
         capture(app, "Completed speech — latest answer stays visible")
     }
 
+    @MainActor func testKeyboardSendKeepsShortTranscriptVisibleWithoutDragging() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--ui-test"]
+        // Repeat with a fresh short transcript: closing the keyboard enlarges the viewport.
+        for attempt in 1...3 {
+            app.launch()
+            let keyboard = app.buttons["composer.keyboard"]
+            XCTAssertTrue(keyboard.waitForExistence(timeout: 15))
+            keyboard.tap()
+            let input = app.textFields["composer.input"]
+            XCTAssertTrue(input.waitForExistence(timeout: 5))
+            input.typeText("Keyboard visibility check \(attempt)")
+            app.buttons["Send message"].tap()
+            let question = app.staticTexts["chat.latest-question"]
+            XCTAssertTrue(question.waitForExistence(timeout: 5))
+            let visible = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: question)
+            XCTAssertEqual(XCTWaiter.wait(for: [visible], timeout: 5), .completed)
+            // Check again after the keyboard/composer animation has settled.
+            sleep(1)
+            XCTAssertTrue(question.isHittable, "The short transcript disappeared after keyboard dismissal")
+            app.terminate()
+        }
+    }
+
     @MainActor func testLatestMessagesHidesWhenManuallyReturningToBottom() throws {
         let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--history-fixture", "--screen", "history"]; app.launch()
         let copy = app.buttons["chat.latest-copy"]

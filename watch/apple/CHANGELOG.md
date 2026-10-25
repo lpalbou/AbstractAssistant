@@ -8,10 +8,14 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Added
 
-- **The blue orb on your watch face.** The Assistant complication, for the circular, corner, inline
-  and rectangular slots (and the Smart Stack): the app's orb, there from installation, with an amber
-  badge giving the number of approvals and questions waiting for you; the rectangular slot adds what needs you first, your
-  next automation and the results you have not seen. Under Assistant in the face's Edit screen.
+- **Your avatar on your watch face.** The Assistant complication, for the circular, corner, inline
+  and rectangular slots (and the Smart Stack): the orb style you chose, as the app draws it (the
+  app's own orb until the app has opened once), in three states: at rest; speaking with a dot when
+  there is news (results or messages you have not seen); listening with an amber badge giving the
+  number of approvals and questions waiting for you. The rectangular slot adds what needs you
+  first, your next automation and the results you have not seen. Under Assistant in the face's
+  Edit screen. A face that draws its complications in one tint shows the orb's light in that
+  tint, as a mask, so your style keeps its shape there instead of a flat grey disc.
 - **Notifications when an automation finishes.** "Morning digest finished", with the first words of
   its answer (a tap opens it): a banner when the app is open, a notification from the background
   check otherwise. Settings → Notifications turns it off.

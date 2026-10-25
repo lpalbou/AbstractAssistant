@@ -116,6 +116,8 @@ public final class AssistantStore {
     @ObservationIgnored private var conversationGeneration = 0
     @ObservationIgnored private var foreground = false
     @ObservationIgnored private var poll: Task<Void, Never>?
+    @ObservationIgnored private var approvalPoll: Task<Void, Never>?
+    private var approvalRevision = 0
     @ObservationIgnored private var turn: Task<Void, Never>?
     @ObservationIgnored private var stopping: Task<Void, Never>?
     @ObservationIgnored private var stopRequested = false
@@ -159,6 +161,7 @@ public final class AssistantStore {
         archivedRuns = []; loadingArchived = false; sessionArchiveBusy = []; historyError = nil; historyRevision += 1
         contextID = UUID()
         generation += 1; conversationGeneration += 1
+        approvalPoll?.cancel(); approvalPoll = nil
         poll?.cancel(); poll = nil; turn?.cancel(); turn = nil; stopping?.cancel(); stopping = nil
         isStopping = false; stopRequested = false; sendInFlight = false; sendID = nil; unknownStart = false; cancelledRunID = nil
         client = nil; connection = nil; principal = nil; messages = []; runs = []; waits = []; automations = []; entities = []
@@ -169,10 +172,17 @@ public final class AssistantStore {
     }
     public func setForeground(_ value: Bool) {
         foreground = value
-        if value { startPolling() } else { poll?.cancel(); poll = nil; pauseActivityStreams() }
+        if value { startPolling() } else { poll?.cancel(); poll = nil; approvalPoll?.cancel(); approvalPoll = nil; pauseActivityStreams() }
     }
     private func startPolling() {
         guard poll == nil, client != nil else { return }
+        approvalPoll = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                await self.refreshPendingApprovals()
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            }
+        }
         poll = Task { [weak self] in
             var ticks = 0
             while !Task.isCancelled, let self, self.client != nil {
@@ -183,16 +193,43 @@ public final class AssistantStore {
             }
         }
     }
+    /// Reconcile visible waits independently of slow history/automation refreshes.
+    /// Read each owning run: an incomplete inbox page must never dismiss an approval.
+    func refreshPendingApprovals() async {
+        guard let client else { return }
+        let epoch = generation
+        let pending = Dictionary(grouping: waits + activityWaits, by: \.runId)
+        for (id, known) in pending {
+            guard !Task.isCancelled, epoch == generation else { return }
+            do {
+                let run = try await client.run(id: id)
+                guard !Task.isCancelled, epoch == generation else { return }
+                let current = run.isTerminal ? nil : run.personWait?.id
+                let removed = Set(known.filter { $0.id != current }.map(\.id))
+                guard !removed.isEmpty else { continue }
+                approvalRevision += 1
+                waits.removeAll { removed.contains($0.id) }
+                activityWaits.removeAll { removed.contains($0.id) }
+                if activityWaits.isEmpty, activityState == .waiting {
+                    activityState = .running; activitySummary = nil
+                    if phase == .waiting { phase = .working }
+                }
+            } catch { if epoch == generation, !Task.isCancelled { handle(error) } }
+        }
+    }
+
+    private var automationArchiveRevision = 0
+
     public func refresh() async {
         guard let client, !isRefreshing else { return }
-        let epoch = generation, historyVersion = historyRevision
+        let epoch = generation, historyVersion = historyRevision, approvals = approvalRevision, archives = automationArchiveRevision
         isRefreshing = true
         defer { if epoch == generation { isRefreshing = false } }
         do {
             let me = try await client.me()
             guard epoch == generation else { return }; principal = me
             let newWaits = try await client.waits()
-            guard epoch == generation else { return }; waits = newWaits + waits.filter { $0.runId == activeEntityRunID }
+            guard epoch == generation else { return }; if approvals == approvalRevision { waits = newWaits + waits.filter { $0.runId == activeEntityRunID } }
             let newRuns = try await client.recentRuns(limit: 60)
             guard epoch == generation else { return }; if historyVersion == historyRevision { runs = newRuns; recentHistoryMayBePartial = newRuns.count >= 60 }
             if let saved = restorationID {
@@ -207,7 +244,7 @@ public final class AssistantStore {
             lastRefresh = Date(); error = nil
             do {
                 let rows = try await client.automations()
-                guard epoch == generation else { return }; automations = rows; automationsError = nil
+                guard epoch == generation else { return }; if archives == automationArchiveRevision { automations = rows }; automationsError = nil
             } catch { guard epoch == generation else { return }; automationsError = say(error); handle(error) }
             guard epoch == generation else { return }
             await loadEntities()
@@ -501,13 +538,14 @@ public final class AssistantStore {
         if activeEntityRunID != nil { await followEntitySession(); return }
         guard let client, let id = activeRunID else { return }
         if activityRootID != id { beginActivity(id) }
-        let epoch = activityEpoch
+        let epoch = activityEpoch, approvals = approvalRevision
         do {
             let run = try await client.run(id: id)
             guard epoch == activityEpoch, activeRunID == id else { return }
             activityCheckedAt = Date(); setActivityProblem("status", nil); setActivityProblem("children", nil)
             let tree = await activityTree(root: run, client: client, epoch: epoch)
             guard epoch == activityEpoch, activeRunID == id else { return }
+            guard approvals == approvalRevision else { return }
             activityWaits = stopRequested ? [] : tree.compactMap { $0.isTerminal ? nil : $0.personWait }
             autoAnsweredWaits.formIntersection(Set(activityWaits.map(\.id)))
             waits.removeAll { activityRunIDs.contains($0.runId) }
@@ -562,14 +600,14 @@ public final class AssistantStore {
     private func followEntitySession() async {
         guard let client, let entity = selectedEntity, let id = activeEntityRunID else { return }
         if activityRootID != id { beginActivity(id) }
-        let activityToken = activityEpoch
+        let activityToken = activityEpoch, approvals = approvalRevision
         let epoch = generation, view = conversationGeneration
         do {
             let state = try await client.entitySession(name: entity, runID: id)
             guard epoch == generation, view == conversationGeneration, activeEntityRunID == id else { return }
             activityCheckedAt = Date()
             await drainActivity(runID: id, entity: entity, epoch: activityToken)
-            guard activityToken == activityEpoch else { return }
+            guard activityToken == activityEpoch, approvals == approvalRevision else { return }
             // The stop worker owns entity lifecycle until the server confirms closure.
             guard !stopRequested else { return }
             if let wait = state.personWait {
@@ -846,6 +884,24 @@ public final class AssistantStore {
             guard epoch == generation else { return }
             await refresh()
         } catch { if epoch == generation { self.error = say(error); handle(error) } }
+    }
+    @discardableResult public func setAutomationArchived(_ automation: AutomationSummary, _ archived: Bool) async -> Bool {
+        guard let client, !automationBusy.contains(automation.id) else { return false }
+        let epoch = generation
+        automationBusy.insert(automation.id); automationArchiveRevision += 1; error = nil
+        defer { if epoch == generation { automationBusy.remove(automation.id) } }
+        do {
+            try await client.automationCommand(id: automation.id, type: archived ? "automation.archive" : "automation.unarchive")
+            guard epoch == generation else { return false }
+            automations.removeAll { $0.id == automation.id }
+            automationArchiveRevision += 1
+            if !archived {
+                let row = try await client.automation(id: automation.id)
+                guard epoch == generation else { return false }
+                rememberAutomation(row)
+            }
+            return true
+        } catch { if epoch == generation { self.error = say(error); handle(error) }; return false }
     }
     public func rememberAutomation(_ row: AutomationSummary) { automations.removeAll { $0.id == row.id }; automations.insert(row, at: 0) }
     private func setActivityProblem(_ key: String, _ message: String?) {

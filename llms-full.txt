@@ -5142,14 +5142,17 @@ approval can be allowed or denied from the notification itself. An automation th
 posts a notification ("Morning digest finished"; a tap opens it), shown as a banner when the app
 is open; Settings → Notifications turns this off.
 
-**See it on your watch face.** The **Assistant** complication puts the app's blue orb on a face,
-with an amber badge giving the number of approvals and questions waiting for you; a tap opens the
-app. It is there from the moment the app is installed. It fits the circular, corner and inline slots of a face, and the
-rectangular one (and the Smart Stack) adds what needs you first, your next automation ("Morning
-digest · 2h") and the results you have not seen. Add it from the face's Edit screen, under
-Assistant. It shows what the app last read: the app updates it as it reads, and the background
-check about every 15 minutes while it is closed. A face that draws its complications in one tint
-shows the orb in that tint; faces such as Infograph and Modular Duo keep its colours.
+**See it on your watch face.** The **Assistant** complication puts your avatar on a face: the orb
+style you chose, as the app draws it (the app's own orb until the app has opened once), in one of
+three states: at rest; speaking, with a dot, when there is news (results or messages you have not
+seen); listening, with an amber badge giving the number of approvals and questions waiting for
+you. A tap opens the app. It fits the circular, corner and inline slots of a face, and the rectangular one (and the
+Smart Stack) adds what needs you first, your next automation ("Morning digest · 2h") and the
+results you have not seen. Add it from the face's Edit screen, under Assistant. It shows what the
+app last read: the app updates it as it reads, and the background check about every 15 minutes
+while it is closed; a new orb style reaches it the next time the app is open. A face that draws
+its complications in one tint shows the orb's light in that tint (its picture as a mask, so your
+style keeps its shape and texture there); faces such as Infograph and Modular Duo keep its colours.
 
 **Make it yours.** Settings has Connection (the gateway and account you use), Tools (the defaults
 for new conversations), Voice (the speaking voice, its speed and the transcription model), Read
@@ -5227,10 +5230,14 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Added
 
-- **The blue orb on your watch face.** The Assistant complication, for the circular, corner, inline
-  and rectangular slots (and the Smart Stack): the app's orb, there from installation, with an amber
-  badge giving the number of approvals and questions waiting for you; the rectangular slot adds what needs you first, your
-  next automation and the results you have not seen. Under Assistant in the face's Edit screen.
+- **Your avatar on your watch face.** The Assistant complication, for the circular, corner, inline
+  and rectangular slots (and the Smart Stack): the orb style you chose, as the app draws it (the
+  app's own orb until the app has opened once), in three states: at rest; speaking with a dot when
+  there is news (results or messages you have not seen); listening with an amber badge giving the
+  number of approvals and questions waiting for you. The rectangular slot adds what needs you
+  first, your next automation and the results you have not seen. Under Assistant in the face's
+  Edit screen. A face that draws its complications in one tint shows the orb's light in that
+  tint, as a mask, so your style keeps its shape there instead of a flat grey disc.
 - **Notifications when an automation finishes.** "Morning digest finished", with the first words of
   its answer (a tap opens it): a banner when the app is open, a notification from the background
   check otherwise. Settings → Notifications turns it off.
@@ -5717,7 +5724,7 @@ sequenceDiagram
 | `SVGDocument`, `SVGView` | SVG drawn on the watch (it has no web view): the client library reads a drawing into shapes and texts with their transforms, inherited styles, gradients, dashes and blur or drop-shadow filters (rect, circle, ellipse, line, polyline, polygon, every path command with arcs, text, groups); the app draws them in one `Canvas`, fitted with their aspect kept. Not drawn: embedded images, `use`, masks, clip paths, patterns, CSS stylesheets. Used by the file preview (`FilePreviewView`, a vertical pager over the conversation's files) and the media page. |
 | `MediaStore` | Downloads an answer's images, recordings and videos from the gateway's artifact route once, keeps them in the watch's caches (150 MB at most) and makes pictures small on the watch. |
 | `AnswerNotifier` | Hands a run's ledger stream to a background URLSession once the app leaves the foreground (one per run, ended when the app sees the run end), posts answers and waits as notifications, background refresh for new waits. |
-| `FaceSnapshot`, Assistant complication | What the watch face shows next to the app's blue orb (carried in the complication's own assets, `Complication/Assets.xcassets`) (waits for you, the first of them, the next automation, the results not seen), kept in the app group `group.ai.abstractframework.assistant`: written by `AppModel` when its waits or automations change and by the background refresh. A write that changes it asks WidgetKit for a new timeline. The complication (`Sources/Complication`, the `AbstractAssistantComplication` extension embedded in the app) reads it every five minutes for two hours; it never calls the gateway itself. Its views (`Sources/Face`) are shared by the app (`--screen face` shows them in debug builds). |
+| `FaceSnapshot`, Assistant complication | What the watch face shows (your avatar, waits for you, the first of them, the next automation, the results not seen), kept in the app group `group.ai.abstractframework.assistant`: written by `AppModel` when its waits or automations change and by the background refresh; the avatar is the chosen orb style drawn by the app (`FaceSnapshot.drawAvatar`, trimmed to the drawing) whenever the style changes, in the face's three states (`FaceState`: at rest; speaking for news, results or messages not seen; listening for what needs you), two PNGs per state in the group's `Library` folder: in colour, and its light as transparency for a face that draws its complications in one tint (the complication draws that one as a mask in the face's accent, scaled to the slot's pixels: a face refuses a picture much larger than its slot). Until the app has drawn it, the complication shows the app's own orb from its assets (`Complication/Assets.xcassets`, `Orb` and its mask `OrbMask`). A write that changes it asks WidgetKit for a new timeline. The complication (`Sources/Complication`, the `AbstractAssistantComplication` extension embedded in the app) reads it every five minutes for two hours; it never calls the gateway itself. Its views (`Sources/Face`) are shared by the app (`--screen face` shows them in debug builds). |
 | `RuntimeKeeper` | An extended runtime session while the app listens, works or speaks, so the voice continues with the wrist down. |
 | `AbstractGatewayClient` (SwiftPM) | Typed async client: models, endpoints, markdown and speech text, sign-in; reads (GET) that time out, lose their connection or meet a server error are tried 3 times before they fail, writes are sent once ([ADR-0039](https://github.com/lpalbou/AbstractFramework/blob/main/docs/adr/0039-loading-states-spinner-until-a-read-has-failed.md) of AbstractFramework); `MockGatewayClient` with the same protocol for previews and screenshots. Tested with `swift test`. |
 
@@ -9244,6 +9251,14 @@ class AssistantController:
         wanted = self.TRUST_MAX_RISK_RANK if max_rank is None else int(max_rank)
         wanted = max(1, min(4, wanted))
         ranks[sid] = max(int(ranks.get(sid, 0)), wanted)
+
+    def revoke_session_tool_auto_approval(self, *, session_id: Optional[str] = None) -> None:
+        """Remove this chat's temporary grant; keep saved tool defaults intact."""
+        sid = str(session_id or self.active_session_id or "").strip()
+        self._session_auto_approve_all.discard(sid)
+        ranks = getattr(self, "_session_trust_rank", None)
+        if isinstance(ranks, dict):
+            ranks.pop(sid, None)
 
     def session_tool_auto_approval_active(self, *, session_id: Optional[str] = None) -> bool:
         sid = str(session_id or self.active_session_id or "").strip()

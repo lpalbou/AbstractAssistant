@@ -47,6 +47,11 @@ struct ApprovalView: View {
                 }
             }
         }
+        .onChange(of: model.waits.map(\.id)) { _, ids in
+            if !sending, !ids.contains(wait.id), model.path.last == .approval(wait) {
+                model.path.removeLast()
+            }
+        }
         // An automation's own tools decide what Approve all covers: read them (shown at once after).
         .task { if case .automation(let id)? = wait.owner, model.definitions[id] == nil { _ = try? await model.definition(of: id) } }
         #if DEBUG

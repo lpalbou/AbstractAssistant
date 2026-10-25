@@ -276,3 +276,19 @@ private actor StoppingClient: GatewayClient {
     // cancels its returned run; both must leave no new work active.
     #expect(await client.cancels >= 1)
 }
+
+@Test @MainActor func automationArchiveAndRestorePreserveTheAutomation() async throws {
+    let client = MockGatewayClient()
+    let store = AssistantStore(defaults: UserDefaults(suiteName: "automation-archive-" + UUID().uuidString)!)
+    store.connect(nil, client: client)
+    await store.refresh()
+    let row = try #require(store.automations.first)
+    #expect(await store.setAutomationArchived(row, true))
+    #expect(!store.automations.contains { $0.id == row.id })
+    let archived = try await client.archivedAutomations()
+    #expect(archived.contains { $0.id == row.id })
+    #expect(await store.setAutomationArchived(row, false))
+    #expect(store.automations.contains { $0.id == row.id && $0.status == "paused" })
+    #expect(try await client.archivedAutomations().isEmpty)
+    store.disconnect()
+}

@@ -73,6 +73,7 @@ public struct PhoneArtifact: Identifiable, Hashable, Sendable {
 
 // Older test clients may supply the original voice methods. Live implements all overrides.
 public extension GatewayClient {
+    func archivedAutomations() async throws -> [AutomationSummary] { throw PhoneAttachmentError.unsupported }
     func startRun(prompt: String, sessionId: String?, attachments: [JSONValue], tools: ConversationTools?, primaryImage: JSONValue?) async throws -> String {
         var refs = attachments
         if let primaryImage, !refs.contains(primaryImage) { refs.append(primaryImage) }

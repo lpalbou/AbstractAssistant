@@ -48,6 +48,21 @@ struct PhoneRoot: View {
             store.onUnauthorized = { do { try ConnectionVault.remove() } catch { storageError = error.localizedDescription } }
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--demo") { demo(); return }
+            // Development-device provisioning: verify before replacing the Keychain connection.
+            // Credentials arrive through the launch environment, never source files.
+            let environment = ProcessInfo.processInfo.environment
+            if let address = environment["ASSISTANT_PAIR_GATEWAY"],
+               let token = environment["ASSISTANT_PAIR_TOKEN"], !token.isEmpty {
+                do {
+                    let gateway = try SavedConnection.parseURL(address)
+                    let credential = GatewayCredential.token(token)
+                    let client = LiveGatewayClient(baseURL: gateway, credential: credential, session: PhoneTransport.makeSession())
+                    let principal = try await client.me()
+                    guard let user = principal.userId, !user.isEmpty else { throw GatewayError.invalidResponse }
+                    connect(SavedConnection(gateway: gateway, user: user, tenant: principal.tenantId ?? "default", credential: credential))
+                } catch { storageError = error.localizedDescription }
+                return
+            }
             #endif
             do { if let saved = try ConnectionVault.read() { connect(saved, persist: false) } }
             catch { storageError = error.localizedDescription }

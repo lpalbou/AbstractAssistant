@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import AssistantKit
+@testable import AssistantKit
 import AbstractGatewayClient
 
 @Suite @MainActor struct ActivityStoreTests {
@@ -38,6 +38,20 @@ import AbstractGatewayClient
         #expect(store.activity.modelCalls == 1)
         store.disconnect()
     }
+    @Test func externalApprovalClearsConversationWithoutFullRefresh() async throws {
+        let client = try await nestedClient()
+        let store = try await store(client)
+        await store.followActiveRun()
+        let wait = try #require(store.conversationWait)
+        // Another client answers; do not invoke the store's answer or full refresh paths.
+        try await client.answer(wait, with: .approve)
+        await store.refreshPendingApprovals()
+        #expect(store.conversationWait == nil)
+        #expect(!store.waits.contains { $0.id == wait.id })
+        #expect(store.activityState != .waiting)
+        store.disconnect()
+    }
+
     @Test func approvalAnswersChildAndOnlyRootReplyCompletesConversation() async throws {
         let client = try await nestedClient()
         let store = try await store(client)

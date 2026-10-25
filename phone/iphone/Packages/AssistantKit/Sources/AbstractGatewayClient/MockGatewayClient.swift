@@ -162,7 +162,12 @@ public actor MockGatewayClient: GatewayClient {
     public func automations() async throws -> [AutomationSummary] {
         var out: [AutomationSummary] = []
         for a in (emptyAutomations ? [] : Self.sampleAutomations) + createdAutomations { out.append(try await automation(id: a.id)) }
-        return out
+        return out.filter { $0.status != "archived" }
+    }
+    public func archivedAutomations() async throws -> [AutomationSummary] {
+        var rows: [AutomationSummary] = []
+        for id in statuses.keys where statuses[id] == "archived" { rows.append(try await automation(id: id)) }
+        return rows
     }
     /// Run now: the automation runs for 14 s (`current_occurrence` set, a ledger that moves on).
     private var automationRunStarted: [String: Date] = [:]
@@ -186,7 +191,7 @@ public actor MockGatewayClient: GatewayClient {
         if s > 9 { out.append(LedgerRecord(nodeId: "reason", status: "started", effect: llm)) }
         return out
     }
-    public func automationCommand(id: String, type: String) async throws { statuses[id] = type == "automation.pause" ? "paused" : "active" }
+    public func automationCommand(id: String, type: String) async throws { statuses[id] = type == "automation.archive" ? "archived" : (type == "automation.pause" || type == "automation.unarchive") ? "paused" : "active" }
     public func reviseAutomation(id: String, changes: [String: JSONValue], expectedRevision: Int?) async throws {
         let old = try await automationDefinition(id: id)
         guard expectedRevision == old.revision else { throw GatewayError.http(status: 409, body: "Revision changed") }

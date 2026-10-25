@@ -106,7 +106,7 @@ struct AskView: View {
                         // The orb fills the screen, centred on it; everything else is below.
                         ScreenCentered(width: geo.size.width, top: geo.frame(in: .global).minY) { side in
                             Orb(mode: orbMode, size: side * 0.9, voice: orbVoice, countdown: orbCountdown, since: listenSince, look: orbLook,
-                                work: phase == .thinking && activity.isFollowing ? { activity.orb(at: $0) } : nil)
+                                work: phase == .thinking && activity.isFollowing ? { @MainActor @Sendable t in activity.orb(at: t) } : nil)
                                 .contentShape(Circle())
                                 .onTapGesture(perform: orbTapped)
                                 // Hold: a ring closes round the orb in 1.5 s, then it stops what it is

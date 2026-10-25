@@ -35,7 +35,7 @@ struct AssistantWidget: Widget {
             AssistantEntryView(entry: entry)
         }
         .configurationDisplayName("Assistant")
-        .description("Your assistant's orb, and what needs you.")
+        .description("Your assistant's avatar, and what needs you.")
         .supportedFamilies([.accessoryCircular, .accessoryRectangular, .accessoryCorner, .accessoryInline])
     }
 }
@@ -53,15 +53,14 @@ struct AssistantEntryView: View {
         case .accessoryRectangular:
             FaceCard(date: entry.date, face: entry.face)
         case .accessoryCorner:
-            FaceOrb(needYou: entry.face.needYou, showsCount: false)
+            FaceOrb(face: entry.face, showsCount: false)
                 .widgetLabel { FaceLine.text(entry.face, at: entry.date) }
         case .accessoryInline:
             Label { FaceLine.text(entry.face, at: entry.date) } icon: { Image(systemName: "circle.hexagongrid.fill") }
         default:
-            ZStack {
-                AccessoryWidgetBackground()
-                FaceOrb(needYou: entry.face.needYou)
-            }
+            // No disc behind it: the picture fills the circle, and on a face in one tint a disc
+            // would wash its light out.
+            FaceOrb(face: entry.face)
         }
     }
 }

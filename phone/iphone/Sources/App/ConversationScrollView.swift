@@ -16,11 +16,12 @@ struct ConversationScrollView<Content: View>: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                content()
+                content().id("transcript-content")
             }
             .accessibilityIdentifier("chat.transcript")
             .scrollDismissesKeyboard(.interactively)
             .defaultScrollAnchor(.bottom, for: .initialOffset)
+            .defaultScrollAnchor(.top, for: .alignment)
             .onScrollPhaseChange { _, phase, context in
                 if phase == .idle, userDragging {
                     let geometry = context.geometry
@@ -56,7 +57,15 @@ struct ConversationScrollView<Content: View>: View {
                 try? await Task.sleep(for: .milliseconds(32))
                 guard !Task.isCancelled, following, !userScrolling else { return }
                 var transaction = Transaction(); transaction.disablesAnimations = true
-                withTransaction(transaction) { proxy.scrollTo("bottom", anchor: .bottom) }
+                withTransaction(transaction) {
+                    // Keyboard dismissal can leave an offset from the smaller viewport behind.
+                    // Short transcripts need an explicit reset, not a skipped scroll correction.
+                    if extent.height <= extent.viewport {
+                        proxy.scrollTo("transcript-content", anchor: .top)
+                    } else {
+                        proxy.scrollTo("bottom", anchor: .bottom)
+                    }
+                }
             }
             .overlay(alignment: .bottomTrailing) {
                 if !following, extent.distance >= 72, extent.height > extent.viewport {

@@ -93,6 +93,7 @@ final class VoiceAnalyzer: @unchecked Sendable {
         out.reserveCapacity(pcm.samples.count / hop + 1)
         var start = 0
         while start < pcm.samples.count {
+            guard !Task.isCancelled else { return [] }
             let lo = max(0, start + hop / 2 - analyzer.size / 2)           // centred on the frame's time
             out.append(analyzer.analyze(pcm.samples[lo..<min(pcm.samples.count, lo + analyzer.size)]))
             start += hop

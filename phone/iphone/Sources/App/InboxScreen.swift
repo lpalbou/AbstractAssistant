@@ -115,6 +115,7 @@ struct WaitDetailScreen: View {
                     ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() }.disabled(busy) }
                 }
         }.interactiveDismissDisabled(busy)
+        .onChange(of: pending) { _, pending in if !pending && !busy { dismiss() } }
     }
     private func decide(_ answer: WaitAnswer) { Task { if await store.answer(wait, answer) { dismiss() } } }
     private func argumentKeys(_ call: ToolCallDetail) -> [String] {

@@ -436,6 +436,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var gatewayHost: String
     private var seenWaitIDs: Set<String> = []
     private var pollTask: Task<Void, Never>?
+    private var approvalPollTask: Task<Void, Never>?
+    private var approvalRevision = 0
     /// Live mode only: `--screen approval|askuser` opens the first real wait after the first poll.
     var pendingScreen: String?
     /// Simulator test hook (`--test-action allow-first|deny-first`): answers the first wait once.
@@ -476,6 +478,29 @@ final class AppModel: ObservableObject {
 
     func startPolling() {
         guard pollTask == nil, !needsSignIn else { return }
+        approvalPollTask?.cancel()
+        approvalPollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.onScreen, !self.needsSignIn else { return }
+                let pending = Dictionary(grouping: self.waits, by: \.runId)
+                for (id, known) in pending {
+                    do {
+                        let run = try await self.client.run(id: id)
+                        guard !Task.isCancelled else { return }
+                        let current = run.isTerminal ? nil : run.personWait?.id
+                        let removed = Set(known.filter { $0.id != current }.map(\.id))
+                        if !removed.isEmpty {
+                            self.approvalRevision += 1
+                            self.waits.removeAll { removed.contains($0.id) }
+                        }
+                    } catch GatewayError.unauthorized {
+                        guard !Task.isCancelled else { return }
+                        self.signOut(notice: "You were signed out. Please sign in again."); return
+                    } catch { /* Keep the approval visible until the server confirms resolution. */ }
+                }
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            }
+        }
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
@@ -490,7 +515,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func stopPolling() { pollTask?.cancel(); pollTask = nil }
+    func stopPolling() { pollTask?.cancel(); pollTask = nil; approvalPollTask?.cancel(); approvalPollTask = nil }
 
     /// Someone is looking at the screen (the scene is active): polls go on; otherwise the running
     /// one finishes and none follows.
@@ -541,6 +566,7 @@ final class AppModel: ObservableObject {
     /// Returns false when polling must stop (401: the gateway locks out by address).
     @discardableResult
     func refresh() async -> Bool {
+        let approvals = approvalRevision
         do {
             // The three first-poll calls go out together: on the watch's radio each round trip
             // costs seconds, and nothing on Home can be drawn before all three are back.
@@ -552,7 +578,7 @@ final class AppModel: ObservableObject {
                 WKInterfaceDevice.current().play(.notification)
             }
             seenWaitIDs.formUnion(newWaits.map(\.id))
-            waits = newWaits
+            if approvals == approvalRevision { waits = newWaits }
             runs = try await runsCall
             // The fast part is on screen now. Automations is the slow call on a public gateway
             // (~7 s measured) and its own failure never marks the gateway offline.

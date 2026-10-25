@@ -3,8 +3,8 @@ import AbstractGatewayClient
 import SwiftUI
 
 /// Reads a text aloud with the gateway's voice: the speech stream's WAV chunks play back to back
-/// through one AVAudioPlayer at a time; each chunk is analysed (loudness and spectrum) so the orb
-/// follows the voice exactly where it plays. An answer's recordings (the Assistant's workflow makes
+/// through one AVAudioPlayer at a time; optional background analysis lets the orb
+/// follow the voice without delaying playback. An answer's recordings (the Assistant's workflow makes
 /// them) play after its text, at their own speed.
 @MainActor
 final class Speaker: NSObject, ObservableObject {
@@ -18,7 +18,7 @@ final class Speaker: NSObject, ObservableObject {
     @Published private(set) var receivedSeconds: Double = 0
     @Published private(set) var playedSeconds: Double = 0
 
-    /// Chunks to play, each with its analysis for the orb (made when it arrives, off the main thread).
+    /// Chunks to play; analysis is optional and may be cached when replaying a chunk.
     private var queue: [Chunk] = []
     /// Playback waits until this much speech is queued (or the stream is done): a gateway voice
     /// before abstractvoice 0.15.2 sends two words first (1.3 s, "Ah oui,") and the rest seconds
@@ -39,12 +39,16 @@ final class Speaker: NSObject, ObservableObject {
     private var player: AVAudioPlayer?
     private var streamDone = false
     private var task: Task<Void, Never>?
+    private var analysisTask: Task<Void, Never>?
+    private var analysisWorker: Task<[VoiceFrame], Never>?
     /// This speaker's keep-awake hold (one per speaker: two screens never release each other's).
     private let holder = "speak-" + UUID().uuidString
 
     /// A player dropped with its view (a page replaced under it) lets go of the watch too: a hold
     /// left behind kept every later keep-awake session running its full ten minutes.
     deinit {
+        analysisTask?.cancel()
+        analysisWorker?.cancel()
         let holder = holder
         Task { @MainActor in RuntimeKeeper.shared.release(holder) }
     }
@@ -162,9 +166,8 @@ final class Speaker: NSObject, ObservableObject {
             if let scope, !spoken.isEmpty {
                 do {
                     for try await wav in client.speech(text: spoken, scope: scope, voice: VoicePrefs.voice(for: scope)) {
-                        let frames = await Task.detached(priority: .userInitiated) { VoiceAnalyzer.frames(ofWAV: wav) }.value
                         guard let self, !Task.isCancelled else { return }
-                        self.enqueue(wav, frames: frames)
+                        self.enqueue(wav)
                     }
                 } catch { voiceError = error }
             }
@@ -175,11 +178,8 @@ final class Speaker: NSObject, ObservableObject {
             guard !Task.isCancelled else { return }
             self.awaitingClips = false
             for data in fetched.compactMap({ $0 }) {
-                // A long recording plays without the orb following it (its analysis would copy it twice).
-                let frames = data.count <= Self.analysedBytes
-                    ? await Task.detached(priority: .userInitiated) { VoiceAnalyzer.frames(ofWAV: data) }.value : []
                 guard !Task.isCancelled else { return }
-                self.enqueue(data, frames: frames, rate: 1)
+                self.enqueue(data, rate: 1)
             }
             self.streamDone = true
             if let error = voiceError {
@@ -192,7 +192,7 @@ final class Speaker: NSObject, ObservableObject {
         }
     }
 
-    /// Recordings up to this size are analysed for the orb.
+    /// Audio chunks up to this size are analysed for the orb.
     private static let analysedBytes = 4 * 1024 * 1024
     /// The text has been spoken; its recordings are still downloading (the orb waits, not speaks).
     private var awaitingClips = false
@@ -205,6 +205,7 @@ final class Speaker: NSObject, ObservableObject {
 
     func stop() {
         task?.cancel(); task = nil
+        cancelAnalysis()
         player?.stop(); player = nil
         queue.removeAll(); history.removeAll(); currentData = nil; startAt = 0
         if isActive || state == .paused { state = .idle }
@@ -266,9 +267,9 @@ final class Speaker: NSObject, ObservableObject {
         return normalizer.push(frames[i], at: t)
     }
 
-    private func enqueue(_ wav: Data, frames: [VoiceFrame], rate: Float = Float(VoicePrefs.speed)) {
+    private func enqueue(_ wav: Data, rate: Float = Float(VoicePrefs.speed)) {
         let duration = (try? AVAudioPlayer(data: wav))?.duration ?? 0
-        queue.append((wav, duration, frames, rate))
+        queue.append((wav, duration, [], rate))
         receivedSeconds += duration
         trace("chunk \(wav.count) bytes, received \(String(format: "%.1f", receivedSeconds)) s")
         advanceIfIdle()
@@ -298,6 +299,7 @@ final class Speaker: NSObject, ObservableObject {
 
     /// The next chunk in the player (at `startAt`), playing or held for `resume()`.
     private func loadNext(play: Bool) {
+        cancelAnalysis()
         let chunk = queue.removeFirst()
         let next = chunk.data
         do {
@@ -311,8 +313,9 @@ final class Speaker: NSObject, ObservableObject {
             currentRate = chunk.rate
             frames = chunk.frames
             player = p
+            if play, !p.play() { throw GatewayError.invalidResponse }
+            analyzeIfNeeded(next, player: p)
             guard play else { return }
-            guard p.play() else { throw GatewayError.invalidResponse }
             trace("playing \(String(format: "%.1f", p.duration)) s, route \(AVAudioSession.sharedInstance().currentRoute.outputs.map(\.portName))")
             if state != .speaking { state = .speaking; WKHaptic.start() }
         } catch {
@@ -321,8 +324,28 @@ final class Speaker: NSObject, ObservableObject {
         }
     }
 
+    /// Analyse only the current chunk, after playback starts. If analysis falls behind, the
+    /// orb catches up using the player's current time; obsolete work never delays the next chunk.
+    private func analyzeIfNeeded(_ data: Data, player: AVAudioPlayer) {
+        guard frames.isEmpty, data.count <= Self.analysedBytes else { return }
+        let ref = PlayerRef(player)
+        let worker = Task.detached(priority: .utility) { VoiceAnalyzer.frames(ofWAV: data) }
+        analysisWorker = worker
+        analysisTask = Task { [weak self] in
+            let result = await worker.value
+            guard !Task.isCancelled, let self, self.player === ref.player else { return }
+            self.frames = result
+        }
+    }
+
+    private func cancelAnalysis() {
+        analysisTask?.cancel(); analysisTask = nil
+        analysisWorker?.cancel(); analysisWorker = nil
+    }
+
     fileprivate func finishedChunk(_ p: AVAudioPlayer) {
         guard p === player else { return }
+        cancelAnalysis()
         playedSeconds += p.duration
         if let d = currentData { history.append((d, p.duration, frames, currentRate)) }
         currentData = nil
