@@ -33,6 +33,16 @@ struct PhoneMeEventsTests {
                 == ["channel": "phone", "outcome": "sent", "record_key": "automation:completed:a:1", "device": "p1"])
     }
 
+    /// A notice is posted under the gateway's push collapse id (sha256("attention:" + record_key)[:32]),
+    /// the identifier APNs gives the pushed alert: the catch-up skips what a push already showed.
+    @Test func noticesUseThePushCollapseID() {
+        var s = AttentionState()
+        _ = s.apply(page([]))
+        let told = s.apply(page([wait(1, run: "r1", key: "k1"), result(2, "a", 1)]))
+        #expect(told.map(\.identifier) == ["c9ece7c314e9a39da7d4407c0aa87900", "0b1ddd6269d7d6bb68c9d69cb95e8db3"])
+        #expect(AttentionNotice.news(automationId: "a", seq: 1, failed: false).identifier == "attention-a-1")
+    }
+
     @Test func sseFramesBecomeEvents() {
         var p = UserEventSSEParser()
         let text = ": stream user:default:a\n\nid: 3\nevent: run.started\ndata: {\"id\":\"x\",\"type\":\"run.started\",\"sequence\":3,\"data\":{\"run_id\":\"r\"}}\n\n: keep-alive\n\n"

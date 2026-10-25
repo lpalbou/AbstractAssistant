@@ -1,0 +1,19 @@
+/* Apple push (framework backlog 1049). The relay sends only these keys (title-loc-key, loc-key):
+   the system shows them as they are when the notification service extension cannot read the
+   event in time; otherwise the extension replaces them with the real names. Same words as the
+   app's own notifications from the event stream (PhoneNotifier). */
+"push.approval.title" = "Approval needed";
+"push.approval.body" = "Open the Inbox to answer.";
+"push.question.title" = "A question for you";
+"push.question.body" = "Open the Inbox to answer.";
+"push.notify.title" = "New alert";
+"push.notify.body" = "Tap to read it.";
+"push.result.title" = "An automation has a result";
+"push.result.body" = "Tap to read it.";
+"push.failure.title" = "An automation failed";
+"push.failure.body" = "Tap to read it.";
+/* The extension's titles once it knows the automation's name. */
+"push.result.named" = "%@ has a result";
+"push.failure.named" = "%@ failed";
+/* A push meant for an earlier sign-in on this iPhone (another account, or signed out since). */
+"push.earlier" = "From an earlier sign-in";

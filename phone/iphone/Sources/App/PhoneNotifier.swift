@@ -7,6 +7,8 @@ import AbstractGatewayClient
 /// read the waits live), automation news is passive ("Morning digest has a result"; a tap opens
 /// Automations). One notification per item: the identifier is the item's, so a repeat replaces it.
 /// Once iOS accepted it, `shown` runs (the feed records it on the stream, channel "phone").
+/// An item's identifier is the gateway's push collapse id, so an item a push already showed
+/// (delivered under the same id) is not posted again.
 @MainActor
 final class PhoneNotifier: NSObject, UNUserNotificationCenterDelegate {
     static let shared = PhoneNotifier()
@@ -43,6 +45,8 @@ final class PhoneNotifier: NSObject, UNUserNotificationCenterDelegate {
                 asked = true
                 _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
             }
+            // A push (backlog 1049) showed it already: the same identifier, nothing alerts twice.
+            if await center.deliveredNotifications().contains(where: { $0.request.identifier == request.identifier }) { return }
             do { try await center.add(request) } catch { return }
             shown()
         }

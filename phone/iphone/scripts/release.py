@@ -12,7 +12,7 @@ import re
 import tarfile
 
 BUNDLE_ID = "ai.abstractframework.assistant"
-WATCH_BUNDLE_ID = BUNDLE_ID + ".watch"
+WATCH_BUNDLE_ID = BUNDLE_ID + ".watchkitapp"
 ARCHIVE_NAME = "AbstractAssistantPhone.xcarchive"
 
 

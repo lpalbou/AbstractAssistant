@@ -62,11 +62,13 @@ jobs:
         run: command -v xcodegen >/dev/null || brew install xcodegen
       - name: Watch package tests
         run: swift test --package-path watch/apple/Packages/AbstractGatewayClient --scratch-path "$RUNNER_TEMP/WatchPackageTests" --jobs 1
-      - name: Generate combined Store projects
-        run: python3 phone/iphone/scripts/store-project.py --output "$RUNNER_TEMP/AppleProject"
+      - name: Shared push package tests (sign-in store, registration, push rendering)
+        run: swift test --package-path phone/iphone/Packages/AssistantPush --scratch-path "$RUNNER_TEMP/PushPackageTests" --jobs 1
+      - name: Generate the AbstractAssistant project (iPhone app, watch companion, extensions)
+        run: xcodegen generate --spec phone/iphone/project.yml
       - name: Build independent Watch companion
         run: |
-          xcodebuild build -project "$RUNNER_TEMP/AppleProject/StoreWatch.xcodeproj" -scheme AbstractAssistantWatch \
+          xcodebuild build -project phone/iphone/AbstractAssistant.xcodeproj -scheme AbstractAssistantWatch \
             -destination 'generic/platform=watchOS Simulator' -configuration Debug -jobs 1 \
             -derivedDataPath "$RUNNER_TEMP/WatchSimulator" CODE_SIGNING_ALLOWED=NO -quiet
 
@@ -96,11 +98,11 @@ jobs:
         run: swift test --package-path phone/iphone/Packages/AssistantKit --scratch-path "$RUNNER_TEMP/SwiftTests" --jobs 1
       - name: Generate project
         working-directory: ${{ env.PROJECT_DIR }}
-        run: python3 scripts/store-project.py --output "$RUNNER_TEMP/AppleProject"
+        run: xcodegen generate --spec project.yml
       - name: Check archive signing requirements
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          xcodebuild -project "$RUNNER_TEMP/AppleProject/StorePhone.xcodeproj" -scheme AbstractAssistantPhone \
+          xcodebuild -project AbstractAssistant.xcodeproj -scheme AbstractAssistantPhone \
             -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO -showBuildSettings -json > "$RUNNER_TEMP/settings.json"
           python3 scripts/release.py settings "$RUNNER_TEMP/settings.json"
       - name: Archive Release candidate without Apple credentials
@@ -109,7 +111,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           BUILD_NUMBER: ${{ steps.version.outputs.build }}
         run: |
-          xcodebuild archive -project "$RUNNER_TEMP/AppleProject/StorePhone.xcodeproj" -scheme AbstractAssistantPhone \
+          xcodebuild archive -project AbstractAssistant.xcodeproj -scheme AbstractAssistantPhone \
             -destination 'generic/platform=iOS' -configuration Release -jobs 1 \
             -derivedDataPath "$RUNNER_TEMP/PhoneArchive" -archivePath "$RUNNER_TEMP/AbstractAssistantPhone.xcarchive" \
             MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
@@ -145,7 +147,7 @@ jobs:
               selectors+=("-only-testing:AbstractAssistantPhoneUITests/PhoneUITests/$test")
             done
           fi
-          xcodebuild test -project "$RUNNER_TEMP/AppleProject/StorePhone.xcodeproj" -scheme AbstractAssistantPhoneUITests \
+          xcodebuild test -project AbstractAssistant.xcodeproj -scheme AbstractAssistantPhoneUITests \
             -destination "platform=iOS Simulator,id=$IPHONE_CI_SIMULATOR" \
             -derivedDataPath "$RUNNER_TEMP/PhoneTests" -resultBundlePath "$RUNNER_TEMP/iPhoneTests.xcresult" \
             -jobs 1 -parallel-testing-enabled NO -collect-test-diagnostics never \

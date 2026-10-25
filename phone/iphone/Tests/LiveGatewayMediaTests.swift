@@ -5,7 +5,7 @@ import AssistantKit
 import AbstractGatewayClient
 @testable import AbstractAssistantPhone
 
-/// Explicit device-only verification. It uses the host app's keychain in place;
+/// Explicit device-only verification. It uses the host app's sealed sign-in in place;
 /// credentials are never exported, logged, passed through launch arguments or stored in a report.
 final class LiveGatewayMediaTests: XCTestCase {
     /// Read-only investigation: no commands, email content, generation or credential export.

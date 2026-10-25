@@ -1,22 +1,26 @@
 #!/usr/bin/env bash
 # Generate, test, build for the watch simulator, install, and screenshot every screen.
 # Usage: scripts/build.sh [--no-screens]
+# The watch app is the AbstractAssistant iPhone app's companion: one project for both,
+# ../../phone/iphone/project.yml (AbstractAssistant.xcodeproj); this builds its watch scheme.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PROJECT_DIR="$ROOT/../../phone/iphone"
 SIM="${SIM:-Apple Watch Series 11 (46mm)}"
 # The simulator by id: Xcode 27's name lookup fails when several runtimes are installed.
 SIM_ID="$(xcrun simctl list devices available | grep -F "$SIM (" | head -1 | grep -oE '[0-9A-F]{8}-[0-9A-F-]{27}')"
 [ -n "$SIM_ID" ] || { echo "no simulator named $SIM (xcrun simctl list devices)"; exit 1; }
-BUNDLE=ai.abstractframework.assistant.watch
+BUNDLE=ai.abstractframework.assistant.watchkitapp
 SCREENS=(home approval email draft askuser ask ask-entity picker listening thinking answer sessions session automations automation settings orbstyle signin read waits)
 t() { date +%s; }
 
 T0=$(t)
 cd "$ROOT"
-xcodegen generate --spec project.yml
+xcodegen generate --spec "$PROJECT_DIR/project.yml"
 (cd Packages/AbstractGatewayClient && swift test)
+(cd "$PROJECT_DIR/Packages/AssistantPush" && swift test)
 T1=$(t)
-xcodebuild -project AbstractAssistantWatch.xcodeproj -scheme AbstractAssistantWatch \
+xcodebuild -project "$PROJECT_DIR/AbstractAssistant.xcodeproj" -scheme AbstractAssistantWatch \
   -destination "platform=watchOS Simulator,id=$SIM_ID" \
   -configuration Debug -derivedDataPath build/DerivedData build CODE_SIGNING_ALLOWED=NO -quiet
 T2=$(t)

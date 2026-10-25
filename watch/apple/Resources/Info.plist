@@ -35,7 +35,9 @@
 	<array>
 		<string>self-care</string>
 	</array>
-	<key>WKWatchOnly</key>
+	<key>WKCompanionAppBundleIdentifier</key>
+	<string>ai.abstractframework.assistant</string>
+	<key>WKRunsIndependentlyOfCompanionApp</key>
 	<true/>
 </dict>
 </plist>

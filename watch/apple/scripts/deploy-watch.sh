@@ -5,8 +5,11 @@
 # already on the watch; --forget clears it (the app falls back to the Pair screen's values).
 # Needs: the watch paired for development (docs/pairing.md) and its CoreDevice id in
 # ../../../untracked/watch/.secrets/watch-device-id.txt or WATCH_DEVICE (xcrun devicectl list devices).
+# The watch app is the AbstractAssistant iPhone app's companion (one project:
+# ../../phone/iphone/project.yml); this installs the watch app by itself, straight onto the watch.
 set -e; setopt null_glob
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PROJECT_DIR="$ROOT/../../phone/iphone"
 SECRETS="$ROOT/../../../untracked/watch/.secrets"
 DEVICE="${WATCH_DEVICE:-$(head -1 "$SECRETS/watch-device-id.txt" 2>/dev/null)}"
 [ -n "$DEVICE" ] || { echo "no watch: set WATCH_DEVICE=<CoreDevice id> (xcrun devicectl list devices)"; exit 1; }
@@ -23,13 +26,13 @@ fi
 [ -n "$SCREEN" ] && ARGS+=(--screen "$SCREEN")
 cd "$ROOT"
 if [ $BUILD = 1 ]; then
-  [ project.yml -nt AbstractAssistantWatch.xcodeproj/project.pbxproj ] && xcodegen generate --spec project.yml
-  xcodebuild -project AbstractAssistantWatch.xcodeproj -scheme AbstractAssistantWatch -destination 'generic/platform=watchOS' \
+  [ "$PROJECT_DIR/project.yml" -nt "$PROJECT_DIR/AbstractAssistant.xcodeproj/project.pbxproj" ] && xcodegen generate --spec "$PROJECT_DIR/project.yml"
+  xcodebuild -project "$PROJECT_DIR/AbstractAssistant.xcodeproj" -scheme AbstractAssistantWatch -destination 'generic/platform=watchOS' \
     -configuration Debug -derivedDataPath build/DerivedData -allowProvisioningUpdates -quiet build
 fi
 # Always install (--no-build installs the last build: a retry after the watch was out of reach).
 xcrun devicectl device install app --device "$DEVICE" build/DerivedData/Build/Products/Debug-watchos/AbstractAssistantWatch.app --timeout 180 >/dev/null
-xcrun devicectl device process launch --device "$DEVICE" --terminate-existing --timeout 60 ai.abstractframework.assistant.watch "${ARGS[@]}" >/dev/null
+xcrun devicectl device process launch --device "$DEVICE" --terminate-existing --timeout 60 ai.abstractframework.assistant.watchkitapp "${ARGS[@]}" >/dev/null
 echo "launched${GW_URL:+ against $GW_URL}${SCREEN:+ at $SCREEN}"
 if [ -n "$SHOOT" ]; then
   sleep "$WAIT"; mkdir -p design/screenshots/device

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 // The person's own event stream on the gateway (framework backlog 1046/1047):
@@ -60,13 +61,21 @@ public enum AttentionNotice: Hashable, Sendable {
         }
     }
 
-    /// The notification's identifier: one notification per thing, whatever reads it again.
+    /// The notification's identifier: one notification per thing, whatever reads it again. An
+    /// attention item's is the gateway's push collapse id (`collapseID(record_key)`), the identifier
+    /// APNs gives the pushed alert (backlog 1049), so the catch-up never posts it a second time.
     public var identifier: String {
         switch self {
-        case .needsYou(let run, let key, _, _, _): "wait-\(run):\(key)"   // the same as `Wait.id`'s notification
-        case .news(let a, let seq, _, _): "attention-\(a)-\(seq)"
+        case .needsYou(let run, let key, _, _, let record): record.map(Self.collapseID) ?? "wait-\(run):\(key)"
+        case .news(let a, let seq, _, let record): record.map(Self.collapseID) ?? "attention-\(a)-\(seq)"
         case .automationFinished(let a, let occ, _, _): "automation-\(a)-\(occ)"
         }
+    }
+
+    /// `sha256("attention:" + record_key)` cut to 32 hex characters: abstractgateway's
+    /// `push/dispatcher.py` `collapse_id`, sent to APNs as `apns-collapse-id`.
+    public static func collapseID(_ recordKey: String) -> String {
+        String(SHA256.hash(data: Data(("attention:" + recordKey).utf8)).map { String(format: "%02x", $0) }.joined().prefix(32))
     }
 }
 

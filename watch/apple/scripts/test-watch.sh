@@ -5,13 +5,16 @@
 #   full   every test but the live ones, on 3 simulator clones in parallel (~10 min), once
 #          before a commit or a deploy.
 # Package tests (`swift test` in Packages/AbstractGatewayClient) run in both: a few seconds.
+# One project for the iPhone and the watch app: ../../phone/iphone/project.yml (AbstractAssistant.xcodeproj).
 set -e
 cd "$(dirname "$0")/.."
+[ ../../phone/iphone/project.yml -nt ../../phone/iphone/AbstractAssistant.xcodeproj/project.pbxproj ] && xcodegen generate --spec ../../phone/iphone/project.yml >/dev/null
 MODE=${1:-light}; shift || true
 SIM=${WATCH_SIM:-7CB8FFBB-6A57-45E8-98D2-2CE7502252F8}
 LOG=${TMPDIR:-/tmp}/watch-tests-$MODE.log
 (cd Packages/AbstractGatewayClient && swift test 2>&1 | tail -1)
-ARGS=(-project AbstractAssistantWatch.xcodeproj -scheme AbstractAssistantWatchUITests
+(cd ../../phone/iphone/Packages/AssistantPush && swift test 2>&1 | tail -1)
+ARGS=(-project ../../phone/iphone/AbstractAssistant.xcodeproj -scheme AbstractAssistantWatchUITests
       -destination "platform=watchOS Simulator,id=$SIM" -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO)
 T=AbstractAssistantWatchUITests
 if [[ $MODE == light ]]; then

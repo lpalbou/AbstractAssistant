@@ -1,6 +1,7 @@
 import SwiftUI
 import AssistantKit
 import AbstractGatewayClient
+import AssistantPush
 import OSLog
 
 @main struct AbstractAssistantPhoneApp: App {
@@ -20,6 +21,8 @@ import OSLog
         }
         #endif
     }()
+    /// The APNs token arrives here (PhonePush registers it with the gateway).
+    @UIApplicationDelegateAdaptor(PhoneAppDelegate.self) private var appDelegate
     init() { _ = Self.prepareTemporaryStorage }
     var body: some Scene { WindowGroup { PhoneRoot() } }
 }
@@ -44,7 +47,11 @@ struct PhoneRoot: View {
         .environment(store)
         .preferredColorScheme(.dark).tint(PhoneTheme.lavender)
         .foregroundStyle(PhoneTheme.ink)
+        .onChange(of: automationNames, initial: true) { _, names in AutomationNameBook.remember(names) }
         .task {
+            // Push (backlog 1049) and the watch: this iPhone's device id, the sign-in handed to the watch.
+            PhonePush.deviceID = store.attention.deviceID
+            WatchLink.shared.activate()
             store.onUnauthorized = { do { try ConnectionVault.remove() } catch { storageError = error.localizedDescription } }
             // The person's event stream: a local notification per new item; a tap opens its tab.
             PhoneNotifier.shared.activate()
@@ -56,7 +63,7 @@ struct PhoneRoot: View {
             }
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--demo") { demo(); return }
-            // Development-device provisioning: verify before replacing the Keychain connection.
+            // Development-device provisioning: verify before replacing the saved sign-in.
             // Credentials arrive through the launch environment, never source files.
             let environment = ProcessInfo.processInfo.environment
             if let address = environment["ASSISTANT_PAIR_GATEWAY"],
@@ -77,11 +84,22 @@ struct PhoneRoot: View {
         }
         .onChange(of: scenePhase, initial: true) { _, phase in store.setForeground(phase == .active) }
     }
+    /// The automations' names for the notification service extension ("Morning digest has a result").
+    private var automationNames: [String: String] {
+        Dictionary(store.automations.compactMap { a in a.name.flatMap { $0.isEmpty ? nil : (a.id, $0) } }, uniquingKeysWith: { a, _ in a })
+    }
+    /// `persist`: a sign-in (both paths: an account token or an emailed code), saved sealed with a
+    /// new push handle and handed to the watch; otherwise the saved sign-in at launch.
     private func connect(_ connection: SavedConnection, persist: Bool = true) {
         do {
             if persist { try ConnectionVault.save(connection) }
             storageError = nil
             store.connect(connection, client: LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession()))
+            if persist, let signIn = ConnectionVault.current() {
+                WatchLink.shared.send(signIn, queue: true)
+                PhonePush.askPermissionOnce()
+            }
+            PhonePush.start()
         } catch { storageError = error.localizedDescription }
     }
     private func demo() {
@@ -125,8 +143,10 @@ struct PhoneRoot: View {
     }
     private func disconnect() {
         let connection = store.connection
+        let signIn = store.isDemo ? nil : ConnectionVault.current()
         do { if !store.isDemo { try ConnectionVault.remove() } }
         catch { storageError = error.localizedDescription; return }
+        PhonePush.signedOut(signIn)
         settings = false; store.disconnect(); tab = 0
         if let connection, connection.session != nil {
             Task {
