@@ -20,6 +20,7 @@ and should be mirrored into the gateway backlog when they are taken up.
 | [0021](0021_entity_and_agent_picker.md) | Entity and agent picker: talk to a named entity or a chosen workflow (picker + chat path built in 0012; card line and visits remain) | abstractassistant | P2 |
 | [0022](0022_inbox_projection_endpoint.md) | Inbox projection: one feed of waits, results, failures and entity questions | abstractgateway | P2 |
 | [0023](0023_on_demand_location_context.md) | On-demand location context attached to a question | abstractassistant | P3 |
+| [1054](1054_offline_capture_queue_on_the_wrist.md) | Offline note queue: record now, send when the network returns (slice 0: a failed question keeps its recording) | abstractassistant | P2 |
 
 Items 0020–0023 and the amendments to 0012–0014 (stale-approval protection, queued → applied
 states, wrist/passcode check for destructive approvals, minimal push payloads) come from the

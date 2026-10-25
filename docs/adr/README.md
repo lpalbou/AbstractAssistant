@@ -10,7 +10,7 @@ This directory records durable architecture decisions for AbstractAssistant.
 
 - [ADR 0003](0003_unified_apple_product.md) — Accepted — One Store listing and archive for iPhone + independent Watch; generated Store composition and shared release ownership.
 
-- [ADR 0004](0004_notes_inside_the_assistant_abstractnote_stays_a_service.md) — Accepted — Notes are captured and recalled in the assistant's Apple apps; AbstractNote stays a gateway service and web app; the Notes surface is capability-gated; shared Swift is shared once.
+- [ADR 0004](0004_notes_inside_the_assistant_abstractnote_stays_a_service.md) — Accepted — Notes are captured and recalled in the assistant's Apple apps; AbstractNote stays a gateway service and web app; the Notes surface is gated by one status probe; nothing is copied between the two repositories again.
 
 - [ADR 0005](0005_one_apple_project.md) — Accepted — One project and one product: the iPhone app is the container, the watch app its independent companion (`.watchkitapp`); shared sealed sign-in and push package; amends ADR 0003.
 
