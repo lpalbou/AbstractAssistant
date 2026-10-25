@@ -41,7 +41,7 @@ A VPN such as Tailscale on the phone, the Mac or the watch plays no part in pair
 
 ## Signing
 
-The app signs automatically with the team from `project.yml` (`DEVELOPMENT_TEAM`), and the CLI
+The app signs automatically with the team from `../../phone/iphone/project.yml` (`DEVELOPMENT_TEAM`), and the CLI
 build needs `-allowProvisioningUpdates` so `xcodebuild` can register the watch and mint the
 profile. The team id is the one Xcode used for its own signed build (Report navigator → the
 `CodeSign` step shows it); a wrong id fails with `No Account for Team …`.

@@ -1,7 +1,14 @@
 # Building AbstractAssistant for Apple Watch
 
-A standalone watchOS 26+ SwiftUI app (watch-only, no iPhone companion) and a Swift package,
-`AbstractGatewayClient`, that talks to AbstractGateway. It runs in the simulator with built-in
+A watchOS 26+ SwiftUI app, the companion of the AbstractAssistant iPhone app and independent of
+it (it signs in and runs without the iPhone), and a Swift package, `AbstractGatewayClient`, that
+talks to AbstractGateway. One XcodeGen spec builds both apps:
+[`../../phone/iphone/project.yml`](../../phone/iphone/BUILD.md) (`AbstractAssistant.xcodeproj`),
+with the watch targets `AbstractAssistantWatch` (`ai.abstractframework.assistant.watchkitapp`),
+`AbstractAssistantComplication` (`….watchkitapp.orbclock`), `AbstractAssistantWatchNotifications`
+(`….watchkitapp.notifications`) and `AbstractAssistantWatchUITests`. The watch's gateway client is
+compiled there as a static framework, `WatchGatewayClient` (module `AbstractGatewayClient`): the
+iPhone's own client package exports a module of the same name. It runs in the simulator with built-in
 sample data, or live against a gateway in the simulator or on a paired watch. For what the app
 does, see [README.md](README.md); for how it is built inside, [docs/architecture.md](docs/architecture.md).
 
@@ -9,7 +16,8 @@ does, see [README.md](README.md); for how it is built inside, [docs/architecture
 
 - Xcode 27.1 with the watchOS 26.5 simulator runtime, and XcodeGen (2.45 tested).
 - Simulator builds and the package tests need no signing and no Apple account. A build for a
-  physical watch signs with an Apple developer team (`DEVELOPMENT_TEAM` in `project.yml`).
+  physical watch signs with an Apple developer team (`DEVELOPMENT_TEAM` in
+  `../../phone/iphone/project.yml`).
 
 ## Build and run in the simulator
 
@@ -22,18 +30,19 @@ scripts/build.sh --no-screens  # generate, test and build only
 `scripts/build.sh` runs, in order:
 
 ```sh
-xcodegen generate --spec project.yml
+xcodegen generate --spec ../../phone/iphone/project.yml
 (cd Packages/AbstractGatewayClient && swift test)
-xcodebuild -project AbstractAssistantWatch.xcodeproj -scheme AbstractAssistantWatch \
+(cd ../../phone/iphone/Packages/AssistantPush && swift test)
+xcodebuild -project ../../phone/iphone/AbstractAssistant.xcodeproj -scheme AbstractAssistantWatch \
   -destination 'platform=watchOS Simulator,id=<Apple Watch Series 11 (46mm)>' \
   -configuration Debug -derivedDataPath build/DerivedData build CODE_SIGNING_ALLOWED=NO
 xcrun simctl install <simulator> build/DerivedData/Build/Products/Debug-watchsimulator/AbstractAssistantWatch.app
-xcrun simctl launch <simulator> ai.abstractframework.assistant.watch --mock --screen <name>
+xcrun simctl launch <simulator> ai.abstractframework.assistant.watchkitapp --mock --screen <name>
 xcrun simctl io <simulator> screenshot screenshots/<name>.png
 ```
 
 Choose another simulator with `SIM="Apple Watch ..." scripts/build.sh`. The Xcode project is
-generated from `project.yml` and is not committed.
+generated from `../../phone/iphone/project.yml` and is not committed.
 
 ## Tests
 
@@ -41,7 +50,9 @@ generated from `project.yml` and is not committed.
 page, navigation, an automation, tools; about 5 minutes): after each change, adding the classes of
 the area changed (`scripts/test-watch.sh light ShareUITests`). `scripts/test-watch.sh full` runs
 every test but the live ones on three simulator clones in parallel (about 10 minutes): once, before
-a commit or a deploy. `WATCH_SIM` picks the simulator.
+a commit or a deploy. `WATCH_SIM` picks the simulator. The script grants the simulator's
+microphone to `ai.abstractframework.assistant.watchkitapp` first: the voice tests listen, and a
+permission question would stop them.
 
 - **Package tests**: `swift test --package-path Packages/AbstractGatewayClient` (models decoded
   from the gateway's real shapes, sign-in, markdown and speech text, automation edits).
@@ -50,7 +61,7 @@ a commit or a deploy. `WATCH_SIM` picks the simulator.
   Screenshots of each step are written to the folder named by `TEST_RUNNER_SHOTS_DIR`.
 
 ```sh
-TEST_RUNNER_SHOTS_DIR=/tmp/shots xcodebuild test -project AbstractAssistantWatch.xcodeproj \
+TEST_RUNNER_SHOTS_DIR=/tmp/shots xcodebuild test -project ../../phone/iphone/AbstractAssistant.xcodeproj \
   -scheme AbstractAssistantWatchUITests -destination 'platform=watchOS Simulator,id=<simulator>' \
   -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO
 ```
@@ -105,26 +116,27 @@ gateway account; an admin token on a watch carries admin rights to every approva
 ## App Store packaging
 
 Store delivery uses **Actions → Apple app (iPhone + Watch)**. The existing AbstractAssistant
-listing (`ai.abstractframework.assistant`) receives the real iPhone app with the independent
-Watch app (`ai.abstractframework.assistant.watch`) embedded. Both use one version/build and pass
+listing (`ai.abstractframework.assistant`) receives the iPhone app with the independent
+Watch app (`ai.abstractframework.assistant.watchkitapp`) embedded, from one project. Both use one version/build and pass
 checks before the required human `app-store` approval. The standalone Watch workflow validates
 developer builds and has no upload job.
 
 See [Apple testing and distribution](../../phone/iphone/docs/distribution.md) for the release
-entrypoint, signing setup, TestFlight and manual same-build App Store promotion. Local Watch
-projects and developer installs retain their standalone configuration. The legacy
-`scripts/testflight.sh --no-upload` can inspect a watch-only archive; use the combined workflow
-for Store delivery.
+entrypoint, signing setup, TestFlight and manual same-build App Store promotion.
+`scripts/testflight.sh --no-upload` archives the signed iPhone app with the watch app inside, for
+inspection; use the combined workflow for Store delivery.
 
 ## Layout
 
 ```
-project.yml                     XcodeGen spec: the watch app, the UI tests, the App Store container
+../../phone/iphone/project.yml  the one XcodeGen spec (iPhone app, watch app, complication, extensions, UI tests)
+../../phone/iphone/Packages/AssistantPush/  sealed sign-in, push registration and rendering, iPhone handoff; tests
+../../phone/iphone/NotificationService/     the notification service extension (one source, iPhone and watch)
 Packages/AbstractGatewayClient/ models, LiveGatewayClient, MockGatewayClient, sign-in, markdown; tests
 Sources/App/                    SwiftUI: Home, Ask, Approvals, Runs (sessions), Automations, Settings, Shared
 UITests/                        UI tests (own scheme)
-Resources/                      Info.plist, assets, privacy manifest, the framework identity file (About)
-Container/Info.plist            the empty iOS container's Info.plist
+Resources/                      Info.plist, entitlements, assets, privacy manifest, the framework identity file (About)
+Localization/en.lproj/          the push strings (push.<kind>.title/body), shared with the extension
 scripts/                        build.sh, run-live.sh, deploy-watch.sh, testflight.sh
 design/                         mockups, prototype, orb animations, icon
 docs/                           design, architecture, pairing

@@ -5,6 +5,15 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+### Added
+
+- **AbstractAssistant for iPhone and Apple Watch is one product (0.16.0).** The iPhone app
+  (`ai.abstractframework.assistant`) carries the watch app as its companion
+  (`ai.abstractframework.assistant.watchkitapp`), built from one project (`phone/iphone/project.yml`);
+  one sign-in for both (the watch takes the iPhone's); Apple push on both apps (registration with the
+  gateway and notification service extensions, framework backlog 1049). See the iPhone and watch
+  changelogs.
+
 ### Changed
 
 - An automation says what starts it in words: "When mail arrives in you@example.org", "When Python

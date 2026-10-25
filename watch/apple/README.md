@@ -2,8 +2,13 @@
 
 **Your AI, everywhere. On your wrist.** A voice-first Apple Watch app for your AbstractGateway.
 
-Version 0.5.0 · watchOS 26 or later · independent (no iPhone app needed) · pre-release through
-TestFlight. See [CHANGELOG.md](CHANGELOG.md) for what changed.
+Version 0.16.0 · watchOS 26 or later · the companion of the [AbstractAssistant iPhone
+app](../../phone/iphone/README.md), and independent (it also works with no iPhone nearby) ·
+pre-release through TestFlight. See [CHANGELOG.md](CHANGELOG.md) for what changed.
+
+**One product.** AbstractAssistant is one app for iPhone and Apple Watch: the watch app ships
+inside the iPhone app. Sign in on the iPhone and the watch takes the same sign-in; with no paired
+iPhone, sign in on the watch itself as before.
 
 The watch app is a thin client of AbstractGateway, like the desktop assistant: the gateway owns
 workflows, runs, tools, policy, speech and search, and the watch keeps only your sign-in, your
@@ -110,16 +115,19 @@ curl https://<host>.<tailnet>.ts.net/api/health
 
 ## Install
 
-- **TestFlight.** Testers invited to the TestFlight build install it from the TestFlight app; the
-  watch app installs on the paired watch.
+- **TestFlight.** Testers invited to the TestFlight build install AbstractAssistant on the
+  iPhone from the TestFlight app; the watch app installs on the paired watch with it.
 - **From source.** Build and run in the simulator or on your own watch with Xcode: see
   [BUILD.md](BUILD.md) and [docs/pairing.md](docs/pairing.md).
 
 ## Current limits
 
-- No push notifications: the app polls the gateway every 15 seconds while it is on screen, and
-  watchOS decides when background checks run.
-- Your sign-in is kept in the app's storage on the watch, not in a sealed store.
+- While the app is on screen it polls the gateway every 15 seconds. While it is closed,
+  approvals, questions, published alerts and automation results arrive through Apple push once
+  your gateway's push relay is on (the app registers itself at sign-in; nothing to set up);
+  until then watchOS decides when background checks run.
+- Your sign-in is sealed on the watch (shared with its notification extension). The sign-ins you
+  keep at Sign out ("Keep my sign-in") are still in the app's plain storage.
 - Tools allowed with Approve all are approved by the watch when it sees their approvals (on the orb
   page, or in its regular check while the app is open); with the app closed, they ask. Approve all
   covers the run's own conversation, or its automation, by that one's own tools.

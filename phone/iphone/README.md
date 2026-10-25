@@ -3,7 +3,10 @@
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**iPhone · 0.7.0 · iOS 26+**
+**iPhone · 0.16.0 · iOS 26+** · with the [Apple Watch app](../../watch/apple/README.md) inside
+
+AbstractAssistant is one product for iPhone and Apple Watch: install it on the iPhone and the
+watch app comes with it. Sign in once on the iPhone and the watch is signed in too.
 
 ## Three small spaces
 
@@ -237,19 +240,18 @@ Enter your own gateway’s address. There is no preselected public server.
 - **Registered email + one-time code:** request the code and enter it. Email sign-in must be
   enabled on your gateway, with a mailbox connected for your account.
 
-Sign-in data lives in the iPhone Keychain (`WhenUnlockedThisDeviceOnly`), outside iCloud
-sync and ordinary preferences. HTTPS is required outside the local network. Local HTTP
+Your sign-in is sealed in the app's own storage on this iPhone (shared with its notification
+extension and handed to your Apple Watch), outside iCloud sync and ordinary preferences. HTTPS is required outside the local network. Local HTTP
 addresses are accepted for development. A phone’s `localhost` is the phone itself; use
 your Mac’s LAN address to reach a gateway running there.
 
 **Take a look around** opens a separate demo with sample data. Its navigation label stays visible;
-demo actions do not contact a gateway or overwrite an existing Keychain sign-in.
+demo actions do not contact a gateway or overwrite an existing sign-in.
 
 ## Build and try it
 
-See [BUILD.md](BUILD.md). The project has its own bundle ID, Xcode project, build directory
-and gateway-client snapshot. Local developer builds do not modify the Watch application;
-Store builds embed the independent Watch companion as described below.
+See [BUILD.md](BUILD.md). One project builds the iPhone app and the Watch companion it embeds,
+with the iPhone's own gateway-client snapshot; the watch keeps its client in `watch/apple`.
 
 ## Testing and distribution
 
@@ -266,9 +268,10 @@ the public App Store automatically.
 
 ## What to expect from this preview
 
-- Foreground updates only: active runs are checked every three seconds; the lists every
-  fifteen seconds. No push notifications or background polling. The gateway continues work
-  after you leave the app. Open it again to catch up.
+- In front, active runs are checked every three seconds and the lists every fifteen seconds.
+  While the app is closed, approvals, questions, published alerts and automation results arrive
+  as notifications through Apple push once your gateway's push relay is on (nothing to set up:
+  the app registers itself at sign-in; the system's notification permission is the only switch).
 - Answers use the gateway’s run output; the phone does not implement token-by-token SSE.
 - The conversation picker shows the most recent 60 chat/discussion runs and opens up to
   30 turns per conversation. Older history remains on the gateway.
@@ -280,7 +283,7 @@ the public App Store automatically.
   no model runs on the iPhone. The orb’s level response is local; the conversation still
   proceeds through recording and transcription, review unless automatic sending is enabled,
   then a gateway run and optional speech.
-- Chat model overrides, editing existing automation definitions, push, CarPlay and iPad
+- Chat model overrides, editing existing automation definitions, CarPlay and iPad
   layouts remain outside this preview. The desktop and gateway console expose those controls.
 - Device microphone permissions, private-network reachability and real provider audio need
   verification on your own iPhone and gateway before daily use.

@@ -131,6 +131,7 @@ struct PhoneRoot: View {
             switch ProcessInfo.processInfo.arguments[index + 1] {
             case "inbox": tab = 1
             case "automations": tab = 2
+            case "settings": settings = true
             case "media":
                 if let session = SessionSummary.group([MockGatewayClient.mediaRun]).first { Task { await store.openSession(session) } }
             case "history":

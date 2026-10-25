@@ -2,11 +2,13 @@
 
 The watch app follows ADR 0001 of this repository: the gateway is the authority for workflows,
 runs, tools, policy and speech; the watch holds a credential and what it shows, and every action it
-takes is a gateway request.
+takes is a gateway request. Since 0.16.0 it is the companion of the AbstractAssistant iPhone app
+(one product, one project: [`../../phone/iphone/project.yml`](../../phone/iphone/BUILD.md)) and stays
+independent: it signs in and runs with no iPhone nearby.
 
 ```mermaid
 flowchart LR
-  subgraph Watch["Apple Watch (watchOS 26+, watch-only)"]
+  subgraph Watch["Apple Watch (watchOS 26+, the iPhone app's independent companion)"]
     UI[SwiftUI screens]
     Model[AppModel<br/>polling · haptics · state]
     Media[Listener · Speaker<br/>microphone · voice playback]
@@ -14,7 +16,11 @@ flowchart LR
     Files[MediaStore<br/>images · recordings · cache]
     BG[AnswerNotifier · RuntimeKeeper<br/>background · notifications · keep awake]
     Kit[AbstractGatewayClient<br/>Swift package]
-    Store[(app storage<br/>gateway · credential · choices)]
+    Store[(app group, sealed<br/>gateway · credential · reg)]
+    Push[WatchPush · WatchLink<br/>APNs registration · iPhone handoff]
+    NSE[notification service extension<br/>renders a push from the event]
+    Push --> Store
+    NSE --> Store
     UI --> Model --> Kit
     UI --> Media --> Kit
     UI --> Work --> Kit
@@ -178,16 +184,33 @@ sequenceDiagram
   interruption pauses the reading and resumes it when the system allows; the app coming back in
   front plays on from where the voice stopped. Only the voice playing turns the audio session off
   when it ends (an idle player leaving the screen does not).
-- **No push**: the gateway has no push channel; see the backlog track.
+- **Push (framework backlog 1049)**: `WatchPush` asks for the APNs token at launch with a sign-in
+  and after each sign-in; the shared `PushRegistrar` (package `AssistantPush`) sends
+  `PUT /api/gateway/me/push/devices/{device_id}` with exactly `{token, topic, env, app: "watch",
+  reg, name}` on a new token, a new sign-in or once a day, and `DELETE` at sign-out; `device_id`
+  is the watch's notification-report id (`notify.device`). A gateway answering `relay: off` keeps
+  the registration and nothing changes. The notification service extension (one source with the
+  iPhone's) reads `s` and `r` from the push: another sign-in's `r` shows passive "From an earlier
+  sign-in"; otherwise it reads `GET /me/events?after=s-1&limit=1` (8 s) and renders it as the
+  catch-up would (approval/question time-sensitive with the `needs` user info; result/failure
+  passive with the automation's name, kept in the app group; a published alert with its title).
+  On timeout the generic localized text stays. Every attention notification's id is the gateway's
+  collapse id, `sha256("attention:" + record_key)[:32]`, so the catch-up skips what a push showed.
+- **One sign-in with the iPhone**: `WatchLink` takes the iPhone's sign-in from WatchConnectivity
+  (application context, or the queued user info) when it is newer than the watch's own and names
+  another account or credential; it then signs in as the sign-in page would (a new `reg`).
 
 ## Security
 
 - The watch sends no `user_id` or `tenant_id`: the gateway derives the principal from the
   credential.
-- The credential (an account token, or a 30-day session with its CSRF value) is kept in the app's
-  storage on the watch (`UserDefaults`), not in a sealed store; Sign out forgets it, unless the
-  person chooses "Keep my sign-in", which keeps it in the same storage (`KeptSignIns`, one per
-  gateway host and user) for a one-tap return. A kept credential the gateway rejects (401) is
+- The credential (an account token, or a 30-day session with its CSRF value) is sealed in the
+  app group (`SharedSignInStore`: ChaChaPoly under a 0600 key file, readable after first unlock so
+  the notification extension can read it; never the OS keychain); the address and account name
+  also stay in UserDefaults for the sign-in page. A credential kept by an earlier version in
+  UserDefaults is sealed and removed there at the first read. Sign out forgets it, unless the
+  person chooses "Keep my sign-in", which keeps it in the app's plain storage (`KeptSignIns`, one
+  per gateway host and user; a known gap) for a one-tap return. A kept credential the gateway rejects (401) is
   forgotten, and a fresh sign-in as the same user on that gateway replaces it. The gateways signed
   into are remembered (`KnownGateways`, at most 8) for the sign-in page's chooser.
 - After a 401 the client sends nothing more (the gateway locks out an address after repeated
@@ -200,7 +223,8 @@ sequenceDiagram
 | Gap | Effect on the watch |
 |---|---|
 | No device pairing, one token per account | the watch signs in with an account token or an emailed code; rotating the token signs out every client |
-| No push channel | waits arrive on the next poll or background refresh, not within a second |
+| Push relay off by default (`--push-relay off`) | until the gateway operator turns the relay on, waits arrive on the next poll or background refresh |
+| The gateway's packaged push topics are still `….assistant.watch` / `….assistant.iphone` | the new apps' registrations (`….assistant`, `….assistant.watchkitapp`) are refused (422) until the gateway lists them |
 | No risk level in the wait payload | the risk comes from the tool catalog; Double Tap allows only approvals that neither send nor destroy |
 | No compact view of a run's records | the live steps read the run's full records (a thinking record carries the conversation); reads are skipped when the run has not changed |
 | No "seen" state for conversations | new answers are tracked on each watch |

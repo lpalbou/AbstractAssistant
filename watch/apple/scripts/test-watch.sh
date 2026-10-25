@@ -12,6 +12,8 @@ cd "$(dirname "$0")/.."
 MODE=${1:-light}; shift || true
 SIM=${WATCH_SIM:-7CB8FFBB-6A57-45E8-98D2-2CE7502252F8}
 LOG=${TMPDIR:-/tmp}/watch-tests-$MODE.log
+# The voice tests listen: the app's microphone permission (per bundle id) must not stop them.
+xcrun simctl privacy "$SIM" grant microphone ai.abstractframework.assistant.watchkitapp >/dev/null 2>&1 || true
 (cd Packages/AbstractGatewayClient && swift test 2>&1 | tail -1)
 (cd ../../phone/iphone/Packages/AssistantPush && swift test 2>&1 | tail -1)
 ARGS=(-project ../../phone/iphone/AbstractAssistant.xcodeproj -scheme AbstractAssistantWatchUITests

@@ -1,9 +1,39 @@
 # iPhone release history
 
-The native iPhone client has its own version and build number. Desktop package releases are
+The iPhone app and its Apple Watch companion share one version and build number (since 0.16.0). Desktop package releases are
 listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
+
+### Added
+
+- **One product with the Apple Watch (version 0.16.0, build 39).** The iPhone app is now
+  AbstractAssistant (`ai.abstractframework.assistant`, the existing App Store record) and carries
+  the watch app as its companion (`ai.abstractframework.assistant.watchkitapp`). One project builds
+  both, their watch face complication and two notification service extensions. The iPhone and the
+  watch share one version from now on: 0.16.0 for both, the next number after the desktop app's
+  0.15.0, so the family reads as one release line.
+- **Sign in once.** After you sign in on the iPhone (account token or emailed code), the watch takes
+  the same sign-in through WatchConnectivity. A watch without its iPhone still signs in on its own;
+  the latest sign-in wins on either device.
+- **Notifications while the app is closed (Apple push, framework backlog 1049).** The app registers
+  itself with your gateway at each sign-in, on each new push token and at most once a day, and
+  forgets the registration when you sign out; there is nothing to set up and no push setting (the
+  system's notification permission is the switch, asked once after your first sign-in). The
+  notification service extension reads the event from your own gateway and shows it as the app
+  would: "Approval needed" / "A question for you" (time-sensitive, opens the Inbox), "<automation> has
+  a result" / "<automation> failed" (opens Automations), a published alert with its title. A push for
+  an earlier sign-in says "From an earlier sign-in"; when the gateway cannot be read in time, the
+  generic text stays. Pushes are sent only once your gateway's push relay is on.
+
+### Changed
+
+- **Your sign-in is sealed in the app's own storage, no longer in the iPhone Keychain** (ChaChaPoly
+  under a private key file in the app group, readable by the notification extension; framework rule:
+  no OS keychain). The earlier developer app `ai.abstractframework.assistant.iphone` is retired: sign
+  in once in AbstractAssistant.
+- A notification for an approval, a question or a result now has the same identifier as its push
+  (the gateway's collapse id), and the app never shows again what a push already showed.
 
 ### Changed
 
