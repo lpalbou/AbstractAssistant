@@ -23,9 +23,16 @@ struct MeEventsTests {
     private func page(_ events: [UserEvent], more: Bool = false) -> UserEventsPage {
         UserEventsPage(events: events, nextAfter: events.last?.sequence ?? 0, head: events.last?.sequence ?? 0, more: more)
     }
-    private func wait(_ seq: Int, run: String, key: String, kind: String = "approval") -> UserEvent {
-        ev(seq, "attention.raised", ["kind": .string(kind), "run_id": .string(run), "session_id": .string("s"),
-                                     "wait_key": .string(key), "step_id": .string("st"), "record_key": .string("wait:\(run):\(key)")])
+    /// The gateway's shapes (L3 item 4b): no prompt (the run is the live fact); seen names the step.
+    private func wait(_ seq: Int, run: String, key: String, kind: String = "approval", step: String = "st") -> UserEvent {
+        ev(seq, "attention.raised", ["kind": .string(kind), "wait_kind": .string(kind == "approval" ? "tool_approval" : "ask_user"),
+                                     "run_id": .string(run), "session_id": .string("s"), "wait_key": .string(key),
+                                     "step_id": .string(step), "record_key": .string("wait:\(run):\(key):\(step)"),
+                                     "prompt_ref": .string("/api/gateway/runs/\(run)")])
+    }
+    private func waitSeen(_ seq: Int, run: String, key: String, step: String = "st", outcome: String = "approved") -> UserEvent {
+        ev(seq, "attention.seen", ["kind": .string("approval"), "run_id": .string(run), "wait_key": .string(key),
+                                   "step_id": .string(step), "outcome": .string(outcome)])
     }
     private func result(_ seq: Int, _ aid: String, _ item: Int, index: Int = 1, kind: String = "notify") -> UserEvent {
         ev(seq, "attention.raised", ["automation_id": .string(aid), "seq": .number(Double(item)), "index": .number(Double(index)),
@@ -74,7 +81,7 @@ struct MeEventsTests {
     @Test func seenAndFinishedBringTheCountsDown() {
         var s = AttentionState()
         _ = s.apply(page([wait(1, run: "r1", key: "k1"), wait(2, run: "r2", key: "k2"), result(3, "a", 1), result(4, "a", 2)]))
-        _ = s.apply(page([ev(5, "attention.seen", ["record_key": .string("wait:r1:k1")]),
+        _ = s.apply(page([waitSeen(5, run: "r1", key: "k1"),
                           ev(6, "run.finished", ["run_id": .string("r2"), "status": .string("completed")]),
                           ev(7, "attention.seen", ["automation_id": .string("a"), "seq": .number(1)])]))
         #expect(s.needYou == 0 && s.newResults == 1)
@@ -90,6 +97,18 @@ struct MeEventsTests {
         let told = s.apply(page([finished(1, "digest", occurrence: 4), result(2, "news", 1, index: 7), finished(3, "news", occurrence: 7)]))
         #expect(told == [.automationFinished(automationId: "digest", occurrence: 4, status: "completed", runId: "occ4"),
                          .news(automationId: "news", seq: 1, failed: false)])
+    }
+
+    @Test func theSameNodeAskingAgainIsANewWait() {
+        var s = AttentionState()
+        _ = s.apply(page([]))
+        _ = s.apply(page([wait(1, run: "r", key: "k", step: "a"), waitSeen(2, run: "r", key: "k", step: "a")]))
+        let told = s.apply(page([wait(3, run: "r", key: "k", step: "b")]))
+        #expect(told.count == 1 && s.needYou == 1)
+        _ = s.apply(page([waitSeen(4, run: "r", key: "k", step: "a")]))        // an old step's seen: still open
+        #expect(s.needYou == 1)
+        _ = s.apply(page([waitSeen(5, run: "r", key: "k", step: "b", outcome: "answered")]))
+        #expect(s.needYou == 0)
     }
 
     @Test func theStateSurvivesBeingKept() throws {

@@ -72,6 +72,8 @@ public struct AttentionState: Codable, Hashable, Sendable {
         public var kind: String
         public var sessionId: String?
         public var recordKey: String?
+        /// The ledger step that asked: the same node asking again is a new wait.
+        public var stepId: String?
     }
 
     /// The last sequence read.
@@ -104,10 +106,12 @@ public struct AttentionState: Codable, Hashable, Sendable {
                 let kind = e.string("kind") ?? ""
                 if let waitKey = e.string("wait_key"), let runId = e.string("run_id") {
                     let record = e.string("record_key")
+                    let step = e.string("step_id")
                     if let record, resolved.contains(record) { continue }
-                    guard !waits.contains(where: { $0.runId == runId && $0.waitKey == waitKey }) else { continue }
+                    if let step, resolved.contains("step:\(runId):\(waitKey):\(step)") { continue }
+                    guard !waits.contains(where: { $0.runId == runId && $0.waitKey == waitKey && $0.stepId == step }) else { continue }
                     waits.append(OpenWait(runId: runId, waitKey: waitKey, kind: kind.isEmpty ? "approval" : kind,
-                                          sessionId: e.string("session_id"), recordKey: record))
+                                          sessionId: e.string("session_id"), recordKey: record, stepId: step))
                     if notify { out.append(.needsYou(runId: runId, waitKey: waitKey, kind: kind, sessionId: e.string("session_id"))) }
                 } else if let aid = e.string("automation_id"), let seq = e.int("seq"), seq > 0 {
                     if let index = e.int("index") { raisedOccurrences.insert("\(aid)#\(index)") }
@@ -121,7 +125,10 @@ public struct AttentionState: Codable, Hashable, Sendable {
                     waits.removeAll { $0.recordKey == record }
                 }
                 if let run = e.string("run_id"), let key = e.string("wait_key") {
-                    waits.removeAll { $0.runId == run && $0.waitKey == key }
+                    // The gateway's seen names the step (`{kind, run_id, wait_key, step_id, outcome}`).
+                    let step = e.string("step_id")
+                    if let step { resolved = Array((resolved + ["step:\(run):\(key):\(step)"]).suffix(200)) }
+                    waits.removeAll { $0.runId == run && $0.waitKey == key && (step == nil || $0.stepId == nil || $0.stepId == step) }
                 }
                 if let aid = e.string("automation_id") {
                     let s = max(seen[aid] ?? 0, e.int("seq") ?? 0)
