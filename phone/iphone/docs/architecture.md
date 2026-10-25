@@ -75,8 +75,9 @@ are time-sensitive ("Approval needed", "A question for you"; a tap opens the Inb
 screens read the waits live), automation results are passive ("Morning digest has a result"; a tap
 opens Automations). The gateway's per-device rule applies (stay silent when another client channel
 on this same device showed the item less than a minute ago); no other client reports from a phone,
-so the phone notifies. The phone does not record its notifications on the stream: the gateway
-accepts the channels tray, assistant, code and watch, with no phone channel yet. Time-sensitive
+so the phone notifies. Each notification iOS accepted is recorded once on the stream
+(`POST /api/gateway/me/events/notifications {channel: "phone", outcome: "sent", record_key, device}`,
+with this iPhone's own device id, kept on the phone); nothing is sent when nothing was shown. Time-sensitive
 delivery through a Focus needs the time-sensitive notifications entitlement on the App ID; without
 it iOS delivers an ordinary notification. A gateway without the stream (404) leaves the app on its
 polls. Any automation-shaped event (`attention.*`, `trigger.event`, an occurrence's `run.finished`)

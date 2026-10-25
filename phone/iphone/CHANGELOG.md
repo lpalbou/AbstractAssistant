@@ -12,8 +12,9 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 - Your event stream reaches the iPhone: the app catches up at launch and when it comes to the front,
   then follows the gateway live while it is in front. A new approval or question is a time-sensitive
   notification (a tap opens the Inbox), a new automation result a quiet one (a tap opens
-  Automations); the Inbox and Automations tabs carry badges. Nothing from before the first look is
-  notified, and a gateway without the stream keeps the regular refresh.
+  Automations); the Inbox and Automations tabs carry badges. Each notification shown is recorded on
+  your event stream (`channel: "phone"`, this iPhone's device id). Nothing from before the first look
+  is notified, and a gateway without the stream keeps the regular refresh.
 - Unified iPhone + independent Watch Store delivery through the existing AbstractAssistant listing,
   with one human-approved archive and preserved developer identities.
 - iPhone CI runs package and native tests and retains an unsigned Release candidate. Manual

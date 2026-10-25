@@ -27,6 +27,12 @@ struct PhoneMeEventsTests {
                   time: f.string(from: Date().addingTimeInterval(-ago)))
     }
 
+    @Test func theReportBodyIsTheGatewaysShape() throws {
+        let body = try JSONEncoder().encode(NotificationReport(recordKey: "automation:completed:a:1", device: "p1"))
+        #expect(try JSONSerialization.jsonObject(with: body) as? [String: String]
+                == ["channel": "phone", "outcome": "sent", "record_key": "automation:completed:a:1", "device": "p1"])
+    }
+
     @Test func sseFramesBecomeEvents() {
         var p = UserEventSSEParser()
         let text = ": stream user:default:a\n\nid: 3\nevent: run.started\ndata: {\"id\":\"x\",\"type\":\"run.started\",\"sequence\":3,\"data\":{\"run_id\":\"r\"}}\n\n: keep-alive\n\n"
@@ -54,6 +60,8 @@ struct PhoneMeEventsTests {
                           shown(4, "mine", channel: "watch", device: "me", ago: 5)]))
         #expect(!s.notifiedElsewhere("rk", channel: "phone", device: "me"), "the tray is on the Mac, not this phone")
         #expect(s.notifiedElsewhere("rk", channel: "phone", device: "mac"))
+        #expect(!s.notifiedElsewhere("rk", channel: "phone", device: "me"), "the phone's own report never silences the phone")
+        #expect(s.notifiedElsewhere("rk", channel: "tray", device: "me"), "it counts for another client on that same device")
         #expect(!s.notifiedElsewhere("old", channel: "phone", device: "me"), "five minutes ago: not within the minute")
         #expect(s.notifiedElsewhere("mine", channel: "phone", device: "me"))
         #expect(!s.notifiedElsewhere("mine", channel: "phone", device: ""), "no device id: nothing to compare")

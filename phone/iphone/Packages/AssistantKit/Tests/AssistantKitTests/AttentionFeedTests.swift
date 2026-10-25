@@ -37,6 +37,10 @@ struct AttentionFeedTests {
         await mock.appendEvent(raised(2, "digest", 2))
         try await until { told.count == 1 }
         #expect(told.first?.recordKey == "automation:completed:digest:2" && feed.newResults == 2 && changes >= 1)
+        // Shown: recorded once on the stream as this iPhone's.
+        feed.reportShown(told[0])
+        try await until { await mock.reports.count == 1 }
+        #expect(await mock.reports == [NotificationReport(channel: "phone", recordKey: "automation:completed:digest:2", device: feed.deviceID)])
         try await until { await mock.streamOpens.count >= 2 }
         let opens = await mock.streamOpens
         #expect(opens.first == 1 && opens.dropFirst().allSatisfy { $0 >= 2 }, "each tail resumes after the last event read: \(opens)")

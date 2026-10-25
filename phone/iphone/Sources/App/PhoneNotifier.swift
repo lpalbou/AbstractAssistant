@@ -6,8 +6,7 @@ import AbstractGatewayClient
 /// time-sensitive ("Approval needed", "A question for you"; a tap opens the Inbox, whose wait screens
 /// read the waits live), automation news is passive ("Morning digest has a result"; a tap opens
 /// Automations). One notification per item: the identifier is the item's, so a repeat replaces it.
-/// Not recorded on the stream: the gateway's notification channels are tray, assistant, code and
-/// watch, with no phone channel yet.
+/// Once iOS accepted it, `shown` runs (the feed records it on the stream, channel "phone").
 @MainActor
 final class PhoneNotifier: NSObject, UNUserNotificationCenterDelegate {
     static let shared = PhoneNotifier()
@@ -17,7 +16,7 @@ final class PhoneNotifier: NSObject, UNUserNotificationCenterDelegate {
 
     func activate() { UNUserNotificationCenter.current().delegate = self }
 
-    func post(_ notice: AttentionNotice, automationNames: [String: String]) {
+    func post(_ notice: AttentionNotice, automationNames: [String: String], shown: @escaping @MainActor () -> Void = {}) {
         let content = UNMutableNotificationContent()
         content.sound = .default
         switch notice {
@@ -44,7 +43,8 @@ final class PhoneNotifier: NSObject, UNUserNotificationCenterDelegate {
                 asked = true
                 _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
             }
-            try? await center.add(request)
+            do { try await center.add(request) } catch { return }
+            shown()
         }
     }
 

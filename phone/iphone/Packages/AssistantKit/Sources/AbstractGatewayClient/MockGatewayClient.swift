@@ -119,6 +119,10 @@ public actor MockGatewayClient: GatewayClient {
     public private(set) var streamOpens: [Int] = []
     func noteStreamOpen(_ id: Int) { streamOpens.append(id) }
 
+    /// What the app reported as shown (`POST /me/events/notifications`).
+    public private(set) var reports: [NotificationReport] = []
+    public func reportNotification(_ report: NotificationReport) async throws { reports.append(report) }
+
     /// A gateway without the stream (404 on both routes).
     public private(set) var eventsUnsupported = false
     public func setEventsUnsupported(_ value: Bool) { eventsUnsupported = value }

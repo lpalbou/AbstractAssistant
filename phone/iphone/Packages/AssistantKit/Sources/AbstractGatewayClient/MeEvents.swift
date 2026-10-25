@@ -106,7 +106,7 @@ public struct AttentionState: Codable, Hashable, Sendable {
     }
 
     /// The client channels whose `notification.sent` can silence another client on the same device.
-    public static let clientChannels: Set<String> = ["tray", "assistant", "code", "watch"]
+    public static let clientChannels: Set<String> = ["tray", "assistant", "code", "watch", "phone"]
 
     /// The gateway's rule (`events_stream.already_notified`): another client channel on the SAME device
     /// showed `recordKey` less than `window` seconds ago.
@@ -236,9 +236,22 @@ public struct UserEventSSEParser: Sendable {
     }
 }
 
+/// The body of `POST /me/events/notifications`: this client showed the notice on `device`.
+public struct NotificationReport: Encodable, Hashable, Sendable {
+    public var channel: String
+    public var outcome = "sent"
+    public var recordKey: String
+    public var device: String
+    public init(channel: String = "phone", recordKey: String, device: String) {
+        self.channel = channel; self.recordKey = recordKey; self.device = device
+    }
+    enum CodingKeys: String, CodingKey { case channel, outcome, recordKey = "record_key", device }
+}
+
 /// A gateway without the person's event stream answers these (404): the app keeps its polls.
 public extension GatewayClient {
     func events(after: Int, limit: Int) async throws -> UserEventsPage { throw GatewayError.http(status: 404, body: "") }
+    func reportNotification(_ report: NotificationReport) async throws { throw GatewayError.http(status: 404, body: "") }
     nonisolated func userEventStream(lastEventID: Int) -> AsyncThrowingStream<UserEvent, Error> {
         AsyncThrowingStream { $0.finish(throwing: GatewayError.http(status: 404, body: "")) }
     }

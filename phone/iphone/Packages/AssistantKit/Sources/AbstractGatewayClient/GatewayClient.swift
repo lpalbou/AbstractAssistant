@@ -96,6 +96,9 @@ public protocol GatewayClient: Sendable {
     func events(after: Int, limit: Int) async throws -> UserEventsPage
     /// `GET /api/gateway/me/events/stream` with `Last-Event-ID`: the live tail; ends when the server closes it.
     nonisolated func userEventStream(lastEventID: Int) -> AsyncThrowingStream<UserEvent, Error>
+    /// `POST /api/gateway/me/events/notifications {channel: "phone", outcome: "sent", record_key, device}`:
+    /// this iPhone showed the notice (sent once, only after it actually notified).
+    func reportNotification(_ report: NotificationReport) async throws
     func entityLedger(name: String, runID: String, after: Int) async throws -> LedgerPage
     func childRuns(ofRunID: String) async throws -> [RunSummary]
     /// `POST /api/gateway/commands` `{type: "cancel"}`.
@@ -427,6 +430,10 @@ public actor LiveGatewayClient: GatewayClient {
             }
             continuation.onTermination = { _ in task.cancel() }
         }
+    }
+
+    public func reportNotification(_ report: NotificationReport) async throws {
+        _ = try await request("POST", "api/gateway/me/events/notifications", body: report)
     }
 
     public func events(after: Int, limit: Int) async throws -> UserEventsPage {

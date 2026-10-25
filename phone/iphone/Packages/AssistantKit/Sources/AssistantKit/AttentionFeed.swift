@@ -8,7 +8,8 @@ import AbstractGatewayClient
 /// open) and `newResults` (automation results not seen) feed the tab badges; each NEW item after the
 /// first catch-up is handed to `onNotice` (the app posts the local notification) unless another
 /// client on this same device already showed it (the gateway's per-device rule — on a phone no
-/// other client reports, so the phone notifies). The state is kept per connection, so a relaunch
+/// other client reports, so the phone notifies); once shown, `reportShown` records it on the stream
+/// (`channel: "phone"`, this iPhone's device id). The state is kept per connection, so a relaunch
 /// resumes where it stopped and never replays history as notifications.
 @MainActor @Observable
 public final class AttentionFeed {
@@ -43,6 +44,14 @@ public final class AttentionFeed {
         let id = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(16))
         defaults.set(id, forKey: "phone.notify.device")
         return id
+    }
+
+    /// The app showed `notice`: one `POST /me/events/notifications {channel: "phone"}` (none for a
+    /// notice without an attention record, such as a quiet automation finish).
+    public func reportShown(_ notice: AttentionNotice) {
+        guard let client, let record = notice.recordKey else { return }
+        let report = NotificationReport(channel: "phone", recordKey: record, device: deviceID)
+        Task { try? await client.reportNotification(report) }
     }
 
     public func start(client: any GatewayClient, scope: String, foreground: Bool) {

@@ -51,7 +51,8 @@ struct PhoneRoot: View {
             PhoneNotifier.shared.open = { tab = $0 }
             store.attention.onNotice = { notice in
                 PhoneNotifier.shared.post(notice, automationNames: Dictionary(store.automations.map { ($0.id, $0.name ?? "") }.filter { !$0.1.isEmpty },
-                                                                              uniquingKeysWith: { a, _ in a }))
+                                                                              uniquingKeysWith: { a, _ in a }),
+                                          shown: { store.attention.reportShown(notice) })
             }
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--demo") { demo(); return }
