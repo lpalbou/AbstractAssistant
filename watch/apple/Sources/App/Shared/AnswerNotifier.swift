@@ -211,16 +211,33 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
         let notices = state.apply(page)
         Self.saveAttention(state)
         FaceSnapshot.attention(state)                              // the watch face's complication
-        for n in notices { await post(n) }
+        for n in notices {
+            // The watch is its own device: it always notifies, then says so (one request per notice
+            // it showed, none otherwise) so the person's other clients can tell.
+            if await post(n), let record = n.recordKey {
+                try? await client.reportNotification(recordKey: record, device: Self.deviceId)
+            }
+        }
         return true
     }
 
-    /// One notification per notice: what needs you is time-sensitive, news is passive.
-    func post(_ notice: AttentionNotice) async {
+    /// This watch's opaque device id for the notification records (16 hex, kept on the watch).
+    static var deviceId: String {
+        let d = UserDefaults.standard
+        if let id = d.string(forKey: "notify.device"), !id.isEmpty { return id }
+        let id = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(16))
+        d.set(id, forKey: "notify.device")
+        return id
+    }
+
+    /// One notification per notice: what needs you is time-sensitive, news is passive. True when
+    /// it was handed to the system (false: skipped, or the system refused it).
+    @discardableResult
+    func post(_ notice: AttentionNotice) async -> Bool {
         let content = UNMutableNotificationContent()
         content.sound = .default
         switch notice {
-        case .needsYou(let run, let key, let kind, _):
+        case .needsYou(let run, let key, let kind, _, _):
             content.title = kind == "question" ? "A question for you" : "Approval needed"
             content.body = "Open the Assistant to answer."
             content.interruptionLevel = .timeSensitive
@@ -229,21 +246,26 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
             var seen = UserDefaults.standard.stringArray(forKey: "notify.waits") ?? []
             seen.append("\(run):\(key)")
             UserDefaults.standard.set(Array(seen.suffix(80)), forKey: "notify.waits")
-        case .news(let aid, _, let failed):
+        case .news(let aid, _, let failed, _):
             content.title = AutomationNames.name(aid) + (failed ? " failed" : " has a result")
             content.body = "Tap to read it."
             content.interruptionLevel = .passive
             content.userInfo = ["automation": aid]
         case .automationFinished(let aid, _, let status, let run):
-            guard AutomationNotices.on, !AutomationNotices.wasDelivered(run) else { return }
+            guard AutomationNotices.on, !AutomationNotices.wasDelivered(run) else { return false }
             content.title = AutomationNames.name(aid) + (status == "failed" ? " failed" : " finished")
             content.body = "Tap to read it."
             content.interruptionLevel = .passive
             content.userInfo = ["automation": aid]
             if let run { AutomationNotices.delivered(run: run) }
         }
-        try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: notice.identifier, content: content, trigger: nil))
+        do {
+            try await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: notice.identifier, content: content, trigger: nil))
+        } catch {
+            trace("post failed \(notice.identifier): \(error)"); return false
+        }
         trace("posted \(notice.identifier)")
+        return true
     }
 
     /// Each automation that finished a run since the last look: "Morning digest finished" and the

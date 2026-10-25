@@ -122,6 +122,18 @@ public protocol GatewayClient: Sendable {
     /// first (one request: the background refresh's whole radio cost). A gateway without the
     /// stream answers 404 (`GatewayError.http(404, …)`).
     func events(after: Int, limit: Int) async throws -> UserEventsPage
+    /// `POST /api/gateway/me/events/notifications {channel: "watch", outcome: "sent", record_key, device}`:
+    /// the watch showed this notice (sent once, only after it actually notified).
+    func reportNotification(recordKey: String, device: String) async throws
+}
+
+/// The body of `POST /me/events/notifications`.
+public struct NotificationReport: Encodable, Sendable {
+    public var channel = "watch"
+    public var outcome = "sent"
+    public var recordKey: String
+    public var device: String
+    enum CodingKeys: String, CodingKey { case channel, outcome, recordKey = "record_key", device }
 }
 
 /// Live client over URLSession: `Authorization: Bearer <token>`, or a gateway session from an
@@ -207,6 +219,10 @@ public actor LiveGatewayClient: GatewayClient {
     }
 
     public func me() async throws -> Principal { try await get("api/gateway/me", as: Principal.self) }
+
+    public func reportNotification(recordKey: String, device: String) async throws {
+        _ = try await request("POST", "api/gateway/me/events/notifications", body: NotificationReport(recordKey: recordKey, device: device))
+    }
 
     public func events(after: Int, limit: Int) async throws -> UserEventsPage {
         try await get("api/gateway/me/events",

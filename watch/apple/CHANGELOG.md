@@ -14,6 +14,8 @@ channel (TestFlight, then the App Store); the Python package's history is in
   needed", "A question for you"; a tap opens what waits for you), a new automation result is a quiet
   notification ("Morning digest has a result"), and the complication's "needs you" and "news" follow
   it. Nothing from before the watch first looked is posted. An older gateway keeps the previous check.
+  Each notification the watch shows is recorded on your event stream (`channel: "watch"`, the watch's
+  own device id; one request per notification shown, none otherwise), so your other devices can tell.
 
 - **Your avatar on your watch face.** The Assistant complication, for the circular, corner, inline
   and rectangular slots (and the Smart Stack): the orb style you chose, as the app draws it (the

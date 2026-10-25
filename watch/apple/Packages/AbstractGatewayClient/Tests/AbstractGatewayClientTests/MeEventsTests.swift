@@ -69,9 +69,10 @@ struct MeEventsTests {
         _ = s.apply(page([]))
         let told = s.apply(page([wait(1, run: "r1", key: "k1"), wait(2, run: "r2", key: "q", kind: "question"),
                                  result(3, "a", 1, kind: "failure")]))
-        #expect(told == [.needsYou(runId: "r1", waitKey: "k1", kind: "approval", sessionId: "s"),
-                         .needsYou(runId: "r2", waitKey: "q", kind: "question", sessionId: "s"),
-                         .news(automationId: "a", seq: 1, failed: true)])
+        #expect(told == [.needsYou(runId: "r1", waitKey: "k1", kind: "approval", sessionId: "s", recordKey: "wait:r1:k1:st"),
+                         .needsYou(runId: "r2", waitKey: "q", kind: "question", sessionId: "s", recordKey: "wait:r2:q:st"),
+                         .news(automationId: "a", seq: 1, failed: true, recordKey: "automation:completed:a:1")])
+        #expect(told.map(\.recordKey) == ["wait:r1:k1:st", "wait:r2:q:st", "automation:completed:a:1"])
         #expect(told.map(\.identifier) == ["wait-r1:k1", "wait-r2:q", "attention-a-1"])
         // The same page read again (a retried refresh) tells nothing.
         #expect(s.apply(page([wait(1, run: "r1", key: "k1"), result(3, "a", 1)])).isEmpty)
@@ -96,7 +97,7 @@ struct MeEventsTests {
         _ = s.apply(page([]))
         let told = s.apply(page([finished(1, "digest", occurrence: 4), result(2, "news", 1, index: 7), finished(3, "news", occurrence: 7)]))
         #expect(told == [.automationFinished(automationId: "digest", occurrence: 4, status: "completed", runId: "occ4"),
-                         .news(automationId: "news", seq: 1, failed: false)])
+                         .news(automationId: "news", seq: 1, failed: false, recordKey: "automation:completed:news:1")])
     }
 
     @Test func theSameNodeAskingAgainIsANewWait() {
@@ -116,6 +117,12 @@ struct MeEventsTests {
         _ = s.apply(page([wait(1, run: "r1", key: "k1"), result(2, "a", 1)]))
         let kept = try JSONDecoder().decode(AttentionState.self, from: JSONEncoder().encode(s))
         #expect(kept == s)
+    }
+
+    @Test func theReportBodyIsTheGatewaysShape() throws {
+        let body = try JSONEncoder().encode(NotificationReport(recordKey: "automation:completed:a:1", device: "w1"))
+        let object = try JSONSerialization.jsonObject(with: body) as? [String: String]
+        #expect(object == ["channel": "watch", "outcome": "sent", "record_key": "automation:completed:a:1", "device": "w1"])
     }
 
     @Test func theMockServesPagesAfterACursor() async throws {

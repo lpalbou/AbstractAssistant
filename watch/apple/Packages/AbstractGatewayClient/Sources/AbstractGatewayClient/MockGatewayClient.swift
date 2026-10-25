@@ -511,6 +511,11 @@ public actor MockGatewayClient: GatewayClient {
     /// The person's event stream (canned: empty unless a test appends to it).
     public var userEvents: [UserEvent] = []
     public func appendEvent(_ e: UserEvent) { userEvents.append(e) }
+    /// What the watch reported as shown (`POST /me/events/notifications`).
+    public var reports: [NotificationReport] = []
+    public func reportNotification(recordKey: String, device: String) async throws {
+        reports.append(NotificationReport(recordKey: recordKey, device: device))
+    }
 
     public func events(after: Int, limit: Int) async throws -> UserEventsPage {
         let rest = userEvents.filter { $0.sequence > after }

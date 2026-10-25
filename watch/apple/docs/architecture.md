@@ -152,6 +152,9 @@ sequenceDiagram
   automation list read; a tap opens it); an automation's run that finished without a result posts
   "… finished" (Settings → Notifications; a run already posted by its answer stream is skipped). The
   first read only takes stock: what happened before the watch first looked never notifies.
+  The watch is its own device: it always notifies, then records each notice it showed with
+  `POST /api/gateway/me/events/notifications {channel: "watch", outcome: "sent", record_key, device}`
+  (its device id is kept on the watch; one request per notice shown, none otherwise).
   Time-sensitive needs the `com.apple.developer.usernotifications.time-sensitive` entitlement to
   break through a Focus; without it watchOS delivers it as an ordinary notification.
 - **Older gateway (no `/me/events`, 404)**: the refresh reads the waits (the tools' risk tiers only

@@ -46,17 +46,25 @@ public struct UserEventsPage: Codable, Hashable, Sendable {
 /// What the watch should tell the person about the events it just read.
 public enum AttentionNotice: Hashable, Sendable {
     /// A run stopped for the person: an approval or a question (time-sensitive).
-    case needsYou(runId: String, waitKey: String, kind: String, sessionId: String?)
+    case needsYou(runId: String, waitKey: String, kind: String, sessionId: String?, recordKey: String? = nil)
     /// An automation raised a result (or failed): news (passive).
-    case news(automationId: String, seq: Int, failed: Bool)
+    case news(automationId: String, seq: Int, failed: Bool, recordKey: String? = nil)
     /// An automation's run finished without raising anything ("Morning digest finished").
     case automationFinished(automationId: String, occurrence: Int, status: String, runId: String?)
+
+    /// The attention record the notice is about (reported back once shown), nil for a quiet finish.
+    public var recordKey: String? {
+        switch self {
+        case .needsYou(_, _, _, _, let r), .news(_, _, _, let r): r
+        case .automationFinished: nil
+        }
+    }
 
     /// The notification's identifier: one notification per thing, whatever reads it again.
     public var identifier: String {
         switch self {
-        case .needsYou(let run, let key, _, _): "wait-\(run):\(key)"   // the same as `Wait.id`'s notification
-        case .news(let a, let seq, _): "attention-\(a)-\(seq)"
+        case .needsYou(let run, let key, _, _, _): "wait-\(run):\(key)"   // the same as `Wait.id`'s notification
+        case .news(let a, let seq, _, _): "attention-\(a)-\(seq)"
         case .automationFinished(let a, let occ, _, _): "automation-\(a)-\(occ)"
         }
     }
@@ -112,12 +120,12 @@ public struct AttentionState: Codable, Hashable, Sendable {
                     guard !waits.contains(where: { $0.runId == runId && $0.waitKey == waitKey && $0.stepId == step }) else { continue }
                     waits.append(OpenWait(runId: runId, waitKey: waitKey, kind: kind.isEmpty ? "approval" : kind,
                                           sessionId: e.string("session_id"), recordKey: record, stepId: step))
-                    if notify { out.append(.needsYou(runId: runId, waitKey: waitKey, kind: kind, sessionId: e.string("session_id"))) }
+                    if notify { out.append(.needsYou(runId: runId, waitKey: waitKey, kind: kind, sessionId: e.string("session_id"), recordKey: record)) }
                 } else if let aid = e.string("automation_id"), let seq = e.int("seq"), seq > 0 {
                     if let index = e.int("index") { raisedOccurrences.insert("\(aid)#\(index)") }
                     guard seq > (seen[aid] ?? 0), !(raised[aid] ?? []).contains(seq) else { continue }
                     raised[aid, default: []].append(seq)
-                    if notify { out.append(.news(automationId: aid, seq: seq, failed: kind == "failure")) }
+                    if notify { out.append(.news(automationId: aid, seq: seq, failed: kind == "failure", recordKey: e.string("record_key"))) }
                 }
             case "attention.seen":
                 if let record = e.string("record_key") {
