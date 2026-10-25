@@ -87,6 +87,8 @@ public final class AssistantStore {
 
     public private(set) var waits: [Wait] = []
     public private(set) var automations: [AutomationSummary] = []
+    /// The names automation triggers are said with (connections' labels, mailboxes' addresses).
+    public private(set) var triggerNames = TriggerNames()
     /// The person's event stream (backlog 1047): badges and local notifications.
     public let attention: AttentionFeed
     public private(set) var entitiesError: String?
@@ -260,6 +262,12 @@ public final class AssistantStore {
             do {
                 let rows = try await client.automations()
                 guard epoch == generation else { return }; if archives == automationArchiveRevision { automations = rows }; automationsError = nil
+                let unnamed = rows.filter { ($0.triggerText ?? "").isEmpty }
+                let wantsConnections = unnamed.contains { ["feed.item", "webhook.received"].contains($0.triggerSource ?? "") }
+                let wantsMailboxes = unnamed.contains { $0.triggerSource == "email.received" }
+                if wantsConnections || wantsMailboxes, let names = try? await client.triggerNames(connections: wantsConnections, mailboxes: wantsMailboxes) {
+                    guard epoch == generation else { return }; triggerNames = names
+                }
             } catch { guard epoch == generation else { return }; automationsError = say(error); handle(error) }
             guard epoch == generation else { return }
             await loadEntities()

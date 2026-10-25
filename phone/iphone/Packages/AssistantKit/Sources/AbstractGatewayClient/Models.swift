@@ -411,7 +411,32 @@ public struct AutomationSummary: Codable, Hashable, Sendable, Identifiable {
     public var revision: Int?
     /// The run in progress right now (scheduled or Run now), nil when idle.
     public var currentOccurrence: CurrentOccurrence?
+    /// What starts it, in the gateway's own words (`trigger_text`), when it serves them.
+    public var triggerText: String?
     public var every: String? { triggerConfig?["every"]?.stringValue }
+
+    /// It runs when something happens (mail, a feed item, a call), not on a clock: no next run.
+    public var isEventTrigger: Bool { triggerSource != nil && triggerSource != "schedule" }
+
+    /// What starts it, in words — never a source id: the gateway's `trigger_text`, else the schedule's
+    /// sentence, "When mail arrives in <address>", "When <feed> has a new item", "When <webhook> is
+    /// called", "By hand". `names` gives the connections' labels and the mailboxes' addresses.
+    public func triggerWords(_ names: TriggerNames = TriggerNames()) -> String {
+        if let text = triggerText?.trimmingCharacters(in: .whitespaces), !text.isEmpty { return text }
+        let label = triggerConfig?["connection_id"]?.stringValue.flatMap { names.connections[$0] }
+        switch triggerSource {
+        case nil: return scheduleText ?? rowDetail
+        case "schedule": return scheduleText ?? "On a schedule"
+        case "manual": return "By hand"
+        case "email.received":
+            let account = triggerConfig?["account"]?.stringValue ?? "self"
+            let address = names.mailboxes[account == "self" ? "default" : account]
+            return address.map { "When mail arrives in \($0)" } ?? "When mail arrives in your mailbox"
+        case "feed.item": return label.map { "When \($0) has a new item" } ?? "When the feed has a new item"
+        case "webhook.received": return label.map { "When \($0) is called" } ?? "When its web address is called"
+        default: return "When its trigger fires"
+        }
+    }
 
     public init(id: String, name: String?, status: String?, scheduleText: String?, lastOccurrence: LastOccurrence?,
                 cadence: String? = nil, detail: String? = nil, nextFireAt: String? = nil, attention: Attention? = nil,
@@ -427,7 +452,7 @@ public struct AutomationSummary: Codable, Hashable, Sendable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case id, automationId = "automation_id", name, title, status, scheduleText = "schedule_text", lastOccurrence = "last_occurrence"
         case nextFireAt = "next_fire_at", attention, contextMode = "context_mode", occurrenceCount = "occurrence_count", trigger, cadence, detail
-        case revision, currentOccurrence = "current_occurrence"
+        case revision, currentOccurrence = "current_occurrence", triggerText = "trigger_text"
     }
     enum TriggerKeys: String, CodingKey { case sourceId = "source_id", sourceVersion = "source_version", config, summary }
 
@@ -447,6 +472,7 @@ public struct AutomationSummary: Codable, Hashable, Sendable, Identifiable {
         cadence = try c.decodeIfPresent(String.self, forKey: .cadence)
         detail = try c.decodeIfPresent(String.self, forKey: .detail)
         revision = try? c.decodeIfPresent(Int.self, forKey: .revision)
+        triggerText = try? c.decodeIfPresent(String.self, forKey: .triggerText)
         currentOccurrence = try? c.decodeIfPresent(CurrentOccurrence.self, forKey: .currentOccurrence)
         if let t = try? c.nestedContainer(keyedBy: TriggerKeys.self, forKey: .trigger) {
             triggerSource = try? t.decodeIfPresent(String.self, forKey: .sourceId)
@@ -460,9 +486,10 @@ public struct AutomationSummary: Codable, Hashable, Sendable, Identifiable {
             if let every = config?["every"]?.stringValue { text = "every \(every)" }
             else if let kind = config?["kind"]?.stringValue { text = kind }
             else if let summary = try t.decodeIfPresent(String.self, forKey: .summary) { text = summary }
-            else if source.hasPrefix("email") { text = "when an email arrives" }
-            else if !source.isEmpty { text = source }
         }
+        // A served schedule sentence only means something for a schedule (another source's row may
+        // carry its id there): the words of an event trigger come from `triggerWords`.
+        if let source = triggerSource, source != "schedule" { text = nil }
         scheduleText = text
     }
 
@@ -1185,4 +1212,14 @@ struct RunInputData: Decodable {
     struct Inner: Decodable { let prompt: String? }
     let inputData: Inner?
     enum CodingKeys: String, CodingKey { case inputData = "input_data" }
+}
+
+/// The names a trigger is said with: connection id -> its label, mailbox id -> its address
+/// (`default` = the primary).
+public struct TriggerNames: Hashable, Sendable {
+    public var connections: [String: String]
+    public var mailboxes: [String: String]
+    public init(connections: [String: String] = [:], mailboxes: [String: String] = [:]) {
+        self.connections = connections; self.mailboxes = mailboxes
+    }
 }

@@ -60,11 +60,11 @@ struct AutomationsScreen: View {
                 HStack { Image(systemName: "clock").foregroundStyle(PhoneTheme.lavender); Spacer(); QuietLabel(text: (a.status ?? "Unknown").capitalized, color: a.status == "active" ? PhoneTheme.mint : PhoneTheme.secondary) }
                     .padding(.trailing, 56).frame(minHeight: 44)
                 Text(a.name ?? "Automation").font(.system(.title3, design: .rounded, weight: .semibold))
-                Text(a.scheduleText ?? a.rowDetail).font(.footnote).foregroundStyle(PhoneTheme.secondary)
+                Text(a.triggerWords(store.triggerNames)).font(.footnote).foregroundStyle(PhoneTheme.secondary)
                 if let excerpt = a.lastOccurrence?.excerpt {
                     AutomationMarkdownPreview(text: excerpt)
                 }
-                HStack { if let next = a.nextFireAt.flatMap(ISO8601.date) { Text("Next "); Text(next, style: .relative) }; Spacer(); Image(systemName: "arrow.up.right") }.font(.caption).foregroundStyle(PhoneTheme.lavender)
+                HStack { if !a.isEventTrigger, let next = a.nextFireAt.flatMap(ISO8601.date) { Text("Next "); Text(next, style: .relative) }; Spacer(); Image(systemName: "arrow.up.right") }.font(.caption).foregroundStyle(PhoneTheme.lavender)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -163,7 +163,7 @@ struct AutomationDetailScreen: View {
                 if let a = row {
                     QuietLabel(text: (a.status ?? "Unknown").capitalized, color: a.status == "active" ? PhoneTheme.mint : PhoneTheme.secondary)
                     Text(a.name ?? "Automation").font(.system(.largeTitle, design: .rounded, weight: .semibold))
-                    Text(a.scheduleText ?? a.rowDetail).foregroundStyle(PhoneTheme.secondary)
+                    Text(a.triggerWords(store.triggerNames)).foregroundStyle(PhoneTheme.secondary)
                     if a.status == "active" || a.status == "paused" { HStack {
                         Button { Task { await runNow(a) } } label: { Label("Run now", systemImage: "play.fill") }
                             .buttonStyle(.borderedProminent).tint(PhoneTheme.mint).foregroundStyle(PhoneTheme.ground).disabled(a.currentOccurrence != nil)

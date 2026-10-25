@@ -50,7 +50,8 @@ AbstractGateway, with the conversation at the center and the controls you need c
   Older grants saved as Auto offer a one-time review to choose which tools should ask again.
   Questions still require an answer. Decisions already made on another device cannot resume
   a different wait.
-- **Automations.** See your routines and the latest 20 runs. Tap a dated run card for its explanation, attempts, recorded error and expandable activity; results refresh while the detail screen is open. Run an
+- **Automations.** See your routines, what starts each one in words ("When Python news has a new
+  item", "When mail arrives in you@example.org", the schedule), and the latest 20 runs. Tap a dated run card for its explanation, attempts, recorded error and expandable activity; results refresh while the detail screen is open. Run an
   active or paused routine now, pause it, or resume it. Tap **New automation** (or **+** above an existing list) to create a routine: enter a short title, choose a workflow and its inputs, and select an
   interval or daily time, choose its tools, and decide whether it builds on earlier runs.
   Assistant workflows keep the separate task-instructions field.

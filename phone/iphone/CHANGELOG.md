@@ -5,6 +5,13 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
 
+### Changed
+
+- An automation says what starts it in words: "When mail arrives in you@example.org", "When Python
+  news has a new item", "When Orders is called", "By hand", or the schedule's sentence (the gateway's
+  own words when it serves them); one that runs when something happens shows no next run. A run the
+  gateway retries reads "The gateway will retry this run."
+
 ## [0.7.0] — 2026-10-25
 
 ### Added

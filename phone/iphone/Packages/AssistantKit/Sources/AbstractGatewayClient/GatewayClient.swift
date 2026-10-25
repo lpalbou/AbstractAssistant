@@ -99,6 +99,9 @@ public protocol GatewayClient: Sendable {
     /// `POST /api/gateway/me/events/notifications {channel: "phone", outcome: "sent", record_key, device}`:
     /// this iPhone showed the notice (sent once, only after it actually notified).
     func reportNotification(_ report: NotificationReport) async throws
+    /// `GET /triggers/connections` (labels) and `GET /me/email/accounts` (addresses), only the ones asked
+    /// for: the words an automation's trigger is said with.
+    func triggerNames(connections: Bool, mailboxes: Bool) async throws -> TriggerNames
     func entityLedger(name: String, runID: String, after: Int) async throws -> LedgerPage
     func childRuns(ofRunID: String) async throws -> [RunSummary]
     /// `POST /api/gateway/commands` `{type: "cancel"}`.
@@ -430,6 +433,19 @@ public actor LiveGatewayClient: GatewayClient {
             }
             continuation.onTermination = { _ in task.cancel() }
         }
+    }
+
+    public func triggerNames(connections: Bool, mailboxes: Bool) async throws -> TriggerNames {
+        struct Connections: Decodable { struct Row: Decodable { var connection_id: String; var label: String? }; var connections: [Row] }
+        struct Mailboxes: Decodable { struct Row: Decodable { var account_id: String; var address: String? }; var items: [Row] }
+        var names = TriggerNames()
+        if connections, let page = try? await get("api/gateway/triggers/connections", as: Connections.self) {
+            for r in page.connections { if let l = r.label, !l.isEmpty { names.connections[r.connection_id] = l } }
+        }
+        if mailboxes, let page = try? await get("api/gateway/me/email/accounts", as: Mailboxes.self) {
+            for r in page.items { if let a = r.address, !a.isEmpty { names.mailboxes[r.account_id] = a } }
+        }
+        return names
     }
 
     public func reportNotification(_ report: NotificationReport) async throws {

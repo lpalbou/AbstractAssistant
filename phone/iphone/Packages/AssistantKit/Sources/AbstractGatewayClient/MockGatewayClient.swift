@@ -119,6 +119,11 @@ public actor MockGatewayClient: GatewayClient {
     public private(set) var streamOpens: [Int] = []
     func noteStreamOpen(_ id: Int) { streamOpens.append(id) }
 
+    /// The names the mock's triggers are said with.
+    public var names = TriggerNames()
+    public func setNames(_ value: TriggerNames) { names = value }
+    public func triggerNames(connections: Bool, mailboxes: Bool) async throws -> TriggerNames { names }
+
     /// What the app reported as shown (`POST /me/events/notifications`).
     public private(set) var reports: [NotificationReport] = []
     public func reportNotification(_ report: NotificationReport) async throws { reports.append(report) }

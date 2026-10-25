@@ -252,6 +252,7 @@ public struct NotificationReport: Encodable, Hashable, Sendable {
 public extension GatewayClient {
     func events(after: Int, limit: Int) async throws -> UserEventsPage { throw GatewayError.http(status: 404, body: "") }
     func reportNotification(_ report: NotificationReport) async throws { throw GatewayError.http(status: 404, body: "") }
+    func triggerNames(connections: Bool, mailboxes: Bool) async throws -> TriggerNames { TriggerNames() }
     nonisolated func userEventStream(lastEventID: Int) -> AsyncThrowingStream<UserEvent, Error> {
         AsyncThrowingStream { $0.finish(throwing: GatewayError.http(status: 404, body: "")) }
     }

@@ -41,7 +41,7 @@ public struct AutomationRunExplanation: Sendable {
         } else {
             message = switch status {
             case "waiting": "This run is waiting for a response or tool approval."
-            case "backoff": "The gateway will retry this occurrence."
+            case "backoff": "The gateway will retry this run."
             case "running", "admitted": "The gateway is processing this task."
             case "cancelled": "This run was stopped before it finished."
             case "completed": Self.nonempty(occurrence.answer) == nil && Self.nonempty(occurrence.excerpt) == nil ? "The run completed without a text answer. Its activity may contain files or tool results." : "This run completed."
