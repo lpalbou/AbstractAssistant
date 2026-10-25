@@ -10,6 +10,8 @@ This directory records durable architecture decisions for AbstractAssistant.
 
 - [ADR 0003](0003_unified_apple_product.md) — Accepted — One Store listing and archive for iPhone + independent Watch; generated Store composition and shared release ownership.
 
+- [ADR 0004](0004_notes_inside_the_assistant_abstractnote_stays_a_service.md) — Accepted — Notes are captured and recalled in the assistant's Apple apps; AbstractNote stays a gateway service and web app; the Notes surface is capability-gated; shared Swift is shared once.
+
 ## Related Docs
 
 - [../architecture.md](../architecture.md)
