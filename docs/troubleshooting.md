@@ -113,9 +113,18 @@ Answer it from AbstractObserver. See
 ## I do not get automation notifications
 
 Only notable results, failures after all retries and runs waiting for you notify; ordinary results
-never do. While the palette is hidden the Assistant checks every 5 minutes, so a notification can
-arrive up to 5 minutes after the event. Each item notifies once, also across relaunches. Check that
-macOS allows notifications for the Assistant (System Settings → Notifications).
+never do. Each item notifies once, also across relaunches. Check that macOS allows notifications for
+the Assistant and for the gateway's tray icon (System Settings → Notifications): on one Mac the tray
+icon notifies first and the Assistant stays silent for what it showed. On a gateway without your
+event stream (`/api/gateway/me/events` answers 404), the Assistant checks every 5 minutes while the
+palette is hidden, so a notification can arrive up to 5 minutes after the event.
+
+## The attention line or the badge stays after I answered elsewhere
+
+The line above the transcript and the menu-bar badge follow your event stream. A wait answered on
+another device disappears as soon as the gateway records it; **Open** checks with the gateway that
+the run still waits and says so when it no longer does. If the line stays, check the connection orb:
+while the gateway is unreachable, the stream resumes where it stopped once it is back.
 
 ## A tool is "Disabled on gateway"
 

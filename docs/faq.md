@@ -116,6 +116,13 @@ the stream: every 60 seconds while the palette is visible and every 5 minutes wh
 Results that arrive while the Assistant is closed are waiting in the automation, marked new, when
 you open it.
 
+## Why do I get only one notification when the tray icon and the Assistant both run?
+
+On one Mac, the gateway's tray icon is the default notifier. When an item needs you, the Assistant
+waits a few seconds and stays silent if the tray icon (or AbstractCode) on the same Mac already
+showed it; otherwise it notifies and tells the gateway it did. Your watch and iPhone are other
+devices and notify on their own. See [automations.md](automations.md#notifications-and-your-event-stream).
+
 ## Why can't I approve a tool call when a scheduled run uses it?
 
 With **Run without asking** (the default), creating the automation is the approval, and its

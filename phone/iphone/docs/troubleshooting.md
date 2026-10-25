@@ -38,6 +38,14 @@ A failed run and an unavailable connection are different problems:
 Read the error before retrying a task that can make changes. Earlier tools might have completed
 before a later step failed. Refreshing details only reads existing records.
 
+## Notifications do not appear
+
+Notifications come from your gateway's event stream while the app runs, and when it next opens or
+comes to the front; there are no push notifications while it is closed. Check that iOS allows
+notifications for AbstractAssistant (Settings → Notifications) and that your gateway offers the
+stream (an older gateway keeps the Inbox and Automations lists up to date, without notifications).
+A Focus can hold "Approval needed" back unless AbstractAssistant is allowed in that Focus.
+
 ## Find the installed version
 
 Open the **Settings** wheel. **App → Version** shows the installed marketing version and build,

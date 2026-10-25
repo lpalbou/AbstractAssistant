@@ -227,6 +227,13 @@ the stream. Whether the gateway offers live replies is read from
   whether this client is on that machine) and `GET /api/gateway/runs/{run_id}/workspace/content?path=`
   (a copy of a picture an answer names, or of a file opened from the files view, when the client
   is on another machine)
+- Your event stream ([automations.md](automations.md#notifications-and-your-event-stream)):
+  `GET /api/gateway/me/events?after=<sequence>&limit=1000` (the pages read at start and after a
+  reconnect), `GET /api/gateway/me/events/stream?heartbeat_s=15` (the live tail, resumed with the
+  `Last-Event-ID` header), `POST /api/gateway/me/events/notifications`
+  (`{"channel": "assistant", "outcome": "sent", "record_key", "device"}` after each notification the
+  app shows). A gateway that answers 404 has no stream: the app reads the automation list on its
+  timers instead.
 - Automations ([automations.md](automations.md)), used only when the capabilities advertise
   `contracts.common.automations.available: true`:
   - `GET /api/gateway/automations` (every page, following `next_cursor`) and

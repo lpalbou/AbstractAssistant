@@ -306,6 +306,10 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
 - `gateway/automations.py`, `core/automations.py`, `ui/automations.py` — the Automations API
   client, its Qt-free presentation rules (labels, enabled controls, chat pairs, the create body,
   notifications), and the switcher rows, automation view, Schedule window and polling hub.
+- `gateway/me_events.py`, `core/attention.py` — the person's event stream (catch-up pages, the SSE
+  follower with `Last-Event-ID` reconnect, the notification report) and its Qt-free fold (what
+  needs you, new results, which device already notified); the palette's attention banner, tray badge
+  and notifier sit on top of them.
 - `ui/styles.py`, `theme.py`, `icons.py` — one token set, one stylesheet builder, the Lucide glyphs.
 
 ## Workflow

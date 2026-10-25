@@ -22,6 +22,11 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   as a chat, switch it off or on (**Active**), run it now, edit or archive it, answer the runs that wait for you, discuss a
   result, and get a tray notification only when a result is notable, a run fails or a run waits for
   you. See [docs/automations.md](docs/automations.md).
+- What waits for you, everywhere: the app follows your event stream on the gateway, so a line above
+  the transcript and the menu-bar badge show the approvals, questions and new automation results
+  across every conversation, within seconds. **Open** takes you to the conversation that waits. On
+  one Mac you get one notification per item: the gateway's tray icon notifies first and the
+  Assistant stays silent for what it already showed.
 - Live run activity in the transcript: the current step, elapsed time, recent tool calls with
   their arguments and durations, and pause / resume / stop controls.
 - Live replies: with **Stream replies** on (the default), the
@@ -42,7 +47,11 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 - Multi-attachment composer with an image gallery, drag and drop, and artifact previews.
 - On your wrist: **AbstractAssistant for Apple Watch** (pre-release, TestFlight) talks to the same
   gateway by voice around the orb, answers approvals and questions, continues your sessions and
-  runs your automations. See [watch/apple/README.md](watch/apple/README.md).
+  runs your automations; your avatar on the watch face shows what needs you and what is new. See
+  [watch/apple/README.md](watch/apple/README.md).
+- In your pocket: **AbstractAssistant for iPhone** has the same conversations, tools and
+  automations, with notifications and tab badges for what needs you. See
+  [phone/iphone/README.md](phone/iphone/README.md).
 
 ## Install
 
