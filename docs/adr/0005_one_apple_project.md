@@ -1,4 +1,4 @@
-# ADR 0004 — One project for the AbstractAssistant iPhone and Watch apps
+# ADR 0005 — One project for the AbstractAssistant iPhone and Watch apps
 
 Status: Accepted
 Date: 2026-10-25
