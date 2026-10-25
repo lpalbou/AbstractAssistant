@@ -515,7 +515,7 @@ def test_controls_follow_status_and_run_now_stays_enabled_while_paused() -> None
     # A run in progress = the gateway's current_occurrence, never last_occurrence.
     busy = automation_controls(triage)  # the fixture's current_occurrence: run #7
     assert busy["run_now"][0] is False and busy["stop_current"][0] is True
-    assert busy["run_now"][1] == "An occurrence is in progress."
+    assert busy["run_now"][1] == "A run is in progress."
     inferred = automation_controls(dict(triage, current_occurrence=None))  # last_occurrence says "waiting"
     assert inferred["run_now"][0] is True and inferred["stop_current"][0] is False
     archived = automation_controls(dict(news, status="archived"))
@@ -925,7 +925,7 @@ def test_a_disabled_run_now_says_why_first_then_the_hint(palette, stub) -> None:
     window._open_automation(TRIAGE)
     button = window.automation_view.control_buttons["run_now"]
     assert not button.isEnabled()
-    assert button.toolTip() == "An occurrence is in progress.\n" + rules.control_hint("run_now", stub.summary(TRIAGE))
+    assert button.toolTip() == "A run is in progress.\n" + rules.control_hint("run_now", stub.summary(TRIAGE))
     assert button.toolTip().endswith("Growing context: later runs see this run in their history.")
 
 
@@ -1009,16 +1009,15 @@ def test_discuss_switches_to_the_returned_session(palette, stub) -> None:
     assert not view.isVisibleTo(window), "the discussion replaces the automation view"
     banner = window.banner_label.text()
     assert banner == (
-        "Discussion opened from occurrence 6: the automation's history up to that point is in context; "
-        f"its files are mounted read-only at /data/automations/{TRIAGE}/workspace; "
-        "this session has its own writable workspace."
+        "Discussion of run #6 opened: it knows the automation's runs up to this one; the "
+        f"automation's files are read-only at /data/automations/{TRIAGE}/workspace, and this conversation has its own folder."
     )
 
 
 @pytest.mark.basic
 def test_a_discuss_response_without_workspaces_is_said() -> None:
     text, tone = rules.discussion_banner({"session_id": "s", "run_id": "r"}, occurrence_index=3)
-    assert tone == "warn" and "did not report its workspaces" in text
+    assert tone == "warn" and "did not say where its files are" in text
 
 
 @pytest.mark.basic
@@ -1423,7 +1422,7 @@ def test_discuss_wording_matches_the_web_and_the_captured_response_carries_both_
     window._poll_automations()
     window._open_automation(TRIAGE)
     pair = next(p for p in window.automation_view.pairs if p.index == 6)
-    assert pair.discuss_button.text() == "Discuss — fork at this occurrence (own workspace, automation files read-only)"
+    assert pair.discuss_button.text() == "Discuss this run (your own copy; the automation's files stay read-only)"
     assert pair.discuss_button.toolTip() == (
         "Starts a new session that forks this automation at #6 with its full history (runs 1–6). It works in its "
         "own writable workspace; the automation's files are mounted read-only for the file tools (shell commands are "
@@ -1564,7 +1563,7 @@ def test_an_occurrence_is_a_chat_exchange_with_the_chats_edges(palette, stub) ->
         row = pair.discuss_row
         assert row.mapTo(window, QPoint(0, 0)).y() >= box.mapTo(window, QPoint(0, box.height())).y()
         assert right(pair.discuss_button) == right(box)
-        assert pair.discuss_button.text() == "Discuss — fork at this occurrence (own workspace, automation files read-only)"
+        assert pair.discuss_button.text() == "Discuss this run (your own copy; the automation's files stay read-only)"
         assert pair.discuss_button.height() < 40, "one compact line at this width"
         assert not pair.discuss_box.isVisible()
     # The information stays: failed reason + red tone, waiting highlighted.
@@ -1842,7 +1841,7 @@ def test_email_rules_mirror_the_kit() -> None:
     assert rules.email_trigger_config(rules.EmailTriggerForm(every_amount=0, every_unit="m"))[1]
     assert rules.email_trigger_config(rules.EmailTriggerForm(max_batch=1001))[1]
     assert trigger_summary({"source_id": "email.received", "source_version": 1, "config": config}) == (
-        "when an email arrives · from boss@example.test, a@x.test, example.org · to me@example.test · "
+        "When mail arrives in your mailbox · from boss@example.test, a@x.test, example.org · to me@example.test · "
         "subject contains “invoice” · with attachments · checked every 10 minutes · up to 20 per run"
     )
     assert rules.email_allowed_recipients("self", "x@y.test") == (["self"], [])
@@ -1937,7 +1936,7 @@ def test_schedule_sheet_creates_an_email_automation(palette, stub) -> None:
     assert sheet.email_box.isVisibleTo(sheet) and not sheet.custom_host.isVisibleTo(sheet)
     assert sheet.email_every_amount.value() == 1 and sheet.email_every_unit.currentData() == "h"
     assert sheet.email_rule.text() == EMAIL_TEXT["interval_rule"]
-    assert sheet.preview_label.text() == "when an email arrives · checked every hour · up to 100 per run"
+    assert sheet.preview_label.text() == "When mail arrives in your mailbox · checked every hour · up to 100 per run"
     sheet.email_from_in.setText("boss@example.test")
     sheet.email_has_attachment.setCurrentIndex(sheet.email_has_attachment.findData("yes"))
     sheet.notify_email.setChecked(True)
@@ -1972,7 +1971,7 @@ def test_the_view_edits_an_email_triggers_interval(palette, stub) -> None:
     window._poll_automations()
     window._open_automation(NEWS)
     view = window.automation_view
-    assert "when an email arrives" in view.meta_label.text()
+    assert "When mail arrives in your mailbox" in view.meta_label.text()
     assert view.edit_every.isEnabled() and view.edit_every.text() == "1h"
     view.edit_box.show()
     view.edit_every.setText("3h")
@@ -2175,3 +2174,64 @@ def test_workflow_switch_requires_inputs_and_applies_defaults():
     assert rules.prepare_workflow_input(schema, {"prompt": "Task", "tools": []}) == {"ticket": "default-ticket", "prompt": "Task", "tools": []}
     with pytest.raises(ValueError, match="does not report"):
         rules.prepare_workflow_input({}, {"prompt": "Task"})
+
+
+
+@pytest.mark.basic
+def test_a_trigger_is_said_in_words_never_by_its_source_id() -> None:
+    from abstractassistant.core.automations import set_trigger_names, trigger_summary
+
+    feed = {"source_id": "feed.item", "source_version": 1, "config": {"connection_id": "tc_1"}}
+    hook = {"source_id": "webhook.received", "source_version": 1, "config": {"connection_id": "tc_2"}}
+    mail = {"source_id": "email.received", "source_version": 1, "config": {"account": "work", "every": "1h"}}
+    try:
+        set_trigger_names(connections={"tc_1": "Python news", "tc_2": "Orders"}, mailboxes={"default": "me@example.test", "work": "work@example.test"})
+        assert trigger_summary(feed) == "When Python news has a new item"
+        assert trigger_summary(hook) == "When Orders is called"
+        assert trigger_summary(mail).startswith("When mail arrives in work@example.test · checked every hour")
+        assert trigger_summary({**mail, "config": {}}).startswith("When mail arrives in me@example.test")
+        assert trigger_summary({"source_id": "manual", "source_version": 1}) == "By hand"
+        # The gateway's own words win when the row carries them.
+        assert trigger_summary(feed, {"trigger_text": "When Python Insider posts"}) == "When Python Insider posts"
+        set_trigger_names(connections={}, mailboxes={})
+        for trigger in (feed, hook, mail, {"source_id": "calendar.event", "source_version": 3, "config": {}}):
+            text = trigger_summary(trigger)
+            assert "@" not in text.split(" · ")[0] or "mail" in text, text
+            assert trigger["source_id"] not in text, text
+    finally:
+        set_trigger_names(connections={}, mailboxes={})
+
+
+@pytest.mark.basic
+def test_an_event_trigger_shows_no_next_run_and_the_hub_reads_its_names() -> None:
+    from abstractassistant.core.automations import set_trigger_names, trigger_summary
+    from abstractassistant.ui.automations import AutomationsHub, _next_run_text
+
+    feed = {"automation_id": "a1", "status": "active", "next_run_at": None,
+            "trigger": {"source_id": "feed.item", "source_version": 1, "config": {"connection_id": "tc_9"}}}
+    assert _next_run_text(feed) == "", "it runs when something happens: no next run"
+    schedule = {**feed, "trigger": {"source_id": "schedule", "source_version": 2, "config": {}}}
+    assert _next_run_text(schedule) == "no next run"
+
+    class Names:
+        calls: list = []
+
+        def trigger_connections(self):
+            self.calls.append("connections")
+            return {"connections": [{"connection_id": "tc_9", "label": "Python news"}]}
+
+        def my_mailboxes(self):
+            self.calls.append("mailboxes")
+            return {"items": [{"account_id": "default", "address": "me@example.test"}]}
+
+    client = Names()
+    try:
+        AutomationsHub._read_trigger_names(client, [feed])
+        assert client.calls == ["connections"], "only what a row needs is read"
+        assert trigger_summary(feed["trigger"], feed) == "When Python news has a new item"
+        served = {**feed, "trigger_text": "When Python news has a new item"}
+        client.calls.clear()
+        AutomationsHub._read_trigger_names(client, [served])
+        assert client.calls == [], "a served trigger_text needs no lookup"
+    finally:
+        set_trigger_names(connections={}, mailboxes={})

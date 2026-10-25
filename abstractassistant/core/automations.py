@@ -86,6 +86,9 @@ __all__ = [
     "schedule_config",
     "target_from_workflow",
     "trigger_summary",
+    "set_trigger_names",
+    "mailbox_address",
+    "is_event_trigger",
 ]
 
 # ------------------------------------------------------------------ cadence
@@ -136,20 +139,58 @@ def format_utc(ts: Any) -> str:
     return f"{base}{'' if parsed.second == 0 else parsed.strftime(':%S')} UTC"
 
 
+# What a trigger is called, for its words: connection id -> its label, mailbox id ->
+# its address ("self"/"default" = the primary). Filled by the automations hub from
+# `GET /triggers/connections` and `GET /me/email/accounts` when a row needs them.
+_TRIGGER_NAMES: Dict[str, Dict[str, str]] = {"connections": {}, "mailboxes": {}}
+
+
+def set_trigger_names(*, connections: Optional[Mapping[str, str]] = None, mailboxes: Optional[Mapping[str, str]] = None) -> None:
+    if connections is not None:
+        _TRIGGER_NAMES["connections"] = {str(k): str(v) for k, v in connections.items() if v}
+    if mailboxes is not None:
+        _TRIGGER_NAMES["mailboxes"] = {str(k): str(v) for k, v in mailboxes.items() if v}
+
+
+def mailbox_address(account: Any) -> str:
+    key = str(account or "self")
+    names = _TRIGGER_NAMES["mailboxes"]
+    if key in ("self", "default"):
+        return names.get("default") or names.get("self") or ""
+    return names.get(key, "")
+
+
 def trigger_summary(trigger: Mapping[str, Any], served: Optional[Mapping[str, Any]] = None) -> str:
-    """The cadence label of a ``TriggerBinding``. Every schedule row (``schedule@1`` or
-    ``@2``, every kind, its bounds included) reads ONLY the gateway's served
-    ``schedule_rule_text`` (the summary's, or the preview's) — the Assistant composes
-    no schedule sentence (round 16, R16.1; the kit's ``triggerSummary``)."""
+    """What starts an automation, in words — never a source id. The gateway's served
+    ``trigger_text`` when the row carries it; every schedule row (``schedule@1`` or
+    ``@2``) reads ONLY the served ``schedule_rule_text`` — the Assistant composes no
+    schedule sentence (round 16, R16.1; the kit's ``triggerSummary``); other sources
+    are named from their connection: "When mail arrives in <address>", "When <feed>
+    has a new item", "When <webhook> is called", "By hand"."""
+    text = served.get("trigger_text") if isinstance(served, Mapping) else None
+    if isinstance(text, str) and text.strip():
+        return text.strip()
     t = trigger if isinstance(trigger, Mapping) else {}
     source, version = t.get("source_id"), t.get("source_version")
+    config = t.get("config") if isinstance(t.get("config"), Mapping) else {}
     if source == "schedule":
         return served_rule_text(served, version)
-    if source == "manual" and version == 1:
-        return "manual runs only"
+    if source == "manual":
+        return "By hand"
     if is_email_trigger(t):
-        return email_trigger_label(t.get("config") or {})
-    return f"{source}@{version}"
+        return email_trigger_label(config)
+    label = _TRIGGER_NAMES["connections"].get(str(config.get("connection_id") or ""), "")
+    if source == "feed.item":
+        return f"When {label} has a new item" if label else "When the feed has a new item"
+    if source == "webhook.received":
+        return f"When {label} is called" if label else "When its web address is called"
+    return "When its trigger fires"
+
+
+def is_event_trigger(trigger: Any) -> bool:
+    """A trigger that fires on something happening (no clock): no "next run" to show."""
+    t = trigger if isinstance(trigger, Mapping) else {}
+    return t.get("source_id") not in (None, "schedule")
 
 
 STATUS_LABELS = {
@@ -291,7 +332,7 @@ def automation_controls(summary: Mapping[str, Any], *, busy: bool = False) -> Di
         "active": active,
         "pause": gate("pause", status == "active", "Already paused." if status == "paused" else "The automation has ended."),
         "resume": gate("resume", status == "paused", "Already running on schedule." if status == "active" else "The automation has ended."),
-        "run_now": gate("run_now", live and not running, "An occurrence is in progress." if running else "The automation has ended."),
+        "run_now": gate("run_now", live and not running, "A run is in progress." if running else "The automation has ended."),
         "stop_current": gate("stop_current", running, "Nothing is running."),
         "revise": gate("revise", True, ""),
         "archive": gate("archive", True, ""),
@@ -641,10 +682,11 @@ def email_trigger_config(form: EmailTriggerForm) -> Tuple[Dict[str, Any], List[s
 
 
 def email_trigger_label(config: Mapping[str, Any]) -> str:
-    """"when an email arrives · from … · checked every hour · up to 100 per run"."""
+    """"When mail arrives in me@example.org · from … · checked every hour · up to 100 per run"."""
     cfg = config if isinstance(config, Mapping) else {}
     f = cfg.get("filter") if isinstance(cfg.get("filter"), Mapping) else {}
-    parts = ["when an email arrives"]
+    address = mailbox_address(cfg.get("account"))
+    parts = [f"When mail arrives in {address}" if address else "When mail arrives in your mailbox"]
     sources = list(f.get("from_in") or []) + list(f.get("from_domain_in") or [])
     if sources:
         parts.append("from " + ", ".join(sources))
@@ -929,7 +971,7 @@ def new_attention_notices(
                     key=key,
                     automation_id=aid,
                     title=f"{title} needs your approval" if asks_approval else f"{title} is waiting for you",
-                    body=str(wait.get("prompt") or "An occurrence is waiting for your answer."),
+                    body=str(wait.get("prompt") or "A run is waiting for your answer."),
                     kind="wait",
                 )
             )
@@ -1292,13 +1334,12 @@ def discussion_banner(result: Mapping[str, Any], *, occurrence_index: int) -> Tu
     own = str(result.get("workspace_root") or "").strip()
     if not mounted or not own:
         return (
-            f"Discussion opened from occurrence {occurrence_index}, but the gateway did not report its workspaces "
-            "(mounted_workspace / workspace_root missing).",
+            f"Discussion of run #{occurrence_index} opened, but the gateway did not say where its files are.",
             "warn",
         )
     return (
-        f"Discussion opened from occurrence {occurrence_index}: the automation's history up to that point is in "
-        f"context; its files are mounted read-only at {mounted}; this session has its own writable workspace.",
+        f"Discussion of run #{occurrence_index} opened: it knows the automation's runs up to this one; the "
+        f"automation's files are read-only at {mounted}, and this conversation has its own folder.",
         "info",
     )
 
@@ -1309,9 +1350,9 @@ API_ERROR_TEXT = {
     "unauthorized": "Sign in to the gateway to manage automations.",
     "forbidden": "You are not allowed to do this with automations.",
     "automation_not_found": "This automation does not exist (or is not yours).",
-    "occurrence_not_found": "That occurrence does not exist.",
+    "occurrence_not_found": "That run does not exist.",
     "revision_conflict": "The automation changed since this view loaded. Reload it, then try again.",
-    "automation_busy": "An occurrence is already running or queued. Wait for it to finish.",
+    "automation_busy": "A run is already in progress or queued. Wait for it to finish.",
     "invalid_state": "The automation's current state does not allow this.",
     "identity_conflict": "This request id was already used for a different request.",
     "invalid_request": "The gateway rejected the request as malformed.",

@@ -7201,9 +7201,9 @@ class AssistantPalette(QMainWindow):
                 view.set_error(f"Your answer did not reach the gateway ({value}). The run is still waiting; try again.")
                 return
             view.set_notice(
-                ("Approved; the occurrence continues." if answer is True else "Denied; the occurrence continues.")
+                ("Approved; the run continues." if answer is True else "Denied; the run continues.")
                 if kind == "tool_approval"
-                else "Answer sent; the occurrence continues."
+                else "Answer sent; the run continues."
             )
             self._reload_open_automation()
 

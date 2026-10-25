@@ -44,6 +44,8 @@ AUTOMATIONS_PATH = "/api/gateway/automations"
 TRIGGER_SOURCES_PATH = "/api/gateway/trigger-sources"
 # The signed-in user's own email account (framework backlog 0992; never a secret).
 MY_EMAIL_PATH = "/api/gateway/me/email"
+MY_MAILBOXES_PATH = "/api/gateway/me/email/accounts"
+TRIGGER_CONNECTIONS_PATH = "/api/gateway/triggers/connections"
 # Round 16 (R16.1): the gateway previews a trigger without storing anything (the
 # Schedule sheet's line under "When", the time zone, the next run).
 SCHEDULE_PREVIEW_PATH = "/api/gateway/automations/schedule-preview"
@@ -282,6 +284,16 @@ class AutomationsClient:
     def trigger_sources(self) -> Dict[str, Any]:
         """``GET /trigger-sources`` → ``{items: [TriggerSource + {available, …}]}``."""
         return self._call("GET", TRIGGER_SOURCES_PATH)
+
+    def trigger_connections(self) -> Dict[str, Any]:
+        """``GET /triggers/connections`` → ``{connections: [{connection_id, label, …}]}`` (your own;
+        the labels name a feed or a webhook trigger in words)."""
+        return self._call("GET", TRIGGER_CONNECTIONS_PATH)
+
+    def my_mailboxes(self) -> Dict[str, Any]:
+        """``GET /me/email/accounts`` → ``{items: [{account_id, address, …}]}`` (the addresses name
+        an email trigger's mailbox)."""
+        return self._call("GET", MY_MAILBOXES_PATH)
 
     def my_email(self) -> Dict[str, Any]:
         """``GET /me/email`` → the user's own account status (``configured``,

@@ -261,6 +261,10 @@ the stream. Whether the gateway offers live replies is read from
   - `GET /api/gateway/trigger-sources` (the automation window requires `schedule` version 1; it
     offers **When an email arrives** only when `email.received` version 1 is listed)
   - `GET /api/gateway/me/email` (whether your email account is usable; AbstractGateway 0.8.0+)
+  - `GET /api/gateway/triggers/connections` and `GET /api/gateway/me/email/accounts`, read only when a
+    row's trigger is a feed, a webhook or a mailbox and the row has no `trigger_text`: the connection's
+    label and the mailbox's address name the trigger ("When Python news has a new item", "When mail
+    arrives in you@example.org")
 
   Every refusal is read from the `detail.reason_code` envelope. A waiting run of an automation is
   answered with the `resume` command on `/api/gateway/commands`, whose payload follows the wait's

@@ -195,8 +195,12 @@ one (see [Limits](#limits)).
 Click a row in the Automations tab. The palette shows the automation in place of the
 conversation, and **← Chat** returns to it.
 
-The header gives the title and one line with the cadence, status, next run, context mode and run
-count, then the workflow and the automation's workspaces in one line, **Workspaces: <summary>**
+The header gives the title and one line with what starts it, status, next run, context mode and run
+count. What starts it is said in words: the gateway's schedule sentence, "When mail arrives in
+you@example.org", "When Python news has a new item" (the feed connection's name), "When Orders is
+called" (the webhook connection's name) or "By hand"; an automation that runs when something happens
+shows no next run. The words come from the gateway (`trigger_text`) when it serves them, else from
+your connections and mailboxes, then the workflow and the automation's workspaces in one line, **Workspaces: <summary>**
 (the gateway's summary for the stored choice, or for your default when it uses your default,
 verbatim). Below it, a highlighted block lists what is new ("New · #12 Price above threshold",
 "Failed · #9") and how many runs are waiting for you.
@@ -232,7 +236,7 @@ stay counted until you answer them.
 Hovering a control shows what it does: the same text as the web clients (AbstractUIC's shared
 control hints). Run now's tooltip adds the next scheduled time ("Next scheduled run: 2026-09-27
 08:00 UTC.") and, for a Growing automation, that later runs see this run. A control that does not
-apply is disabled, and its tooltip first gives the reason ("An occurrence is in progress.", "Not
+apply is disabled, and its tooltip first gives the reason ("A run is in progress.", "Not
 permitted for this automation."). The gateway decides which
 controls you may use on each automation; an archived automation has none.
 
@@ -271,7 +275,7 @@ the run keeps waiting.
 
 ## Discuss a result
 
-**Discuss** on a finished run opens a field ("What do you want to discuss about this result?");
+**Discuss this run** (your own copy; the automation's files stay read-only) on a finished run opens a field ("What do you want to discuss about this result?");
 **Start** asks the gateway to open a new session seeded with the automation's whole history up to
 that run (whatever its context mode), sends your question in it, and switches the palette to it. It
 is an ordinary chat: it keeps the workflow's normal tools and appears among your chats with the badge
@@ -353,7 +357,7 @@ automations, and no automation route is called before that.
   successful check replaces the line.
 - Every refusal from the gateway is shown in words with the gateway's own message, for example
   "Sign in to the gateway to manage automations.", "This automation does not exist (or is not
-  yours).", "An occurrence is already running or queued. Wait for it to finish."
+  yours).", "A run is already in progress or queued. Wait for it to finish."
 - Automations are scoped to the gateway user you are signed in as: signing in as another user shows
   that user's automations.
 
@@ -362,7 +366,7 @@ automations, and no automation route is called before that.
 - A Repeat schedule is a fixed interval in UTC. Daily, Weekly, Monthly and Once run in the
   automation's time zone, set from your account's when it is created; **Edit** does not change an
   automation's zone.
-- The Assistant creates scheduled and incoming-email automations; **Run now** starts an additional occurrence.
+- The Assistant creates scheduled and incoming-email automations; **Run now** starts one more run.
 - A maximum number of runs and an end date are set when the automation is created; **Edit** does
   not change them.
 - **Edit** changes title, interval or calendar rule, context settings, workflow, available tools and result-email recipients. To change the task, revise it through the gateway API or create a new automation.

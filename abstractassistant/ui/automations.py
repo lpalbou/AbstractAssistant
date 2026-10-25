@@ -77,6 +77,8 @@ from ..core.automations import (
     parse_duration,
     revise_changes,
     trigger_summary,
+    is_event_trigger,
+    set_trigger_names,
     CALENDAR_DAYS,
     CALENDAR_KINDS,
     SCHEDULE_TEXT,
@@ -292,7 +294,9 @@ def _next_run_text(summary: Mapping[str, Any], *, now: Optional[datetime] = None
     if status in {"archived", "completed", "failed"}:
         return STATUS_LABELS.get(str(status), str(status)).lower()
     if not summary.get("next_run_at"):
-        return "no next run"
+        # A trigger that waits for something to happen has no next run to show.
+        trigger = summary.get("trigger") if isinstance(summary.get("trigger"), Mapping) else {}
+        return "" if is_event_trigger(trigger) else "no next run"
     relative = next_run_text(summary, now=now)  # "next in 14 h" / "next: now"
     local = format_served_local(summary.get("next_run_local"), summary.get("time_zone"))
     when = relative[len("next in "):] if relative.startswith("next in ") else "now"
@@ -518,7 +522,7 @@ class WrappingButton(QLabel):
 
 
 # The web panel's wording (ui-kit 12f736a), word for word.
-DISCUSS_LABEL = "Discuss — fork at this occurrence (own workspace, automation files read-only)"
+DISCUSS_LABEL = "Discuss this run (your own copy; the automation's files stay read-only)"
 
 
 def discuss_help(index: int) -> str:
@@ -629,7 +633,7 @@ class OccurrencePair(QWidget):
             nl.setSpacing(6)
             if failure is not None:
                 attempts = int(failure.get("attempts") or row.get("attempts") or 1)
-                failure_text = f"{failure.get('message') or 'The occurrence failed.'} ({failure.get('reason_code') or 'failed'}, {attempts} attempt{'s' if attempts != 1 else ''})"
+                failure_text = f"{failure.get('message') or 'This run failed.'} ({failure.get('reason_code') or 'failed'}, {attempts} attempt{'s' if attempts != 1 else ''})"
                 nl.addWidget(_text_label(failure_text, "autoTurnText", parent=self.note))
             # Pending waits, answered from here by their KIND (decision D1).
             for wait in waits:
@@ -762,7 +766,7 @@ class OccurrencePair(QWidget):
             bl.addWidget(error)
             entry.update(edit=edit, send=send, error=error)
             return box
-        bl.addWidget(_text_label(str(wait.get("prompt") or "The occurrence is waiting for your answer."), "autoTurnText", parent=box))
+        bl.addWidget(_text_label(str(wait.get("prompt") or "This run is waiting for your answer."), "autoTurnText", parent=box))
         choices_row = QHBoxLayout()
         choices_row.setSpacing(6)
         for choice in wait.get("choices") or []:
@@ -1087,7 +1091,8 @@ class AutomationView(QFrame):
                 prefix = "Failed" if item.get("kind") == "failure" else "New"
                 lines.append(f"{prefix} · #{item.get('index')} {item.get('title') or ''}".rstrip())
         if int(attention.get("pending_waits") or 0):
-            lines.append(f"{int(attention.get('pending_waits'))} occurrence(s) waiting for you")
+            waiting = int(attention.get('pending_waits'))
+            lines.append(f"{waiting} run{'' if waiting == 1 else 's'} waiting for you")
         self.attention_label.setText("\n".join(lines))
         self.attention_label.setVisible(bool(lines))
         if not self.edit_box.isVisibleTo(self):  # never under the user's typing
@@ -2335,6 +2340,7 @@ class AutomationsHub(QObject):
                 return None  # not advertised: no Automations surface at all
             client = self._client_factory()
             summaries = group_by_automation(client.list_all())
+            self._read_trigger_names(client, summaries)
             pages: Dict[str, List[Dict[str, Any]]] = {}
             for summary in summaries:
                 attention = summary.get("attention") if isinstance(summary.get("attention"), Mapping) else {}
@@ -2370,6 +2376,32 @@ class AutomationsHub(QObject):
                 self.poll()
 
         self._submit(work, done)
+
+    @staticmethod
+    def _read_trigger_names(client: AutomationsClient, summaries: List[Mapping[str, Any]]) -> None:
+        """The names a trigger is said with (a feed's or a webhook's label, a mailbox's address),
+        read only when a row needs them and the gateway did not serve its ``trigger_text``."""
+        needs = set()
+        for s in summaries:
+            if isinstance(s.get("trigger_text"), str) and s.get("trigger_text"):
+                continue
+            source = (s.get("trigger") or {}).get("source_id") if isinstance(s.get("trigger"), Mapping) else None
+            if source in ("feed.item", "webhook.received"):
+                needs.add("connections")
+            elif source == "email.received":
+                needs.add("mailboxes")
+        if "connections" in needs:
+            try:
+                rows = client.trigger_connections().get("connections") or []
+                set_trigger_names(connections={str(r.get("connection_id")): str(r.get("label") or "") for r in rows if isinstance(r, Mapping)})
+            except Exception:  # noqa: BLE001 - the words fall back to "the feed" / "its web address"
+                pass
+        if "mailboxes" in needs:
+            try:
+                rows = client.my_mailboxes().get("items") or []
+                set_trigger_names(mailboxes={str(r.get("account_id")): str(r.get("address") or "") for r in rows if isinstance(r, Mapping)})
+            except Exception:  # noqa: BLE001 - "When mail arrives in your mailbox"
+                pass
 
     @staticmethod
     def _attention_all(client: AutomationsClient, automation_id: str) -> List[Dict[str, Any]]:

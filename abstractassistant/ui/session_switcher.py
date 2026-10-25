@@ -66,6 +66,7 @@ from ..core.automations import (
     current_run,
     status_pill,
     trigger_summary,
+    is_event_trigger,
 )
 from ..icons import symbol_icon
 from ..theme import METRICS, THEME
@@ -903,10 +904,14 @@ class AutomationTabRow(RowCard):
         """Last and next run times, relative to ``now`` (again on every poll)."""
         last = last_run_text(self.summary, now=now)  # "last 40 min ago" / "last —"
         nxt = next_run_text(self.summary, now=now)  # "next in 2 min" / "next —" / "next: now"
+        trigger = self.summary.get("trigger") if isinstance(self.summary.get("trigger"), dict) else {}
+        if is_event_trigger(trigger):
+            nxt = ""  # it runs when something happens: no next run to show
         self.time_label.setText(last[len("last "):])
         self.time_label.setToolTip(f"Last run: {last[len('last '):]}")
         self._chip_label(self._next_chip).setText(nxt.replace("next: ", "next "))
-        self._meta_text = " · ".join((self._schedule, last, nxt))
+        self._next_chip.setVisible(bool(nxt))
+        self._meta_text = " · ".join(p for p in (self._schedule, last, nxt) if p)
         self.metrics_host.setToolTip(self._meta_text)
 
     @property

@@ -5,6 +5,14 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+### Changed
+
+- An automation says what starts it in words: "When mail arrives in you@example.org", "When Python
+  news has a new item", "When Orders is called", "By hand", or the schedule's sentence (the gateway's
+  `trigger_text` when it serves one); an automation that runs when something happens shows no next
+  run. Runs are called runs everywhere: "Discuss this run (your own copy; the automation's files stay
+  read-only)", "This run failed.", "This run is waiting for your answer.", "A run is in progress."
+
 ## [0.15.0] - 2026-10-25
 
 ### Added
