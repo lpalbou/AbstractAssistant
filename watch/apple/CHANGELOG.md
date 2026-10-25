@@ -6,6 +6,8 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-25
+
 ### Added
 
 - **What happened while the app was closed, from your event stream.** The background check (about

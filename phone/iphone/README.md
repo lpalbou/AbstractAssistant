@@ -3,7 +3,7 @@
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**iPhone · 0.6.22 · iOS 26+**
+**iPhone · 0.7.0 · iOS 26+**
 
 ## Three small spaces
 
@@ -72,6 +72,18 @@ the gateway’s Assistant default when you follow the default. If it is unavaila
 available workflow in **Settings → Workflow**. Saving changes the Assistant preference
 for your account across devices and applies to the next message, keeping your draft and history. The phone never switches
 to another agent interface or runs models locally.
+
+## Notifications and badges
+
+The app follows your event stream on the gateway: it reads what happened when it opens and when
+you come back to it, then stays up to date while it is on screen. A new approval or question
+arrives as a time-sensitive notification ("Approval needed", "A question for you"); tap it to
+open the Inbox and answer. A new automation result arrives as a quiet notification ("Morning
+digest has a result"); tap it to open Automations. The **Inbox** tab's badge counts what waits for
+you and the **Automations** tab's badge counts results you have not seen. iOS asks for permission
+the first time there is something to show. What happened before the app first looked is never
+notified. A gateway without the event stream keeps the app's regular refresh; notifications then
+do not appear.
 
 ## Voice and files
 

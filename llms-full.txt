@@ -71,17 +71,17 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/README.md](docs/README.md): documentation index
 - [docs/INSTALLATION.md](docs/INSTALLATION.md): pip install, the `voice` extra, the optional macOS app bundle
 - [docs/getting-started.md](docs/getting-started.md): start a gateway, launch the palette, first turn, approvals, shortcuts
-- [docs/architecture.md](docs/architecture.md): components, gateway boundary, sessions on the gateway, automations (diagram, polling, capability gate), run lifecycle with live replies, console sign-in hand-over, module map
-- [docs/api.md](docs/api.md): CLI entry points and flags (`--gateway-handover-file`, `run --stream`), which gateway the app connects to (incl. the `~/.abstractframework/gateway.json` pointer file), environment variables, run input pins, live reply events, gateway routes used (sessions and automations included), local files
+- [docs/architecture.md](docs/architecture.md): components, gateway boundary, sessions on the gateway, automations and the event stream (diagram, follower, attention model, capability gate), run lifecycle with live replies, console sign-in hand-over, module map
+- [docs/api.md](docs/api.md): CLI entry points and flags (`--gateway-handover-file`, `run --stream`), which gateway the app connects to (incl. the `~/.abstractframework/gateway.json` pointer file), environment variables, run input pins, live reply events, gateway routes used (sessions, automations and the event stream included), local files
 - [docs/faq.md](docs/faq.md): recurring questions and known limits
 - [docs/troubleshooting.md](docs/troubleshooting.md): symptoms, causes and fixes
 
 ## Topic Deep Dives
 - [docs/settings.md](docs/settings.md): every setting (the Workflow page with Open in AbstractFlow and the account Time zone, Stream replies, MTP depth, the account and chat workspaces, tool categories sorted and collapsed, the global shortcut's Accessibility state and Configure, appearance, About), its source (gateway default vs. this app) and its storage in preferences.json
 - [docs/voice.md](docs/voice.md): spoken replies, dictation, the hands-free conversation loop and its failure handling
-- [docs/automations.md](docs/automations.md): configurable growing-context budgets and result email; scheduled tasks on the gateway as the Assistant shows them: the Sessions | Automations tabs, New automation and Schedule this conversation (Gateway default first; When = Repeat / Daily / Weekly / Monthly / Once at / email, the gateway's schedule-preview sentence and the account time-zone line; stop after / stop at), served schedule and next run, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and polling, the capability gate, limits
+- [docs/automations.md](docs/automations.md): configurable growing-context budgets and result email; scheduled tasks on the gateway as the Assistant shows them: the Sessions | Automations tabs, New automation and Schedule this conversation (Gateway default first; When = Repeat / Daily / Weekly / Monthly / Once at / email, the gateway's schedule-preview sentence and the account time-zone line; stop after / stop at), served schedule and next run, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications from your event stream (the attention line, the menu-bar badge, one notification per item on a Mac), the capability gate, limits
 
-- [phone/iphone/README.md](phone/iphone/README.md): native iPhone assistant, scoped tools and automations, generated images and voice attached to restored messages; [phone/iphone/CHANGELOG.md](phone/iphone/CHANGELOG.md) records native release history; [phone/iphone/docs/architecture.md](phone/iphone/docs/architecture.md) covers authenticated artifact previews and session restoration; [phone/iphone/BUILD.md](phone/iphone/BUILD.md) covers isolated builds; [phone/iphone/docs/distribution.md](phone/iphone/docs/distribution.md) explains combined iPhone + independent Watch delivery in one Store listing, credential-free CI, human-approved uploads and TestFlight-to-Store promotion
+- [phone/iphone/README.md](phone/iphone/README.md): native iPhone assistant, scoped tools and automations, notifications and tab badges from your event stream, generated images and voice attached to restored messages; [phone/iphone/CHANGELOG.md](phone/iphone/CHANGELOG.md) records native release history; [phone/iphone/docs/architecture.md](phone/iphone/docs/architecture.md) covers authenticated artifact previews and session restoration; [phone/iphone/BUILD.md](phone/iphone/BUILD.md) covers isolated builds; [phone/iphone/docs/distribution.md](phone/iphone/docs/distribution.md) explains combined iPhone + independent Watch delivery in one Store listing, credential-free CI, human-approved uploads and TestFlight-to-Store promotion
 
 - [phone/iphone/docs/troubleshooting.md](phone/iphone/docs/troubleshooting.md): dated automation runs, failure explanations, provider versus phone authentication, installed version/build and Apple-managed updates
 
@@ -89,7 +89,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records
 - [docs/adr/0001_gateway_native_assistant_v2.md](docs/adr/0001_gateway_native_assistant_v2.md): the gateway-native boundary
 - [docs/backlog/overview.md](docs/backlog/overview.md): planned and proposed work
-- [watch/apple/README.md](watch/apple/README.md): AbstractAssistant for Apple Watch (0.3.0, pre-release through TestFlight), a watch-only watchOS 26+ client of the same gateway: voice Ask around the orb with the work shown live (steps under the orb, pulses), tools and workflow per conversation, images and recordings in answers, approvals (Accept all taken back with the shield), sessions with search and archive, automations; [watch/apple/docs/README.md](watch/apple/docs/README.md) indexes its pages; [watch/apple/docs/architecture.md](watch/apple/docs/architecture.md) maps each screen to its gateway call; [watch/apple/BUILD.md](watch/apple/BUILD.md) builds and tests it; [watch/apple/CHANGELOG.md](watch/apple/CHANGELOG.md) is its release history
+- [watch/apple/README.md](watch/apple/README.md): AbstractAssistant for Apple Watch (0.5.0, pre-release through TestFlight), a watch-only watchOS 26+ client of the same gateway: voice Ask around the orb with the work shown live (steps under the orb, pulses), tools and workflow per conversation, images and recordings in answers, approvals (Approve all for the run's own conversation or automation), sessions with search and archive, automations, notifications from your event stream, your avatar on the watch face (the Assistant complication); [watch/apple/docs/README.md](watch/apple/docs/README.md) indexes its pages; [watch/apple/docs/architecture.md](watch/apple/docs/architecture.md) maps each screen to its gateway call; [watch/apple/BUILD.md](watch/apple/BUILD.md) builds and tests it; [watch/apple/CHANGELOG.md](watch/apple/CHANGELOG.md) is its release history
 
 ## Contributing
 - [CONTRIBUTING.md](CONTRIBUTING.md): development setup, tests, style
@@ -126,6 +126,11 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   as a chat, switch it off or on (**Active**), run it now, edit or archive it, answer the runs that wait for you, discuss a
   result, and get a tray notification only when a result is notable, a run fails or a run waits for
   you. See [docs/automations.md](docs/automations.md).
+- What waits for you, everywhere: the app follows your event stream on the gateway, so a line above
+  the transcript and the menu-bar badge show the approvals, questions and new automation results
+  across every conversation, within seconds. **Open** takes you to the conversation that waits. On
+  one Mac you get one notification per item: the gateway's tray icon notifies first and the
+  Assistant stays silent for what it already showed.
 - Live run activity in the transcript: the current step, elapsed time, recent tool calls with
   their arguments and durations, and pause / resume / stop controls.
 - Live replies: with **Stream replies** on (the default), the
@@ -146,7 +151,11 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 - Multi-attachment composer with an image gallery, drag and drop, and artifact previews.
 - On your wrist: **AbstractAssistant for Apple Watch** (pre-release, TestFlight) talks to the same
   gateway by voice around the orb, answers approvals and questions, continues your sessions and
-  runs your automations. See [watch/apple/README.md](watch/apple/README.md).
+  runs your automations; your avatar on the watch face shows what needs you and what is new. See
+  [watch/apple/README.md](watch/apple/README.md).
+- In your pocket: **AbstractAssistant for iPhone** has the same conversations, tools and
+  automations, with notifications and tab badges for what needs you. See
+  [phone/iphone/README.md](phone/iphone/README.md).
 
 ## Install
 
@@ -265,7 +274,7 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 
 - [INSTALLATION.md](INSTALLATION.md) — install the package, the `voice` extra, and the optional macOS app bundle
 - [getting-started.md](getting-started.md) — start a gateway, launch the palette, first turn, shortcuts
-- [architecture.md](architecture.md) — components, the gateway boundary, sessions on the gateway (scope, kinds, cache, offline), automations (diagram, polling, capability gate), the run lifecycle with live replies, the console sign-in hand-over
+- [architecture.md](architecture.md) — components, the gateway boundary, sessions on the gateway (scope, kinds, cache, offline), automations and your event stream (diagram, follower, attention model, capability gate), the run lifecycle with live replies, the console sign-in hand-over
 - [api.md](api.md) — CLI entry points and flags (including the console hand-over and `run --stream`), environment variables, run input pins, live reply events, gateway routes used (sessions and automations included), local files
 - [faq.md](faq.md) — recurring questions and known limits
 - [troubleshooting.md](troubleshooting.md) — symptoms, causes and fixes
@@ -274,15 +283,15 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 
 - [settings.md](settings.md) — every setting, where its value comes from (gateway default vs. this app) and where it is stored, including the workflow choice, Stream replies, appearance and About
 - [voice.md](voice.md) — speaking replies, dictation, and the hands-free voice conversation loop
-- [automations.md](automations.md) — scheduled tasks on the gateway: the Sessions | Automations tabs, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and the two polls, the capability gate, offline behavior, limits
+- [automations.md](automations.md) — scheduled tasks on the gateway: the Sessions | Automations tabs, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and your event stream (the attention line, the menu-bar badge, one notification per item on a Mac), the capability gate, offline behavior, limits
 
-- [../phone/iphone/README.md](../phone/iphone/README.md) — AbstractAssistant for iPhone: conversations, scoped tools, automations, restorable image previews and voice playback; [architecture](../phone/iphone/docs/architecture.md), [release history](../phone/iphone/CHANGELOG.md), [run troubleshooting and app updates](../phone/iphone/docs/troubleshooting.md), [testing/distribution](../phone/iphone/docs/distribution.md) and [build guide](../phone/iphone/BUILD.md)
+- [../phone/iphone/README.md](../phone/iphone/README.md) — AbstractAssistant for iPhone: conversations, scoped tools, automations, notifications and tab badges from your event stream, restorable image previews and voice playback; [architecture](../phone/iphone/docs/architecture.md), [release history](../phone/iphone/CHANGELOG.md), [run troubleshooting and app updates](../phone/iphone/docs/troubleshooting.md), [testing/distribution](../phone/iphone/docs/distribution.md) and [build guide](../phone/iphone/BUILD.md)
 
 ## Design records
 
 - [adr/README.md](adr/README.md) — architecture decision records (the gateway-native boundary)
 - [backlog/overview.md](backlog/overview.md) — planned and proposed work
-- [../watch/apple/README.md](../watch/apple/README.md) — AbstractAssistant for Apple Watch (0.3.0, pre-release through TestFlight): voice around the orb with the work shown live, tools and workflow per conversation, images and recordings in answers, approvals, sessions with search and archive, automations; its pages are indexed in [../watch/apple/docs/README.md](../watch/apple/docs/README.md)
+- [../watch/apple/README.md](../watch/apple/README.md) — AbstractAssistant for Apple Watch (0.5.0, pre-release through TestFlight): voice around the orb with the work shown live, tools and workflow per conversation, images and recordings in answers, approvals, sessions with search and archive, automations, notifications from your event stream and your avatar on the watch face; its pages are indexed in [../watch/apple/docs/README.md](../watch/apple/docs/README.md)
 
 ## Project
 
@@ -1532,6 +1541,13 @@ the stream. Whether the gateway offers live replies is read from
   whether this client is on that machine) and `GET /api/gateway/runs/{run_id}/workspace/content?path=`
   (a copy of a picture an answer names, or of a file opened from the files view, when the client
   is on another machine)
+- Your event stream ([automations.md](automations.md#notifications-and-your-event-stream)):
+  `GET /api/gateway/me/events?after=<sequence>&limit=1000` (the pages read at start and after a
+  reconnect), `GET /api/gateway/me/events/stream?heartbeat_s=15` (the live tail, resumed with the
+  `Last-Event-ID` header), `POST /api/gateway/me/events/notifications`
+  (`{"channel": "assistant", "outcome": "sent", "record_key", "device"}` after each notification the
+  app shows). A gateway that answers 404 has no stream: the app reads the automation list on its
+  timers instead.
 - Automations ([automations.md](automations.md)), used only when the capabilities advertise
   `contracts.common.automations.available: true`:
   - `GET /api/gateway/automations` (every page, following `next_cursor`) and
@@ -1880,6 +1896,10 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
 - `gateway/automations.py`, `core/automations.py`, `ui/automations.py` — the Automations API
   client, its Qt-free presentation rules (labels, enabled controls, chat pairs, the create body,
   notifications), and the switcher rows, automation view, Schedule window and polling hub.
+- `gateway/me_events.py`, `core/attention.py` — the person's event stream (catch-up pages, the SSE
+  follower with `Last-Event-ID` reconnect, the notification report) and its Qt-free fold (what
+  needs you, new results, which device already notified); the palette's attention banner, tray badge
+  and notifier sit on top of them.
 - `ui/styles.py`, `theme.py`, `icons.py` — one token set, one stylesheet builder, the Lucide glyphs.
 
 ## Workflow
@@ -2102,6 +2122,13 @@ the stream: every 60 seconds while the palette is visible and every 5 minutes wh
 Results that arrive while the Assistant is closed are waiting in the automation, marked new, when
 you open it.
 
+## Why do I get only one notification when the tray icon and the Assistant both run?
+
+On one Mac, the gateway's tray icon is the default notifier. When an item needs you, the Assistant
+waits a few seconds and stays silent if the tray icon (or AbstractCode) on the same Mac already
+showed it; otherwise it notifies and tells the gateway it did. Your watch and iPhone are other
+devices and notify on their own. See [automations.md](automations.md#notifications-and-your-event-stream).
+
 ## Why can't I approve a tool call when a scheduled run uses it?
 
 With **Run without asking** (the default), creating the automation is the approval, and its
@@ -2271,9 +2298,18 @@ Answer it from AbstractObserver. See
 ## I do not get automation notifications
 
 Only notable results, failures after all retries and runs waiting for you notify; ordinary results
-never do. While the palette is hidden the Assistant checks every 5 minutes, so a notification can
-arrive up to 5 minutes after the event. Each item notifies once, also across relaunches. Check that
-macOS allows notifications for the Assistant (System Settings → Notifications).
+never do. Each item notifies once, also across relaunches. Check that macOS allows notifications for
+the Assistant and for the gateway's tray icon (System Settings → Notifications): on one Mac the tray
+icon notifies first and the Assistant stays silent for what it showed. On a gateway without your
+event stream (`/api/gateway/me/events` answers 404), the Assistant checks every 5 minutes while the
+palette is hidden, so a notification can arrive up to 5 minutes after the event.
+
+## The attention line or the badge stays after I answered elsewhere
+
+The line above the transcript and the menu-bar badge follow your event stream. A wait answered on
+another device disappears as soon as the gateway records it; **Open** checks with the gateway that
+the run still waits and says so when it no longer does. If the line stays, check the connection orb:
+while the gateway is unreachable, the stream resumes where it stopped once it is back.
 
 ## A tool is "Disabled on gateway"
 
@@ -2804,6 +2840,8 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-25
+
 ### Added
 
 - The desktop app follows your event stream on the gateway (`/me/events`, then the live
@@ -2827,8 +2865,17 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### iPhone
 
+- Native iPhone **0.7.0** follows your event stream: notifications for approvals, questions and
+  automation results, with Inbox and Automations tab badges. See the
+  [iPhone release history](phone/iphone/CHANGELOG.md).
 - Credential-free iPhone CI and manually requested, human-approved App Store Connect uploads,
   with candidate provenance and separate TestFlight/manual App Store release stages.
+
+### Apple Watch
+
+- Apple Watch **0.5.0**: notifications from your event stream, your avatar on the watch face (the
+  Assistant complication, at rest, with news, or with what needs you), Approve all for a run's own
+  conversation or automation. See the [watch release history](watch/apple/CHANGELOG.md).
 
 ## [0.14.3] - 2026-10-19
 
@@ -3788,7 +3835,7 @@ abstractassistant --config custom.toml # Custom config
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**iPhone · 0.6.22 · iOS 26+**
+**iPhone · 0.7.0 · iOS 26+**
 
 ## Three small spaces
 
@@ -3857,6 +3904,18 @@ the gateway’s Assistant default when you follow the default. If it is unavaila
 available workflow in **Settings → Workflow**. Saving changes the Assistant preference
 for your account across devices and applies to the next message, keeping your draft and history. The phone never switches
 to another agent interface or runs models locally.
+
+## Notifications and badges
+
+The app follows your event stream on the gateway: it reads what happened when it opens and when
+you come back to it, then stays up to date while it is on screen. A new approval or question
+arrives as a time-sensitive notification ("Approval needed", "A question for you"); tap it to
+open the Inbox and answer. A new automation result arrives as a quiet notification ("Morning
+digest has a result"); tap it to open Automations. The **Inbox** tab's badge counts what waits for
+you and the **Automations** tab's badge counts results you have not seen. iOS asks for permission
+the first time there is something to show. What happened before the app first looked is never
+notified. A gateway without the event stream keeps the app's regular refresh; notifications then
+do not appear.
 
 ## Voice and files
 
@@ -4145,16 +4204,17 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-10-25
+
+### Added
+
 - Your event stream reaches the iPhone: the app catches up at launch and when it comes to the front,
   then follows the gateway live while it is in front. A new approval or question is a time-sensitive
   notification (a tap opens the Inbox), a new automation result a quiet one (a tap opens
   Automations); the Inbox and Automations tabs carry badges. Nothing from before the first look is
-  notified, and a gateway without the stream keeps the polls.
-
-- Unified iPhone + independent Watch Store delivery through the existing AbstractAssistant listing, with one human-approved archive and preserved developer identities.
-
-### Added
-
+  notified, and a gateway without the stream keeps the regular refresh.
+- Unified iPhone + independent Watch Store delivery through the existing AbstractAssistant listing,
+  with one human-approved archive and preserved developer identities.
 - iPhone CI runs package and native tests and retains an unsigned Release candidate. Manual
   App Store Connect uploads require full native tests and human approval. TestFlight builds
   remain eligible for manual same-build App Store promotion.
@@ -5015,6 +5075,14 @@ A failed run and an unavailable connection are different problems:
 Read the error before retrying a task that can make changes. Earlier tools might have completed
 before a later step failed. Refreshing details only reads existing records.
 
+## Notifications do not appear
+
+Notifications come from your gateway's event stream while the app runs, and when it next opens or
+comes to the front; there are no push notifications while it is closed. Check that iOS allows
+notifications for AbstractAssistant (Settings → Notifications) and that your gateway offers the
+stream (an older gateway keeps the Inbox and Automations lists up to date, without notifications).
+A Focus can hold "Approval needed" back unless AbstractAssistant is allowed in that Focus.
+
 ## Find the installed version
 
 Open the **Settings** wheel. **App → Version** shows the installed marketing version and build,
@@ -5186,7 +5254,7 @@ listing (`ai.abstractframework.assistant`). Local developer identity/data are re
 
 **Your AI, everywhere. On your wrist.** A voice-first Apple Watch app for your AbstractGateway.
 
-Version 0.4.0 · watchOS 26 or later · independent (no iPhone app needed) · pre-release through
+Version 0.5.0 · watchOS 26 or later · independent (no iPhone app needed) · pre-release through
 TestFlight. See [CHANGELOG.md](CHANGELOG.md) for what changed.
 
 The watch app is a thin client of AbstractGateway, like the desktop assistant: the gateway owns
@@ -5332,6 +5400,8 @@ channel (TestFlight, then the App Store); the Python package's history is in
 [../../CHANGELOG.md](../../CHANGELOG.md).
 
 ## [Unreleased]
+
+## [0.5.0] - 2026-10-25
 
 ### Added
 
@@ -5966,7 +6036,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.14.3"
+version = "0.15.0"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.10"

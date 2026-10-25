@@ -2,7 +2,7 @@
 
 **Your AI, everywhere. On your wrist.** A voice-first Apple Watch app for your AbstractGateway.
 
-Version 0.4.0 · watchOS 26 or later · independent (no iPhone app needed) · pre-release through
+Version 0.5.0 · watchOS 26 or later · independent (no iPhone app needed) · pre-release through
 TestFlight. See [CHANGELOG.md](CHANGELOG.md) for what changed.
 
 The watch app is a thin client of AbstractGateway, like the desktop assistant: the gateway owns

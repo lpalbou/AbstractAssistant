@@ -5,6 +5,8 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-25
+
 ### Added
 
 - The desktop app follows your event stream on the gateway (`/me/events`, then the live
@@ -28,8 +30,17 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### iPhone
 
+- Native iPhone **0.7.0** follows your event stream: notifications for approvals, questions and
+  automation results, with Inbox and Automations tab badges. See the
+  [iPhone release history](phone/iphone/CHANGELOG.md).
 - Credential-free iPhone CI and manually requested, human-approved App Store Connect uploads,
   with candidate provenance and separate TestFlight/manual App Store release stages.
+
+### Apple Watch
+
+- Apple Watch **0.5.0**: notifications from your event stream, your avatar on the watch face (the
+  Assistant complication, at rest, with news, or with what needs you), Approve all for a run's own
+  conversation or automation. See the [watch release history](watch/apple/CHANGELOG.md).
 
 ## [0.14.3] - 2026-10-19
 
