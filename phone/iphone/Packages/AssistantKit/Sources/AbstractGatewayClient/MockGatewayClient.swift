@@ -112,6 +112,43 @@ public actor MockGatewayClient: GatewayClient {
     private let activityScenario: String?
     private var activityResolved = false
 
+    /// The person's event stream (canned: empty unless a test appends to it).
+    public private(set) var userEvents: [UserEvent] = []
+    public func appendEvent(_ e: UserEvent) { userEvents.append(e) }
+    /// How many times the live tail was opened, and with which Last-Event-ID.
+    public private(set) var streamOpens: [Int] = []
+    func noteStreamOpen(_ id: Int) { streamOpens.append(id) }
+
+    /// A gateway without the stream (404 on both routes).
+    public private(set) var eventsUnsupported = false
+    public func setEventsUnsupported(_ value: Bool) { eventsUnsupported = value }
+
+    public func events(after: Int, limit: Int) async throws -> UserEventsPage {
+        if eventsUnsupported { throw GatewayError.http(status: 404, body: "") }
+        let rest = userEvents.filter { $0.sequence > after }
+        let page = Array(rest.prefix(limit))
+        return UserEventsPage(stream: "user:default:mock", events: page, nextAfter: page.last?.sequence ?? after,
+                              head: userEvents.last?.sequence ?? 0, more: rest.count > limit)
+    }
+
+    /// The tail: what is there after `lastEventID`, then whatever is appended within ~1 s; then it closes
+    /// (the caller reconnects from its cursor, as with a real server closing the stream).
+    public nonisolated func userEventStream(lastEventID: Int) -> AsyncThrowingStream<UserEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                await self.noteStreamOpen(lastEventID)
+                var cursor = lastEventID
+                for _ in 0..<20 {
+                    for e in await self.userEvents where e.sequence > cursor { continuation.yield(e); cursor = e.sequence }
+                    try? await Task.sleep(for: .milliseconds(50))
+                    if Task.isCancelled { break }
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     public init(waits: [Wait] = MockGatewayClient.sampleWaits, wordInterval: TimeInterval = 0.12, emptyAutomations: Bool = false, activityScenario: String? = nil, historyFixture: Bool = false, conversationListFixture: Bool = false, categoryFixture: Bool = false, emailFixture: Bool = false, accessFixture: Bool = false, mediaImage: Data? = nil, mediaVoice: Data? = nil, speechPreparationDelay: TimeInterval = 0) {
         self.speechPreparationDelay = speechPreparationDelay
         self.mediaImage = mediaImage; self.mediaVoice = mediaVoice

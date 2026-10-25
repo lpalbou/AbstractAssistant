@@ -5,6 +5,12 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
 
+- Your event stream reaches the iPhone: the app catches up at launch and when it comes to the front,
+  then follows the gateway live while it is in front. A new approval or question is a time-sensitive
+  notification (a tap opens the Inbox), a new automation result a quiet one (a tap opens
+  Automations); the Inbox and Automations tabs carry badges. Nothing from before the first look is
+  notified, and a gateway without the stream keeps the polls.
+
 - Unified iPhone + independent Watch Store delivery through the existing AbstractAssistant listing, with one human-approved archive and preserved developer identities.
 
 ### Added

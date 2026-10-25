@@ -58,6 +58,30 @@ Automation creation carries an explicit title separately from its task; the exis
 title remains the model fallback for clients that omit it. The form requires a title of at most
 120 characters and includes it in the pending request fingerprint for idempotent retry.
 
+## Your event stream: badges and notifications
+
+`AttentionFeed` (AssistantKit) follows the person's own event stream on the gateway: one
+`GET /api/gateway/me/events?after=<sequence>` catch-up at launch and each time the app comes to the
+front, then the live tail `GET /api/gateway/me/events/stream` (resumed with `Last-Event-ID`) for as
+long as the app is in front; nothing runs in the background. It folds raised minus seen
+(`AttentionState`, the same fold as the watch): approvals and questions open (`attention.raised`
+with a `wait_key`, closed by `attention.seen` of the same run, wait key and step, or the run's
+`run.finished`) and automation results not seen. The Inbox tab's badge is the larger of the live
+waits and the stream's open waits; the Automations tab's badge is the results not seen. The state is
+kept per connection, so the first read only takes stock and a relaunch never replays history.
+
+Each new item after that becomes one local notification (`PhoneNotifier`): approvals and questions
+are time-sensitive ("Approval needed", "A question for you"; a tap opens the Inbox, whose wait
+screens read the waits live), automation results are passive ("Morning digest has a result"; a tap
+opens Automations). The gateway's per-device rule applies (stay silent when another client channel
+on this same device showed the item less than a minute ago); no other client reports from a phone,
+so the phone notifies. The phone does not record its notifications on the stream: the gateway
+accepts the channels tray, assistant, code and watch, with no phone channel yet. Time-sensitive
+delivery through a Focus needs the time-sensitive notifications entitlement on the App ID; without
+it iOS delivers an ordinary notification. A gateway without the stream (404) leaves the app on its
+polls. Any automation-shaped event (`attention.*`, `trigger.event`, an occurrence's `run.finished`)
+reads the lists again.
+
 ## Relationship to the Watch app
 
 The initial client snapshot comes from `watch/apple/Packages/AbstractGatewayClient`.

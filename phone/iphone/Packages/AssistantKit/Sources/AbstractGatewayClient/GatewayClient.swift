@@ -92,6 +92,10 @@ public protocol GatewayClient: Sendable {
     /// `GET /api/gateway/runs/{id}/ledger?after=N` → records after the cursor.
     func ledger(runId: String, after: Int) async throws -> LedgerPage
     nonisolated func ledgerEvents(runID: String, after: Int) -> AsyncThrowingStream<LedgerStreamEvent, Error>
+    /// `GET /api/gateway/me/events?after=&limit=`: the person's own events after a sequence (404: no stream).
+    func events(after: Int, limit: Int) async throws -> UserEventsPage
+    /// `GET /api/gateway/me/events/stream` with `Last-Event-ID`: the live tail; ends when the server closes it.
+    nonisolated func userEventStream(lastEventID: Int) -> AsyncThrowingStream<UserEvent, Error>
     func entityLedger(name: String, runID: String, after: Int) async throws -> LedgerPage
     func childRuns(ofRunID: String) async throws -> [RunSummary]
     /// `POST /api/gateway/commands` `{type: "cancel"}`.
@@ -419,6 +423,42 @@ public actor LiveGatewayClient: GatewayClient {
                     }
                     // EOF without done is reconnectable, never proof of completion.
                     throw GatewayError.invalidResponse
+                } catch { continuation.finish(throwing: error) }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    public func events(after: Int, limit: Int) async throws -> UserEventsPage {
+        try await get("api/gateway/me/events", query: [.init(name: "after", value: String(after)), .init(name: "limit", value: String(limit))],
+                      as: UserEventsPage.self)
+    }
+
+    public nonisolated func userEventStream(lastEventID: Int) -> AsyncThrowingStream<UserEvent, Error> {
+        var url = URLComponents(url: baseURL.appending(path: "api/gateway/me/events/stream"), resolvingAgainstBaseURL: false)!
+        url.queryItems = [.init(name: "heartbeat_s", value: "15")]
+        var request = URLRequest(url: url.url!)
+        request.timeoutInterval = 60   // four missed keep-alives: a dead connection, reconnect
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        if lastEventID > 0 { request.setValue(String(lastEventID), forHTTPHeaderField: "Last-Event-ID") }
+        credential.apply(to: &request, write: false)
+        let streamRequest = request
+        let session = self.session
+        return AsyncThrowingStream(bufferingPolicy: .bufferingOldest(256)) { continuation in
+            let task = Task {
+                do {
+                    try await self.requireSignIn()
+                    let (bytes, response) = try await session.bytes(for: streamRequest, delegate: LedgerRedirectGuard())
+                    defer { bytes.task.cancel() }
+                    guard let http = response as? HTTPURLResponse else { throw GatewayError.invalidResponse }
+                    if http.statusCode == 401 { await self.lockSignIn(); throw GatewayError.unauthorized }
+                    guard (200..<300).contains(http.statusCode) else { throw GatewayError.http(status: http.statusCode, body: "") }
+                    var parser = UserEventSSEParser()
+                    for try await byte in bytes {
+                        try Task.checkCancellation()
+                        if let event = parser.feed(byte: byte) { continuation.yield(event) }
+                    }
+                    continuation.finish()   // the server closed it: the caller reconnects from its cursor
                 } catch { continuation.finish(throwing: error) }
             }
             continuation.onTermination = { _ in task.cancel() }

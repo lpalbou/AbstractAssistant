@@ -35,8 +35,8 @@ struct PhoneRoot: View {
             if store.isConnected {
                 TabView(selection: $tab) {
                     Tab("Assistant", systemImage: "sparkle", value: 0) { ChatScreen(openSettings: { settings = true }) }
-                    Tab("Inbox", systemImage: "tray", value: 1) { InboxScreen() }.badge(store.waits.count)
-                    Tab("Automations", systemImage: "clock.arrow.circlepath", value: 2) { AutomationsScreen() }
+                    Tab("Inbox", systemImage: "tray", value: 1) { InboxScreen() }.badge(store.inboxBadge)
+                    Tab("Automations", systemImage: "clock.arrow.circlepath", value: 2) { AutomationsScreen() }.badge(store.attention.newResults)
                 }
                 .sheet(isPresented: $settings) { SettingsScreen(onDisconnect: disconnect, notice: storageError) }
             } else { WelcomeScreen(onConnect: { connect($0) }, onDemo: demo, notice: storageError ?? store.error) }
@@ -46,6 +46,13 @@ struct PhoneRoot: View {
         .foregroundStyle(PhoneTheme.ink)
         .task {
             store.onUnauthorized = { do { try ConnectionVault.remove() } catch { storageError = error.localizedDescription } }
+            // The person's event stream: a local notification per new item; a tap opens its tab.
+            PhoneNotifier.shared.activate()
+            PhoneNotifier.shared.open = { tab = $0 }
+            store.attention.onNotice = { notice in
+                PhoneNotifier.shared.post(notice, automationNames: Dictionary(store.automations.map { ($0.id, $0.name ?? "") }.filter { !$0.1.isEmpty },
+                                                                              uniquingKeysWith: { a, _ in a }))
+            }
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--demo") { demo(); return }
             // Development-device provisioning: verify before replacing the Keychain connection.

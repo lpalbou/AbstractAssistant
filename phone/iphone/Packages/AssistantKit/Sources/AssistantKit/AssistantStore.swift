@@ -87,6 +87,8 @@ public final class AssistantStore {
 
     public private(set) var waits: [Wait] = []
     public private(set) var automations: [AutomationSummary] = []
+    /// The person's event stream (backlog 1047): badges and local notifications.
+    public let attention: AttentionFeed
     public private(set) var entitiesError: String?
     public private(set) var loadingEntities = false
     public private(set) var entities: [EntitySummary] = []
@@ -135,7 +137,17 @@ public final class AssistantStore {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored public var onUnauthorized: (@MainActor () -> Void)?
 
-    public init(defaults: UserDefaults = .standard) { self.defaults = defaults }
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        attention = AttentionFeed(defaults: defaults)
+        attention.onChange = { [weak self] in
+            guard let self, self.client != nil else { return }
+            Task { await self.refresh() }
+        }
+    }
+
+    /// Needs-you for the Inbox badge: the live waits, or the stream's when it already knows more.
+    public var inboxBadge: Int { max(waits.count, attention.needYou) }
 
     public func connect(_ connection: SavedConnection?, client: any GatewayClient) {
         disconnect()
@@ -152,9 +164,11 @@ public final class AssistantStore {
             }
         }
         if restorationID == nil { persistSession() }
+        attention.start(client: client, scope: connection?.scope ?? "demo", foreground: foreground)
         if foreground { startPolling() }
     }
     public func disconnect() {
+        attention.stop()
         clearAnswerActivities(); entityActivityCursors = [:]
         resetActivity()
         recentHistoryMayBePartial = false
@@ -172,6 +186,7 @@ public final class AssistantStore {
     }
     public func setForeground(_ value: Bool) {
         foreground = value
+        attention.setForeground(value)
         if value { startPolling() } else { poll?.cancel(); poll = nil; approvalPoll?.cancel(); approvalPoll = nil; pauseActivityStreams() }
     }
     private func startPolling() {
