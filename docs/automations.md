@@ -283,9 +283,31 @@ mounted folder; shell commands are not sandboxed, so approve them with that in m
 Discuss is disabled on a run in progress, and the palette asks you to let a running reply finish
 (or stop it) before it opens a discussion.
 
-## Notifications and the two polls
+## Notifications and your event stream
 
-The Assistant reads the automation list from the gateway on two cadences:
+On a gateway that keeps a per-person event stream (`GET /api/gateway/me/events` and its live
+`/me/events/stream`), the Assistant follows it from launch: it reads what happened since it last
+looked, then stays connected and reconnects on its own after a sleep or a network change, resuming
+exactly where it stopped. With the stream connected:
+
+- an automation event (a trigger fired, a run of an automation started or finished, a result
+  raised or seen) refreshes the automation list within a second; a slow check every **5 minutes**
+  still catches an automation created or renamed elsewhere, which sends no event;
+- a run in **another conversation** that stops for your approval or your answer shows one tray
+  notification ("Approval needed" or "A question for you"), unless that conversation is the one on
+  screen. Its sheet opens in that conversation, as before;
+- a line above the transcript says what is waiting for you across every conversation and
+  automation ("A conversation is waiting for you · 2 new results from your automations"), with
+  **Open**. Open first asks the gateway whether that run still waits; it opens the conversation
+  when it does, and says so when it no longer does. For results it opens the Automations tab;
+- the menu bar icon shows the amber "needs you" badge while a run elsewhere waits for you, and its
+  tooltip repeats the line.
+
+What happened while the Assistant was closed is read when it starts, but it never notifies you
+for it: notifications are for what arrives while the app is open.
+
+On a gateway without the event stream, the Assistant reads the automation list on two cadences
+instead:
 
 - every **60 seconds** while the palette is visible, and once each time you show the palette or
   open the switcher;

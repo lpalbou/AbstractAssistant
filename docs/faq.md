@@ -110,9 +110,11 @@ quiet. Details: [automations.md](automations.md).
 
 ## Does the Assistant have to stay open for automations to run?
 
-No. The gateway runs them. The Assistant only reads them: every 60 seconds while the palette is
-visible and every 5 minutes while it is hidden, so notifications reach the tray. Results that
-arrive while the Assistant is closed are waiting in the automation, marked new, when you open it.
+No. The gateway runs them. The Assistant only reads them: it follows your event stream on the
+gateway, so a result or a run waiting for you reaches the tray within seconds (on a gateway without
+the stream: every 60 seconds while the palette is visible and every 5 minutes while it is hidden).
+Results that arrive while the Assistant is closed are waiting in the automation, marked new, when
+you open it.
 
 ## Why can't I approve a tool call when a scheduled run uses it?
 

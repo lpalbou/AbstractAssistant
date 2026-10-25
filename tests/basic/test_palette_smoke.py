@@ -159,6 +159,12 @@ class _Controller:
     def submission_plan(self, **kwargs) -> dict:
         return {"ready": True, "system_prompt_extra": ""}
 
+    def session_tool_auto_approval_active(self, **kwargs) -> bool:
+        return False
+
+    def tool_inventory(self) -> dict:
+        return {}
+
     def append_user_message(self, content: str, metadata=None) -> str:
         return "mid-1"
 

@@ -258,6 +258,7 @@ __all__ = [
     "AUTOMATION_GATEWAY_DEFAULT_TARGET",
     "AUTOMATIONS_POLL_VISIBLE_MS",
     "AUTOMATIONS_POLL_HIDDEN_MS",
+    "AUTOMATIONS_RECONCILE_MS",
     "AutomationView",
     "AutomationsHub",
     "ScheduleSheet",
@@ -269,6 +270,9 @@ __all__ = [
 # or a human wait still reaches the tray.
 AUTOMATIONS_POLL_VISIBLE_MS = 60_000
 AUTOMATIONS_POLL_HIDDEN_MS = 300_000
+# While the person's event stream is live the list is refetched on automation
+# events; the timer only reconciles what emits no event (created/renamed elsewhere).
+AUTOMATIONS_RECONCILE_MS = 300_000
 
 _EXCERPT_MAX = 160
 

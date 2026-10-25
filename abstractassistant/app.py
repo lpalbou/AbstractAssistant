@@ -182,10 +182,13 @@ from .gateway.live_deltas import (
 )
 from .ui.session_switcher import SessionSwitcher
 from .core.automations import NotificationLedger, discussion_banner, target_from_workflow
+from .core.attention import AttentionModel, attention_banner_text
+from .gateway.me_events import EventFollower
 from .ui.automations import (
     AUTOMATION_GATEWAY_DEFAULT_TARGET,
     AUTOMATIONS_POLL_HIDDEN_MS,
     AUTOMATIONS_POLL_VISIBLE_MS,
+    AUTOMATIONS_RECONCILE_MS,
     AutomationsHub,
     AutomationView,
     ScheduleSheet,
@@ -5763,6 +5766,11 @@ class AssistantPalette(QMainWindow):
     # The player started or stopped: no message key, so auto-speak and the
     # voice conversation reach the tray too.
     speech_activity_changed = pyqtSignal()
+    # The person's event stream (backlog 1047): events, follower state and an
+    # identity change arrive on the follower thread; these hop to the GUI.
+    me_event_received = pyqtSignal(object, bool)
+    me_events_state_changed = pyqtSignal(str)
+    me_events_reset = pyqtSignal()
 
     # Run-teardown state (2026-07-10). Class-level defaults on purpose:
     # `getattr(self, ..., default)` on a missing attribute raises RuntimeError
@@ -5914,6 +5922,13 @@ class AssistantPalette(QMainWindow):
         self._automations_timer.setInterval(AUTOMATIONS_POLL_HIDDEN_MS)
         self._automations_timer.timeout.connect(self._poll_automations)
         self._automations_timer.start()
+        # What needs the person, from their own event stream (backlog 1047):
+        # the banner, the tray badge and the event-driven automation refresh.
+        self._attention = AttentionModel()
+        self._me_events: Optional[EventFollower] = None
+        self.me_event_received.connect(self._on_me_event)
+        self.me_events_state_changed.connect(self._on_me_events_state)
+        self.me_events_reset.connect(self._on_me_events_reset)
         self._automations_menu_action = None
         self._automation_view_id = ""
         self._schedule_sheet = None
@@ -6108,6 +6123,15 @@ class AssistantPalette(QMainWindow):
         self.banner_label.setMinimumHeight(0)
         self.banner_label.setMaximumHeight(0)
         self.banner_label.hide()
+        # "Needs you" / "new results" across every conversation and automation,
+        # from the event stream (its own line: notices above never hide it).
+        self.attention_banner = QLabel("")
+        self.attention_banner.setObjectName("attentionBanner")
+        self.attention_banner.setWordWrap(True)
+        self.attention_banner.setTextFormat(Qt.RichText)
+        self.attention_banner.setTextInteractionFlags(Qt.LinksAccessibleByMouse)
+        self.attention_banner.linkActivated.connect(self._open_attention)
+        self.attention_banner.hide()
 
         self.history_card = QFrame(central)
         self.history_card.setObjectName("historyCard")
@@ -6132,6 +6156,7 @@ class AssistantPalette(QMainWindow):
         self.chat_status_label.setWordWrap(True)
         self.chat_status_label.setTextFormat(Qt.PlainText)
         self.chat_status_label.hide()
+        history_wrap.addWidget(self.attention_banner)
         history_wrap.addWidget(self.banner_label)
         history_wrap.addWidget(self.chat_status_label)
         history_wrap.addWidget(self.history_scroll, 1)
@@ -6362,6 +6387,7 @@ class AssistantPalette(QMainWindow):
         # screen come from it (the local copies are only a cache).
         self._refresh_sessions_from_gateway()
         self._sync_session_from_gateway()
+        self._start_me_events()
         # Clear the transient "Connecting…" banner unless a refresh replaced it
         # with something more specific (e.g. a gateway-unavailable message).
         try:
@@ -6603,6 +6629,210 @@ class AssistantPalette(QMainWindow):
         hub = self._state("_automations")
         if hub is not None:
             hub.poll()
+
+    # ---------------------------------------------- the person's event stream
+
+    def _me_events_live(self) -> bool:
+        follower = self._state("_me_events")
+        return bool(follower is not None and follower.live)
+
+    def _automations_interval_ms(self, *, visible: bool) -> int:
+        """The automation list follows the event stream; while the stream is
+        live the timer is only a slow reconciliation (an automation created or
+        renamed elsewhere emits no event). Without it: the old full-page poll."""
+        if self._me_events_live():
+            return AUTOMATIONS_RECONCILE_MS
+        return AUTOMATIONS_POLL_VISIBLE_MS if visible else AUTOMATIONS_POLL_HIDDEN_MS
+
+    def _start_me_events(self) -> None:
+        """Follow the person's stream (idempotent; the connection is re-read
+        at each reconnect, so a sign-in or a new gateway is picked up)."""
+        factory = getattr(self._state("_controller"), "me_events_client", None)
+        if not callable(factory):
+            return
+        follower = self._state("_me_events")
+        if follower is None:
+            follower = EventFollower(
+                factory,
+                on_event=lambda event, live: self.me_event_received.emit(event, live),
+                on_state=lambda state: self.me_events_state_changed.emit(state),
+                on_reset=lambda: self.me_events_reset.emit(),
+            )
+            self._me_events = follower
+        follower.start()
+
+    def _on_me_events_reset(self) -> None:
+        self._attention.reset()
+        self._refresh_attention()
+
+    def _on_me_events_state(self, state: str) -> None:
+        timer = self._state("_automations_timer")
+        if timer is not None:
+            try:
+                timer.setInterval(self._automations_interval_ms(visible=self.isVisible()))
+            except RuntimeError:
+                return
+        if state == "live":
+            # Caught up: confirm the waits history says are open against the
+            # runs themselves (the live fact), then refresh once.
+            self._verify_attention_waits()
+            self._schedule_automations_refresh()
+
+    def _on_me_event(self, event: Any, live: bool) -> None:
+        if not isinstance(event, dict):
+            return
+        if event.get("type") == "attention.open":
+            self._on_attention_open(event.get("data") or {})
+            return
+        raised = self._attention.apply(event)
+        if live and self._is_automation_event(event):
+            # The automation rows (and their notices, through the hub's
+            # notification ledger) follow the stream instead of a timer.
+            self._schedule_automations_refresh()
+        if live and raised is not None and raised.wait is not None:
+            self._notify_attention_wait(raised.wait)
+        self._refresh_attention()
+
+    @staticmethod
+    def _is_automation_event(event: Dict[str, Any]) -> bool:
+        typ = str(event.get("type") or "")
+        data = event.get("data") if isinstance(event.get("data"), dict) else {}
+        if typ in ("trigger.event", "wake.scheduled", "wake.cancelled"):
+            return True
+        if typ in ("attention.raised", "attention.seen"):
+            return bool(data.get("automation_id"))
+        if typ in ("run.started", "run.finished"):
+            origin = data.get("origin")
+            return isinstance(origin, dict) and origin.get("kind") == "trigger"
+        return False
+
+    def _schedule_automations_refresh(self) -> None:
+        """Coalesce a burst of events into one automation fetch."""
+        if self._state("_automations_refresh_pending"):
+            return
+        self._automations_refresh_pending = True
+
+        def run() -> None:
+            self._automations_refresh_pending = False
+            self._poll_automations()
+
+        QTimer.singleShot(250, run)
+
+    def _notify_attention_wait(self, wait: Any) -> None:
+        """An approval or a question raised LIVE in another conversation: one
+        OS notification, through the same once-only ledger as the automation
+        notices. The conversation on screen already shows its own sheet."""
+        hub = self._state("_automations")
+        ledger = getattr(hub, "ledger", None)
+        if ledger is None or wait.notice_key in ledger:
+            return
+        if wait.session_id and wait.session_id == self._active_session_id() and self.isVisible():
+            return
+        title = "Approval needed" if wait.kind == "approval" else "A question for you"
+        body = "A conversation is waiting for your answer. Click the menu bar icon to open it."
+        self._notify(title, body, duration_ms=7000)
+        ledger.add([wait.notice_key])
+
+    def _attention_waits_elsewhere(self) -> int:
+        model = self._state("_attention")
+        if model is None:
+            return 0
+        local = set((self._state("_pending_user_waits") or {}).keys())
+        try:
+            active = self._active_session_id()
+        except Exception:
+            active = ""
+        return len([w for w in model.waits_outside(active) if w.wait_key not in local])
+
+    def _attention_text(self) -> str:
+        model = self._state("_attention")
+        if model is None:
+            return ""
+        return attention_banner_text(needs_you=self._attention_waits_elsewhere(), new_results=model.new_results)
+
+    def _refresh_attention(self) -> None:
+        """Repaint the attention banner and the tray from the model."""
+        banner = self._state("attention_banner")
+        text = self._attention_text()
+        if banner is not None:
+            try:
+                if text:
+                    link = "wait" if self._attention_waits_elsewhere() else "results"
+                    banner.setText(f"{_html.escape(text)} &nbsp;<a href=\"attention:{link}\">Open</a>")
+                    banner.show()
+                else:
+                    banner.clear()
+                    banner.hide()
+            except RuntimeError:
+                pass
+        self._refresh_tray_feedback()
+
+    def _verify_attention_waits(self) -> None:
+        """The stream says a run waits; the run itself is the live fact. Ask it
+        (off the GUI thread) and forget the waits that are gone."""
+        model = self._state("_attention")
+        controller = self._state("_controller")
+        if model is None or controller is None or not model.waits():
+            return
+        pending = list(model.waits())
+
+        def work() -> None:
+            for wait in pending:
+                if not self._wait_is_live(controller, wait):
+                    self.me_event_received.emit(
+                        {"type": "attention.seen", "data": {"run_id": wait.run_id, "wait_key": wait.wait_key}}, False
+                    )
+
+        threading.Thread(target=work, name="attention-verify", daemon=True).start()
+
+    @staticmethod
+    def _wait_is_live(controller: Any, wait: Any) -> bool:
+        """``GET /runs/{id}``: still waiting (on that key when it says)."""
+        try:
+            gateway = controller.llm_manager.gateway_client()
+            run = gateway.get_run(wait.run_id)
+        except Exception:
+            return True  # unknown is not "gone": keep showing it
+        if str(run.get("status") or "") != "waiting":
+            return False
+        waiting = run.get("waiting") if isinstance(run.get("waiting"), dict) else {}
+        key = str(waiting.get("wait_key") or "")
+        # A parent waiting on its child (subworkflow) still holds the child's approval.
+        return not key or key == wait.wait_key or key.startswith("subworkflow:")
+
+    def _open_attention(self, href: str = "") -> None:
+        """Banner "Open": a waiting conversation (after confirming against the
+        run that it still waits), else the Automations tab."""
+        model = self._state("_attention")
+        if model is None:
+            return
+        target = str(href or "")
+        waits = model.waits_outside(self._active_session_id())
+        if target.endswith("wait") and waits:
+            wait = waits[0]
+            controller = self._state("_controller")
+
+            def work() -> None:
+                live = self._wait_is_live(controller, wait)
+                self.me_event_received.emit(
+                    {"type": "attention.open", "data": {"session_id": wait.session_id, "run_id": wait.run_id,
+                                                        "wait_key": wait.wait_key, "live": live}},
+                    False,
+                )
+
+            threading.Thread(target=work, name="attention-open", daemon=True).start()
+            return
+        self.open_automations()
+
+    def _on_attention_open(self, data: Dict[str, Any]) -> None:
+        if not data.get("live"):
+            self._attention.drop_wait(str(data.get("run_id") or ""), str(data.get("wait_key") or ""))
+            self._refresh_attention()
+            self._set_banner("That conversation is not waiting any more.", tone="info", key="attention")
+            return
+        session_id = str(data.get("session_id") or "")
+        if session_id:
+            self._switch_to_session(session_id)
 
     def _notify_automation(self, title: str, body: str) -> None:
         self._notify(str(title or "Automation"), str(body or title or ""), duration_ms=7000)
@@ -7769,7 +7999,7 @@ class AssistantPalette(QMainWindow):
         super().hideEvent(event)
         timer = self._state("_automations_timer")
         if timer is not None:
-            timer.setInterval(AUTOMATIONS_POLL_HIDDEN_MS)
+            timer.setInterval(self._automations_interval_ms(visible=False))
         for dialog in self._settings_family_dialogs():
             try:
                 # A Settings window the user is TYPING IN keeps itself alive:
@@ -7787,8 +8017,9 @@ class AssistantPalette(QMainWindow):
         super().showEvent(event)
         timer = self._state("_automations_timer")
         if timer is not None:
-            timer.setInterval(AUTOMATIONS_POLL_VISIBLE_MS)
-            QTimer.singleShot(0, self._poll_automations)
+            timer.setInterval(self._automations_interval_ms(visible=True))
+            if not self._me_events_live():
+                QTimer.singleShot(0, self._poll_automations)
         QTimer.singleShot(0, self._sync_native_traffic_lights)
         QTimer.singleShot(0, self._restore_deferred_history_scroll_on_show)
         self._request_connection_status_refresh()
@@ -7859,6 +8090,9 @@ class AssistantPalette(QMainWindow):
                 setter(None)
             except Exception:
                 pass
+        follower = self._state("_me_events")
+        if follower is not None:
+            follower.stop()
         worker = getattr(self, "_worker", None)
         if worker is not None:
             try:
@@ -11155,7 +11389,7 @@ class AssistantPalette(QMainWindow):
             return "speaking"
         # A run parked on the user outranks "working": working resolves itself,
         # this one cannot until the user answers it.
-        if self._state("_pending_user_waits"):
+        if self._state("_pending_user_waits") or self._attention_waits_elsewhere():
             return "waiting"
         if self._show_thinking_indicator():
             return "busy"
@@ -11224,6 +11458,9 @@ class AssistantPalette(QMainWindow):
             tooltip = "AbstractAssistant • Thinking..."
         elif state == "complete":
             tooltip = "AbstractAssistant • Reply ready"
+        attention_line = self._attention_text()
+        if attention_line:
+            tooltip = f"{tooltip}\n{attention_line}"
         try:
             tray.setToolTip(tooltip)
         except Exception:
@@ -11474,6 +11711,14 @@ class AssistantPalette(QMainWindow):
                 border: 1px solid rgba(121, 199, 255, 0.24);
                 background: rgba(67, 129, 185, 0.10);
                 color: #b9dcff;
+                font-size: 11px;
+            }
+            QLabel#attentionBanner {
+                border-radius: 11px;
+                padding: 7px 9px;
+                border: 1px solid rgba(251, 146, 60, 0.42);
+                background: rgba(251, 146, 60, 0.14);
+                color: #ffd0a8;
                 font-size: 11px;
             }
             QLabel#bannerLabel[tone="warn"] {

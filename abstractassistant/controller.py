@@ -19,6 +19,7 @@ from abstractassistant.core.gateway_voice_manager import GatewayVoiceManager
 from abstractassistant.core.llm_manager import LLMManager
 from abstractassistant.gateway import GatewayClient, GatewayClientConfig, session_memory_run_id
 from abstractassistant.gateway.automations import AutomationsClient
+from abstractassistant.gateway.me_events import MeEventsClient
 from abstractassistant.gateway.client import wait_answer_payload
 from abstractassistant.gateway.run_input import MEDIA_OVERRIDE_INPUT_KEYS
 from abstractassistant.gateway.tool_usage import (
@@ -1321,6 +1322,15 @@ class AssistantController:
         if gateway is None:
             raise RuntimeError("Gateway client is not configured")
         return AutomationsClient(gateway)
+
+    def me_events_client(self) -> Optional[MeEventsClient]:
+        """The person's event stream over the CURRENT gateway connection (None
+        when no gateway is configured). Called at every reconnect."""
+        try:
+            gateway = self.llm_manager.gateway_client()
+        except Exception:
+            return None
+        return MeEventsClient(gateway) if gateway is not None else None
 
     def automations_available(self) -> bool:
         """Whether the gateway advertises the Automations API (capabilities

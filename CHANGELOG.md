@@ -5,6 +5,22 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+### Added
+
+- The desktop app follows your event stream on the gateway (`/me/events`, then the live
+  `/me/events/stream`, resuming with `Last-Event-ID` after a sleep or a network change). A line above
+  the transcript says what waits for you across every conversation and automation ("A conversation
+  is waiting for you · 2 new results from your automations") with **Open**, which first checks with
+  the gateway that the run still waits; the menu bar icon shows the "needs you" badge for a run
+  waiting in another conversation, and its tooltip repeats the line. A run in another conversation
+  that stops for your approval or answer while the app is open notifies once.
+
+### Changed
+
+- The automation list is refreshed by the event stream (within a second of a trigger, a result or a
+  run) instead of the 60-second / 5-minute full-page polls; a 5-minute check still catches an
+  automation created or renamed elsewhere. A gateway without the stream keeps the polls.
+
 - Unified iPhone + independent Watch Store delivery through the existing AbstractAssistant listing, with one human-approved archive and preserved developer identities.
 
 ### iPhone

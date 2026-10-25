@@ -150,7 +150,9 @@ flowchart LR
     Switcher["Session switcher\nSessions | Automations tabs · discussion badge"]
     View["Automation view (ui/automations)\nruns as chat pairs · controls · waits · Discuss"]
     Sheet["Schedule this conversation…\nwhat · when (UTC) · context · tools"]
-    Hub["AutomationsHub\ncalls off the GUI thread\npolls 60 s visible / 5 min hidden"]
+    Hub["AutomationsHub\ncalls off the GUI thread\nrefetch on stream events · 5 min reconcile"]
+    Follower["gateway/me_events\nEventFollower: catch-up then SSE\nLast-Event-ID reconnect"]
+    Model["core/attention\nAttentionModel: raised minus seen\nbanner · tray badge"]
     Rules["core/automations\nlabels · controls · create body\nnotification ledger"]
     Client["gateway/automations\nAutomationsClient (ten calls)"]
     Tray["Tray: Automations… (count)\nnotifications"]
@@ -167,6 +169,10 @@ flowchart LR
     Disc["Discussion session\nforked · read-only workspace"]
   end
   Switcher --> Hub
+  Follower --> Model
+  Follower -- "automation events" --> Hub
+  Model --> Tray
+  Follower --> Stream["/me/events · /me/events/stream"]
   View --> Hub
   Sheet --> Hub
   Hub --> Rules
@@ -188,10 +194,23 @@ flowchart LR
   poll has confirmed it. Unreadable capabilities are reported as an error, never as "absent".
 - **Legacy schedules.** A summary marked `legacy` opens read-only with a notice; the view calls none
   of its routes.
+- **Event stream.** `gateway/me_events.EventFollower` (one daemon thread) reads
+  `GET /me/events?after=` pages, then tails `GET /me/events/stream` (SSE), reconnecting with
+  `Last-Event-ID` (1 to 30 s backoff); every event is delivered once, in `sequence` order, with
+  `live=False` for the catch-up. It stops on 404 (a gateway without the stream) or two 401/403.
+  `core/attention.AttentionModel` folds it: new results = `attention.raised` items above the latest
+  `attention.seen` `seq` of their automation; needs you = `attention.raised` approvals/questions
+  (`wait_key`) not closed by an `attention.seen` (same `record_key` or run + wait key) or the run's
+  `run.finished`. Waits read from history are confirmed against `GET /runs/{id}` once caught up and
+  again before **Open** acts on one (the run is the live fact). The palette shows the banner and
+  the tray badge from the model; a LIVE approval/question in another conversation notifies once
+  (key `wait:<run>:<wait_key>` in the notification ledger).
 - **Polling.** `AutomationsHub` reads every page of `GET /automations` (there is no change cursor)
-  and, for each automation with unseen items, its `…/attention` pages. It polls every 60 seconds
-  while the palette is visible, every 5 minutes while it is hidden, and at once when the palette
-  is shown or the switcher opens. One poll runs at a time.
+  and, for each automation with unseen items, its `…/attention` pages. While the event stream is
+  live it refetches on automation events (`trigger.event`, `attention.*`, `wake.*`, an occurrence's
+  `run.started|finished`, coalesced over 250 ms) and reconciles every 5 minutes; without the stream
+  it polls every 60 seconds while the palette is visible, every 5 minutes while it is hidden, and at
+  once when the palette is shown or the switcher opens. One poll runs at a time.
 - **Notifications.** New attention items (notable results, final failures) and pending waits
   become one tray notification each; their keys are kept in `automations_notified.json` (bounded)
   so a relaunch does not repeat them. The gateway's per-user seen cursor moves only when the user
