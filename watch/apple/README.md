@@ -56,8 +56,10 @@ how much of them it reads, in tokens); once read, a page opens at once. Every sc
 its information is in, and an error only once reading it has failed several times.
 
 **Get answers while away.** An answer that arrives after you left the app comes as a notification.
-New approvals and questions are checked in the background about every 15 minutes; an ordinary tool
-approval can be allowed or denied from the notification itself. An automation that finishes a run
+New approvals and questions, and new results from your automations, are read from your gateway's
+event stream in the background about every 15 minutes and when the app opens: what needs you comes
+as a time-sensitive notification, results as quiet news. (With an older gateway the watch reads the
+waits instead, and an ordinary tool approval can be allowed or denied from the notification itself.) An automation that finishes a run
 posts a notification ("Morning digest finished"; a tap opens it), shown as a banner when the app
 is open; Settings → Notifications turns this off.
 

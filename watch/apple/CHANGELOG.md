@@ -8,6 +8,13 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Added
 
+- **What happened while the app was closed, from your event stream.** The background check (about
+  every 15 minutes) and each launch read your gateway's event stream once (`/me/events`, one request,
+  no stream in the background): a new approval or question is a time-sensitive notification ("Approval
+  needed", "A question for you"; a tap opens what waits for you), a new automation result is a quiet
+  notification ("Morning digest has a result"), and the complication's "needs you" and "news" follow
+  it. Nothing from before the watch first looked is posted. An older gateway keeps the previous check.
+
 - **Your avatar on your watch face.** The Assistant complication, for the circular, corner, inline
   and rectangular slots (and the Smart Stack): the orb style you chose, as the app draws it (the
   app's own orb until the app has opened once), in three states: at rest; speaking with a dot when

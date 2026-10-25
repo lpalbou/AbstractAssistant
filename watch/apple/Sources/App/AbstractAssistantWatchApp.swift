@@ -26,6 +26,10 @@ struct AbstractAssistantWatchApp: App {
         }
         AnswerNotifier.shared.openAutomation = { [weak model] id in model?.openAutomation(id: id) }
         AnswerNotifier.shared.openWait = { [weak model] w in model?.show([w.kind == .askUser ? .askUser(w) : .approval(w)]) }
+        AnswerNotifier.shared.openWaits = { [weak model] in model?.show([.waits]) }
+        // What happened while the app was closed (one read of the event stream; a launch in the
+        // background is the refresh's, which reads it itself).
+        Task { await AnswerNotifier.shared.catchUpAtLaunch() }
     }
 
     /// `--screen face` (debug builds): the watch face's Assistant complication on each slot, to look at.

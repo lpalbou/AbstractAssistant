@@ -9,8 +9,18 @@ extension FaceSnapshot {
         update { $0.needYou = waits.count; $0.firstNeed = waits.first?.headline }
     }
 
+    /// What your event stream says: the approvals and questions open, the results not seen yet.
+    static func attention(_ s: AttentionState) {
+        update {
+            $0.needYou = s.needYou
+            $0.firstNeed = s.waits.first.map { $0.kind == "question" ? "A question for you" : "Approval needed" }
+            $0.newResults = s.newResults
+        }
+    }
+
     /// The next active automation to run, and the results not seen yet.
     static func automations(_ list: [AutomationSummary], now: Date = Date()) {
+        AutomationNames.remember(list)
         let next = list.filter { $0.status == "active" }
             .compactMap { a in a.nextFireAt.flatMap(ISO8601.date).map { (name: a.name ?? "Automation", at: $0) } }
             .filter { $0.at > now }

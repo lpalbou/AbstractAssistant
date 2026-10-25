@@ -30,6 +30,9 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
     static let denyAction = "assistant.deny"
     /// Opens the waits on screen (set by the app).
     var openWait: (@MainActor (Wait) -> Void)?
+    /// Opens the list of what waits for you (a tap on a "needs you" notice read from the event
+    /// stream: the list reads the waits live, so an answer given elsewhere is not shown again).
+    var openWaits: (@MainActor () -> Void)?
 
     /// Opens an answer in the app (set by the app; called on the main actor).
     var open: (@MainActor (AnswerRef) -> Void)?
@@ -38,6 +41,7 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
 
     private let lock = NSLock()
     private var notified: Set<String> = []
+    private var catchingUp = false
     private var showing: String?
     private var eventsFinished: CheckedContinuation<Void, Never>?
     /// The session's events were delivered before the app asked to wait for them.
@@ -153,18 +157,93 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
                                                          userInfo: Self.refreshIdentifier as NSString) { _ in }
     }
 
-    /// Background refresh: posts each new wait (an approval or a question) once, and each
-    /// automation that finished a run (Settings → Notifications), keeps the watch face's complication
-    /// current, then reschedules.
+    /// Background refresh: reads what happened since the last look from your event stream (ONE
+    /// request: `GET /me/events?after=`), posts each new approval or question (time-sensitive) and
+    /// each new automation result (passive) once, keeps the watch face's complication current, then
+    /// reschedules. A gateway without the event stream gets the two older reads instead.
     func checkWaits() async {
         await MainActor.run { scheduleRefresh() }
         guard let saved = SavedSignIn.load() else { return }
         let client = LiveGatewayClient(baseURL: saved.gateway, credential: saved.credential)
-        // Both reads go out together (on the watch's radio each one costs seconds).
+        if await catchUp(client) { return }
+        // An older gateway (no `/me/events`): both reads go out together (on the watch's radio each
+        // one costs seconds).
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await self.checkAutomations(client) }
             group.addTask { await self.postWaits(client) }
         }
+    }
+
+    // MARK: The event stream (backlog 1047): one request per look
+
+    private static let attentionKey = "notify.attention.state"
+
+    static func loadAttention() -> AttentionState {
+        guard let data = UserDefaults.standard.data(forKey: attentionKey),
+              let s = try? JSONDecoder().decode(AttentionState.self, from: data) else { return AttentionState() }
+        return s
+    }
+
+    private static func saveAttention(_ s: AttentionState) {
+        if let data = try? JSONEncoder().encode(s) { UserDefaults.standard.set(data, forKey: attentionKey) }
+    }
+
+    /// At launch, in front (a background launch is the refresh's own, which reads once already).
+    func catchUpAtLaunch() async {
+        let state = await MainActor.run { WKApplication.shared().applicationState }
+        guard state != .background, let saved = SavedSignIn.load() else { return }
+        _ = await catchUp(LiveGatewayClient(baseURL: saved.gateway, credential: saved.credential))
+    }
+
+    /// Reads the events after the last one read (one request), tells what is new and updates the
+    /// complication. The very first read only takes stock: nothing that happened before the watch
+    /// first looked is posted. False only when the gateway has no event stream (404); a radio
+    /// failure is true (the next look reads from the same place).
+    func catchUp(_ client: any GatewayClient) async -> Bool {
+        let busy: Bool = lock.withLock { if catchingUp { return true }; catchingUp = true; return false }
+        if busy { return true }
+        defer { lock.withLock { catchingUp = false } }
+        var state = Self.loadAttention()
+        let page: UserEventsPage
+        do { page = try await client.events(after: state.cursor, limit: state.caughtUp ? 200 : 1000) }
+        catch GatewayError.http(let status, _) where status == 404 { return false }
+        catch { trace("events not read: \(error.localizedDescription)"); return true }
+        let notices = state.apply(page)
+        Self.saveAttention(state)
+        FaceSnapshot.attention(state)                              // the watch face's complication
+        for n in notices { await post(n) }
+        return true
+    }
+
+    /// One notification per notice: what needs you is time-sensitive, news is passive.
+    func post(_ notice: AttentionNotice) async {
+        let content = UNMutableNotificationContent()
+        content.sound = .default
+        switch notice {
+        case .needsYou(let run, let key, let kind, _):
+            content.title = kind == "question" ? "A question for you" : "Approval needed"
+            content.body = "Open the Assistant to answer."
+            content.interruptionLevel = .timeSensitive
+            content.userInfo = ["needs": run]
+            // The older path's record of posted waits: the same wait is never posted twice.
+            var seen = UserDefaults.standard.stringArray(forKey: "notify.waits") ?? []
+            seen.append("\(run):\(key)")
+            UserDefaults.standard.set(Array(seen.suffix(80)), forKey: "notify.waits")
+        case .news(let aid, _, let failed):
+            content.title = AutomationNames.name(aid) + (failed ? " failed" : " has a result")
+            content.body = "Tap to read it."
+            content.interruptionLevel = .passive
+            content.userInfo = ["automation": aid]
+        case .automationFinished(let aid, _, let status, let run):
+            guard AutomationNotices.on, !AutomationNotices.wasDelivered(run) else { return }
+            content.title = AutomationNames.name(aid) + (status == "failed" ? " failed" : " finished")
+            content.body = "Tap to read it."
+            content.interruptionLevel = .passive
+            content.userInfo = ["automation": aid]
+            if let run { AutomationNotices.delivered(run: run) }
+        }
+        try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: notice.identifier, content: content, trigger: nil))
+        trace("posted \(notice.identifier)")
     }
 
     /// Each automation that finished a run since the last look: "Morning digest finished" and the
@@ -318,6 +397,10 @@ extension AnswerNotifier: UNUserNotificationCenterDelegate {
             }
             return
         }
+        if response.notification.request.content.userInfo["needs"] is String {
+            if response.actionIdentifier != UNNotificationDismissActionIdentifier { await MainActor.run { self.openWaits?() } }
+            return
+        }
         if let id = response.notification.request.content.userInfo["automation"] as? String {
             if response.actionIdentifier != UNNotificationDismissActionIdentifier { await MainActor.run { self.openAutomation?(id) } }
             return
@@ -326,6 +409,20 @@ extension AnswerNotifier: UNUserNotificationCenterDelegate {
               let raw = response.notification.request.content.userInfo["answer"] as? String,
               let ref = try? JSONDecoder().decode(AnswerRef.self, from: Data(raw.utf8)) else { return }
         await MainActor.run { self.open?(ref) }
+    }
+}
+
+/// The automations' names as last read (the event stream carries ids only): "Morning digest has a
+/// result" rather than "An automation has a result".
+enum AutomationNames {
+    private static let key = "notify.automations.names"
+    static func remember(_ list: [AutomationSummary]) {
+        var names = UserDefaults.standard.dictionary(forKey: key) as? [String: String] ?? [:]
+        for a in list { if let n = a.name, !n.isEmpty { names[a.id] = n } }
+        UserDefaults.standard.set(names, forKey: key)
+    }
+    static func name(_ id: String) -> String {
+        (UserDefaults.standard.dictionary(forKey: key) as? [String: String])?[id] ?? "An automation"
     }
 }
 

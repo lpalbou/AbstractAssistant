@@ -508,6 +508,17 @@ public actor MockGatewayClient: GatewayClient {
 
     /// Two short synthetic "sentences" (a voiced tone with a syllable envelope), so the read screen and
     /// the orb can be exercised without a gateway.
+    /// The person's event stream (canned: empty unless a test appends to it).
+    public var userEvents: [UserEvent] = []
+    public func appendEvent(_ e: UserEvent) { userEvents.append(e) }
+
+    public func events(after: Int, limit: Int) async throws -> UserEventsPage {
+        let rest = userEvents.filter { $0.sequence > after }
+        let page = Array(rest.prefix(limit))
+        return UserEventsPage(stream: "user:default:mock", events: page, nextAfter: page.last?.sequence ?? after,
+                              head: userEvents.last?.sequence ?? 0, more: rest.count > limit)
+    }
+
     public func emailStatus() async throws -> EmailStatus {
         EmailStatus(configured: false, address: nil, agentToolsOn: false, reason: "Connect a mailbox first.")
     }

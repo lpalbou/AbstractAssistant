@@ -118,6 +118,10 @@ public protocol GatewayClient: Sendable {
     func voiceCatalog() async throws -> VoiceCatalog
     /// `GET /api/gateway/me/email`: this account's mailbox and whether its email tools are on.
     func emailStatus() async throws -> EmailStatus
+    /// `GET /api/gateway/me/events?after=&limit=`: the person's own events after a sequence, oldest
+    /// first (one request: the background refresh's whole radio cost). A gateway without the
+    /// stream answers 404 (`GatewayError.http(404, …)`).
+    func events(after: Int, limit: Int) async throws -> UserEventsPage
 }
 
 /// Live client over URLSession: `Authorization: Bearer <token>`, or a gateway session from an
@@ -203,6 +207,12 @@ public actor LiveGatewayClient: GatewayClient {
     }
 
     public func me() async throws -> Principal { try await get("api/gateway/me", as: Principal.self) }
+
+    public func events(after: Int, limit: Int) async throws -> UserEventsPage {
+        try await get("api/gateway/me/events",
+                      query: [.init(name: "after", value: String(after)), .init(name: "limit", value: String(limit))],
+                      as: UserEventsPage.self, timeout: 30)
+    }
 
     /// Person waits: list the waiting runs, keep the rows whose `waiting.reason` is `user`,
     /// then read each run's detail, which carries the full wait block (see `RunSummary.personWait`).

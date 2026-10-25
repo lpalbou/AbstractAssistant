@@ -86,7 +86,7 @@ sequenceDiagram
 | `RunActivity` | Follows a question's run down to the run doing the work and reads its new step records (thinking, tool calls, media, waits) into the steps under the orb and the orb's pulses and satellites. |
 | `SVGDocument`, `SVGView` | SVG drawn on the watch (it has no web view): the client library reads a drawing into shapes and texts with their transforms, inherited styles, gradients, dashes and blur or drop-shadow filters (rect, circle, ellipse, line, polyline, polygon, every path command with arcs, text, groups); the app draws them in one `Canvas`, fitted with their aspect kept. Not drawn: embedded images, `use`, masks, clip paths, patterns, CSS stylesheets. Used by the file preview (`FilePreviewView`, a vertical pager over the conversation's files) and the media page. |
 | `MediaStore` | Downloads an answer's images, recordings and videos from the gateway's artifact route once, keeps them in the watch's caches (150 MB at most) and makes pictures small on the watch. |
-| `AnswerNotifier` | Hands a run's ledger stream to a background URLSession once the app leaves the foreground (one per run, ended when the app sees the run end), posts answers and waits as notifications, background refresh for new waits. |
+| `AnswerNotifier` | Hands a run's ledger stream to a background URLSession once the app leaves the foreground (one per run, ended when the app sees the run end), posts answers and waits as notifications; the background refresh and each launch read the event stream once (`GET /me/events?after=`) and post what is new. |
 | `FaceSnapshot`, Assistant complication | What the watch face shows (your avatar, waits for you, the first of them, the next automation, the results not seen), kept in the app group `group.ai.abstractframework.assistant`: written by `AppModel` when its waits or automations change and by the background refresh; the avatar is the chosen orb style drawn by the app (`FaceSnapshot.drawAvatar`, trimmed to the drawing) whenever the style changes, in the face's three states (`FaceState`: at rest; speaking for news, results or messages not seen; listening for what needs you), two PNGs per state in the group's `Library` folder: in colour, and its light as transparency for a face that draws its complications in one tint (the complication draws that one as a mask in the face's accent, scaled to the slot's pixels: a face refuses a picture much larger than its slot). Until the app has drawn it, the complication shows the app's own orb from its assets (`Complication/Assets.xcassets`, `Orb` and its mask `OrbMask`). A write that changes it asks WidgetKit for a new timeline. The complication (`Sources/Complication`, the `AbstractAssistantComplication` extension embedded in the app) reads it every five minutes for two hours; it never calls the gateway itself. Its views (`Sources/Face`) are shared by the app (`--screen face` shows them in debug builds). |
 | `RuntimeKeeper` | An extended runtime session while the app listens, works or speaks, so the voice continues with the wrist down. |
 | `AbstractGatewayClient` (SwiftPM) | Typed async client: models, endpoints, markdown and speech text, sign-in; reads (GET) that time out, lose their connection or meet a server error are tried 3 times before they fail, writes are sent once ([ADR-0039](https://github.com/lpalbou/AbstractFramework/blob/main/docs/adr/0039-loading-states-spinner-until-a-read-has-failed.md) of AbstractFramework); `MockGatewayClient` with the same protocol for previews and screenshots. Tested with `swift test`. |
@@ -98,6 +98,7 @@ sequenceDiagram
 | Sign in with a token | `GET /api/gateway/me` (must name the account typed) |
 | Sign in with an email | `POST /api/gateway/session/recovery/request`, then `POST /api/gateway/session/recovery/redeem` (`remember: true`); the session and CSRF values are sent as `X-AbstractGateway-Session` / `X-AbstractGateway-CSRF` |
 | Needs you | `GET /api/gateway/runs?status=waiting`, then `GET /api/gateway/runs/{id}` for each waiting row (the approval lives on the agent's child run) |
+| What happened while closed | `GET /api/gateway/me/events?after=<sequence>&limit=` (one request per background refresh and per launch; CloudEvents `attention.raised`/`attention.seen`/`run.finished`) |
 | Allow / deny / answer | `POST /api/gateway/commands` `{type: "resume", payload: {wait_key, payload: {approved} or {response}}}`; the run is read again first, and a wait answered elsewhere is not answered twice |
 | Approve all (an approval) | for the run's owner, read from the run itself (`session_id`, `automation_id`, also on an agent's run below an occurrence): a conversation (its tools: the watch's defaults and its own changes) or an automation (its own tools: `input_data._runtime.allowed_tools` and `tool_policy`). It allows that owner's tools on Ask, up to the risk of the call approved (at least "makes changes"); Off tools stay off, sends and tools whose destination the assistant picks keep asking. Allowed tools stay on Ask in the run's `_runtime.tool_policy` (fixed when a run starts); the watch answers their approvals (`POST /api/gateway/commands` resume) when every call is allowed for that owner: while it follows the run, and in its regular check of what needs you (there only what Approve all allowed, never the watch's defaults). The shield, Ask again on the Tools page or on the automation's details clear them, so the next call asks |
 | Ask the Assistant | `POST /api/gateway/runs/start` `{flow_id: "@default", interface: "abstractcode.agent.v1", session_id, input_data: {prompt, use_session_history: true, system, tools, _runtime.allowed_tools}}`, then `GET /api/gateway/runs/{id}`; `tools` lists every tool `GET /api/gateway/discovery/tools` reports enabled and available (as the desktop assistant), and `system` is added after the agent's own loop and tool rules. With the Assistant's workflow (`interface: "abstractassistant.agent.v1"`), the conversation's newest image goes as `primary_image_artifact` (`{$artifact, run_id, content_type}`, also in `context`) with `has_primary_image_context`, as the iPhone and the menu-bar Assistant send it: an edit, an upscale or an image-to-video starts from it |
@@ -139,18 +140,30 @@ sequenceDiagram
   when the app is left. The stream is ended when the app itself sees the run end or park on a
   person, and given up after an hour (15 minutes a connection, three reconnections). No
   notification is posted for an answer that is on screen.
-- **New waits while closed**: a background refresh, about every 15 minutes at the system's
-  discretion, reads the waits (one request; the tools' risk tiers only when there is a new one)
-  and posts each new approval or question once. An ordinary tool approval offers Allow
-  (the watch must be unlocked) and Deny; a send or a destructive call opens the app.
-- **Notifications (automations)**: the same refresh reads the automations (`GET /api/gateway/automations`,
-  alongside the waits) and posts one notification per automation whose latest run is newer than
-  the one known on this watch (the first look only notes them; a run already posted by its answer
-  stream is skipped); the app's own automation reads post the same notification, shown as a banner
-  (none for an automation whose orb page is open). Both follow
-  Settings → Notifications.
-- **Watch face**: the Assistant complication shows what the app last read; the same refresh writes the waits
-  and the automations it reads to the app group, and the face redraws only when they changed.
+- **While closed: your event stream, one request**: a background refresh, about every 15 minutes at
+  the system's discretion, and each launch in front read `GET /api/gateway/me/events?after=<last
+  sequence read>` once (no stream in the background). `AttentionState` (AbstractGatewayClient,
+  `MeEvents.swift`, kept in the app's defaults) folds it: approvals and questions raised and not
+  seen or ended (`attention.raised` with a `wait_key`, closed by `attention.seen` or the run's
+  `run.finished`), automation results raised above the automation's latest `attention.seen`.
+  Each new approval or question is posted once as **time-sensitive** ("Approval needed" / "A question
+  for you"; a tap opens the waits list, which reads the waits live); each new automation result is
+  posted once as **passive** news ("Morning digest has a result" / "… failed", names from the last
+  automation list read; a tap opens it); an automation's run that finished without a result posts
+  "… finished" (Settings → Notifications; a run already posted by its answer stream is skipped). The
+  first read only takes stock: what happened before the watch first looked never notifies.
+  Time-sensitive needs the `com.apple.developer.usernotifications.time-sensitive` entitlement to
+  break through a Focus; without it watchOS delivers it as an ordinary notification.
+- **Older gateway (no `/me/events`, 404)**: the refresh reads the waits (the tools' risk tiers only
+  when there is a new one) and posts each new approval or question once (an ordinary tool approval
+  offers Allow, the watch must be unlocked, and Deny; a send or a destructive call opens the app),
+  and reads the automations (`GET /api/gateway/automations`) to post one notification per automation
+  whose latest run is newer than the one known on this watch. The app's own automation reads post
+  the same notification, shown as a banner (none for an automation whose orb page is open).
+- **Watch face**: the Assistant complication shows what the app last read; the refresh writes what
+  the event stream says (needs you from the open approvals and questions, news from the unseen
+  results) to the app group, the app writes its live waits and automations, and the face redraws
+  only when they changed.
 - **Keep awake**: `WKExtendedRuntimeSession` (`WKBackgroundModes: self-care`, up to 10 minutes)
   from the tap that starts a turn until the voice ends, a new conversation is started, or the
   player is dropped; never past the turn. A session about to expire while still held is renewed
