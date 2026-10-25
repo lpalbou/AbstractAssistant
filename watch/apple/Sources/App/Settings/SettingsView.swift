@@ -7,6 +7,7 @@ struct SettingsView: View {
     @AppStorage("ask.speak") private var speakAnswers = true
     @AppStorage(AutomationNotices.key) private var automationNotices = true
     @AppStorage(OrbDesign.storageKey) private var orbDesign = OrbDesign.a.rawValue
+    @State private var confirmingSignOut = false
 
     var body: some View {
         FitScroll {
@@ -83,11 +84,12 @@ struct SettingsView: View {
                 if !model.client.isMock {
                     Text([model.principal?.userId, model.gatewayHost].compactMap { $0 }.joined(separator: " · "))
                         .font(.rounded(.caption2)).foregroundStyle(Theme.muted).lineLimit(1).minimumScaleFactor(0.7)
-                    Button("Sign out", role: .destructive) { model.signOut() }
-                        .buttonStyle(FilledButtonStyle(fill: Theme.neutralButton, foreground: Theme.red))
+                    Button("Sign out", role: .destructive) { confirmingSignOut = true }
+                        .buttonStyle(FilledButtonStyle(fill: Theme.redButton))
                 }
             }
         }
         .screen("Settings")
+        .signOutConfirmation(isPresented: $confirmingSignOut)
     }
 }

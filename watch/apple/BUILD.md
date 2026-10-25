@@ -65,14 +65,16 @@ nothing). The app's own scheme, CI and the release archive do not build the UI t
 | Argument | Effect |
 |---|---|
 | `--mock` | sample data instead of a gateway (screenshots, previews) |
-| `--screen <name>` | opens a screen at launch: `home` `signin` `approval` `approval-ask` `email` `draft` `askuser` `waits` `ask` `ask-entity` `picker` `listening` `thinking` `answer` `sessions` `session` `automations` `automation` `automation-info` `automation-new` `automation-edit` `face` (debug: the Assistant complication on each slot) `settings` `orbstyle` `about` `read` `link` `tools` `tools:<group>` `session-search` `session-search-media` |
+| `--screen <name>` | opens a screen at launch: `home` `signin` `approval` `approval-ask` `email` `draft` `askuser` `waits` `ask` `ask-entity` `picker` `listening` `thinking` `answer` `sessions` `session` `automations` `automation` `automation-info` `automation-new` `automation-edit` `face` (debug: the Assistant complication on each slot) `settings` `connection` `orbstyle` `about` `read` `link` `tools` `tools:<group>` `session-search` `session-search-media` |
 | `--gateway <url> --token <token> [--user <id>]` | signs in with that gateway and token and keeps the sign-in, so one launch provisions a simulator or a watch |
 | `--forget-gateway` | forgets the saved sign-in (the sign-in screen shows) |
 | `--orb-design <letter>` | chooses the orb style (R Lotus, S Crystal, U Eclipse, V Synapse, W Drop, X Wave, G Face, I Imprint, J Hologram, K Eye, L Lens, M Dome, N Valet, O Retro, P Deco, Q Rover, H Ocean); `--ask-orb` asks the first-launch question again |
 | `--no-notification-prompt` | never shows the one-time notification question (screenshot runs) |
 
 Debug builds also accept test hooks that answer, ask or navigate without a tap: `--test-identify`
-/ `--test-secret` (sign-in), `--test-approve once|all`, `--test-action allow-first|deny-first`,
+/ `--test-secret` (sign-in), `--reset-signins` (forgets the sign-in, the known gateways and the kept
+sign-ins), `--test-known <url,url>` (gateways signed into, oldest first), `--test-kept <user,user>`, `--test-last-user <name>` (the user signed in last, what the field starts with)
+(sign-ins kept on the default gateway), `--test-approve once|all`, `--test-action allow-first|deny-first`,
 `--test-ask "<prompt>"`, `--test-read "<markdown>"`, `--test-open <url>`, `--test-listen`,
 `--test-pause`, `--test-rewind` (with `--rewind-1`), `--open-automation <n>`, `--run-now`,
 `--run-first`, `--scroll-bottom`, `--scroll-end-now`, `--home-bottom`, `--render-icon`,

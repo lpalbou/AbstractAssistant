@@ -7,6 +7,7 @@ struct ConnectionView: View {
     @EnvironmentObject private var model: AppModel
     @State private var email: EmailStatus?
     @State private var emailFailed = false
+    @State private var confirmingSignOut = false
 
     private var saved: SavedSignIn? { SavedSignIn.load() }
 
@@ -47,14 +48,15 @@ struct ConnectionView: View {
                 }
                 Text("Email and tools belong to the account: a device signed in as another account can show different ones.")
                     .font(.rounded(.caption2)).foregroundStyle(Theme.muted)
-                if !model.client.isMock {
-                    Button("Sign in as someone else") { model.signOut() }
-                        .buttonStyle(FilledButtonStyle(fill: Theme.neutralButton))
-                }
+                // Shown with sample data too (screenshots, tests); it asks first.
+                Button("Sign out") { confirmingSignOut = true }
+                    .buttonStyle(FilledButtonStyle(fill: Theme.redButton))
+                    .accessibilityIdentifier("connection.signout")
             }
             .padding(.horizontal, 4)
         }
         .screen("Connection")
+        .signOutConfirmation(isPresented: $confirmingSignOut)
         .task {
             await model.ensureTools(maxAge: 0)
             do { email = try await model.client.emailStatus() } catch { emailFailed = true }
@@ -87,5 +89,61 @@ struct ConnectionView: View {
     private func line(_ text: String, strong: Bool = false, color: Color? = nil) -> some View {
         Text(text).font(.rounded(strong ? .footnote : .caption2, weight: strong ? .semibold : .regular))
             .foregroundStyle(color ?? (strong ? Theme.text : Theme.text2)).fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// Sign out asks first, in the confirmation style of Archive: keep this sign-in on the watch for a
+/// one-tap return from the sign-in page, or sign out and forget it.
+struct SignOutConfirm: View {
+    enum Choice { case keep, forget, cancel }
+    let user: String?
+    let gateway: String
+    let done: (Choice) -> Void
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 8) {
+                Image(systemName: "rectangle.portrait.and.arrow.right").font(.system(size: 22, weight: .semibold)).foregroundStyle(Theme.amber)
+                Text("Sign out?").font(.rounded(.headline)).multilineTextAlignment(.center)
+                Text([user, gateway].compactMap { $0 }.joined(separator: " · "))
+                    .font(.rounded(.footnote)).foregroundStyle(Theme.text2).lineLimit(2).multilineTextAlignment(.center)
+                if user != nil {
+                    Text("Keep your sign-in to come back with one tap from the sign-in page.")
+                        .font(.rounded(.caption2)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
+                    Button("Keep my sign-in") { done(.keep) }
+                        .buttonStyle(FilledButtonStyle(fill: Theme.indigoButton))
+                        .accessibilityIdentifier("signout.keep")
+                }
+                Button("Sign out and forget") { done(.forget) }
+                    .buttonStyle(FilledButtonStyle(fill: Theme.redButton))
+                    .accessibilityIdentifier("signout.forget")
+                Button("Cancel") { done(.cancel) }
+                    .buttonStyle(FilledButtonStyle(fill: Theme.neutralButton))
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+}
+
+extension View {
+    /// The Sign out question (`SignOutConfirm`) as a sheet, answered through `AppModel.signOut(keep:)`.
+    func signOutConfirmation(isPresented: Binding<Bool>) -> some View {
+        modifier(SignOutConfirmation(isPresented: isPresented))
+    }
+}
+
+private struct SignOutConfirmation: ViewModifier {
+    @EnvironmentObject private var model: AppModel
+    @Binding var isPresented: Bool
+    func body(content: Content) -> some View {
+        content.sheet(isPresented: $isPresented) {
+            SignOutConfirm(user: SavedSignIn.load()?.user ?? model.principal?.userId, gateway: model.gatewayHost) { choice in
+                isPresented = false
+                switch choice {
+                case .keep: model.signOut(keep: true)
+                case .forget: model.signOut()
+                case .cancel: break
+                }
+            }
+        }
     }
 }

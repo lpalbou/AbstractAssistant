@@ -163,11 +163,13 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
     /// reschedules. A gateway without the event stream gets the two older reads instead.
     func checkWaits() async {
         await MainActor.run { scheduleRefresh() }
+        Self.noteCheck("background")
         guard let saved = SavedSignIn.load() else { return }
         let client = LiveGatewayClient(baseURL: saved.gateway, credential: saved.credential)
-        if await catchUp(client) { return }
-        // An older gateway (no `/me/events`): both reads go out together (on the watch's radio each
-        // one costs seconds).
+        if await catchUp(client, host: saved.gateway.host()) == .handled { return }
+        // An older gateway (no `/me/events`), or a stream that could not be read this time: the two
+        // older reads, together (on the watch's radio each one costs seconds). A look that reads
+        // nothing would leave the face and the notifications behind for another 15 minutes.
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await self.checkAutomations(client) }
             group.addTask { await self.postWaits(client) }
@@ -188,26 +190,75 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
         if let data = try? JSONEncoder().encode(s) { UserDefaults.standard.set(data, forKey: attentionKey) }
     }
 
+    /// When the watch looked (the background refresh, a launch): the last 40, to tell whether the
+    /// system runs the refresh at all (read with `--dump-notify`, a debug build on the console).
+    static let checksKey = "notify.checks"
+    static func noteCheck(_ what: String) {
+        var log = UserDefaults.standard.stringArray(forKey: checksKey) ?? []
+        log.append("\(ISO8601DateFormatter().string(from: Date())) \(what)")
+        UserDefaults.standard.set(Array(log.suffix(40)), forKey: checksKey)
+    }
+
+    /// Everything the notifier knows, as lines: the system's permission, the toggle, the checks
+    /// made, what was posted and what is pending (`--dump-notify` prints it at launch in a debug build).
+    func readout() async -> [String] {
+        let center = UNUserNotificationCenter.current(), d = UserDefaults.standard
+        let settings = await center.notificationSettings()
+        var lines = ["permission \(settings.authorizationStatus.rawValue) (0 not asked, 1 denied, 2 authorized, 3 provisional) alerts \(settings.alertSetting.rawValue) sound \(settings.soundSetting.rawValue)",
+                     "asked \(d.bool(forKey: "notify.asked")) automation notices on \(AutomationNotices.on)",
+                     "signed in \(SavedSignIn.load().map { $0.gateway.host() ?? "?" } ?? "no")"]
+        let state = Self.loadAttention()
+        lines.append("events cursor \(state.cursor) caughtUp \(state.caughtUp) needYou \(state.needYou) newResults \(state.newResults)")
+        lines.append("stream absent \(d.dictionaryRepresentation().filter { $0.key.hasPrefix("notify.events.absent.") })")
+        lines.append("known runs \(d.dictionary(forKey: "notify.automations.known") as? [String: Int] ?? [:])")
+        lines.append("delivered runs \(d.stringArray(forKey: "notify.automations.delivered") ?? [])")
+        lines.append("posted waits \(d.stringArray(forKey: "notify.waits") ?? [])")
+        lines.append("checks \(d.stringArray(forKey: Self.checksKey) ?? [])")
+        let delivered = await center.deliveredNotifications()
+        lines.append("delivered notifications \(delivered.map { "\($0.request.identifier): \($0.request.content.title) @\($0.date)" })")
+        let pending = await center.pendingNotificationRequests()
+        lines.append("pending notifications \(pending.map(\.identifier))")
+        lines.append("face \(FaceSnapshot.read())")
+        return lines
+    }
+
     /// At launch, in front (a background launch is the refresh's own, which reads once already).
     func catchUpAtLaunch() async {
+        Self.noteCheck("launch")
         let state = await MainActor.run { WKApplication.shared().applicationState }
         guard state != .background, let saved = SavedSignIn.load() else { return }
-        _ = await catchUp(LiveGatewayClient(baseURL: saved.gateway, credential: saved.credential))
+        _ = await catchUp(LiveGatewayClient(baseURL: saved.gateway, credential: saved.credential), host: saved.gateway.host())
+    }
+
+    /// How a look at the event stream went: `handled` (read, or another look is reading it),
+    /// `noStream` (the gateway has no `/me/events`: an older one), `failed` (not read this time:
+    /// the radio, the gateway). The older reads stand in for the last two.
+    enum CatchUp { case handled, noStream, failed }
+
+    /// A gateway that answered 404 to the stream is not asked again for a day (one request saved
+    /// per look on the radio), per gateway; a day later it is asked once more, in case it was updated.
+    private static func streamAbsentKey(_ host: String?) -> String { "notify.events.absent.\(host ?? "-")" }
+    static func streamAbsent(host: String?) -> Bool {
+        guard let since = UserDefaults.standard.object(forKey: streamAbsentKey(host)) as? Date else { return false }
+        return Date().timeIntervalSince(since) < 86_400
     }
 
     /// Reads the events after the last one read (one request), tells what is new and updates the
     /// complication. The very first read only takes stock: nothing that happened before the watch
-    /// first looked is posted. False only when the gateway has no event stream (404); a radio
-    /// failure is true (the next look reads from the same place).
-    func catchUp(_ client: any GatewayClient) async -> Bool {
+    /// first looked is posted.
+    func catchUp(_ client: any GatewayClient, host: String?) async -> CatchUp {
+        if Self.streamAbsent(host: host) { return .noStream }
         let busy: Bool = lock.withLock { if catchingUp { return true }; catchingUp = true; return false }
-        if busy { return true }
+        if busy { return .handled }
         defer { lock.withLock { catchingUp = false } }
         var state = Self.loadAttention()
         let page: UserEventsPage
         do { page = try await client.events(after: state.cursor, limit: state.caughtUp ? 200 : 1000) }
-        catch GatewayError.http(let status, _) where status == 404 { return false }
-        catch { trace("events not read: \(error.localizedDescription)"); return true }
+        catch GatewayError.http(let status, _) where status == 404 {
+            UserDefaults.standard.set(Date(), forKey: Self.streamAbsentKey(host)); trace("no event stream (404)"); return .noStream
+        }
+        catch { trace("events not read: \(error.localizedDescription)"); return .failed }
+        UserDefaults.standard.removeObject(forKey: Self.streamAbsentKey(host))
         let notices = state.apply(page)
         Self.saveAttention(state)
         FaceSnapshot.attention(state)                              // the watch face's complication
@@ -218,7 +269,7 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
                 try? await client.reportNotification(recordKey: record, device: Self.deviceId)
             }
         }
-        return true
+        return .handled
     }
 
     /// This watch's opaque device id for the notification records (16 hex, kept on the watch).

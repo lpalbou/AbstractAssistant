@@ -115,7 +115,8 @@ extension View {
     /// every screen and the row is drawn here, where the bar's was: the corner button itself is drawn
     /// once, by the app, over every page, so it never moves from page to page; a control drawn over
     /// the bar is not tappable on a real watch (the bar takes the touch). The edge swipe still goes
-    /// back; the time stays.
+    /// back; the time stays. This IS the page's screen: never add `.screen` beside it (two rows would
+    /// each take a band, and the page and the control would start a band lower).
     func besideBack<V: View>(@ViewBuilder _ control: () -> V) -> some View {
         modifier(TopRow(title: nil, control: control(), systemBar: false))
     }
@@ -128,8 +129,14 @@ private struct TopRow<V: View>: ViewModifier {
     let title: String?
     let control: V
     let systemBar: Bool
+    /// Set by a row for its page: a page is one row (`.screen` or `.besideBack`), never both — each
+    /// row takes its own band, and a second would start the page and its control a band lower.
+    @Environment(\.insideTopRow) private var nested
     @ViewBuilder func body(content: Content) -> some View {
-        if systemBar {
+        if nested {
+            let _ = assertionFailure("a page has two top rows (.screen and .besideBack): use one")
+            content
+        } else if systemBar {
             content.navigationTitle(title ?? "").toolbarTitleDisplayMode(.inline).containerBackground(Theme.ground, for: .navigation)
         } else {
             // The page starts below the row's band and is cut there: nothing is ever drawn behind the
@@ -140,6 +147,7 @@ private struct TopRow<V: View>: ViewModifier {
                     Color.clear.frame(height: CornerButton.band)
                     content.frame(width: screen.size.width, height: max(0, screen.size.height - CornerButton.band), alignment: .top)
                         .clipped()
+                        .environment(\.insideTopRow, true)
                 }
             }
             .ignoresSafeArea()
@@ -157,7 +165,10 @@ private struct TopRow<V: View>: ViewModifier {
                     Text(title)
                         .font(.system(.body, design: .rounded, weight: .semibold)).foregroundStyle(Theme.text)
                         .lineLimit(1).minimumScaleFactor(0.7)
-                        .frame(maxWidth: .infinity).padding(.horizontal, CornerButton.leading + CornerButton.size + 4)
+                        // Centred between the corner button and the time, which shares the line (the
+                        // time's digits take up to ~50 pt at the right, "18:01").
+                        .frame(maxWidth: .infinity)
+                        .padding(.leading, CornerButton.leading + CornerButton.size + 4).padding(.trailing, CornerButton.timeWidth + 6)
                         .frame(height: CornerButton.size).padding(.top, CornerButton.top)
                         .allowsHitTesting(false)
                         .ignoresSafeArea()
@@ -171,7 +182,7 @@ private struct TopRow<V: View>: ViewModifier {
                 }
                 // The row owns its band, whatever is scrolled beneath: a tap just beside an icon
                 // lands here and does nothing (it never reaches the orb, which would start listening).
-                // The circles' tops stay 18 pt down, as the system bar's Back.
+                // The circles sit on the time's line (`CornerButton.top`).
                 .padding(EdgeInsets(top: 0, leading: 6, bottom: 14 - RowReach.vertical, trailing: 6))
                 .background(Color.clear.contentShape(Rectangle()).onTapGesture {})
                 .padding(.leading, CornerButton.leading - 6).padding(.top, CornerButton.top - RowReach.vertical)
@@ -181,12 +192,23 @@ private struct TopRow<V: View>: ViewModifier {
     }
 }
 
+private struct InsideTopRowKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    /// True under a page's top row: a second row there is a mistake (see `TopRow`).
+    var insideTopRow: Bool { get { self[InsideTopRowKey.self] } set { self[InsideTopRowKey.self] = newValue } }
+}
+
 /// The one button at the top left of every page, drawn by the app over the pages so it never moves:
 /// the gear on Home (Settings), Back everywhere else, morphing from one to the other.
 struct CornerButton: View {
-    static let size: CGFloat = 35, leading: CGFloat = 15, top: CGFloat = 18
-    /// The top row's band, from the screen's top: the page starts below it.
-    static let band: CGFloat = 58
+    /// `top`: the circle's top, 8 pt down, so that its centre (25.5 pt) is the system time's (the
+    /// time's digits run from 20 to 31 pt on a 46 mm; measured on a screenshot): Back, the title and
+    /// the icons beside Back sit on the time's line.
+    static let size: CGFloat = 35, leading: CGFloat = 15, top: CGFloat = 8
+    /// The top row's band, from the screen's top: the page starts below it (5 pt under the circles).
+    static let band: CGFloat = top + size + 5
+    /// The room the system time takes at the right of the row ("18:01", with its margin).
+    static let timeWidth: CGFloat = 58
     @EnvironmentObject private var model: AppModel
     var body: some View {
         let home = model.atHome

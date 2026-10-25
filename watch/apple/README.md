@@ -81,12 +81,17 @@ aloud, Orb style (thirty-four styles in six families: Orbs, Forms, Cosmos, Natur
 
 ## Sign in
 
-The first screen asks for your **user or email**, on `gateway.abstractframework.ai` by default (tap
-the server line to change it):
+The first screen shows the **gateway** (`gateway.abstractframework.ai` by default, then the last one
+you signed into; tap it to pick another gateway you have used or type a new address), then asks for
+your **user or email**:
 
 - a user name asks for its account token;
 - a registered email receives an 8-digit one-time code from the gateway, which signs you in for
   30 days.
+
+Sign out (Settings, or Settings → Connection) asks whether to **keep your sign-in**: a kept sign-in
+shows on the sign-in page as "Sign in as <user>" for its gateway, and one tap signs you in again.
+"Sign out and forget" removes it, and so does the gateway refusing it.
 
 Give the watch its own gateway account with the `user` role; do not put an admin token on a watch.
 

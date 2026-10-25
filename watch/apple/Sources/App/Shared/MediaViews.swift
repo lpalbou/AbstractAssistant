@@ -262,28 +262,44 @@ struct MediaPage: View {
         GeometryReader { geo in
             Group {
                 if let drawing {
-                    SVGView(document: drawing).frame(width: geo.size.width, height: geo.size.height)
-                } else if let image {
-                    Image(uiImage: image).resizable().scaledToFit()
-                        .scaleEffect(zoom)
-                        .offset(offset)
+                    let rest = Self.restFrame(drawing.viewBox.size, area: geo.size)
+                    SVGView(document: drawing).frame(width: rest.width, height: rest.height)
+                        .position(x: rest.midX, y: rest.midY)
                         .frame(width: geo.size.width, height: geo.size.height)
-                        .clipped()
-                        .contentShape(Rectangle())
-                        .gesture(DragGesture()
-                            .onChanged { v in
-                                guard zoom > 1.01 else { return }
-                                offset = clamp(CGSize(width: dragStart.width + v.translation.width, height: dragStart.height + v.translation.height), geo.size)
-                            }
-                            .onEnded { _ in dragStart = offset })
-                        .onTapGesture(count: 2) { withAnimation { zoom = 1; offset = .zero; dragStart = .zero } }
-                        .focusable()
-                        .digitalCrownRotation($zoom, from: 1, through: 4, by: 0.05, sensitivity: .low,
-                                              isContinuous: false, isHapticFeedbackEnabled: true)
-                        .onChange(of: zoom) { _, z in offset = clamp(offset, geo.size); dragStart = offset; model.swipesPaused = z > 1.01 }
-                        .onDisappear { model.swipesPaused = false }
-                        .accessibilityLabel("Image")
-                        .accessibilityIdentifier("media.full")
+                } else if let image {
+                    // The picture's own frame is where it rests; the zoomed picture is seen through the
+                    // page's area (below the top row) and `clamp` keeps it there.
+                    let rest = Self.restFrame(image.size, area: geo.size)
+                    ZStack {
+                        // The zoom and the drag take the whole area (a finger beside a wide picture still
+                        // moves it); the picture itself is drawn above and is the page's element, so
+                        // `media.full` is the picture's own frame, not the area around it.
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .gesture(DragGesture()
+                                .onChanged { v in
+                                    guard zoom > 1.01 else { return }
+                                    offset = clamp(CGSize(width: dragStart.width + v.translation.width, height: dragStart.height + v.translation.height), rest, geo.size)
+                                }
+                                .onEnded { _ in dragStart = offset })
+                            .onTapGesture(count: 2) { withAnimation { zoom = 1; offset = .zero; dragStart = .zero } }
+                            .focusable()
+                            .digitalCrownRotation($zoom, from: 1, through: 4, by: 0.05, sensitivity: .low,
+                                                  isContinuous: false, isHapticFeedbackEnabled: true)
+                            .onChange(of: zoom) { _, z in offset = clamp(offset, rest, geo.size); dragStart = offset; model.swipesPaused = z > 1.01 }
+                            .onDisappear { model.swipesPaused = false }
+                            .accessibilityHidden(true)
+                        Image(uiImage: image).resizable()
+                            .frame(width: rest.width, height: rest.height)
+                            .scaleEffect(zoom)
+                            .offset(offset)
+                            .allowsHitTesting(false)
+                            .accessibilityLabel("Image")
+                            .accessibilityIdentifier("media.full")
+                            .position(x: rest.midX, y: rest.midY)
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped()
                 } else if let video {
                     VideoPlayer(player: video).onAppear { video.play() }
                 } else if failed {
@@ -299,18 +315,41 @@ struct MediaPage: View {
             }
         }
         .ignoresSafeArea(edges: .bottom)
+        // The top row once, with Share beside Back: `besideBack` is the screen (a `.screen("")` beside it
+        // drew a second band, which pushed Share and the picture a band lower).
         .besideBack {
             if let image { ShareIcon(item: Image(uiImage: image), subject: "Image") }
         }
-        .screen("")
         .task { await load() }
         .onDisappear { video?.pause() }
     }
 
-    /// A zoomed picture never leaves an empty edge on screen.
-    private func clamp(_ o: CGSize, _ size: CGSize) -> CGSize {
-        let maxX = size.width * (zoom - 1) / 2, maxY = size.height * (zoom - 1) / 2
-        return CGSize(width: min(maxX, max(-maxX, o.width)), height: min(maxY, max(-maxY, o.height)))
+    /// Where a picture rests in the page's area (`area`: below the top row, down to the screen's
+    /// bottom): fitted to the whole screen and centred on it, so a wide picture sits in the middle of
+    /// the page; when that would put its top under the row's band (a tall picture), fitted to the area
+    /// instead, as near the screen's centre as the band allows (a picture as tall as the area fills it).
+    static func restFrame(_ picture: CGSize, area: CGSize) -> CGRect {
+        guard picture.width > 0, picture.height > 0, area.width > 0, area.height > 0 else { return CGRect(origin: .zero, size: area) }
+        let band = CornerButton.band, screen = CGSize(width: area.width, height: area.height + band)
+        func fit(_ box: CGSize) -> CGSize {
+            let s = min(box.width / picture.width, box.height / picture.height)
+            return CGSize(width: picture.width * s, height: picture.height * s)
+        }
+        var size = fit(screen), top = (screen.height - size.height) / 2
+        if top < band { size = fit(area); top = max(band, (screen.height - size.height) / 2) }
+        return CGRect(x: (area.width - size.width) / 2, y: top - band, width: size.width, height: size.height)
+    }
+
+    /// A zoomed picture never leaves an empty edge in the area: on each side where it is larger than
+    /// the area it covers it, where smaller it stays wholly inside it; unzoomed, it rests.
+    private func clamp(_ o: CGSize, _ rest: CGRect, _ area: CGSize) -> CGSize {
+        guard zoom > 1.01 else { return .zero }
+        func axis(_ o: CGFloat, _ start: CGFloat, _ length: CGFloat, _ view: CGFloat) -> CGFloat {
+            let half = length * zoom / 2, centre = start + length / 2
+            let a = half - centre, b = view - half - centre      // an edge of the picture on an edge of the area
+            return min(max(a, b), max(min(a, b), o))
+        }
+        return CGSize(width: axis(o.width, rest.minX, rest.width, area.width), height: axis(o.height, rest.minY, rest.height, area.height))
     }
 
     private func load() async {

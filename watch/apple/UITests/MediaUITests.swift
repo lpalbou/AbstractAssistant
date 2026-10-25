@@ -71,9 +71,23 @@ final class MediaUITests: XCTestCase {
         sleep(2)                                       // the picture replaces its placeholder
         shot("m4-answer-image")
         image.tap()
-        XCTAssertTrue(element("media.full").waitForExistence(timeout: 15), app.debugDescription)
+        let full = element("media.full")
+        XCTAssertTrue(full.waitForExistence(timeout: 15), app.debugDescription)
         sleep(1)
         shot("m5-image-full")
+        // One top row: Share sits on Back's line (the page once drew two rows, each taking a band,
+        // which put Share and the picture a band lower).
+        let back = app.buttons["Back"].firstMatch, share = app.buttons["Share"].firstMatch
+        XCTAssertTrue(share.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(share.frame.minY, back.frame.minY, accuracy: 1, "Share is not on Back's row: \(share.frame) vs \(back.frame)")
+        // Centred on the page: `media.full` is the picture's own frame (the mock's is 480 × 360), centred
+        // on the whole screen when that keeps its top clear of the row (a wide picture), else as near the
+        // centre as the row allows: never centred in the area below the row (which leaves it low).
+        let picture = full.frame, screen = app.frame, band: CGFloat = 48   // `CornerButton.band`, as above
+        XCTAssertEqual(picture.height, picture.width * 360 / 480, accuracy: 2, "media.full is not the picture's frame: \(picture)")
+        XCTAssertEqual(picture.midX, screen.midX, accuracy: 1, "the picture is not centred across: \(picture) on \(screen)")
+        XCTAssertEqual(picture.minY, max(band, (screen.height - picture.height) / 2), accuracy: 1.5,
+                       "the picture is not centred on the screen as far as the top row allows: \(picture) on \(screen)")
         app.buttons["Back"].firstMatch.tap()
         XCTAssertTrue(image.waitForExistence(timeout: 5))
 

@@ -6,6 +6,56 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ## [Unreleased]
 
+### Added
+
+- **Choose the gateway on the sign-in page, and come back with one tap.** The sign-in page has two
+  lines in the same capsule: the gateway (the last one signed into, else
+  `gateway.abstractframework.ai`) and "Sign in with user or email". A tap on the gateway opens a
+  chooser with every gateway the watch has signed into (most recent first, at most 8, the current
+  one ticked) and "Another gateway…" to type an address. Sign out now asks first: "Keep my sign-in",
+  "Sign out and forget" or Cancel. A kept sign-in shows on the sign-in page, for its gateway, as
+  "Sign in as <user>" (at most 3), and one tap signs in with it. It is forgotten when the gateway
+  refuses it, when you sign out and forget, or replaced when you sign in again as that user with a
+  new credential. Kept sign-ins are stored like the current one (the app's storage, not a sealed
+  store). The field starts with the user signed in last only when no kept row offers that user
+  (one way into an account, never two), and empties when another gateway is chosen.
+
+### Changed
+
+- **The top row sits on the time's line, on every page.** Back (and the gear on Home), the page's
+  title and the icons beside Back (Share, Stop, the shield, the voice button) are centred on the
+  system time, 10 pt higher than before, and the row's band is 48 pt instead of 58: every page
+  starts 10 pt higher. The title leaves the time its room at the right. The orb page's tools, which
+  mirror the keyboard's distance from the top, follow the band.
+
+- **A readout of the notifier, for a debug build.** Launching with `--dump-notify` (the console
+  attached: `xcrun devicectl device process launch --console …`) prints the system's permission,
+  the toggle, when the watch last looked (the background refresh and launches, the last 40, kept
+  on the watch), the runs and waits already posted, the notifications still in Notification
+  Center and the face's snapshot: what to read first when a notification seems missing.
+
+- **Settings → Connection's "Sign in as someone else" is "Sign out"**, a red button, and asks
+  whether to keep the sign-in, as Sign out at the bottom of Settings (red too) now does.
+
+### Fixed
+
+- **A background look that could not read the event stream read nothing else.** The 15-minute
+  check asked `/me/events` first and ran the older reads (`/automations`, `/waits`, which feed the
+  face's badge and the "finished" notifications) only on a 404; a timeout, a 401 or a proxy's HTML
+  page ended the look with nothing updated. The look now answers three ways (read, no stream,
+  failed) and the older reads run in the last two. A gateway without the stream is remembered for
+  a day, per gateway, so it is not asked again on every look.
+- **An image opened full screen started a band too low, its Share button with it.** The image page
+  and the web link page each drew the top row twice (`.screen("")` beside `.besideBack`), and each row
+  took its own 58 pt band: the picture started 116 pt down, letterboxed in the half-screen left,
+  and Share sat a band under Back. Each page now draws the row once; a page that draws two stops a
+  debug build with a message, and the UI tests check that Share sits on Back's line.
+- **An image opened full screen is centred on the page.** A wide picture is centred on the whole
+  screen (its top clear of the row); a taller one sits as near the screen's centre as the row
+  allows, starting right under it, not centred in the area below the row, which left it low.
+  Zoom (the crown), drag and double tap keep the picture within the screen from wherever it
+  rests. The UI test checks the picture's own frame against the rule.
+
 ## [0.5.0] - 2026-10-25
 
 ### Added

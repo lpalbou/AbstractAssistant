@@ -30,6 +30,12 @@ struct AbstractAssistantWatchApp: App {
         // What happened while the app was closed (one read of the event stream; a launch in the
         // background is the refresh's, which reads it itself).
         Task { await AnswerNotifier.shared.catchUpAtLaunch() }
+        #if DEBUG
+        // `--dump-notify`: the notifier's readout on the console (xcrun devicectl … launch --console).
+        if CommandLine.arguments.contains("--dump-notify") {
+            Task { for line in await AnswerNotifier.shared.readout() { print("notify-readout \(line)") } }
+        }
+        #endif
     }
 
     /// `--screen face` (debug builds): the watch face's Assistant complication on each slot, to look at.

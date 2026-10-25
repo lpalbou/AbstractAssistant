@@ -16,6 +16,9 @@ final class ShareUITests: XCTestCase {
         let share = app.buttons["Share"].firstMatch
         XCTAssertTrue(share.waitForExistence(timeout: 40), "no Share button:\n\(app.debugDescription)")
         shot("1-link")
+        // One top row: Share sits on Back's line (the page once drew two rows, a band apart).
+        let back = app.buttons["Back"].firstMatch
+        XCTAssertEqual(share.frame.minY, back.frame.minY, accuracy: 1, "Share is not on Back's row: \(share.frame) vs \(back.frame)")
         share.tap()
         sleep(3)
         shot("2-share-sheet")

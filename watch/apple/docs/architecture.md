@@ -185,7 +185,11 @@ sequenceDiagram
 - The watch sends no `user_id` or `tenant_id`: the gateway derives the principal from the
   credential.
 - The credential (an account token, or a 30-day session with its CSRF value) is kept in the app's
-  storage on the watch (`UserDefaults`), not in a sealed store; Sign out forgets it.
+  storage on the watch (`UserDefaults`), not in a sealed store; Sign out forgets it, unless the
+  person chooses "Keep my sign-in", which keeps it in the same storage (`KeptSignIns`, one per
+  gateway host and user) for a one-tap return. A kept credential the gateway rejects (401) is
+  forgotten, and a fresh sign-in as the same user on that gateway replaces it. The gateways signed
+  into are remembered (`KnownGateways`, at most 8) for the sign-in page's chooser.
 - After a 401 the client sends nothing more (the gateway locks out an address after repeated
   failures) and the app returns to the sign-in screen.
 - Transport is HTTPS; plain HTTP is accepted only for local-network addresses (development).

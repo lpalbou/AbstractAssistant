@@ -146,18 +146,18 @@ struct AskView: View {
                             }
                         }
                         // The tools of this conversation, bottom right, mirroring the keyboard (as far
-                        // above the bottom as the keyboard is below the top); shown with the keyboard
+                        // above the bottom as the keyboard is below the top: the row's band and 2 pt); shown with the keyboard
                         // (the Assistant's tools; an entity brings its own).
                         // While it listens, Send sits there instead: what was said goes now (a noise
                         // that starts would otherwise keep the silence that sends from coming).
                         .overlay(alignment: .bottomTrailing) {
                             if controlsShown, let a = automationFeed {
                                 // An automation's tools are in its details (Edit), with when it runs.
-                                infoLink(a).padding(.trailing, 6 - Self.reach).padding(.bottom, 60 - Self.reach)
+                                infoLink(a).padding(.trailing, 6 - Self.reach).padding(.bottom, CornerButton.band + 2 - Self.reach)
                             } else if controlsShown, model.responder == .assistant {
-                                toolsLink.padding(.trailing, 6 - Self.reach).padding(.bottom, 60 - Self.reach)
+                                toolsLink.padding(.trailing, 6 - Self.reach).padding(.bottom, CornerButton.band + 2 - Self.reach)
                             } else if phase == .listening {
-                                sendNow.padding(.trailing, 6 - Self.reach).padding(.bottom, 60 - Self.reach)
+                                sendNow.padding(.trailing, 6 - Self.reach).padding(.bottom, CornerButton.band + 2 - Self.reach)
                             }
                         }
                         .id("orb")

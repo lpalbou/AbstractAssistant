@@ -532,9 +532,16 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Signed in (the sign-in page): saves it, replaces the client, clears the cached state, polls.
+    /// Signed in (the sign-in page): saves it, remembers the gateway, replaces the client, clears
+    /// the cached state, polls. A sign-in kept for this user on this gateway with another
+    /// credential is forgotten: the new one replaces it.
     func connect(_ signIn: SavedSignIn) {
         signIn.save()
+        KnownGateways.add(signIn.gateway)
+        if let user = signIn.user, let kept = KeptSignIns.entry(gateway: signIn.gateway, user: user),
+           kept.signIn?.credential != signIn.credential {
+            KeptSignIns.forget(gateway: signIn.gateway, user: user)
+        }
         stopPolling()
         client = LiveGatewayClient(baseURL: signIn.gateway, credential: signIn.credential)
         gatewayHost = signIn.gateway.host() ?? signIn.gateway.absoluteString
@@ -546,8 +553,15 @@ final class AppModel: ObservableObject {
         startPolling()
     }
 
-    /// Forgets the credential (the gateway address stays as the next default) and shows the sign-in page.
-    func signOut(notice: String? = nil) {
+    /// Forgets the credential (the gateway address stays as the next default) and shows the sign-in
+    /// page. `keep`: the sign-in is kept first (`KeptSignIns`), for a one-tap return from the sign-in
+    /// page. Otherwise a sign-in kept for this user on this gateway is forgotten with it: "Sign out
+    /// and forget", or the gateway rejecting the credential (a 401), so its row does not come back.
+    func signOut(keep: Bool = false, notice: String? = nil) {
+        if let current = SavedSignIn.load(), let user = current.user ?? principal?.userId {
+            if keep { KeptSignIns.keep(current, user: user) }
+            else { KeptSignIns.forget(gateway: current.gateway, user: user) }
+        }
         SavedSignIn.clear()
         stopPolling()
         client = MockGatewayClient(); gatewayHost = "—"
@@ -1195,6 +1209,25 @@ struct LaunchOptions {
         // Screenshot runs: never put the one-time notification question over the screen.
         if args.contains("--no-notification-prompt") { defaults.set(true, forKey: "notify.asked") }
         if args.contains("--forget-gateway") { SavedSignIn.clear(defaults) }
+        #if DEBUG
+        // Sign-in page tests: `--reset-signins` forgets the sign-in, the known gateways and the kept
+        // sign-ins; `--test-known <url,url>` remembers gateways (oldest first);
+        // `--test-kept <user,user>` keeps a sign-in for each user on the default gateway.
+        if args.contains("--reset-signins") {
+            SavedSignIn.clear(defaults); KnownGateways.clear(defaults); KeptSignIns.clear(defaults)
+            defaults.removeObject(forKey: "gateway.url"); defaults.removeObject(forKey: "gateway.user")
+        }
+        if let list = value("--test-known") {
+            for url in list.split(separator: ",").compactMap({ SavedSignIn.normalize(String($0)) }) { KnownGateways.add(url, defaults) }
+        }
+        // `--test-last-user <name>`: the user signed in last (what the field starts with).
+        if let user = value("--test-last-user") { UserDefaults.standard.set(user, forKey: "gateway.user") }
+        if let users = value("--test-kept"), let gw = SavedSignIn.normalize(SavedSignIn.defaultGateway) {
+            for user in users.split(separator: ",").map(String.init) {
+                KeptSignIns.keep(SavedSignIn(gateway: gw, user: user, credential: .token("test-kept-token")), user: user, defaults)
+            }
+        }
+        #endif
         // Simulator previews: `--orb-design B` picks the orb design (the same key Settings writes).
         if let d = value("--orb-design"), OrbDesign(rawValue: d.uppercased()) != nil {
             defaults.set(d.uppercased(), forKey: OrbDesign.storageKey); defaults.set(true, forKey: OrbDesign.chosenKey)
@@ -1323,6 +1356,7 @@ struct LaunchOptions {
             return [.sessions, .session(s)]
         case "automations": return [.automations]
         case "settings": return [.settings]
+        case "connection": return [.settings, .connection]
         case "orblab", "orbstyle": return [.settings, .orbStyle]
         case "about": return [.settings, .about]
         case "voice": return [.settings, .voiceSettings]
