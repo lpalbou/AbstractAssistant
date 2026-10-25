@@ -562,7 +562,9 @@ final class AppModel: ObservableObject {
     /// page. Otherwise a sign-in kept for this user on this gateway is forgotten with it: "Sign out
     /// and forget", or the gateway rejecting the credential (a 401), so its row does not come back.
     func signOut(keep: Bool = false, notice: String? = nil) {
-        WatchPush.signedOut(SavedSignIn.current())       // the gateway forgets this watch's push token
+        // The person signing out: the gateway forgets this watch's push token. A credential the
+        // gateway rejected (401, `notice`) sends nothing more (it locks out an address after failures).
+        if notice == nil { WatchPush.signedOut(SavedSignIn.current()) }
         if let current = SavedSignIn.load(), let user = current.user ?? principal?.userId {
             if keep { KeptSignIns.keep(current, user: user) }
             else { KeptSignIns.forget(gateway: current.gateway, user: user) }
