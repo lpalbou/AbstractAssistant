@@ -46,8 +46,15 @@ def _raised(seq: int, aid: str, item_seq: int, kind: str = "notify") -> Dict[str
     return _ev(seq, "attention.raised", automation_id=aid, seq=item_seq, kind=kind, record_key=f"automation:completed:{aid}:{item_seq}", run_id="occ", index=1, channels=["console"])
 
 
-def _wait(seq: int, run_id: str, wait_key: str, *, session_id: str, kind: str = "approval") -> Dict[str, Any]:
-    return _ev(seq, "attention.raised", kind=kind, run_id=run_id, session_id=session_id, wait_key=wait_key, step_id="s1", record_key=f"wait:{run_id}:{wait_key}")
+def _wait(seq: int, run_id: str, wait_key: str, *, session_id: str, kind: str = "approval", step_id: str = "s1") -> Dict[str, Any]:
+    """The gateway's shape (L3 item 4b): no prompt, the run is the live fact."""
+    return _ev(seq, "attention.raised", kind=kind, wait_kind="tool_approval" if kind == "approval" else "ask_user", run_id=run_id,
+               session_id=session_id, wait_key=wait_key, step_id=step_id, record_key=f"wait:{run_id}:{wait_key}:{step_id}",
+               prompt_ref=f"/api/gateway/runs/{run_id}")
+
+
+def _wait_seen(seq: int, run_id: str, wait_key: str, *, step_id: str = "s1", outcome: str = "approved") -> Dict[str, Any]:
+    return _ev(seq, "attention.seen", kind="approval", run_id=run_id, wait_key=wait_key, step_id=step_id, outcome=outcome)
 
 
 class EventsStub:
@@ -175,18 +182,24 @@ def test_unseen_is_raised_minus_seen_over_automations_and_waits() -> None:
     assert m.apply(_raised(6, "a", 1)) is None, "an item already seen never comes back"
 
     first = m.apply(_wait(7, "run1", "tool_approval:run1:act", session_id="s-other"))
-    assert first is not None and first.wait is not None and first.wait.notice_key == "wait:run1:tool_approval:run1:act"
+    assert first is not None and first.wait is not None and first.wait.notice_key == "wait:run1:tool_approval:run1:act:s1"
     m.apply(_wait(8, "run2", "ask:run2", session_id="s-here", kind="question"))
     assert m.needs_you == 2 and [w.run_id for w in m.waits_outside("s-here")] == ["run1"]
     # Seen by record key, and a finished run closes its waits.
-    m.apply(_ev(9, "attention.seen", record_key="wait:run1:tool_approval:run1:act"))
+    m.apply(_wait_seen(9, "run1", "tool_approval:run1:act"))
     m.apply(_ev(10, "run.finished", run_id="run2", session_id="s-here", status="completed", origin=None))
     assert m.needs_you == 0 and m.cursor == 10
     # A seen that arrived before its raise (replayed history) keeps it closed.
-    m.apply(_ev(11, "attention.seen", record_key="wait:run3:k"))
+    m.apply(_wait_seen(11, "run3", "k"))
     assert m.apply(_wait(12, "run3", "k", session_id="s")) is None and m.needs_you == 0
-    m.apply(_ev(13, "attention.seen", automation_id="a", seq=9))
-    m.apply(_ev(14, "attention.seen", automation_id="b", seq=1))
+    # The same node asking again (a new step) is a new wait; answering the old step leaves it open.
+    assert m.apply(_wait(13, "run3", "k", session_id="s", step_id="s2")) is not None and m.needs_you == 1
+    m.apply(_wait_seen(14, "run3", "k", step_id="s1"))
+    assert m.needs_you == 1
+    m.apply(_wait_seen(15, "run3", "k", step_id="s2", outcome="answered"))
+    assert m.needs_you == 0
+    m.apply(_ev(16, "attention.seen", automation_id="a", seq=9))
+    m.apply(_ev(17, "attention.seen", automation_id="b", seq=1))
     assert m.total == 0
 
 
@@ -292,7 +305,7 @@ def test_palette_banner_tray_and_notifications_follow_the_stream(palette, stub, 
     events.append(_raised(7, TRIAGE, 3))
     _until(lambda: len(stub.calls("GET", AUTOMATIONS_PATH)) > polls_before, pump=pump)
     # Answered elsewhere: the badge and the banner come down.
-    events.append(_ev(8, "attention.seen", record_key="wait:run-new:tool_approval:run-new:act"))
+    events.append(_wait_seen(8, "run-new", "tool_approval:run-new:act"))
     events.append(_ev(9, "run.finished", run_id="run-other", session_id="sess-elsewhere", status="completed", origin=None))
     events.append(_ev(10, "attention.seen", automation_id=TRIAGE, seq=3))
     _until(lambda: window._attention.cursor == 10, pump=pump)

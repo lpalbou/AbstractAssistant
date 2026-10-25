@@ -5,9 +5,10 @@ CloudEvents 1.0 names, ``sequence`` = the cursor). This module folds it into the
 two numbers the palette and the tray show:
 
 - **needs you**: human-gated waits (``attention.raised`` with ``kind`` ``approval``
-  or ``question`` and a ``wait_key``) not yet resolved — an ``attention.seen`` naming
-  the same ``record_key`` (or the same run + wait key), or a ``run.finished`` of
-  that run (a wait cannot outlive its run), removes one;
+  or ``question`` and a ``wait_key``), one per ``(run_id, wait_key, step_id)``, not yet
+  resolved — the gateway's ``attention.seen {kind, run_id, wait_key, step_id, outcome}``
+  for the same wait (or one naming its ``record_key``), or a ``run.finished`` of that
+  run (a wait cannot outlive its run), removes one;
 - **new results**: automation attention items (``attention.raised`` with
   ``kind`` ``notify`` or ``failure``) whose ``seq`` is above the latest
   ``attention.seen`` ``seq`` of the same automation (the gateway's badge rule).
@@ -44,13 +45,15 @@ class PendingWait:
     record_key: str = ""
 
     @property
-    def key(self) -> Tuple[str, str]:
-        return (self.run_id, self.wait_key)
+    def key(self) -> Tuple[str, str, str]:
+        return (self.run_id, self.wait_key, self.step_id)
 
     @property
     def notice_key(self) -> str:
-        """The notification ledger key (same form as the automation waits)."""
-        return f"wait:{self.run_id}:{self.wait_key}"
+        """The notification ledger key (the automation waits' form, plus the step: the
+        same node asking again is a new question)."""
+        base = f"wait:{self.run_id}:{self.wait_key}"
+        return f"{base}:{self.step_id}" if self.step_id else base
 
 
 @dataclass(frozen=True)
@@ -86,7 +89,7 @@ class AttentionModel:
 
     _raised: Dict[str, Set[int]] = field(default_factory=dict)
     _seen: Dict[str, int] = field(default_factory=dict)
-    _waits: Dict[Tuple[str, str], PendingWait] = field(default_factory=dict)
+    _waits: Dict[Tuple[str, str, str], PendingWait] = field(default_factory=dict)
     _resolved: Set[str] = field(default_factory=set)
     cursor: int = 0
 
@@ -126,14 +129,15 @@ class AttentionModel:
             run_id = str(data.get("run_id") or "")
             if not run_id or not wait_key:
                 return None
-            if record_key and record_key in self._resolved:
+            step_id = str(data.get("step_id") or "")
+            if (record_key and record_key in self._resolved) or (step_id and f"step:{run_id}:{wait_key}:{step_id}" in self._resolved):
                 return None  # seen before it was raised (replayed history)
             wait = PendingWait(
                 run_id=run_id,
                 wait_key=wait_key,
                 kind=kind or "approval",
                 session_id=str(data.get("session_id") or ""),
-                step_id=str(data.get("step_id") or ""),
+                step_id=step_id,
                 record_key=record_key,
             )
             fresh = wait.key not in self._waits
@@ -152,11 +156,15 @@ class AttentionModel:
     def _see(self, data: Mapping[str, Any]) -> None:
         record_key = str(data.get("record_key") or "")
         run_id, wait_key = str(data.get("run_id") or ""), str(data.get("wait_key") or "")
+        step_id = str(data.get("step_id") or "")
         if record_key or (run_id and wait_key):
             if record_key:
                 self._resolved.add(record_key)
+            elif step_id:
+                self._resolved.add(f"step:{run_id}:{wait_key}:{step_id}")
             for key, wait in list(self._waits.items()):
-                if (record_key and wait.record_key == record_key) or (run_id and wait_key and key == (run_id, wait_key)):
+                same_wait = run_id and wait_key and key[:2] == (run_id, wait_key) and (not step_id or not key[2] or key[2] == step_id)
+                if (record_key and wait.record_key == record_key) or same_wait:
                     self._waits.pop(key, None)
             if not data.get("automation_id"):
                 return
@@ -169,7 +177,7 @@ class AttentionModel:
 
     def drop_wait(self, run_id: str, wait_key: str = "") -> bool:
         """The live run says it no longer waits: forget it (True if one went)."""
-        gone = [k for k in self._waits if k[0] == run_id and (not wait_key or k[1] == wait_key)]
+        gone = [k for k in self._waits if k[0] == run_id and (not wait_key or k[1] == wait_key)]  # every step
         for key in gone:
             self._waits.pop(key, None)
         return bool(gone)
