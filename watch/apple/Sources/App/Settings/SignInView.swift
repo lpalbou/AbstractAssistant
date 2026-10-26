@@ -4,8 +4,8 @@ import SwiftUI
 import WatchKit
 
 /// The watch's sign-in: the gateway, the account, and either its token or a 30-day session from an
-/// emailed code. Kept sealed in the app group (`SharedSignInStore`: a ChaChaPoly file under a 0600
-/// key file, never the OS keychain) so the notification service extension reads the same sign-in;
+/// emailed code. A Keychain item shared through the app group (`SharedSignInStore`) so the
+/// notification service extension reads the same sign-in;
 /// the address and the account name (no secret) also stay in UserDefaults for the sign-in page.
 /// A save is a sign-in: it takes a new push registration handle (`reg`). It comes from the sign-in
 /// page, the launch arguments, or the iPhone (`WatchPush` adopts the iPhone's sign-in).
@@ -107,8 +107,8 @@ enum KnownGateways {
 
 /// A sign-in kept at Sign out ("Keep my sign-in") for a one-tap return from the sign-in page: the
 /// gateway, the account, and its credential (an account token, or a session id with its CSRF
-/// value). Kept in a protected file beside the sign-in (`SharedSignInStore.protectedFile`, the same
-/// storage as `SavedSignIn`: no UserDefaults, no keychain), keyed by the gateway's host and the user.
+/// value). A Keychain item beside the sign-in (`SharedSignInStore`, the same store as `SavedSignIn`:
+/// never UserDefaults), keyed by the gateway's host and the user.
 struct KeptSignIn: Codable, Equatable, Identifiable {
     var gateway: String
     var user: String
@@ -136,8 +136,8 @@ struct KeptSignIn: Codable, Equatable, Identifiable {
     }
 }
 
-/// The kept sign-ins (`kept-signins.json` beside the sign-in, a `ProtectedFile`), one per gateway
-/// host and user, most recently kept first. The sign-in page shows at most 3 for the chosen gateway.
+/// The kept sign-ins (the Keychain item `kept-signins` beside the sign-in), one per gateway host
+/// and user, most recently kept first. The sign-in page shows at most 3 for the chosen gateway.
 enum KeptSignIns {
     static let fileName = "kept-signins"
     static let shown = 3
@@ -149,41 +149,40 @@ enum KeptSignIns {
 
     static func key(host: String, user: String) -> String { host + "|" + user.lowercased() }
 
-    static func all(_ dir: URL = SharedSignInStore.directory()) -> [KeptSignIn] {
-        guard let data = try? SharedSignInStore.protectedFile(named: fileName, in: dir).read(),
+    static func all(_ store: SecretStore = KeychainSecretStore.shared) -> [KeptSignIn] {
+        guard let data = try? SharedSignInStore.read(named: fileName, from: store),
               let list = try? JSONDecoder().decode([KeptSignIn].self, from: data) else { return [] }
         return list.sorted { $0.keptAt > $1.keptAt }
     }
 
     /// The kept sign-ins for this gateway, most recent first, at most `shown`.
-    static func entries(for gateway: URL, _ dir: URL = SharedSignInStore.directory()) -> [KeptSignIn] {
+    static func entries(for gateway: URL, _ store: SecretStore = KeychainSecretStore.shared) -> [KeptSignIn] {
         let h = host(gateway)
-        return Array(all(dir).filter { $0.signIn.map { host($0.gateway) } == h }.prefix(shown))
+        return Array(all(store).filter { $0.signIn.map { host($0.gateway) } == h }.prefix(shown))
     }
 
-    static func entry(gateway: URL, user: String, _ dir: URL = SharedSignInStore.directory()) -> KeptSignIn? {
+    static func entry(gateway: URL, user: String, _ store: SecretStore = KeychainSecretStore.shared) -> KeptSignIn? {
         let k = key(host: host(gateway), user: user)
-        return all(dir).first { $0.id == k }
+        return all(store).first { $0.id == k }
     }
 
     /// Keeps `s` as `user`'s sign-in on its gateway, replacing the one kept before.
-    static func keep(_ s: SavedSignIn, user: String, _ dir: URL = SharedSignInStore.directory()) {
+    static func keep(_ s: SavedSignIn, user: String, _ store: SecretStore = KeychainSecretStore.shared) {
         let new = KeptSignIn(s, user: user)
-        write([new] + all(dir).filter { $0.id != new.id }, dir)
+        write([new] + all(store).filter { $0.id != new.id }, store)
     }
 
-    static func forget(gateway: URL, user: String, _ dir: URL = SharedSignInStore.directory()) {
+    static func forget(gateway: URL, user: String, _ store: SecretStore = KeychainSecretStore.shared) {
         let k = key(host: host(gateway), user: user)
-        let list = all(dir)
-        if list.contains(where: { $0.id == k }) { write(list.filter { $0.id != k }, dir) }
+        let list = all(store)
+        if list.contains(where: { $0.id == k }) { write(list.filter { $0.id != k }, store) }
     }
 
-    static func clear(_ dir: URL = SharedSignInStore.directory()) { SharedSignInStore.protectedFile(named: fileName, in: dir).remove() }
+    static func clear(_ store: SecretStore = KeychainSecretStore.shared) { SharedSignInStore.remove(named: fileName, from: store) }
 
-    private static func write(_ list: [KeptSignIn], _ dir: URL) {
-        let file = SharedSignInStore.protectedFile(named: fileName, in: dir)
-        if list.isEmpty { file.remove(); return }
-        if let data = try? JSONEncoder().encode(Array(list.prefix(limit))) { try? file.write(data) }
+    private static func write(_ list: [KeptSignIn], _ store: SecretStore) {
+        if list.isEmpty { SharedSignInStore.remove(named: fileName, from: store); return }
+        if let data = try? JSONEncoder().encode(Array(list.prefix(limit))) { try? SharedSignInStore.write(named: fileName, data, to: store) }
     }
 }
 

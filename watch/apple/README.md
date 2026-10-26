@@ -126,7 +126,7 @@ curl https://<host>.<tailnet>.ts.net/api/health
   approvals, questions, published alerts and automation results arrive through Apple push once
   your gateway's push relay is on (the app registers itself at sign-in; nothing to set up);
   until then watchOS decides when background checks run.
-- Your sign-in is kept in a protected file on the watch (shared with its notification extension). The sign-ins you
+- Your sign-in is kept in the watch's Keychain (shared with its notification extension). The sign-ins you
   keep at Sign out ("Keep my sign-in") are still in the app's plain storage.
 - Tools allowed with Approve all are approved by the watch when it sees their approvals (on the orb
   page, or in its regular check while the app is open); with the app closed, they ask. Approve all

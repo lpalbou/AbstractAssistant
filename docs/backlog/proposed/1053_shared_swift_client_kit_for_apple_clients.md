@@ -49,12 +49,16 @@ beside it. Measured by lines deleted in this repository, not by a new abstractio
 2. **One module name.** Rename one of the two `AbstractGatewayClient` modules, make the watch's
    package an ordinary local-path dependency of the project, delete the static-framework target.
    Local-path packages are how every package is consumed already (`project.yml:25-29`).
-3. **Converge into one package, `AbstractGatewayClient`** (the watch's, the original), file by
-   file, until `PhoneGatewayClient` is empty and deleted: the goal is one gateway client for the
-   watch, the iPhone and the Mac app to come, under the original name. `Auth.swift` (identical)
-   first; transport, models and mocks as fixes touch them or as a dedicated pass when the operator
-   wants the convergence done. `PhoneGatewayClient` is the diverged copy, named to stand out, not
-   a second product.
+3. **One shared package plus an additive phone module, in one dedicated pass.** The target:
+   `AbstractGatewayClient` (the watch's package, the original name) holds everything the watch,
+   the iPhone and the Mac app share: the transport, the wire models, the sign-in, the mock. What
+   only the phone needs stays in `AssistantKit`, which already sits on top of the client, and
+   depends on the shared package. `PhoneGatewayClient` is the phone's diverged copy of the client
+   (measured 2026-10-26: transport 686 differing lines, models 721, mock 861, events 101, session
+   files 144; nine phone-only files, three watch-only; only `Auth.swift` identical) and is deleted
+   at the end of the pass, not folded in file by file over months. Both apps are clients of the
+   same gateway, so one transport and one set of wire types is the honest shape; the mock keeps
+   one sample world with per-app launch data.
 
 ## Non-goals
 - No consumer outside this repository: AbstractNote's watch is retired under ADR 0004, and its

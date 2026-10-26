@@ -15,12 +15,14 @@ iPhone app); the Python package's history is in
   Retry sends the same recording; Discard deletes it. (Backlog 1054, slice 0.)
 - **A haptic when listening starts**, as there was one when the microphone closes and when an
   answer arrives.
-- **The sign-in is a plain file the device protects, out of backups.** It was sealed with a key
-  kept beside it, which protected nothing. It is now plain JSON under Data Protection "complete
-  until first user authentication", owner-only, excluded from backups, deleted at sign-out; a
-  sign-in sealed by 0.15 is moved over at its first read, so nobody signs in again. The kept
-  sign-ins moved from UserDefaults into a second protected file beside it. One store for the watch, the
-  iPhone and the Mac app to come, testable on every platform; no encryption of our own (backlog 1053).
+- **The sign-in lives in the Keychain, shared through the app group.** A Keychain item of the
+  app's service, readable after the first unlock (the notification extension reads it while the
+  device is locked), bound to this device, never in a backup, never synced; the app group doubles
+  as the access group so the extension (and, on the watch, the complication) read the same item.
+  Until now it was a file in the app group sealed with a key kept beside it, which protected
+  nothing; that file (and the plain one of the interim builds) is moved into the Keychain at its
+  first read, so nobody signs in again. The watch's kept sign-ins moved from UserDefaults into a
+  second Keychain item (backlog 1053).
 - **The hold on the orb is shorter and its ring smaller.** A hold toggles in about a second
   (1.05 s, 30 % less than before) and its ring closes well inside the screen instead of reaching
   past its edge.

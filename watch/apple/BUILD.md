@@ -130,7 +130,7 @@ inspection; use the combined workflow for Store delivery.
 
 ```
 ../../phone/iphone/project.yml  the one XcodeGen spec (iPhone app, watch app, complication, extensions, UI tests)
-../../phone/iphone/Packages/AssistantPush/  protected sign-in file, push registration and rendering, iPhone handoff; tests
+../../phone/iphone/Packages/AssistantPush/  the sign-in in the Keychain, push registration and rendering, iPhone handoff; tests
 ../../phone/iphone/NotificationService/     the notification service extension (one source, iPhone and watch)
 Packages/AbstractGatewayClient/ models, LiveGatewayClient, MockGatewayClient, sign-in, markdown; tests
 Sources/App/                    SwiftUI: Home, Ask, Approvals, Runs (sessions), Automations, Settings, Shared

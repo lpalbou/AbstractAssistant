@@ -3,9 +3,8 @@ import Foundation
 /// The sign-in of an AbstractAssistant app: the gateway, the account and its credential (an account
 /// token, or a 30-day session with its CSRF value), plus `reg`, this sign-in's push registration
 /// handle (16 bytes as hex, new at every sign-in: a push carrying another one is from an earlier
-/// sign-in). Kept in a protected file in the app group (`SharedSignInStore`) so the app's
-/// notification service extension reads the same sign-in; never in UserDefaults, never in the OS
-/// keychain.
+/// sign-in). A Keychain item shared through the app group (`SharedSignInStore`) so the app's
+/// notification service extension reads the same sign-in; never in UserDefaults.
 public struct SharedSignIn: Codable, Equatable, Sendable {
     public var gateway: URL
     public var user: String?
@@ -54,14 +53,19 @@ public struct SharedSignIn: Codable, Equatable, Sendable {
     }
 }
 
-/// The sign-in in the app group `group.ai.abstractframework.assistant` (shared by the app, its
-/// notification service extension and, on the watch, the complication): `Library/Sealed/signin.json`,
-/// a `ProtectedFile` (the folder keeps its 0.15 name so an earlier sign-in is found and moved).
-/// A build without the app group (an unsigned simulator build) keeps it in the app's own
-/// Application Support.
+/// The sign-in: a Keychain item (`KeychainSecretStore`) shared by the app, its notification service
+/// extension and, on the watch, the complication, through the app group
+/// `group.ai.abstractframework.assistant`, which is also the keychain access group. The same store
+/// holds the watch's kept sign-ins (`read(named:)`, `write(named:)`, `remove(named:)`).
+///
+/// Earlier builds kept it in files in the app group (`Library/Sealed/`: `signin.json` for a few
+/// days, a ChaChaPoly pair before that, see `ProtectedFile`): the first read that finds nothing
+/// in the Keychain moves what those files hold and deletes them, so nobody signs in again.
 public enum SharedSignInStore {
     public static let appGroup = "group.ai.abstractframework.assistant"
+    static let signInName = "signin"
 
+    /// Where the earlier builds' files are (and the fallback of a build without the app group).
     public static func directory() -> URL {
         if let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) {
             return group.appending(path: "Library/Sealed", directoryHint: .isDirectory)
@@ -71,23 +75,37 @@ public enum SharedSignInStore {
         return support.appending(path: "Sealed", directoryHint: .isDirectory)
     }
 
-    private static func file(_ dir: URL) -> ProtectedFile { ProtectedFile(directory: dir, name: "signin") }
-
-    /// Another protected file beside the sign-in (the watch's kept sign-ins).
-    public static func protectedFile(named name: String, in dir: URL = directory()) -> ProtectedFile {
-        ProtectedFile(directory: dir, name: name)
-    }
-
-    public static func load(from dir: URL = directory()) -> SharedSignIn? {
-        guard let data = try? file(dir).read() else { return nil }
+    public static func load(from store: SecretStore = KeychainSecretStore.shared, legacy dir: URL = directory()) -> SharedSignIn? {
+        guard let data = try? read(named: signInName, from: store, legacy: dir) else { return nil }
         return try? JSONDecoder().decode(SharedSignIn.self, from: data)
     }
 
-    public static func save(_ signIn: SharedSignIn, to dir: URL = directory()) throws {
-        try file(dir).write(JSONEncoder().encode(signIn))
+    public static func save(_ signIn: SharedSignIn, to store: SecretStore = KeychainSecretStore.shared) throws {
+        try store.write(signInName, JSONEncoder().encode(signIn))
     }
 
-    public static func clear(at dir: URL = directory()) {
-        file(dir).remove()
+    public static func clear(_ store: SecretStore = KeychainSecretStore.shared, legacy dir: URL = directory()) {
+        try? store.remove(signInName)
+        ProtectedFile(directory: dir, name: signInName).remove()
+    }
+
+    /// A named secret beside the sign-in (the watch's kept sign-ins): what the store holds, else
+    /// what an earlier build's file holds, moved into the store and deleted.
+    public static func read(named name: String, from store: SecretStore = KeychainSecretStore.shared, legacy dir: URL = directory()) throws -> Data? {
+        if let data = try store.read(name) { return data }
+        let file = ProtectedFile(directory: dir, name: name)
+        guard let moved = try file.read() else { return nil }
+        try store.write(name, moved)
+        file.remove()
+        return moved
+    }
+
+    public static func write(named name: String, _ data: Data, to store: SecretStore = KeychainSecretStore.shared) throws {
+        try store.write(name, data)
+    }
+
+    public static func remove(named name: String, from store: SecretStore = KeychainSecretStore.shared, legacy dir: URL = directory()) {
+        try? store.remove(name)
+        ProtectedFile(directory: dir, name: name).remove()
     }
 }

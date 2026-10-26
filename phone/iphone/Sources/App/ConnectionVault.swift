@@ -3,8 +3,8 @@ import AssistantKit
 import PhoneGatewayClient
 import AssistantPush
 
-/// The iPhone's sign-in, sealed in the app group (`SharedSignInStore`: a ChaChaPoly file under a
-/// 0600 key file, never the OS keychain) so the notification service extension reads the same one.
+/// The iPhone's sign-in, a Keychain item shared through the app group (`SharedSignInStore`) so the
+/// notification service extension reads the same one.
 /// Saving is a sign-in: it takes a new push registration handle (`reg`).
 enum ConnectionVault {
     static func read() throws -> SavedConnection? {

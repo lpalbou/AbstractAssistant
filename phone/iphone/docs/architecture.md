@@ -8,7 +8,7 @@ The watch side is described in [watch/apple/docs/architecture.md](../../../watch
 flowchart LR
     Views[SwiftUI screens] --> Store[AssistantStore]
     Views --> Voice[Microphone and playback]
-    Vault[Protected sign-in in the app group] --> Store
+    Vault[Sign-in in the Keychain, shared through the app group] --> Store
     Vault --> Push[AssistantPush: registration, handoff]
     Push --> Watch[Watch app over WatchConnectivity]
     APNs[Apple push] --> NSE[Notification service extension]
@@ -25,7 +25,7 @@ flowchart LR
     Gateway --> Runtime[AbstractRuntime / providers]
 ```
 
-`Sources/App` owns native views, the protected sign-in (`ConnectionVault`), push registration
+`Sources/App` owns native views, the sign-in (`ConnectionVault`), push registration
 (`PhonePush`), the watch handoff (`WatchLink`), recording and playback. The `AssistantKit`
 Swift package owns account-scoped state and URL validation. Its second target,
 `PhoneGatewayClient` (named apart from the watch's `AbstractGatewayClient`, so both packages live in one project), contains the HTTP wire types and protocol.
@@ -41,7 +41,7 @@ preferences are stored locally, scoped by gateway/tenant/account.
 The HTTP client uses an ephemeral URLSession, explicit bearer or session/CSRF headers,
 and refuses redirects. A 401 locks the client out; the store removes the sign-in and stops
 polling rather than repeatedly hitting the gateway’s failed-sign-in limit. Credentials are
-kept in a protected file in the app group (see below), never encoded in a URL or
+a Keychain item shared through the app group (see below), never encoded in a URL or
 passed as launch arguments.
 
 Store generations separate account changes and conversation changes. Old refreshes and
@@ -658,14 +658,12 @@ or downloads executable updates. See [troubleshooting](troubleshooting.md).
 `Packages/AssistantPush` is shared by the iPhone app, the watch app and both notification
 service extensions (framework backlog 1049):
 
-- **Protected sign-in.** `SharedSignInStore` keeps the gateway, account and credential (token, or
-  session + CSRF) as plain JSON in a `ProtectedFile` in the app group
-  `group.ai.abstractframework.assistant` (`Library/Sealed/signin.json`): written under Data
-  Protection "complete until first user authentication" so the extension can read it while the
-  device is locked, owner-only, excluded from backups, deleted at sign-out. A file rather than the
-  Keychain so the watch, the iPhone and the Mac app share one store, and no
-  encryption of our own (a key kept beside the data protects nothing). A sign-in sealed by 0.15 is
-  moved to the plain file at its first read.
+- **The sign-in in the Keychain.** `SharedSignInStore` keeps the gateway, account and credential
+  (token, or session + CSRF) as a Keychain item of the app's service, accessible after the first
+  unlock so the extension can read it while the device is locked, bound to this device (never in
+  a backup, never synced), shared with the extension through the app group
+  `group.ai.abstractframework.assistant`, which doubles as the keychain access group. Files kept by
+  earlier builds in the app group are moved into the Keychain at their first read and deleted.
 - **Watch handoff.** After a sign-in (token or emailed code) `WatchLink` sends it to the watch
   (`updateApplicationContext`, plus `transferUserInfo`). The watch takes it when it is newer than
   its own sign-in; a watch without its iPhone still signs in on its own.

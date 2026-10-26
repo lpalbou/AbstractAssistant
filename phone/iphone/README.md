@@ -240,7 +240,7 @@ Enter your own gateway’s address. There is no preselected public server.
 - **Registered email + one-time code:** request the code and enter it. Email sign-in must be
   enabled on your gateway, with a mailbox connected for your account.
 
-Your sign-in is kept in the app's own protected storage on this iPhone (shared with its notification
+Your sign-in is kept in this iPhone's Keychain (shared with its notification
 extension and handed to your Apple Watch), outside iCloud sync and ordinary preferences. HTTPS is required outside the local network. Local HTTP
 addresses are accepted for development. A phone’s `localhost` is the phone itself; use
 your Mac’s LAN address to reach a gateway running there.

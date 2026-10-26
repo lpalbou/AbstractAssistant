@@ -1,19 +1,11 @@
 import CryptoKit
 import Foundation
 
-/// A secret kept in a plain file the operating system protects: written with Data Protection
-/// "complete until first user authentication" (encrypted at rest by the device, readable once the
-/// device has been unlocked after a boot, so a notification service extension can read it while
-/// the device is locked), owner-only permissions, excluded from backups, deleted on request.
-/// A file rather than a Keychain item: the same store on the watch, the iPhone and the Mac app
-/// to come, testable with `swift test` on every platform; the Keychain is allowed for the Apple
-/// apps (the framework's own no-keychain rule is about its Python packages, which must run on
-/// Linux and Windows too) and would add "this device only" semantics if ever wanted. No
-/// encryption of our own on top (a key kept beside the data protects nothing and adds code).
-///
-/// Until 0.16.0 the file was sealed with ChaChaPoly under a key file in the same folder
-/// (`signin.sealed` + `sealing.key`): a first read of that pair moves its content into the plain
-/// file and deletes both, so a person signed in before the change stays signed in.
+/// The files of earlier builds, read once so their content moves into the Keychain
+/// (`SharedSignInStore`): `<name>.json` (plain, under Data Protection; a few days of 0.16) and
+/// before it the ChaChaPoly pair `<name>.sealed` + `sealing.key` (0.15). `write` is kept for the
+/// tests that plant those files; the apps no longer write here. Delete this type once no watch or
+/// iPhone can still carry those files.
 public struct ProtectedFile: Sendable {
     public let directory: URL
     public let name: String
