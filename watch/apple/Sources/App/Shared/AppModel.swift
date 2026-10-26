@@ -536,7 +536,7 @@ final class AppModel: ObservableObject {
     /// the cached state, polls. A sign-in kept for this user on this gateway with another
     /// credential is forgotten: the new one replaces it.
     func connect(_ signIn: SavedSignIn) {
-        signIn.save()                                    // sealed, with a new push handle
+        signIn.save()                                    // into the Keychain, with a new push handle
         // Push (backlog 1049): the token is registered with this sign-in's handle; the one-time
         // permission question comes now, as a closed app's alerts need it.
         WatchPush.start()

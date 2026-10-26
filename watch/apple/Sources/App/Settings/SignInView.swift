@@ -149,40 +149,41 @@ enum KeptSignIns {
 
     static func key(host: String, user: String) -> String { host + "|" + user.lowercased() }
 
-    static func all(_ store: SecretStore = KeychainSecretStore.shared) -> [KeptSignIn] {
+    static func all(_ store: SecretStore = SharedSignInStore.store) -> [KeptSignIn] {
         guard let data = try? SharedSignInStore.read(named: fileName, from: store),
               let list = try? JSONDecoder().decode([KeptSignIn].self, from: data) else { return [] }
         return list.sorted { $0.keptAt > $1.keptAt }
     }
 
     /// The kept sign-ins for this gateway, most recent first, at most `shown`.
-    static func entries(for gateway: URL, _ store: SecretStore = KeychainSecretStore.shared) -> [KeptSignIn] {
+    static func entries(for gateway: URL, _ store: SecretStore = SharedSignInStore.store) -> [KeptSignIn] {
         let h = host(gateway)
         return Array(all(store).filter { $0.signIn.map { host($0.gateway) } == h }.prefix(shown))
     }
 
-    static func entry(gateway: URL, user: String, _ store: SecretStore = KeychainSecretStore.shared) -> KeptSignIn? {
+    static func entry(gateway: URL, user: String, _ store: SecretStore = SharedSignInStore.store) -> KeptSignIn? {
         let k = key(host: host(gateway), user: user)
         return all(store).first { $0.id == k }
     }
 
     /// Keeps `s` as `user`'s sign-in on its gateway, replacing the one kept before.
-    static func keep(_ s: SavedSignIn, user: String, _ store: SecretStore = KeychainSecretStore.shared) {
+    static func keep(_ s: SavedSignIn, user: String, _ store: SecretStore = SharedSignInStore.store) {
         let new = KeptSignIn(s, user: user)
         write([new] + all(store).filter { $0.id != new.id }, store)
     }
 
-    static func forget(gateway: URL, user: String, _ store: SecretStore = KeychainSecretStore.shared) {
+    static func forget(gateway: URL, user: String, _ store: SecretStore = SharedSignInStore.store) {
         let k = key(host: host(gateway), user: user)
         let list = all(store)
         if list.contains(where: { $0.id == k }) { write(list.filter { $0.id != k }, store) }
     }
 
-    static func clear(_ store: SecretStore = KeychainSecretStore.shared) { SharedSignInStore.remove(named: fileName, from: store) }
+    static func clear(_ store: SecretStore = SharedSignInStore.store) { SharedSignInStore.remove(named: fileName, from: store) }
 
     private static func write(_ list: [KeptSignIn], _ store: SecretStore) {
         if list.isEmpty { SharedSignInStore.remove(named: fileName, from: store); return }
-        if let data = try? JSONEncoder().encode(Array(list.prefix(limit))) { try? SharedSignInStore.write(named: fileName, data, to: store) }
+        guard let data = try? JSONEncoder().encode(Array(list.prefix(limit))) else { return }
+        try? SharedSignInStore.write(named: fileName, data, to: store)
     }
 }
 

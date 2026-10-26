@@ -65,6 +65,17 @@ public enum SharedSignInStore {
     public static let appGroup = "group.ai.abstractframework.assistant"
     static let signInName = "signin"
 
+    /// The apps' store, decided once: the Keychain through the app group's access group; without
+    /// the group when the build has the Keychain but not the group; a protected file in the app's
+    /// own storage when the build has no Keychain at all (an unsigned simulator build).
+    public static let store: any SecretStore = {
+        let grouped = KeychainSecretStore(accessGroup: appGroup)
+        if grouped.isUsable { return grouped }
+        let own = KeychainSecretStore(accessGroup: nil)
+        if own.isUsable { return own }
+        return FileSecretStore(directory: directory())
+    }()
+
     /// Where the earlier builds' files are (and the fallback of a build without the app group).
     public static func directory() -> URL {
         if let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) {
@@ -75,23 +86,23 @@ public enum SharedSignInStore {
         return support.appending(path: "Sealed", directoryHint: .isDirectory)
     }
 
-    public static func load(from store: SecretStore = KeychainSecretStore.shared, legacy dir: URL = directory()) -> SharedSignIn? {
+    public static func load(from store: SecretStore = store, legacy dir: URL = directory()) -> SharedSignIn? {
         guard let data = try? read(named: signInName, from: store, legacy: dir) else { return nil }
         return try? JSONDecoder().decode(SharedSignIn.self, from: data)
     }
 
-    public static func save(_ signIn: SharedSignIn, to store: SecretStore = KeychainSecretStore.shared) throws {
+    public static func save(_ signIn: SharedSignIn, to store: SecretStore = store) throws {
         try store.write(signInName, JSONEncoder().encode(signIn))
     }
 
-    public static func clear(_ store: SecretStore = KeychainSecretStore.shared, legacy dir: URL = directory()) {
+    public static func clear(_ store: SecretStore = store, legacy dir: URL = directory()) {
         try? store.remove(signInName)
         ProtectedFile(directory: dir, name: signInName).remove()
     }
 
     /// A named secret beside the sign-in (the watch's kept sign-ins): what the store holds, else
     /// what an earlier build's file holds, moved into the store and deleted.
-    public static func read(named name: String, from store: SecretStore = KeychainSecretStore.shared, legacy dir: URL = directory()) throws -> Data? {
+    public static func read(named name: String, from store: SecretStore = store, legacy dir: URL = directory()) throws -> Data? {
         if let data = try store.read(name) { return data }
         let file = ProtectedFile(directory: dir, name: name)
         guard let moved = try file.read() else { return nil }
@@ -100,11 +111,11 @@ public enum SharedSignInStore {
         return moved
     }
 
-    public static func write(named name: String, _ data: Data, to store: SecretStore = KeychainSecretStore.shared) throws {
+    public static func write(named name: String, _ data: Data, to store: SecretStore = store) throws {
         try store.write(name, data)
     }
 
-    public static func remove(named name: String, from store: SecretStore = KeychainSecretStore.shared, legacy dir: URL = directory()) {
+    public static func remove(named name: String, from store: SecretStore = store, legacy dir: URL = directory()) {
         try? store.remove(name)
         ProtectedFile(directory: dir, name: name).remove()
     }

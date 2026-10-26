@@ -12,7 +12,7 @@ enum ConnectionVault {
         let credential: GatewayCredential = s.token.map { .token($0) } ?? .session(id: s.session ?? "", csrf: s.csrf ?? "")
         return SavedConnection(gateway: s.gateway, user: s.user ?? "", tenant: s.tenant ?? "default", credential: credential)
     }
-    /// The sealed record itself (its push handle and sign-in time).
+    /// The stored record itself (its push handle and sign-in time).
     static func current() -> SharedSignIn? { SharedSignInStore.load() }
     static func save(_ connection: SavedConnection) throws {
         do { try SharedSignInStore.save(signIn(connection)) } catch { throw VaultError() }

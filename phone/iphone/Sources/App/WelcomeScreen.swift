@@ -51,7 +51,7 @@ struct WelcomeScreen: View {
                         }
                     }
                     VStack(spacing: 14) {
-                        Label("Your sign-in stays sealed on this iPhone and your Apple Watch.", systemImage: "lock.shield").font(.footnote).foregroundStyle(PhoneTheme.secondary)
+                        Label("Your sign-in stays in the Keychain of this iPhone and your Apple Watch.", systemImage: "lock.shield").font(.footnote).foregroundStyle(PhoneTheme.secondary)
                         Button("Take a look around", action: onDemo).font(.subheadline.weight(.medium)).disabled(busy)
                     }.frame(maxWidth: .infinity)
                 }.padding(24)
