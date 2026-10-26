@@ -5,6 +5,12 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
 
+### Changed
+
+- **A paused reading shows a speaker, not a play triangle.** The message's read-aloud button is a
+  speaker at rest, pause while it reads and a filled speaker while paused (a tap resumes): a
+  play triangle never stands for reading aloud, on the iPhone as on the watch.
+
 ### Added
 
 - **One product with the Apple Watch (version 0.16.0, build 39).** The iPhone app is now
