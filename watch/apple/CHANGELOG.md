@@ -9,6 +9,12 @@ iPhone app); the Python package's history is in
 
 ### Changed
 
+- **A question that could not be sent keeps its recording.** When the upload or the transcription
+  fails, the orb says "Not sent." with Retry and Discard under it; the recording
+  waits in its own file through leaving the page and relaunching, and nothing sends it on its own.
+  Retry sends the same recording; Discard deletes it. (Backlog 1054, slice 0.)
+- **A haptic when listening starts**, as there was one when the microphone closes and when an
+  answer arrives.
 - **The sign-in is a plain file the device protects, out of backups.** It was sealed with a key
   kept beside it, which protected nothing. It is now plain JSON under Data Protection "complete
   until first user authentication", owner-only, excluded from backups, deleted at sign-out; a

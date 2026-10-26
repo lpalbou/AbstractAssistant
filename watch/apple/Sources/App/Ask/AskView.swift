@@ -41,6 +41,9 @@ struct AskView: View {
     @State private var answerEntity: String?
     @State private var error: String?
     @State private var note: String?
+    /// A question whose sending failed, its recording kept (`KeptQuestion`): Retry and Discard
+    /// under the orb while it is at rest, until the person chooses.
+    @State private var kept: URL? = KeptQuestion.url
     /// A hold on the orb under way, and how far its ring has closed.
     @State private var holding = false
     @State private var holdProgress: CGFloat = 0
@@ -136,6 +139,7 @@ struct AskView: View {
                                     .accessibilityIdentifier("ask.status")
 
                                     .shadow(color: .black, radius: 3)
+                                if keptShown { keptActions }
                             }
                             .padding(.bottom, 8)   // low, clear of the orb and the round corners
                         }
@@ -210,7 +214,7 @@ struct AskView: View {
         .task { await onOpen() }
         // An automation's page notices a run starting (its schedule, or Run now on its details).
         // The task ends when the page is covered or left, and starts again when it is back in front.
-        .onAppear { appearances += 1 }
+        .onAppear { appearances += 1; kept = KeptQuestion.url }
         .task(id: automationFeed.map { "\($0.id)#\(appearances)" }) { await watchAutomation() }
         // A message of the Assistant's conversation on screen: a swipe forward opens its stats page
         // (an entity's exchanges, or an answer opened from a notification, may be another conversation's).
@@ -540,6 +544,7 @@ struct AskView: View {
         if phase == .answer, speaker.isActive { return "" }
         if let error { return error }
         if let note { return note }
+        if keptShown { return Self.keptLine }
         switch phase {
         case .idle: return "Tap to talk"
         case .listening: return "Listening…"
@@ -556,12 +561,32 @@ struct AskView: View {
 
     private var statusColor: Color {
         if error != nil { return Theme.red }
+        if keptShown, note == nil { return Theme.amber }
         if case .failed = speaker.state, phase == .answer { return Theme.red }
         switch phase {
         case .listening: return Theme.cyan
         case .thinking: return pendingWait == nil ? Theme.indigo : Theme.amber
         default: return Theme.muted
         }
+    }
+
+    /// The line under the orb while a failed question's recording is kept.
+    static let keptLine = "Not sent."   // short: the line shares its row with the tools icon
+
+    /// A kept recording is offered while the orb is at rest (not while it listens, works or speaks).
+    private var keptShown: Bool { kept != nil && controlsShown && !loadingConversation }
+
+    /// Under the kept line: Retry sends the recording again, Discard deletes it.
+    private var keptActions: some View {
+        HStack(spacing: 6) {
+            Button("Retry", action: retryKept)
+                .buttonStyle(KeptButtonStyle(fill: Theme.indigoButton))
+                .accessibilityIdentifier("ask.retry")
+            Button("Discard", action: discardKept)
+                .buttonStyle(KeptButtonStyle(fill: Theme.neutralButton))
+                .accessibilityIdentifier("ask.discard")
+        }
+        .padding(.horizontal, 44)       // clear of the corner icons and the round corners
     }
 
     // MARK: - Actions
@@ -609,6 +634,7 @@ struct AskView: View {
         let mine = turn
         let back: Phase = answer.isEmpty ? .idle : .answer
         error = nil; note = nil; pendingWait = nil; phase = .listening; listenSince = Date()
+        WKInterfaceDevice.current().play(.start)         // felt: the microphone opens
         listener.start { outcome in
             guard mine == turn else { return }
             switch outcome {
@@ -619,24 +645,53 @@ struct AskView: View {
         }
     }
 
-    private func transcribeAndSend(_ wav: Data, turn mine: Int, back: Phase) {
+    /// Sends a recorded question: the gateway transcribes it, then it is asked. When the upload or
+    /// the transcription fails, the recording is kept (Retry, Discard); `retrying`: `wav` is the
+    /// kept recording, sent again by Retry (sent, it is deleted; failed again, it stays).
+    private func transcribeAndSend(_ wav: Data, turn mine: Int, back: Phase, retrying: Bool = false) {
         phase = .thinking; transcribing = true; prompt = ""
-        WKInterfaceDevice.current().play(.stop)          // heard: the microphone is closed, sending
+        if !retrying { WKInterfaceDevice.current().play(.stop) }   // heard: the microphone is closed, sending
         Task {
             do {
+                #if DEBUG
+                if FailSendHook.on { try await Task.sleep(for: .milliseconds(1800)); throw URLError(.notConnectedToInternet) }   // long enough for a test to see it sending
+                #endif
                 let text = try await model.client.transcribe(wav: wav, sessionId: automationFeed == nil ? model.askSessionId : voiceSession,
                                                              model: VoicePrefs.transcription)
                 guard mine == turn else { return }
                 transcribing = false
+                if retrying { KeptQuestion.discard(); kept = nil }
                 if text.isEmpty { phase = back; note = "I didn't catch that"; RuntimeKeeper.shared.release("ask"); return }
                 send(text)
             } catch {
                 guard mine == turn else { return }
                 transcribing = false; phase = back
-                self.error = "I couldn't hear that."
+                kept = retrying ? KeptQuestion.url : KeptQuestion.keep(wav)
+                // Kept: the line under the orb says it, with Retry and Discard.
+                self.error = kept == nil ? "I couldn't hear that." : nil
+                note = nil
                 RuntimeKeeper.shared.release("ask")
             }
         }
+    }
+
+    /// Retry: the kept recording goes again through the same path as when it was recorded.
+    private func retryKept() {
+        guard let url = KeptQuestion.url, let wav = try? Data(contentsOf: url) else {
+            KeptQuestion.discard(); kept = nil; error = "The recording is gone."
+            return
+        }
+        RuntimeKeeper.shared.hold("ask")
+        speaker.stop()
+        turn += 1
+        error = nil; note = nil; pendingWait = nil
+        transcribeAndSend(wav, turn: turn, back: answer.isEmpty ? .idle : .answer, retrying: true)
+    }
+
+    /// Discard: the kept recording is deleted; the orb is at rest.
+    private func discardKept() {
+        KeptQuestion.discard(); kept = nil
+        error = nil; note = nil
     }
 
     private func send(_ text: String) {
@@ -906,6 +961,13 @@ struct AskView: View {
         #if DEBUG
         if let t = model.testAsk { model.testAsk = nil; send(t); return }
         if model.testListen { model.testListen = false; startListening() }
+        // `--test-fail-send`: a question just recorded (sample audio) whose sending fails.
+        if FailSendHook.pending {
+            FailSendHook.pending = false
+            RuntimeKeeper.shared.hold("ask"); turn += 1
+            transcribeAndSend(SyntheticSpeech.wav(seconds: 1.5, seed: 7), turn: turn, back: .idle)
+            return
+        }
         #endif
         await showCurrentConversation()
     }
@@ -1090,3 +1152,25 @@ struct HoldRing: View {
         .accessibilityHidden(true)
     }
 }
+
+/// Retry and Discard under the orb: the app's filled capsules (`FilledButtonStyle`), at the size
+/// of a line, so both fit under the orb without covering it.
+private struct KeptButtonStyle: ButtonStyle {
+    let fill: Color
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.rounded(.footnote, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.75)
+            .foregroundStyle(Theme.text)
+            .padding(.horizontal, 8).frame(maxWidth: .infinity, minHeight: 30)
+            .background(fill.opacity(configuration.isPressed ? 0.7 : 1), in: Capsule())
+    }
+}
+
+#if DEBUG
+/// `--test-fail-send`: the orb page opens on a question just recorded whose sending fails, and every
+/// send fails while the app runs (the kept-recording tests). Debug builds only.
+@MainActor private enum FailSendHook {
+    static let on = ProcessInfo.processInfo.arguments.contains("--test-fail-send")
+    static var pending = on
+}
+#endif

@@ -64,6 +64,9 @@ final class Listener: ObservableObject {
             do {
                 let session = AVAudioSession.sharedInstance()
                 try session.setCategory(.record, mode: .default, options: [])
+                // A session using the microphone mutes haptics by default: the one that says the
+                // microphone is open would never be felt.
+                try? session.setAllowHapticsAndSystemSoundsDuringRecording(true)
                 try session.setActive(true)
                 tap = try MicTap(writingTo: url)
                 isListening = true; heardSpeech = false; floorDB = -50
@@ -139,6 +142,46 @@ final class Listener: ObservableObject {
     }
 }
 
+/// A question whose sending failed (the upload or the transcription): its recording is kept in its
+/// own file, never the listener's `ask.wav` (the next recording cannot overwrite it), until Retry
+/// sends it again or Discard deletes it. One at a time: a newer one replaces it. Its name is in the
+/// app's defaults, so it outlives leaving the page and relaunching the app. Nothing sends it on its
+/// own.
+enum KeptQuestion {
+    private static let key = "ask.keptRecording"
+    private static var folder: URL { URL.applicationSupportDirectory.appending(path: "KeptQuestion", directoryHint: .isDirectory) }
+
+    /// The kept recording, while its file is there.
+    static var url: URL? {
+        guard let name = UserDefaults.standard.string(forKey: key) else { return nil }
+        let u = folder.appending(path: name)
+        if FileManager.default.fileExists(atPath: u.path) { return u }
+        UserDefaults.standard.removeObject(forKey: key)
+        return nil
+    }
+
+    /// Keeps `wav` in a file of its own (the one kept before is deleted); nil when it can't be written.
+    static func keep(_ wav: Data) -> URL? {
+        var u = folder.appending(path: "question-\(UUID().uuidString).wav")
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try wav.write(to: u, options: .atomic)
+        } catch { return nil }
+        var values = URLResourceValues(); values.isExcludedFromBackup = true
+        try? u.setResourceValues(values)
+        let before = url
+        UserDefaults.standard.set(u.lastPathComponent, forKey: key)
+        if let before, before != u { try? FileManager.default.removeItem(at: before) }
+        return u
+    }
+
+    /// Deletes the kept recording (Discard, or it was sent).
+    static func discard() {
+        if let u = url { try? FileManager.default.removeItem(at: u) }
+        UserDefaults.standard.removeObject(forKey: key)
+    }
+}
+
 /// The microphone through AVAudioEngine: each buffer is analysed (the latest frame is kept for the
 /// listener's speech detection and the orb) and written as 16 kHz mono 16-bit WAV for transcription.
 /// The tap runs on the audio thread; `latest` is read from the main actor under a lock.
@@ -194,3 +237,28 @@ final class MicTap: @unchecked Sendable {
         lock.withLock { file = nil }
     }
 }
+
+#if DEBUG
+/// A recording for the tests: 16 kHz mono 16-bit WAV of a soft tone (the mock transcribes any
+/// audio to its sample question). Debug builds only.
+enum SyntheticSpeech {
+    static func wav(seconds: Double, seed: Int) -> Data {
+        let rate = 16_000, n = Int(seconds * Double(rate))
+        var samples = Data(capacity: n * 2)
+        let f = 180.0 + Double(seed % 7) * 20
+        for i in 0..<n {
+            let t = Double(i) / Double(rate)
+            let env = min(1, t * 8) * min(1, (seconds - t) * 8)
+            let v = Int16(env * 6000 * sin(2 * .pi * f * t) * (0.6 + 0.4 * sin(2 * .pi * 3 * t)))
+            samples.append(contentsOf: withUnsafeBytes(of: v.littleEndian) { Array($0) })
+        }
+        var d = Data()
+        func u32(_ v: UInt32) { d.append(contentsOf: withUnsafeBytes(of: v.littleEndian) { Array($0) }) }
+        func u16(_ v: UInt16) { d.append(contentsOf: withUnsafeBytes(of: v.littleEndian) { Array($0) }) }
+        d.append(contentsOf: Array("RIFF".utf8)); u32(UInt32(36 + samples.count)); d.append(contentsOf: Array("WAVE".utf8))
+        d.append(contentsOf: Array("fmt ".utf8)); u32(16); u16(1); u16(1); u32(UInt32(rate)); u32(UInt32(rate * 2)); u16(2); u16(16)
+        d.append(contentsOf: Array("data".utf8)); u32(UInt32(samples.count)); d.append(samples)
+        return d
+    }
+}
+#endif
