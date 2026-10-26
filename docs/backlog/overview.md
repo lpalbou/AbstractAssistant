@@ -55,7 +55,7 @@ Counts recomputed from disk on 2026-10-26 after adding 1053 (shared Swift client
 
 | ID | Item | Status | Promotion criteria |
 |---|---|---|---|
-| [1053](proposed/1053_shared_swift_client_kit_for_apple_clients.md) | Shared Swift between the two Apple apps: one gateway client module, an honest credential file | Proposed | Promote once the operator confirms the credential file without encryption and with backup exclusion; ADR 0004, ADR 0005. |
+| [1053](proposed/1053_shared_swift_client_kit_for_apple_clients.md) | Shared Swift between the two Apple apps: one gateway client module, an honest credential file | Proposed | Ruled 2026-10-26 (no OS keychain, a plain protected file, no encryption of our own, excluded from backup); promote when a session is free; ADR 0004, ADR 0005. |
 | [1054](proposed/watch-apple/1054_offline_capture_queue_on_the_wrist.md) | Offline note queue on the wrist | Proposed | Slice 0 (keep a failed question's recording, Retry and Discard) can go now; the queue with the Notes surface of ADR 0004. |
 | [0001](proposed/0001_gateway_capability_profile_alignment.md) | Gateway capability profile alignment | Proposed | Keep as background design memory while v2 rollout lands. |
 | [0003](proposed/0003_tauri_shell_spike.md) | Tauri shell spike | Proposed | Promote only if cross-platform host evidence outweighs Qt-first delivery. |

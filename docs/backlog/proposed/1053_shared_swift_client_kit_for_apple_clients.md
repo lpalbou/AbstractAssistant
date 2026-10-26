@@ -74,13 +74,15 @@ beside it. Measured by lines deleted in this repository, not by a new abstractio
 - Watch: `SavedSignIn` loads from the shared file (`watch/apple/Sources/App/Settings/SignInView.swift`),
   `KeptSignIns` still in UserDefaults (`:139-142`).
 
-## Decision boundary (one, to settle with the operator)
-The operator's rule keeps secrets out of the OS keychain. On the device the file and a Keychain
-item of class `AfterFirstUnlockThisDeviceOnly` protect alike after first unlock; the file gives
-up `ThisDeviceOnly` (backup and migration follow the file unless excluded) and per-target
-scoping (the complication can read it), and gains survival rules that are ours (a Keychain item
-outlives an uninstall). This item keeps the rule and pays its cost with backup exclusion; it does
-not add encryption whose key sits beside the data.
+## Ruling (operator, 2026-10-26)
+No OS keychain, anywhere: AbstractFramework stays OS-agnostic and its clients must behave the same
+on every installation. A credential is a plain file in the app's own container, protected by the
+operating system's at-rest encryption where one exists (Data Protection class "complete until
+first user authentication" on Apple devices, so the notification extensions can read it after the
+first unlock), owner-only permissions, excluded from backups, deleted at sign-out. No encryption
+of our own on top: a key kept beside the data protects nothing and adds code. The cost accepted
+with it: no "this device only" semantics beyond what backup exclusion gives, and the file is
+readable by every target in the app group (the complication included).
 
 ## Expected outcomes
 - One `AbstractGatewayClient` module, no static-framework target, fewer lines of Swift in this
@@ -89,7 +91,7 @@ not add encryption whose key sits beside the data.
   sign-ins; no credential in UserDefaults.
 
 ## Promotion criteria
-- The operator confirms the decision boundary (file without encryption, with backup exclusion).
+- Ruled on 2026-10-26 (above); promote when a session is free to take it.
 - A count of lines in the two packages before the work, kept in this item, so the outcome is
   measurable.
 
