@@ -83,7 +83,7 @@ final class MediaUITests: XCTestCase {
         // Centred on the page: `media.full` is the picture's own frame (the mock's is 480 × 360), centred
         // on the whole screen when that keeps its top clear of the row (a wide picture), else as near the
         // centre as the row allows: never centred in the area below the row (which leaves it low).
-        let picture = full.frame, screen = app.frame, band: CGFloat = 48   // `CornerButton.band`, as above
+        let picture = full.frame, screen = app.frame, band: CGFloat = 45   // `CornerButton.band`, as above
         XCTAssertEqual(picture.height, picture.width * 360 / 480, accuracy: 2, "media.full is not the picture's frame: \(picture)")
         XCTAssertEqual(picture.midX, screen.midX, accuracy: 1, "the picture is not centred across: \(picture) on \(screen)")
         XCTAssertEqual(picture.minY, max(band, (screen.height - picture.height) / 2), accuracy: 1.5,

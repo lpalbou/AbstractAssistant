@@ -118,7 +118,7 @@ struct ReadView: View {
 struct ReadAloudLink: View {
     let item: ReadItem
     var body: some View {
-        NavigationLink(value: Route.read(item)) { GlassIcon(symbol: "speaker.wave.2.fill") }
+        NavigationLink(value: Route.read(item)) { GlassIcon(symbol: "speaker.wave.2.fill", size: CornerButton.size) }
             .buttonStyle(GlassPress())
             .accessibilityLabel("Read aloud")
     }

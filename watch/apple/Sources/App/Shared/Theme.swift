@@ -96,7 +96,7 @@ struct ShareIcon<Item: Transferable>: View {
     var subject: String?
     var body: some View {
         ShareLink(item: item, subject: subject.map { Text($0) }, preview: SharePreview(subject ?? "AbstractAssistant")) {
-            GlassIcon(symbol: "square.and.arrow.up").rowReach()
+            GlassIcon(symbol: "square.and.arrow.up", size: CornerButton.size).rowReach()
         }
             .buttonStyle(GlassPress())
             .accessibilityLabel("Share")
@@ -201,10 +201,11 @@ extension EnvironmentValues {
 /// The one button at the top left of every page, drawn by the app over the pages so it never moves:
 /// the gear on Home (Settings), Back everywhere else, morphing from one to the other.
 struct CornerButton: View {
-    /// `top`: the circle's top, 8 pt down, so that its centre (25.5 pt) is the system time's (the
-    /// time's digits run from 20 to 31 pt on a 46 mm; measured on a screenshot): Back, the title and
-    /// the icons beside Back sit on the time's line.
-    static let size: CGFloat = 35, leading: CGFloat = 15, top: CGFloat = 8
+    /// `size`: the circles of the top row, 28 pt (the side icons on the orb page keep `GlassIcon`'s
+    /// 35). `top`: the circle's top, 12 pt down, so that its centre (26 pt) is the system time's
+    /// (the time's digits run from 20 to 31 pt on a 46 mm; measured on a screenshot): Back, the
+    /// title and the icons beside Back sit on the time's line.
+    static let size: CGFloat = 28, leading: CGFloat = 15, top: CGFloat = 12
     /// The top row's band, from the screen's top: the page starts below it (5 pt under the circles).
     static let band: CGFloat = top + size + 5
     /// The room the system time takes at the right of the row ("18:01", with its margin).
@@ -213,7 +214,7 @@ struct CornerButton: View {
     var body: some View {
         let home = model.atHome
         Button { if home { model.openSettings() } else { model.goBack() } } label: {
-            GlassIcon(symbol: home ? "gearshape" : "chevron.left")
+            GlassIcon(symbol: home ? "gearshape" : "chevron.left", size: Self.size)
                 .contentTransition(.symbolEffect(.replace))
                 .rowReach()
         }

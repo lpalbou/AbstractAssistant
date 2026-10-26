@@ -9,6 +9,9 @@ iPhone app); the Python package's history is in
 
 ### Changed
 
+- **The top row's icons are the time's size.** Back, Share, the voice button, Stop, the shield and
+  the pencil are 28 pt circles (20 % smaller), centred on the time; the band under the row is 45 pt.
+  The keyboard, tools and info icons beside the orb keep their size.
 - **A question that could not be sent keeps its recording.** When the upload or the transcription
   fails, the orb says "Not sent." with Retry and Discard under it; the recording
   waits in its own file through leaving the page and relaunching, and nothing sends it on its own.

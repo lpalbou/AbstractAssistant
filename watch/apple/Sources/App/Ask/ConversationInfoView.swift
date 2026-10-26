@@ -127,7 +127,7 @@ struct FileCard: View {
             .accessibilityIdentifier("file.open")
             if file.fitsTheWatch {
                 ShareLink(item: SharedFile(file: file, client: model.client), preview: SharePreview(file.fileName)) {
-                    GlassIcon(symbol: "square.and.arrow.up", size: 30)
+                    GlassIcon(symbol: "square.and.arrow.up", size: CornerButton.size)
                 }
                 .buttonStyle(GlassPress())
                 .accessibilityLabel("Share \(file.fileName)")

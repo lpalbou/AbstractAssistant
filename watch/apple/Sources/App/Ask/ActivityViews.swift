@@ -152,10 +152,10 @@ struct TrustShield: View {
             WKInterfaceDevice.current().play(.click)
         } label: {
             Image(systemName: "checkmark.shield.fill")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: CornerButton.size * 0.45, weight: .semibold))
                 .foregroundStyle(Theme.amber)
                 .offset(GlassIcon.optical("checkmark.shield.fill"))
-                .frame(width: 35, height: 35)
+                .frame(width: CornerButton.size, height: CornerButton.size)
                 .background(Theme.amber.opacity(0.18), in: Circle())
                 .overlay(Circle().strokeBorder(Theme.amber.opacity(0.6), lineWidth: 1))
                 .frame(width: 44, height: 44)                    // the touch target

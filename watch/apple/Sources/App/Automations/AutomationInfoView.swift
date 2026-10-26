@@ -25,7 +25,7 @@ struct AutomationInfoView: View {
                 HStack(spacing: 6) {
                     ScheduleLine(automation: current, stacked: true)
                     Spacer(minLength: 4)
-                    NavigationLink(value: Route.automationEdit(current)) { GlassIcon(symbol: "pencil") }
+                    NavigationLink(value: Route.automationEdit(current)) { GlassIcon(symbol: "pencil", size: CornerButton.size) }
                         .buttonStyle(GlassPress()).accessibilityLabel("Edit")
                     Button { running ? stopRun() : runNow() } label: {
                         Label(running ? "Stop" : "Run", systemImage: running ? "stop.fill" : "play.fill")

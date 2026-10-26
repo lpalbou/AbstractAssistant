@@ -36,7 +36,7 @@ struct VoiceButton: View {
     private var canScrub: Bool { isCurrent && (speaker.state == .speaking || speaker.isPaused) }
 
     var body: some View {
-        GlassIcon(symbol: scrubbing ? "backward.fill" : playing ? "pause.fill" : "speaker.wave.2.fill")   // a speaker, not a play: it reads aloud
+        GlassIcon(symbol: scrubbing ? "backward.fill" : playing ? "pause.fill" : "speaker.wave.2.fill", size: CornerButton.size)   // a speaker, not a play: it reads aloud
             .overlay {
                 if preparing && !scrubbing {
                     Circle().fill(Color(red: 28 / 255, green: 28 / 255, blue: 38 / 255))

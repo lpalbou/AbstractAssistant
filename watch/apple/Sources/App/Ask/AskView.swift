@@ -193,7 +193,7 @@ struct AskView: View {
             // Share at rest. While it works after an Accept all, the shield beside it takes it back.
             ZStack {
                 if busy {
-                    Button(action: stopBusy) { GlassIcon(symbol: "stop.fill").rowReach() }
+                    Button(action: stopBusy) { GlassIcon(symbol: "stop.fill", size: CornerButton.size).rowReach() }
                         .buttonStyle(GlassPress())
                         .accessibilityLabel(phase == .listening ? "Stop listening" : "Stop")
                         .accessibilityIdentifier("ask.stop")
