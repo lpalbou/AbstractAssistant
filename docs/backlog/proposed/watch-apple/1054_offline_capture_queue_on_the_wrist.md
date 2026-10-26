@@ -50,6 +50,13 @@ when the person has moved on, surprises more than it helps, so it waits for a de
   in a tunnel is filed when it was spoken, not when it was sent.
 - **A queue row on the Notes surface** listing what has not been received yet.
 
+## Progress — 2026-10-26
+Slice 0 shipped on main (commit 25b849e): a question whose upload or transcription fails keeps its
+recording in its own file (`KeptQuestion`, out of backups), "Not sent." with Retry and Discard under
+the orb, offered again after leaving the page or relaunching; Retry sends the same recording and
+success deletes it; `--test-fail-send` and `KeptQuestionUITests` (the relaunch assertion fails when
+the keep is broken). The note queue itself waits for the Notes surface.
+
 ## Non-goals
 No transcription on the watch. No queued questions or decisions (0012's stale-approval rule
 stands). No recording longer than one note (meetings are 0020). No upload through the phone.

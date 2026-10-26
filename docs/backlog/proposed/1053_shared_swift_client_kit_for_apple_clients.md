@@ -90,6 +90,14 @@ readable by every target in the app group (the complication included).
 - One credential file, plain, Class C, excluded from backup, holding the current and the kept
   sign-ins; no credential in UserDefaults.
 
+## Progress — 2026-10-26
+Steps 1 and 2 shipped on main (commit 24f47c9): `ProtectedFile` replaces the sealed pair (plain
+JSON under Data Protection, 0600, excluded from backups, the 0.15 pair moved at first read; package
+tests cover the attributes and the move), the watch's kept sign-ins moved from UserDefaults into
+`kept-signins.json` beside it, the iPhone's module is `PhoneGatewayClient` and the watch package
+is a plain dependency of the one project (the static-framework target is gone; ADR 0005 amended).
+Step 3 (converge file by file when a fix touches both) remains, and starts with `Auth.swift`.
+
 ## Promotion criteria
 - Ruled on 2026-10-26 (above); promote when a session is free to take it.
 - A count of lines in the two packages before the work, kept in this item, so the outcome is
