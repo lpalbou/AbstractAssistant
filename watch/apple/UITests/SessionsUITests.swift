@@ -115,7 +115,7 @@ final class OrbHistoryUITests: XCTestCase {
         app.buttons["Back"].firstMatch.tap()
         // The voice button reads the last message.
         let voice = app.buttons["voice.button"].firstMatch
-        XCTAssertTrue(voice.waitForExistence(timeout: 10) && voice.label == "Play", app.debugDescription)
+        XCTAssertTrue(voice.waitForExistence(timeout: 10) && voice.label == "Read aloud", app.debugDescription)
         voice.tap()
         var labels: [String] = []
         for _ in 0..<30 where voice.label != "Pause" { labels.append(voice.label + "/" + ((voice.value as? String) ?? "")); usleep(500_000) }

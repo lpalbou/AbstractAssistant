@@ -36,7 +36,7 @@ struct VoiceButton: View {
     private var canScrub: Bool { isCurrent && (speaker.state == .speaking || speaker.isPaused) }
 
     var body: some View {
-        GlassIcon(symbol: scrubbing ? "backward.fill" : playing ? "pause.fill" : "play.fill")
+        GlassIcon(symbol: scrubbing ? "backward.fill" : playing ? "pause.fill" : "speaker.wave.2.fill")   // a speaker, not a play: it reads aloud
             .overlay {
                 if preparing && !scrubbing {
                     Circle().fill(Color(red: 28 / 255, green: 28 / 255, blue: 38 / 255))
@@ -55,7 +55,7 @@ struct VoiceButton: View {
                 .onEnded { v in released(tapped: hypot(v.translation.width, v.translation.height) < Self.tapSlop) })
             .onChange(of: touching) { _, down in if !down { touchGone() } }
             .accessibilityElement()
-            .accessibilityLabel(preparing ? "Making the voice" : playing ? "Pause" : "Play")
+            .accessibilityLabel(preparing ? "Making the voice" : playing ? "Pause" : "Read aloud")
             .accessibilityValue(debugValue)
             .accessibilityAddTraits(.isButton)
             .accessibilityIdentifier("voice.button")

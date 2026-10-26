@@ -68,7 +68,7 @@ final class RewindUITests: XCTestCase {
         XCTAssertLessThan(seconds(), before - 0.5, "holding did not rewind (\(before) s -> \(seconds()) s)")
         voice.tap()                                          // pause
         usleep(400_000)
-        XCTAssertEqual(voice.label, "Play", "a tap paused it")
+        XCTAssertEqual(voice.label, "Read aloud", "a tap paused it")
         app.buttons["Back"].firstMatch.tap()
         sleep(2)
         XCTAssertFalse(app.buttons["voice.button"].exists, "Back did not leave the screen")

@@ -109,11 +109,12 @@ struct AskView: View {
                                 work: phase == .thinking && activity.isFollowing ? { @MainActor @Sendable t in activity.orb(at: t) } : nil)
                                 .contentShape(Circle())
                                 .onTapGesture(perform: orbTapped)
-                                // Hold: a ring closes round the orb in 1.5 s, then it stops what it is
-                                // doing (listening, working, speaking), or at rest reads the last
-                                // answer aloud (let go before: nothing happens).
+                                // Hold: a ring closes round the orb in about a second, then it stops what
+                                // it is doing (listening, working, speaking), or at rest reads the last
+                                // answer aloud (let go before: nothing happens). The ring stays well
+                                // inside the screen (the orb's glow reaches its edge).
                                 .onLongPressGesture(minimumDuration: Self.holdToToggle, perform: holdDone, onPressingChanged: holdChanged)
-                                .overlay { if holding { HoldRing(progress: holdProgress).frame(width: side * 0.8, height: side * 0.8) } }
+                                .overlay { if holding { HoldRing(progress: holdProgress).frame(width: side * 0.62, height: side * 0.62) } }
                                 // Its conversation is still on its way: a large spinner over a quiet orb.
                                 .opacity(loadingConversation ? 0.3 : 1)
                                 .overlay {
@@ -439,8 +440,9 @@ struct AskView: View {
     /// and a 35 pt circle is a narrow target on the wrist).
     static let reach: CGFloat = 10
 
-    /// How long a hold on the orb takes to toggle between listening and reading.
-    static let holdToToggle: Double = 1.5
+    /// How long a hold on the orb takes to toggle between listening and reading (1.05 s: 30 %
+    /// less than the 1.5 s it was, which read as a wait).
+    static let holdToToggle: Double = 1.05
 
     /// At rest with an answer to read: a hold reads it aloud (the last one).
     private var canReadLast: Bool {

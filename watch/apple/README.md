@@ -23,7 +23,7 @@ assistant works, the space below the orb shows its steps live (thinking, each to
 about, an image being made) and the orb pulses with each tool call, a satellite circling it for
 each tool running. The answer appears in markdown and the orb speaks it, following its voice; the
 voice button beside Back plays, pauses and rewinds. A tap on the orb pauses or resumes it; Stop
-(beside Back while it listens, works or speaks) or a 1.5 s hold on the orb stops what it is doing,
+(beside Back while it listens, works or speaks) or a one-second hold on the orb stops what it is doing,
 and at rest the same hold reads the last answer aloud. Once a conversation has a message, swipe
 to the left from the orb for its numbers and files (each one shareable).
 

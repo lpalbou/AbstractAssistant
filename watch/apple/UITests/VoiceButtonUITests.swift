@@ -90,11 +90,11 @@ final class VoiceButtonUITests: XCTestCase {
         XCTAssertEqual(settledLabel(), label, "a tap under the row worked the voice")
 
         // A firm tap (half a second) is a tap, not a hold.
-        if voice.label == "Play" { voice.tap(); XCTAssertEqual(settledLabel(), "Pause") }
+        if voice.label == "Read aloud" { voice.tap(); XCTAssertEqual(settledLabel(), "Pause") }
         sleep(1)
         voice.press(forDuration: 0.5)
         usleep(400_000)
-        XCTAssertEqual(voice.label, "Play", "a half-second press did not pause")
+        XCTAssertEqual(voice.label, "Read aloud", "a half-second press did not pause")
         voice.press(forDuration: 0.5)
         XCTAssertEqual(settledLabel(), "Pause", "a half-second press did not resume")
         XCTAssertEqual(voice.value as? String ?? "", "", "the button stayed pressed")
@@ -123,8 +123,8 @@ final class VoiceButtonUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(voice.waitForExistence(timeout: 20))
         let end = Date().addingTimeInterval(40)
-        while voice.label != "Play" && Date() < end { usleep(250_000) }   // finished
-        XCTAssertEqual(voice.label, "Play", "the voice never finished")
+        while voice.label != "Read aloud" && Date() < end { usleep(250_000) }   // finished
+        XCTAssertEqual(voice.label, "Read aloud", "the voice never finished")
         voice.press(forDuration: 1.6)
         XCTAssertEqual(settledLabel(), "Pause", "a hold on a finished voice did not play it")
         usleep(500_000)

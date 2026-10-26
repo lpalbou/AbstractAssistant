@@ -52,7 +52,7 @@ final class StopVoiceUITests: XCTestCase {
         // A short hold: nothing stops.
         orb.press(forDuration: 0.6)
         XCTAssertTrue(stop.exists, "a short hold stopped the voice")
-        XCTAssertNotEqual(app.buttons["voice.button"].firstMatch.label, "Play", "a hold let go early paused the voice (it is not a tap)")
+        XCTAssertNotEqual(app.buttons["voice.button"].firstMatch.label, "Read aloud", "a hold let go early paused the voice (it is not a tap)")
         // A full hold: the ring closes, the voice stops.
         orb.press(forDuration: 1.9)
         shot("v3-held")

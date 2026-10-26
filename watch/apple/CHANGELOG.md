@@ -7,6 +7,15 @@ iPhone app); the Python package's history is in
 
 ## [Unreleased]
 
+### Changed
+
+- **The hold on the orb is shorter and its ring smaller.** A hold toggles in about a second
+  (1.05 s, 30 % less than before) and its ring closes well inside the screen instead of reaching
+  past its edge.
+- **The read-aloud button is a speaker, not a play button.** Beside Back on the orb page and
+  on an automation's page, the voice button shows a speaker at rest (pause while it speaks, as
+  before); its spoken label is "Read aloud".
+
 ### Added
 
 - **One product with the iPhone (version 0.16.0, build 39).** The watch app is now the companion of
