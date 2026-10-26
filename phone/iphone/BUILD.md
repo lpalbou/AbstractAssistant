@@ -6,11 +6,15 @@ spec, `project.yml` in this folder, builds both apps, the watch face complicatio
 notification service extensions; the watch sources stay in [`../../watch/apple`](../../watch/apple/BUILD.md).
 
 Requirements: Xcode 27.1 (Swift 6.2 or later), iOS 26+ and watchOS 26+ SDKs/runtimes, and XcodeGen.
-The package tests run on macOS 14+ without a simulator or signing account.
+The package tests run on macOS 26+ without a simulator or signing account. The iPhone's own logic
+is `Packages/AssistantKit`; it depends on the gateway client the watch and the iPhone share,
+[`../../watch/apple/Packages/AbstractGatewayClient`](../../watch/apple/Packages/AbstractGatewayClient)
+(the project's package `AbstractGatewayClient`), which has its own tests.
 
 From `abstractassistant/phone/iphone/`:
 
 ```sh
+swift test --package-path ../../watch/apple/Packages/AbstractGatewayClient --scratch-path build/ClientTests --jobs 1
 swift test --package-path Packages/AssistantKit --scratch-path build/SwiftTests --jobs 1
 swift test --package-path Packages/AssistantPush --scratch-path build/PushTests --jobs 1
 python3 scripts/build.py

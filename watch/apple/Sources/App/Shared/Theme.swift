@@ -413,4 +413,7 @@ struct LoadingText: View {
 enum UITestHooks {
     static let on = ProcessInfo.processInfo.arguments.contains("--no-notification-prompt")
 }
+#else
+/// A release build: no hook is ever on.
+enum UITestHooks { static let on = false }
 #endif

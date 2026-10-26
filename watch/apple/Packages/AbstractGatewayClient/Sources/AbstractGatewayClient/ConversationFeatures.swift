@@ -1,17 +1,13 @@
 import Foundation
 
-public enum ToolMode: String, Codable, CaseIterable, Sendable {
-    case off, auto, approve
-    public var label: String { switch self { case .off: "Off"; case .auto: "Auto"; case .approve: "Approve" } }
-}
-
-/// An explicit whitelist: omitted names and Off entries cannot run.
+/// The iPhone's tool choices for a conversation, an entity visit or an automation: an explicit
+/// whitelist (omitted names and Off entries cannot run).
 public struct ConversationTools: Codable, Equatable, Sendable {
     public var modes: [String: ToolMode]
     public init(modes: [String: ToolMode]) { self.modes = modes }
     public var allowed: [String] { modes.filter { $0.value != .off }.keys.sorted() }
     public var policy: RunToolPolicy {
-        .init(requireApprovalTools: modes.filter { $0.value == .approve }.keys.sorted(),
+        .init(requireApprovalTools: modes.filter { $0.value == .ask }.keys.sorted(),
               autoApproveTools: modes.filter { $0.value == .auto }.keys.sorted())
     }
 }
@@ -45,7 +41,6 @@ public struct EntitySessionState: Decodable, Sendable {
 }
 
 public extension GatewayClient {
-    func automationDefaults() async throws -> Int? { nil }
     func messageStats(runID: String) async throws -> MessageStats? { nil }
     func entityTools(name: String) async throws -> [ToolInfo] { throw PhoneAttachmentError.unsupported }
     func openEntitySession(name: String, sessionID: String, tools: ConversationTools?) async throws -> EntitySessionState { throw PhoneAttachmentError.unsupported }

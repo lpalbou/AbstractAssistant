@@ -250,8 +250,8 @@ demo actions do not contact a gateway or overwrite an existing sign-in.
 
 ## Build and try it
 
-See [BUILD.md](BUILD.md). One project builds the iPhone app and the Watch companion it embeds,
-with the iPhone's own gateway-client snapshot; the watch keeps its client in `watch/apple`.
+See [BUILD.md](BUILD.md). One project builds the iPhone app and the Watch companion it embeds;
+both use one gateway client, the `AbstractGatewayClient` package in `watch/apple/Packages`.
 
 ## Testing and distribution
 

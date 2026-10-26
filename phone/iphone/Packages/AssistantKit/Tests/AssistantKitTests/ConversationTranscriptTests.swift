@@ -1,5 +1,5 @@
 import Testing
-import PhoneGatewayClient
+import AbstractGatewayClient
 @testable import AssistantKit
 
 struct ConversationTranscriptTests {

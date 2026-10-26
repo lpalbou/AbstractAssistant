@@ -1,6 +1,6 @@
 import SwiftUI
 import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 import AssistantPush
 import OSLog
 
@@ -110,7 +110,7 @@ struct PhoneRoot: View {
         do {
             if persist { try ConnectionVault.save(connection) }
             storageError = nil
-            store.connect(connection, client: LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession()))
+            store.connect(connection, client: LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession(), readTries: 1))
             if persist, let signIn = ConnectionVault.current() {
                 WatchLink.shared.send(signIn, queue: true)
                 PhonePush.askPermissionOnce()
@@ -126,7 +126,7 @@ struct PhoneRoot: View {
             let transport = PhoneTransport.makeSession()
             let principal: Principal
             if let user { principal = try await GatewaySignIn.verify(gateway: gateway, user: user, token: token, session: transport) }
-            else { principal = try await LiveGatewayClient(baseURL: gateway, credential: .token(token), session: transport).me() }
+            else { principal = try await LiveGatewayClient(baseURL: gateway, credential: .token(token), session: transport, readTries: 1).me() }
             guard let id = principal.userId ?? user, !id.isEmpty else { throw GatewayError.invalidResponse }
             PhoneTrace.note("launch: verified \(id) (tenant \(principal.tenantId ?? "default"))")
             connect(SavedConnection(gateway: gateway, user: id, tenant: principal.tenantId ?? "default", credential: .token(token)))
@@ -150,7 +150,7 @@ struct PhoneRoot: View {
         let speechPreparationDelay: TimeInterval = 0
         let activityScenario: String? = nil
         #endif
-        store.connect(nil, client: MockGatewayClient(emptyAutomations: emptyAutomations, activityScenario: activityScenario,
+        store.connect(nil, client: MockGatewayClient(world: .phone, emptyAutomations: emptyAutomations, activityScenario: activityScenario,
             historyFixture: ProcessInfo.processInfo.arguments.contains("--history-fixture"),
             conversationListFixture: ProcessInfo.processInfo.arguments.contains("--conversation-list-fixture"),
             categoryFixture: ProcessInfo.processInfo.arguments.contains("--category-fixture"),

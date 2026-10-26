@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import PhoneGatewayClient
+@testable import AbstractGatewayClient
 
 /// The person's event stream on the iPhone (backlog 1046/1047): the SSE frames and the page decode,
 /// the raised-minus-seen fold (the gateway's exact shapes), and the per-device notification memory.
@@ -28,7 +28,7 @@ struct PhoneMeEventsTests {
     }
 
     @Test func theReportBodyIsTheGatewaysShape() throws {
-        let body = try JSONEncoder().encode(NotificationReport(recordKey: "automation:completed:a:1", device: "p1"))
+        let body = try JSONEncoder().encode(NotificationReport(channel: "phone", recordKey: "automation:completed:a:1", device: "p1"))
         #expect(try JSONSerialization.jsonObject(with: body) as? [String: String]
                 == ["channel": "phone", "outcome": "sent", "record_key": "automation:completed:a:1", "device": "p1"])
     }

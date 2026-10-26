@@ -1,6 +1,6 @@
 import SwiftUI
 import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 struct AutomationRunSheet: View {
     let automationID: String

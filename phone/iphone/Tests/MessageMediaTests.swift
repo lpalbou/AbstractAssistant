@@ -1,7 +1,7 @@
 import XCTest
 import UIKit
 import AVFoundation
-import PhoneGatewayClient
+import AbstractGatewayClient
 import AssistantKit
 @testable import AbstractAssistantPhone
 
@@ -100,7 +100,7 @@ final class MessageMediaTests: XCTestCase {
         let base = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: base) }
         let storage = PhoneTemporaryStorage(temporaryDirectory: base), media = MessageMediaController(storage: storage)
-        let client = MockGatewayClient(); media.bind("account-one:session")
+        let client = MockGatewayClient(world: .phone); media.bind("account-one:session")
         let png = MediaDesignFixture.image
         for index in 0..<9 {
             let file = try await client.upload(data: png, filename: "Image \(index).png", contentType: "image/png", sessionId: "session")
@@ -117,7 +117,7 @@ final class MessageMediaTests: XCTestCase {
         let base = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: base) }
         let media = MessageMediaController(storage: PhoneTemporaryStorage(temporaryDirectory: base))
-        let client = MockGatewayClient()
+        let client = MockGatewayClient(world: .phone)
         let wav = SyntheticSpeech.wav(seconds: 4, seed: 2)
         let first = try await client.upload(data: wav, filename: "First.wav", contentType: "audio/wav", sessionId: "session")
         let second = try await client.upload(data: wav, filename: "Second.wav", contentType: "audio/wav", sessionId: "session")

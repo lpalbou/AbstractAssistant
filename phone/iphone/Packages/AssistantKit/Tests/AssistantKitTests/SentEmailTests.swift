@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import PhoneGatewayClient
+import AbstractGatewayClient
 @testable import AssistantKit
 
 @Suite struct SentEmailTests {
@@ -62,9 +62,9 @@ import PhoneGatewayClient
         #expect(first.sentEmails[0].body.hasSuffix("[Truncated for display]"))
     }
     @Test func restoredReceiptsStayWithTheirAnswer() async throws {
-        let withMail = MockGatewayClient(emailFixture: true, mediaImage: Data([1]))
+        let withMail = MockGatewayClient(world: .phone, emailFixture: true, mediaImage: Data([1]))
         let sent = try await AnswerActivity.load(runID: "media-demo", client: withMail)
-        let other = try await AnswerActivity.load(runID: "media-demo", client: MockGatewayClient(mediaImage: Data([1])))
+        let other = try await AnswerActivity.load(runID: "media-demo", client: MockGatewayClient(world: .phone, mediaImage: Data([1])))
         #expect(sent.activity.sentEmailCount == 3 && sent.issues.isEmpty)
         #expect(other.activity.sentEmailCount == 0 && other.activity.sentEmails.isEmpty)
     }

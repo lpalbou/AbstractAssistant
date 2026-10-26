@@ -1,5 +1,5 @@
 import Foundation
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 extension VoiceController {
     static func forApp() -> VoiceController {

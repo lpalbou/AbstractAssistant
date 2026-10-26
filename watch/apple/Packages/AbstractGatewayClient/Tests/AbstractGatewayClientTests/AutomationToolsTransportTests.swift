@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import PhoneGatewayClient
+@testable import AbstractGatewayClient
 
 private final class AutomationWireStub: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var reply: (URLRequest) -> (Int, String) = { _ in (500, "") }
@@ -22,7 +22,7 @@ private final class AutomationWireStub: URLProtocol, @unchecked Sendable {
     private func client() -> LiveGatewayClient {
         AutomationWireStub.requests = []
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [AutomationWireStub.self]
-        return LiveGatewayClient(baseURL: URL(string: "https://gateway.test")!, token: "test", session: URLSession(configuration: config))
+        return LiveGatewayClient(baseURL: URL(string: "https://gateway.test")!, token: "test", session: URLSession(configuration: config), readTries: 1)
     }
     private static func body(_ request: URLRequest) -> JSONValue {
         var data = request.httpBody ?? Data()
@@ -93,7 +93,7 @@ private final class AutomationWireStub: URLProtocol, @unchecked Sendable {
     private let newWire = #"{"definition":{"revision":2,"target":{"bundle_ref":"custom@1","flow_id":"flow","input_data":{"custom":42,"tools":["read_file"],"_runtime":{"model":"chosen","allowed_tools":["read_file"]}}},"policy":{"tool_policy":{"auto_approve_tools":["read_file"],"require_approval_tools":[]}}}}"#
     private func definition() throws -> AutomationDefinition { try JSONDecoder().decode(AutomationDefinitionResponse.self, from: Data(oldWire.utf8)).definition }
     @Test(arguments: [false, true]) func createSendsMixedOrDenyAllSnapshot(denyAll: Bool) async throws {
-        let client = client(), selection = ConversationTools(modes: denyAll ? [:] : ["read_file": .auto, "execute_command": .approve, "write_file": .off])
+        let client = client(), selection = ConversationTools(modes: denyAll ? [:] : ["read_file": .auto, "execute_command": .ask, "write_file": .off])
         AutomationWireStub.reply = { request in
             #expect(request.httpMethod == "POST")
             let body = Self.body(request), input = body["target"]?["input_data"]

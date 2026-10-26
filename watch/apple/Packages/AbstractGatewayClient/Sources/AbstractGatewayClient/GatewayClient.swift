@@ -11,16 +11,18 @@ public enum GatewayError: Error, Equatable, Sendable, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        // Shown to people as is: plain words, no codes (the body stays on the value for logs).
+        // Shown to people as is: the gateway's own words when it gave some, else plain words, no codes
+        // (the body stays on the value for logs).
         case .unauthorized: "Please sign in again."
-        case .http(let s, _): s >= 500 ? "Your assistant is having trouble. Try again." : "That didn't work. Try again."
+        case .http(let s, let body): GatewaySignIn.detail(Data(body.utf8)) ?? (s >= 500 ? "Your assistant is having trouble. Try again." : "That didn't work. Try again.")
         case .invalidResponse: "Can't reach your assistant."
         case .alreadyHandled: "Already answered on another device."
         }
     }
 }
 
-/// The calls the watch makes (gateway-api-brief.md section I).
+/// The calls the watch and the iPhone make (gateway-api-brief.md section I). A call one app does not
+/// make has a default below for test doubles (a gateway without the route: 404, or `unsupported`).
 public protocol GatewayClient: Sendable {
     var isMock: Bool { get }
     /// `GET /api/health`
@@ -33,23 +35,34 @@ public protocol GatewayClient: Sendable {
     func recentRuns(limit: Int) async throws -> [RunSummary]
     /// `GET /api/gateway/runs/{id}/input_data`: what the person asked in that turn.
     func prompt(ofRun id: String) async throws -> String?
-    /// `GET /api/gateway/runs?session_id=…&root_only=true&include_metrics=true`: one session's turns, newest first.
+    /// The same, with the files the person gave that turn.
+    func input(ofRun id: String) async throws -> ConversationInput
+    /// `GET /api/gateway/runs?session_id=…&root_only=true&include_metrics=true`: one session's turns, newest first (one page).
     func turns(ofSession id: String, limit: Int) async throws -> [RunSummary]
+    /// The same, every page (a turn of another session, or a sub-run, an old gateway returned is dropped).
+    func turns(ofSession id: String) async throws -> [RunSummary]
     /// `GET /api/gateway/runs/{run}/history_bundle?include_session=true`: the session of `run` (its
     /// newest turn) as the gateway replays it, each turn's question and answer, oldest first. One
     /// request (~200 KB for 44 turns) instead of two per turn (~850 KB over the watch's radio).
     func sessionHistory(latestRun runId: String, limit: Int) async throws -> [SessionTurn]
     /// `GET /api/gateway/runs/{id}`
     func run(id: String) async throws -> RunSummary
+    /// `GET /api/gateway/runs?parent_run_id=`: a run's children, every page.
+    func childRuns(ofRunID: String) async throws -> [RunSummary]
     /// `POST /api/gateway/sessions/{id}/archive` (or `/unarchive`): out of (or back in) the
     /// conversations listing; nothing is deleted.
     func setArchived(sessionId: String, _ archived: Bool) async throws
-    /// `GET /api/gateway/runs?archived_only=true&root_only=true`: the archived conversations' turns.
+    /// `GET /api/gateway/runs?archived_only=true&root_only=true`: the archived conversations' turns, every page.
     func archivedRuns(limit: Int) async throws -> [RunSummary]
     /// `GET /api/gateway/sessions/search?q=…`: keyword search over the caller's conversations.
     func searchSessions(_ query: String, limit: Int) async throws -> SessionSearchPage
-    /// `POST /api/gateway/runs/start`; returns the run id. `workflow` nil: the gateway's default agent.
+    /// `POST /api/gateway/runs/start` (the watch's turn); returns the run id. `workflow` nil: the gateway's default agent.
     func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?, workflow: WorkflowChoice?, primaryImage: MediaItem?) async throws -> String
+    /// `POST /api/gateway/runs/start` with the account's Assistant workflow (the iPhone's turn).
+    func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?) async throws -> String
+    func startRun(prompt: String, sessionId: String?, attachments: [JSONValue]) async throws -> String
+    func startRun(prompt: String, sessionId: String?, attachments: [JSONValue], tools: ConversationTools?) async throws -> String
+    func startRun(prompt: String, sessionId: String?, attachments: [JSONValue], tools: ConversationTools?, primaryImage: JSONValue?) async throws -> String
     /// `GET /sessions/{id}/artifacts`: the media a conversation's turns made, by run.
     func sessionMedia(sessionId: String) async throws -> [String: [MediaItem]]
     /// `GET /runs/{run}/artifacts/{id}/content`: one media item's bytes (at most `MediaItem.byteLimit`).
@@ -59,12 +72,26 @@ public protocol GatewayClient: Sendable {
     func sessionFiles(sessionId: String, folderRunId: String?) async throws -> SessionFiles
     /// `GET /runs/{run}/artifacts/{id}/content`: one file's bytes (at most `MediaItem.byteLimit`).
     func fileData(_ file: SessionFile) async throws -> Data
+    /// `POST /attachments/upload`: one file the person gives a turn.
+    func upload(data: Data, filename: String, contentType: String, sessionId: String) async throws -> PhoneArtifact
+    /// `GET /sessions/{id}/artifacts`, one page (or every one) as artifacts.
+    func artifacts(sessionId: String) async throws -> [PhoneArtifact]
+    func artifactPage(sessionID: String, offset: Int, includeVoice: Bool) async throws -> SessionArtifactPage
+    /// `GET /runs/{run}/artifacts/{id}/content`, in memory or streamed to a file.
+    func download(_ artifact: PhoneArtifact) async throws -> Data
+    func download(_ artifact: PhoneArtifact, to destination: URL) async throws
+    /// `GET /runs/{run}/workspace`, `…/workspace/files`, `…/workspace/content`.
+    func workspace(runID: String) async throws -> RunWorkspace
+    func workspaceFiles(runID: String, path: String, recursive: Bool, limit: Int?) async throws -> WorkspaceListing
+    func downloadWorkspaceFile(runID: String, entry: WorkspaceEntry, to destination: URL) async throws
     /// `GET /api/gateway/discovery/tools`: the tools with their risk tiers.
     func tools() async throws -> [ToolInfo]
     /// `POST /api/gateway/commands` with `type: "resume"`.
     func answer(_ wait: Wait, with answer: WaitAnswer) async throws
     /// `GET /api/gateway/automations` (first page).
     func automations() async throws -> [AutomationSummary]
+    /// `GET /api/gateway/automations?archived_only=true`: the archived automations.
+    func archivedAutomations() async throws -> [AutomationSummary]
     /// `POST /api/gateway/automations/{id}/commands` `{type: "automation.run_now"}`.
     func runAutomationNow(id: String) async throws
     /// `POST /automations/{id}/commands` (`automation.pause`, `automation.resume`, …).
@@ -72,13 +99,12 @@ public protocol GatewayClient: Sendable {
     /// `POST /automations/{id}/discuss {request_id, occurrence_index, prompt}`: a conversation about
     /// the automation, seeded with its runs up to that one; the automation's own context is untouched.
     func discussAutomation(id: String, occurrenceIndex: Int, prompt: String) async throws -> Discussion
-    /// `GET /api/gateway/automations?archived_only=true`: the archived automations.
-    func archivedAutomations() async throws -> [AutomationSummary]
     /// `GET /api/gateway/automations/defaults`: the gateway's defaults for a new automation.
     func automationDefaults() async throws -> AutomationDefaults
     /// `GET /automations/{id}` → `summary`: one automation's row, fresh (e.g. its run in progress).
     func automation(id: String) async throws -> AutomationSummary
-    /// `GET /bundles?executable_for=<interface>`: the workflows this account may schedule.
+    /// `GET /bundles?executable_for=<interface>`: the workflows this account may schedule (an empty
+    /// interface: every runnable workflow).
     func workflows(forInterface interface: String) async throws -> [WorkflowChoice]
     /// The workflows a conversation can run: the agents' and the Assistant's (`WorkflowChoice.conversation`).
     func conversationWorkflows() async throws -> [WorkflowChoice]
@@ -92,15 +118,32 @@ public protocol GatewayClient: Sendable {
     func reviseAutomation(id: String, changes: [String: JSONValue], expectedRevision: Int?) async throws
     /// `GET /api/gateway/entities`: the entities this account may visit.
     func entities() async throws -> [EntitySummary]
+    /// `POST /entities/{slug}/validate` and `POST /entities`: a new entity.
+    func validateEntity(_ draft: EntityDraft) async throws -> EntityValidation
+    func createEntity(_ draft: EntityDraft) async throws -> CreatedEntity
     /// `POST /api/gateway/entities/{name}/chat/open` → chat id (one live session per home).
     func openEntityChat(name: String) async throws -> String
     /// `POST /api/gateway/entities/{name}/chat/{chat_id}/turn` `{text}` → the reply.
     func entityChatTurn(name: String, chatId: String, text: String) async throws -> String
+    /// An entity visit (`/entities/{name}/visit/…`): its tools, open, a turn, its state, its tools'
+    /// policy, an approval, close.
+    func entityTools(name: String) async throws -> [ToolInfo]
+    func openEntitySession(name: String, sessionID: String, tools: ConversationTools?) async throws -> EntitySessionState
+    func sendEntityTurn(name: String, runID: String, text: String) async throws -> JSONValue
+    func endEntitySession(name: String, runID: String) async throws
+    func entitySession(name: String, runID: String) async throws -> EntitySessionState
+    func setEntityTools(name: String, runID: String, tools: ConversationTools?) async throws
+    func answerEntity(name: String, runID: String, waitKey: String, approved: Bool) async throws -> EntitySessionState
+    func entityLedger(name: String, runID: String, after: Int) async throws -> LedgerPage
     /// `GET /api/gateway/runs/{id}/ledger?after=N` → records after the cursor.
     func ledger(runId: String, after: Int) async throws -> LedgerPage
+    /// `GET /runs/{id}/ledger/stream` (SSE), or polled where a gateway has no stream.
+    nonisolated func ledgerEvents(runID: String, after: Int) -> AsyncThrowingStream<LedgerStreamEvent, Error>
     /// The same step log, read for the run's activity only (`ActivityRecord`): a thinking step's
     /// conversation is skipped while decoding.
     func activity(runId: String, after: Int) async throws -> ActivityPage
+    /// `GET /runs/{id}/message-stats`: a reply's time, tokens and tool calls (nil: not served).
+    func messageStats(runID: String) async throws -> MessageStats?
     /// `POST /api/gateway/commands` `{type: "cancel"}`.
     func cancel(runId: String) async throws
     /// `GET /api/gateway/automations/{id}/occurrences?limit=N`.
@@ -109,31 +152,53 @@ public protocol GatewayClient: Sendable {
     func markSeen(automationId: String, cursor: String) async throws
     /// Speech for `text`, as complete WAV files in reading order: `POST /api/gateway/runs/{id}/voice/tts/stream`
     /// for a run's text, `POST /api/gateway/entities/{name}/voice/tts/stream` for an entity's (its own voice).
-    /// The gateway's configured voice answers; the first chunk arrives after the first sentence is synthesized.
+    /// The gateway's configured voice answers (or `voice`); the first chunk arrives after the first sentence is synthesized.
+    nonisolated func speech(text: String, scope: SpeechScope) -> AsyncThrowingStream<Data, Error>
     nonisolated func speech(text: String, scope: SpeechScope, voice: VoiceChoice?) -> AsyncThrowingStream<Data, Error>
     /// What the person said: uploads the WAV as a session attachment (`POST /api/gateway/attachments/upload`)
     /// and transcribes it with the gateway's STT (`POST /api/gateway/runs/{session owner}/audio/transcribe`).
+    func transcribe(wav: Data, sessionId: String) async throws -> String
     func transcribe(wav: Data, sessionId: String, model: TranscriptionChoice?) async throws -> String
-    /// `GET /voice/voices` + `GET /audio/transcriptions/models`: what this watch may choose.
+    /// `GET /voice/voices` + `GET /audio/transcriptions/models`: the voices and transcription models offered.
     func voiceCatalog() async throws -> VoiceCatalog
+    /// `GET /accounts/me/preferences`, and `PUT` of the Assistant's workflow in it.
+    func accountPreferences() async throws -> JSONValue
+    func setAssistantWorkflow(_ value: String?) async throws -> JSONValue
     /// `GET /api/gateway/me/email`: this account's mailbox and whether its email tools are on.
     func emailStatus() async throws -> EmailStatus
     /// `GET /api/gateway/me/events?after=&limit=`: the person's own events after a sequence, oldest
-    /// first (one request: the background refresh's whole radio cost). A gateway without the
+    /// first (one request: the watch's background refresh's whole radio cost). A gateway without the
     /// stream answers 404 (`GatewayError.http(404, …)`).
     func events(after: Int, limit: Int) async throws -> UserEventsPage
-    /// `POST /api/gateway/me/events/notifications {channel: "watch", outcome: "sent", record_key, device}`:
-    /// the watch showed this notice (sent once, only after it actually notified).
-    func reportNotification(recordKey: String, device: String) async throws
+    /// `GET /api/gateway/me/events/stream` with `Last-Event-ID`: the live tail; ends when the server closes it.
+    nonisolated func userEventStream(lastEventID: Int) -> AsyncThrowingStream<UserEvent, Error>
+    /// `POST /api/gateway/me/events/notifications {channel, outcome: "sent", record_key, device}`:
+    /// this device showed the notice (sent once, only after it actually notified).
+    func reportNotification(_ report: NotificationReport) async throws
+    /// `GET /triggers/connections` (labels) and `GET /me/email/accounts` (addresses), only the ones asked
+    /// for: the words an automation's trigger is said with.
+    func triggerNames(connections: Bool, mailboxes: Bool) async throws -> TriggerNames
 }
 
-/// The body of `POST /me/events/notifications`.
-public struct NotificationReport: Encodable, Sendable {
-    public var channel = "watch"
-    public var outcome = "sent"
-    public var recordKey: String
-    public var device: String
-    enum CodingKeys: String, CodingKey { case channel, outcome, recordKey = "record_key", device }
+/// What a test double that does not answer a route gives: what a gateway without it would.
+public extension GatewayClient {
+    func turns(ofSession id: String, limit: Int) async throws -> [RunSummary] { throw GatewayError.http(status: 404, body: "") }
+    func sessionHistory(latestRun runId: String, limit: Int) async throws -> [SessionTurn] { throw GatewayError.http(status: 404, body: "") }
+    func setArchived(sessionId: String, _ archived: Bool) async throws { throw GatewayError.invalidResponse }
+    func archivedRuns(limit: Int) async throws -> [RunSummary] { throw GatewayError.invalidResponse }
+    func searchSessions(_ query: String, limit: Int) async throws -> SessionSearchPage { throw GatewayError.http(status: 404, body: "") }
+    func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?, workflow: WorkflowChoice?, primaryImage: MediaItem?) async throws -> String {
+        throw GatewayError.http(status: 404, body: "")
+    }
+    func sessionMedia(sessionId: String) async throws -> [String: [MediaItem]] { throw GatewayError.http(status: 404, body: "") }
+    func mediaData(_ item: MediaItem) async throws -> Data { throw GatewayError.http(status: 404, body: "") }
+    func sessionFiles(sessionId: String, folderRunId: String?) async throws -> SessionFiles { throw GatewayError.http(status: 404, body: "") }
+    func fileData(_ file: SessionFile) async throws -> Data { throw GatewayError.http(status: 404, body: "") }
+    func discussAutomation(id: String, occurrenceIndex: Int, prompt: String) async throws -> Discussion { throw GatewayError.http(status: 404, body: "") }
+    func automationDefaults() async throws -> AutomationDefaults { throw GatewayError.http(status: 404, body: "") }
+    func conversationWorkflows() async throws -> [WorkflowChoice] { throw GatewayError.http(status: 404, body: "") }
+    func activity(runId: String, after: Int) async throws -> ActivityPage { throw GatewayError.http(status: 404, body: "") }
+    func emailStatus() async throws -> EmailStatus { throw GatewayError.http(status: 404, body: "") }
 }
 
 /// Live client over URLSession: `Authorization: Bearer <token>`, or a gateway session from an
@@ -143,17 +208,22 @@ public actor LiveGatewayClient: GatewayClient {
     private let baseURL: URL
     private let credential: GatewayCredential
     private let session: URLSession
+    private let readTries: Int
     private var lockedOut = false
+    private var entityVisitRoutes: [String: Bool] = [:]
+    private func requireSignIn() throws { if lockedOut { throw GatewayError.unauthorized } }
+    private func lockSignIn() { lockedOut = true }
 
-    public init(baseURL: URL, credential: GatewayCredential, session: URLSession = .shared) {
-        self.baseURL = baseURL; self.credential = credential; self.session = session
+    /// `readTries`: how many times a read is tried before its failure is reported (the iPhone: 1).
+    public init(baseURL: URL, credential: GatewayCredential, session: URLSession = .shared, readTries: Int = LiveGatewayClient.readTries) {
+        self.baseURL = baseURL; self.credential = credential; self.session = session; self.readTries = max(1, readTries)
     }
 
-    public init(baseURL: URL, token: String, session: URLSession = .shared) {
-        self.init(baseURL: baseURL, credential: .token(token), session: session)
+    public init(baseURL: URL, token: String, session: URLSession = .shared, readTries: Int = LiveGatewayClient.readTries) {
+        self.init(baseURL: baseURL, credential: .token(token), session: session, readTries: readTries)
     }
 
-    /// How many times a read is tried before its failure is reported.
+    /// How many times the watch tries a read before its failure is reported.
     public static let readTries = 3
 
     /// A read (GET) that times out, loses its connection or meets a server error is tried again,
@@ -165,7 +235,7 @@ public actor LiveGatewayClient: GatewayClient {
         while true {
             do { return try await send(method, path, query: query, body: body, timeout: timeout) }
             catch {
-                guard method == "GET", attempt < Self.readTries, Self.isTransient(error), !Task.isCancelled else { throw error }
+                guard method == "GET", attempt < readTries, Self.isTransient(error), !Task.isCancelled else { throw error }
                 try await Task.sleep(for: .seconds(attempt == 1 ? 1 : 3))
                 attempt += 1
             }
@@ -220,8 +290,10 @@ public actor LiveGatewayClient: GatewayClient {
 
     public func me() async throws -> Principal { try await get("api/gateway/me", as: Principal.self) }
 
-    public func reportNotification(recordKey: String, device: String) async throws {
-        _ = try await request("POST", "api/gateway/me/events/notifications", body: NotificationReport(recordKey: recordKey, device: device))
+    // MARK: The person's events
+
+    public func reportNotification(_ report: NotificationReport) async throws {
+        _ = try await request("POST", "api/gateway/me/events/notifications", body: report)
     }
 
     public func events(after: Int, limit: Int) async throws -> UserEventsPage {
@@ -229,6 +301,52 @@ public actor LiveGatewayClient: GatewayClient {
                       query: [.init(name: "after", value: String(after)), .init(name: "limit", value: String(limit))],
                       as: UserEventsPage.self, timeout: 30)
     }
+
+    public nonisolated func userEventStream(lastEventID: Int) -> AsyncThrowingStream<UserEvent, Error> {
+        var url = URLComponents(url: baseURL.appending(path: "api/gateway/me/events/stream"), resolvingAgainstBaseURL: false)!
+        url.queryItems = [.init(name: "heartbeat_s", value: "15")]
+        var request = URLRequest(url: url.url!)
+        request.timeoutInterval = 60   // four missed keep-alives: a dead connection, reconnect
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        if lastEventID > 0 { request.setValue(String(lastEventID), forHTTPHeaderField: "Last-Event-ID") }
+        credential.apply(to: &request, write: false)
+        let streamRequest = request
+        let session = self.session
+        return AsyncThrowingStream(bufferingPolicy: .bufferingOldest(256)) { continuation in
+            let task = Task {
+                do {
+                    try await self.requireSignIn()
+                    let (bytes, response) = try await session.bytes(for: streamRequest, delegate: LedgerRedirectGuard())
+                    defer { bytes.task.cancel() }
+                    guard let http = response as? HTTPURLResponse else { throw GatewayError.invalidResponse }
+                    if http.statusCode == 401 { await self.lockSignIn(); throw GatewayError.unauthorized }
+                    guard (200..<300).contains(http.statusCode) else { throw GatewayError.http(status: http.statusCode, body: "") }
+                    var parser = UserEventSSEParser()
+                    for try await byte in bytes {
+                        try Task.checkCancellation()
+                        if let event = parser.feed(byte: byte) { continuation.yield(event) }
+                    }
+                    continuation.finish()   // the server closed it: the caller reconnects from its cursor
+                } catch { continuation.finish(throwing: error) }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    public func triggerNames(connections: Bool, mailboxes: Bool) async throws -> TriggerNames {
+        struct Connections: Decodable { struct Row: Decodable { var connection_id: String; var label: String? }; var connections: [Row] }
+        struct Mailboxes: Decodable { struct Row: Decodable { var account_id: String; var address: String? }; var items: [Row] }
+        var names = TriggerNames()
+        if connections, let page = try? await get("api/gateway/triggers/connections", as: Connections.self) {
+            for r in page.connections { if let l = r.label, !l.isEmpty { names.connections[r.connection_id] = l } }
+        }
+        if mailboxes, let page = try? await get("api/gateway/me/email/accounts", as: Mailboxes.self) {
+            for r in page.items { if let a = r.address, !a.isEmpty { names.mailboxes[r.account_id] = a } }
+        }
+        return names
+    }
+
+    // MARK: Runs and conversations
 
     /// Person waits: list the waiting runs, keep the rows whose `waiting.reason` is `user`,
     /// then read each run's detail, which carries the full wait block (see `RunSummary.personWait`).
@@ -249,6 +367,13 @@ public actor LiveGatewayClient: GatewayClient {
         try await get("api/gateway/runs/\(id)/input_data", as: RunInputData.self).inputData?.prompt
     }
 
+    public func input(ofRun id: String) async throws -> ConversationInput {
+        let value = try await get("api/gateway/runs/\(id)/input_data", as: JSONValue.self)["input_data"]
+        let inputs = value?["attachments"] ?? value?["context"]?["attachments"] ?? .array([])
+        let refs = RunSummary(runId: id, workflowId: nil, status: "completed", output: .object(["artifacts": inputs])).mediaArtifacts
+        return ConversationInput(prompt: value?["prompt"]?.stringValue, attachments: refs)
+    }
+
     public func sessionHistory(latestRun runId: String, limit: Int) async throws -> [SessionTurn] {
         let data = try await request("GET", "api/gateway/runs/\(runId)/history_bundle", query: [
             .init(name: "include_session", value: "true"), .init(name: "session_turn_limit", value: String(limit)),
@@ -265,6 +390,25 @@ public actor LiveGatewayClient: GatewayClient {
                       as: RunsPage.self).items
     }
 
+    public func turns(ofSession id: String) async throws -> [RunSummary] {
+        var offset = 0
+        var rows: [RunSummary] = []
+        var seen: Set<String> = []
+        while true {
+            let page = try await get("api/gateway/runs", query: [.init(name: "session_id", value: id), .init(name: "root_only", value: "true"),
+                .init(name: "limit", value: "100"), .init(name: "offset", value: String(offset)), .init(name: "include_metrics", value: "true")], as: RunsPage.self)
+            let fresh = page.items.filter { seen.insert($0.runId).inserted }
+            // Retain legacy rows with absent session metadata, but reject explicit
+            // unrelated sessions and descendants if an old gateway ignores filters.
+            rows.append(contentsOf: fresh.filter {
+                ($0.sessionId == nil || $0.sessionId == id) && ($0.parentRunId == nil || $0.sessionKind == "occurrence")
+            })
+            guard page.hasMore ?? (page.items.count == 100) else { return rows }
+            guard !fresh.isEmpty else { throw GatewayError.invalidResponse }
+            offset += page.items.count
+        }
+    }
+
     /// The conversations' turns (chats and discussions; automations have their own screen), with metrics.
     public func recentRuns(limit: Int) async throws -> [RunSummary] {
         try await get("api/gateway/runs", query: [.init(name: "root_only", value: "true"), .init(name: "limit", value: String(limit)),
@@ -274,9 +418,41 @@ public actor LiveGatewayClient: GatewayClient {
 
     public func run(id: String) async throws -> RunSummary { try await get("api/gateway/runs/\(id)", as: RunSummary.self) }
 
+    public func childRuns(ofRunID id: String) async throws -> [RunSummary] {
+        struct Page: Decodable { var items: [RunSummary]; var has_more: Bool? }
+        var offset = 0
+        var rows: [RunSummary] = []
+        var seen: Set<String> = []
+        while true {
+            let page = try await get("api/gateway/runs", query: [.init(name: "parent_run_id", value: id), .init(name: "limit", value: "100"), .init(name: "offset", value: String(offset))], as: Page.self)
+            // Old gateways may ignore an unknown parent filter. Never adopt unrelated runs.
+            let children = page.items.filter { $0.parentRunId == id }
+            let fresh = children.filter { seen.insert($0.runId).inserted }
+            rows.append(contentsOf: fresh)
+            guard page.has_more == true else { return rows }
+            guard !page.items.isEmpty, !fresh.isEmpty else { throw LedgerStreamError.invalidCursor }
+            offset += page.items.count
+        }
+    }
+
     public func setArchived(sessionId: String, _ archived: Bool) async throws {
-        guard MediaItem.safeSession(sessionId) else { throw GatewayError.invalidResponse }
+        guard MediaItem.safeSession(sessionId) || PhoneArtifact.validID(sessionId) else { throw GatewayError.invalidResponse }
         _ = try await request("POST", "api/gateway/sessions/\(sessionId)/\(archived ? "archive" : "unarchive")")
+    }
+
+    public func archivedRuns(limit: Int) async throws -> [RunSummary] {
+        let pageSize = max(1, min(limit, 100))
+        var rows: [RunSummary] = [], seen: Set<String> = [], offset = 0
+        while true {
+            try Task.checkCancellation()
+            let page = try await get("api/gateway/runs", query: [.init(name: "archived_only", value: "true"), .init(name: "root_only", value: "true"),
+                .init(name: "limit", value: String(pageSize)), .init(name: "offset", value: String(offset)),
+                .init(name: "include_metrics", value: "true"), .init(name: "session_kind", value: "chat,discussion")], as: RunsPage.self)
+            let fresh = page.items.filter { seen.insert($0.runId).inserted }; rows += fresh
+            guard page.hasMore ?? (page.items.count == pageSize) else { return rows }
+            guard !fresh.isEmpty else { throw GatewayError.invalidResponse }
+            offset += page.items.count
+        }
     }
 
     public func searchSessions(_ query: String, limit: Int) async throws -> SessionSearchPage {
@@ -284,22 +460,81 @@ public actor LiveGatewayClient: GatewayClient {
             "GET", "api/gateway/sessions/search", query: [.init(name: "q", value: query), .init(name: "limit", value: String(limit))], timeout: 30))
     }
 
-    public func archivedRuns(limit: Int) async throws -> [RunSummary] {
-        try await get("api/gateway/runs", query: [.init(name: "archived_only", value: "true"), .init(name: "root_only", value: "true"),
-                                                   .init(name: "limit", value: String(limit)), .init(name: "include_metrics", value: "true"),
-                                                   .init(name: "session_kind", value: "chat,discussion")],
-                      as: RunsPage.self).items
+    public func tools() async throws -> [ToolInfo] {
+        let page = try await get("api/gateway/discovery/tools", as: ToolsPage.self)
+        guard page.error?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else {
+            throw GatewayError.http(status: 503, body: "{\"detail\":\"Your gateway’s tools could not be loaded. Try again before sending.\"}")
+        }
+        return page.items
     }
 
-    public func tools() async throws -> [ToolInfo] {
-        try await get("api/gateway/discovery/tools", as: ToolsPage.self).items
-    }
+    // MARK: Starting a turn
 
     public func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?, workflow: WorkflowChoice?, primaryImage: MediaItem?) async throws -> String {
-        let body = StartRunRequest(prompt: prompt, sessionId: sessionId, toolPolicy: toolPolicy, tools: tools, workflow: workflow, primaryImage: primaryImage)
-        let data = try await request("POST", "api/gateway/runs/start", body: body)
-        return try JSONDecoder().decode(StartRunResponse.self, from: data).runId
+        try await startRun(StartRunRequest(prompt: prompt, sessionId: sessionId, toolPolicy: toolPolicy, tools: tools, system: AssistantPersona.watch,
+                                           workflow: workflow, primaryImage: primaryImage))
     }
+    public func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?) async throws -> String {
+        try await startAssistantRun(prompt: prompt, sessionId: sessionId, attachments: [], selection: nil, toolPolicy: toolPolicy)
+    }
+    public func startRun(prompt: String, sessionId: String?, attachments: [JSONValue]) async throws -> String {
+        try await startAssistantRun(prompt: prompt, sessionId: sessionId, attachments: attachments, selection: nil, toolPolicy: nil)
+    }
+    public func startRun(prompt: String, sessionId: String?, attachments: [JSONValue], tools: ConversationTools?) async throws -> String {
+        try await startAssistantRun(prompt: prompt, sessionId: sessionId, attachments: attachments, selection: tools, toolPolicy: tools?.policy)
+    }
+    public func startRun(prompt: String, sessionId: String?, attachments: [JSONValue], tools: ConversationTools?, primaryImage: JSONValue?) async throws -> String {
+        try await startAssistantRun(prompt: prompt, sessionId: sessionId, attachments: attachments, selection: tools, toolPolicy: tools?.policy, primaryImage: primaryImage)
+    }
+    public func startRun(_ body: StartRunRequest) async throws -> String {
+        try JSONDecoder().decode(StartRunResponse.self, from: await request("POST", "api/gateway/runs/start", body: body)).runId
+    }
+    /// The iPhone's turn: the account's Assistant workflow, the tools it may use (on every turn, as the
+    /// tray), the person's files and the image an edit starts from.
+    private func startAssistantRun(prompt: String, sessionId: String?, attachments: [JSONValue], selection: ConversationTools?, toolPolicy: RunToolPolicy?, primaryImage: JSONValue? = nil) async throws -> String {
+        var body = try AssistantWorkflow.request(prompt: prompt, sessionId: sessionId, toolPolicy: toolPolicy, preferences: try await accountPreferences())
+        let inventory = try await tools()
+        let catalog = Dictionary(inventory.map { ($0.name, $0) }, uniquingKeysWith: { _, latest in latest })
+        let available = Set(catalog.values.filter(\.offered).map(\.name))
+        let allowed: [String]
+        if let selection {
+            let current = ConversationTools(modes: selection.modes.filter { available.contains($0.key) })
+            allowed = current.allowed; body.inputData.runtime?.toolPolicy = current.policy
+        } else {
+            // Discovery approval defaults are not workflow Tools-pin defaults. Like the
+            // tray, supply the actual enabled list on every turn, including inheritance.
+            allowed = catalog.values.filter {
+                $0.offered && !["off", "disabled"].contains($0.approvalDefault?.lowercased() ?? "")
+            }.map(\.name).sorted()
+        }
+        body.inputData.tools = allowed
+        if body.inputData.runtime == nil { body.inputData.runtime = .init(toolPolicy: toolPolicy) }
+        body.inputData.runtime?.allowedTools = allowed
+        var context: [String: JSONValue] = [:]
+        if !attachments.isEmpty {
+            body.inputData.attachments = attachments
+            context = ["attachments": .array(attachments), "media": .array(attachments)]
+        }
+        let image = attachments.first { $0["content_type"]?.stringValue?.lowercased().hasPrefix("image/") == true } ?? primaryImage
+        body.inputData.primaryImageArtifact = image
+        body.inputData.hasPrimaryImageContext = image != nil
+        if let image { context["primary_image_artifact"] = image }
+        if !context.isEmpty { body.inputData.context = .object(context) }
+        return try await startRun(body)
+    }
+
+    public func accountPreferences() async throws -> JSONValue { try await get("api/gateway/accounts/me/preferences", as: JSONValue.self) }
+    public func setAssistantWorkflow(_ value: String?) async throws -> JSONValue {
+        let data = try await request("PUT", "api/gateway/accounts/me/preferences", body: JSONValue.object(["default_workflow": .object([WorkflowChoice.assistantInterface: value.map(JSONValue.string) ?? .null])]))
+        return try JSONDecoder().decode(JSONValue.self, from: data)
+    }
+
+    public func messageStats(runID: String) async throws -> MessageStats? {
+        do { return try await get("api/gateway/runs/\(runID)/message-stats", as: MessageStats.self) }
+        catch GatewayError.http(status: 404, body: _) { return nil }
+    }
+
+    // MARK: A conversation's media and files
 
     public func sessionMedia(sessionId: String) async throws -> [String: [MediaItem]] {
         MediaItem.bySession(try await get("api/gateway/sessions/\(sessionId)/artifacts", query: [.init(name: "limit", value: "500")], as: JSONValue.self))
@@ -353,6 +588,106 @@ public actor LiveGatewayClient: GatewayClient {
         guard data.count <= MediaItem.byteLimit else { throw GatewayError.invalidResponse }
         return data
     }
+
+    public func upload(data: Data, filename: String, contentType: String, sessionId: String) async throws -> PhoneArtifact {
+        try requireSignIn()
+        guard data.count <= PhoneArtifact.byteLimit else { throw PhoneAttachmentError.tooLarge }
+        let boundary = "iphone-" + UUID().uuidString
+        let filename = PhoneArtifact.safeFilename(filename)
+        var body = Data()
+        for (key, value) in [("session_id", sessionId), ("filename", filename), ("content_type", contentType)] {
+            body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(key)\"\r\n\r\n\(value)\r\n".utf8))
+        }
+        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\nContent-Type: application/octet-stream\r\n\r\n".utf8)); body.append(data); body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        var req = URLRequest(url: baseURL.appending(path: "api/gateway/attachments/upload")); req.httpMethod = "POST"; req.timeoutInterval = 120
+        credential.apply(to: &req, write: true); req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type"); req.httpBody = body
+        let originalSize = data.count
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse else { throw GatewayError.invalidResponse }
+        if http.statusCode == 401 { lockedOut = true; throw GatewayError.unauthorized }
+        guard (200..<300).contains(http.statusCode) else { throw GatewayError.http(status: http.statusCode, body: String(decoding: data, as: UTF8.self)) }
+        let v = try JSONDecoder().decode(JSONValue.self, from: data)
+        guard let artifact = PhoneArtifact.upload(v, filename: filename, contentType: contentType, size: originalSize) else { throw GatewayError.invalidResponse }
+        return artifact
+    }
+    public func artifacts(sessionId: String) async throws -> [PhoneArtifact] {
+        try await artifactPage(sessionID: sessionId, offset: 0, includeVoice: true).items
+    }
+    public func artifactPage(sessionID: String, offset: Int, includeVoice: Bool) async throws -> SessionArtifactPage {
+        let v = try await get("api/gateway/sessions/\(sessionID)/artifacts", query: [.init(name: "limit", value: "500"), .init(name: "offset", value: String(offset)), .init(name: "include_voice", value: includeVoice ? "true" : "false")], as: JSONValue.self)
+        guard case .array(let items)? = v["items"] else { throw GatewayError.invalidResponse }
+        let total: Int; if case .number(let n)? = v["total"], n >= 0, n < Double(Int.max) { total = Int(n) } else { total = items.count }
+        return .init(items: items.compactMap(PhoneArtifact.parse), total: total, hasMore: v["has_more"] == .bool(true), nextOffset: offset + items.count,
+            warnings: { if case .array(let rows)? = v["warnings"] { return rows.compactMap(\.stringValue) }; return [] }())
+    }
+    public func workspace(runID: String) async throws -> RunWorkspace {
+        guard PhoneArtifact.validID(runID) else { throw GatewayError.invalidResponse }
+        return try await get("api/gateway/runs/\(runID)/workspace", as: RunWorkspace.self)
+    }
+    public func workspaceFiles(runID: String, path: String, recursive: Bool, limit: Int?) async throws -> WorkspaceListing {
+        guard PhoneArtifact.validID(runID), WorkspaceEntry.validPath(path) else { throw GatewayError.invalidResponse }
+        var query = [URLQueryItem(name: "path", value: path), .init(name: "recursive", value: recursive ? "true" : "false")]
+        if let limit { query.append(.init(name: "limit", value: String(limit))) }
+        return try await get("api/gateway/runs/\(runID)/workspace/files", query: query, as: WorkspaceListing.self)
+    }
+    public func downloadWorkspaceFile(runID: String, entry: WorkspaceEntry, to destination: URL) async throws {
+        guard PhoneArtifact.validID(runID), WorkspaceEntry.validPath(entry.path), !entry.isDirectory else { throw GatewayError.invalidResponse }
+        guard (entry.size ?? 0) <= PhoneArtifact.previewByteLimit else { throw PhoneAttachmentError.previewTooLarge }
+        var parts = URLComponents(url: baseURL.appending(path: "api/gateway/runs/\(runID)/workspace/content"), resolvingAgainstBaseURL: false)!
+        parts.queryItems = [.init(name: "path", value: entry.path)]
+        guard let url = parts.url else { throw GatewayError.invalidResponse }
+        try await writeDownload(to: destination) { handle in
+            try await self.readFile(url: url, limit: PhoneArtifact.previewByteLimit) { try handle.write(contentsOf: $0) }
+        }
+    }
+    public func download(_ artifact: PhoneArtifact) async throws -> Data {
+        var data = Data()
+        try await readArtifact(artifact, limit: PhoneArtifact.byteLimit) { data.append($0) }
+        return data
+    }
+    public func download(_ artifact: PhoneArtifact, to destination: URL) async throws {
+        try await writeDownload(to: destination) { handle in
+            try await self.readArtifact(artifact, limit: PhoneArtifact.previewByteLimit) { try handle.write(contentsOf: $0) }
+        }
+    }
+    private func writeDownload(to destination: URL, operation: (FileHandle) async throws -> Void) async throws {
+        guard destination.isFileURL, !FileManager.default.fileExists(atPath: destination.path),
+              FileManager.default.createFile(atPath: destination.path, contents: nil) else { throw GatewayError.invalidResponse }
+        var handle: FileHandle?
+        do {
+            let opened = try FileHandle(forWritingTo: destination); handle = opened
+            try await operation(opened); try opened.close()
+        } catch {
+            try? handle?.close(); try? FileManager.default.removeItem(at: destination); throw error
+        }
+    }
+    private func readArtifact(_ artifact: PhoneArtifact, limit: Int, consume: (Data) throws -> Void) async throws {
+        try requireSignIn()
+        guard PhoneArtifact.validID(artifact.runId), PhoneArtifact.validID(artifact.artifactId) else { throw GatewayError.invalidResponse }
+        guard artifact.size <= limit else { throw limit == PhoneArtifact.byteLimit ? PhoneAttachmentError.tooLarge : PhoneAttachmentError.previewTooLarge }
+        // Only Gateway-owned routes receive credentials. Stream large previews to disk in chunks.
+        try await readFile(url: baseURL.appending(path: "api/gateway/runs/\(artifact.runId)/artifacts/\(artifact.artifactId)/content"), limit: limit, consume: consume)
+    }
+    private func readFile(url: URL, limit: Int, consume: (Data) throws -> Void) async throws {
+        try requireSignIn()
+        var req = URLRequest(url: url); req.timeoutInterval = 120
+        credential.apply(to: &req, write: false)
+        let (bytes, response) = try await session.bytes(for: req, delegate: LedgerRedirectGuard())
+        defer { bytes.task.cancel() }
+        guard let http = response as? HTTPURLResponse else { throw GatewayError.invalidResponse }
+        if http.statusCode == 401 { lockedOut = true; throw GatewayError.unauthorized }
+        guard (200..<300).contains(http.statusCode) else { throw GatewayError.http(status: http.statusCode, body: "") }
+        guard response.expectedContentLength <= limit else { throw PhoneAttachmentError.previewTooLarge }
+        var count = 0, chunk = Data(); chunk.reserveCapacity(65_536)
+        for try await byte in bytes {
+            try Task.checkCancellation(); guard count < limit else { throw PhoneAttachmentError.previewTooLarge }
+            chunk.append(byte); count += 1
+            if chunk.count == 65_536 { try consume(chunk); chunk.removeAll(keepingCapacity: true) }
+        }
+        if !chunk.isEmpty { try consume(chunk) }
+    }
+
+    // MARK: Waits and automations
 
     /// Answers a wait. The run is re-read first: if it no longer waits on the same key, the wait
     /// was handled elsewhere and nothing is sent (a stale approval must never resume another step).
@@ -412,7 +747,7 @@ public actor LiveGatewayClient: GatewayClient {
     }
 
     public func workflows(forInterface interface: String) async throws -> [WorkflowChoice] {
-        WorkflowChoice.choices(from: try await get("api/gateway/bundles", query: [.init(name: "executable_for", value: interface)], as: JSONValue.self),
+        WorkflowChoice.choices(from: try await get("api/gateway/bundles", query: interface.isEmpty ? [] : [.init(name: "executable_for", value: interface)], as: JSONValue.self),
                                interface: interface)
     }
 
@@ -429,9 +764,12 @@ public actor LiveGatewayClient: GatewayClient {
         return inputs
     }
 
+    /// A gateway without per-tool automation policies refuses one (422 naming `tool_policy`).
     public func createAutomation(_ a: NewAutomation) async throws -> AutomationSummary {
-        let data = try await request("POST", "api/gateway/automations", body: a.body, timeout: 60)
-        return try JSONDecoder().decode(CreatedAutomation.self, from: data).summary
+        do {
+            let data = try await request("POST", "api/gateway/automations", body: a.body, timeout: 60)
+            return try JSONDecoder().decode(CreatedAutomation.self, from: data).summary
+        } catch GatewayError.http(let status, let body) where status == 422 && body.contains("tool_policy") { throw AutomationToolsError.unsupported }
     }
 
     public func automationDefinition(id: String) async throws -> AutomationDefinition {
@@ -442,8 +780,30 @@ public actor LiveGatewayClient: GatewayClient {
         _ = try await request("PATCH", "api/gateway/automations/\(id)", body: Revise(expected_revision: expectedRevision, changes: changes))
     }
 
+    public func occurrences(automationId: String, limit: Int) async throws -> [LastOccurrence] {
+        // Full answers: 6 of them take 7 s on a public gateway, more over a watch's radio.
+        try await get("api/gateway/automations/\(automationId)/occurrences", query: [.init(name: "limit", value: String(limit))], as: OccurrencesPage.self, timeout: 60).items
+    }
+
+    public func markSeen(automationId: String, cursor: String) async throws {
+        _ = try await request("POST", "api/gateway/automations/\(automationId)/seen", body: SeenRequest(attentionCursor: cursor))
+    }
+
+    // MARK: Entities
+
     public func entities() async throws -> [EntitySummary] {
         try await get("api/gateway/entities", as: EntitiesPage.self).entities
+    }
+
+    public func validateEntity(_ draft: EntityDraft) async throws -> EntityValidation {
+        guard draft.valid else { throw GatewayError.http(status: 400, body: "{\"detail\":\"Use a name of up to 64 letters, numbers, spaces, hyphens or underscores.\"}") }
+        let data = try await request("POST", "api/gateway/entities/\(draft.slug)/validate", body: draft.body)
+        return try JSONDecoder().decode(EntityValidation.self, from: data)
+    }
+    public func createEntity(_ draft: EntityDraft) async throws -> CreatedEntity {
+        guard draft.valid else { throw GatewayError.invalidResponse }
+        let data = try await request("POST", "api/gateway/entities", body: draft.body, timeout: 120)
+        return try CreatedEntity(JSONDecoder().decode(JSONValue.self, from: data))
     }
 
     public func openEntityChat(name: String) async throws -> String {
@@ -456,6 +816,67 @@ public actor LiveGatewayClient: GatewayClient {
         return try JSONDecoder().decode(ChatTurnResponse.self, from: data).reply ?? ""
     }
 
+    public func entityTools(name: String) async throws -> [ToolInfo] {
+        struct Inventory: Decodable { var items: [ToolInfo]; var visit_routes: Bool? }
+        let inventory = try await get("api/gateway/entities/\(name)/session-tools", as: Inventory.self)
+        entityVisitRoutes[name] = inventory.visit_routes == true
+        return inventory.items
+    }
+    private func usesEntityVisitRoutes(name: String) async throws -> Bool {
+        if let known = entityVisitRoutes[name] { return known }
+        _ = try await entityTools(name: name)
+        return entityVisitRoutes[name] == true
+    }
+    public func openEntitySession(name: String, sessionID: String, tools: ConversationTools?) async throws -> EntitySessionState {
+        let suffix = try await usesEntityVisitRoutes(name: name) ? "visit/open" : "sessions"
+        // An explicit modes:null opts into an owned visit with inherited home grants.
+        let policy: JSONValue = .object(["modes": tools.map { .object($0.modes.mapValues { .string($0.visitValue) }) } ?? .null])
+        let body: JSONValue = .object(["session_id": .string(sessionID), "tool_policy": policy])
+        let data = try await request("POST", "api/gateway/entities/\(name)/\(suffix)", body: body, timeout: 120)
+        return try JSONDecoder().decode(EntitySessionState.self, from: data)
+    }
+    public func sendEntityTurn(name: String, runID: String, text: String) async throws -> JSONValue {
+        let data = try await request("POST", "api/gateway/entities/\(name)/visit/\(runID)/turn", body: ChatTurnRequest(text: text), timeout: 120)
+        return try JSONDecoder().decode(JSONValue.self, from: data)
+    }
+    public func endEntitySession(name: String, runID: String) async throws {
+        let canonical = try await usesEntityVisitRoutes(name: name)
+        _ = try await request("POST", "api/gateway/entities/\(name)/visit/\(runID)/\(canonical ? "close" : "end")",
+                              body: JSONValue.object(canonical ? ["closed_by": .string("pause")] : [:]), timeout: 120)
+    }
+    public func entitySession(name: String, runID: String) async throws -> EntitySessionState {
+        try await get("api/gateway/entities/\(name)/visit/\(runID)/state", as: EntitySessionState.self)
+    }
+    public func setEntityTools(name: String, runID: String, tools: ConversationTools?) async throws {
+        // Null restores home defaults; an empty map disables every tool.
+        let body: JSONValue = tools.map { .object(["modes": .object($0.modes.mapValues { .string($0.visitValue) })]) } ?? .object(["modes": .null])
+        _ = try await request("PUT", "api/gateway/entities/\(name)/visit/\(runID)/tool-policy", body: body)
+    }
+    public func answerEntity(name: String, runID: String, waitKey: String, approved: Bool) async throws -> EntitySessionState {
+        struct Body: Encodable { var wait_key: String; var approved: Bool }
+        let data = try await request("POST", "api/gateway/entities/\(name)/visit/\(runID)/decision", body: Body(wait_key: waitKey, approved: approved), timeout: 120)
+        return try JSONDecoder().decode(EntitySessionState.self, from: data)
+    }
+
+    public func entityLedger(name: String, runID: String, after: Int) async throws -> LedgerPage {
+        struct Entry: Decodable { var cursor: Int; var record: LedgerRecord }
+        struct VisitPage: Decodable {
+            var after: Int; var records: [Entry]; var next_cursor: Int; var total: Int
+        }
+        let page = try await get("api/gateway/entities/\(name)/visit/\(runID)/ledger",
+            query: [.init(name: "after", value: String(after)), .init(name: "limit", value: "200")], as: VisitPage.self)
+        // The visit endpoint wraps each row and can clamp an overshot cursor.
+        // Refuse a rewind or gap rather than silently attributing the wrong rows.
+        guard after >= 0, page.after == after, page.next_cursor == after + page.records.count,
+              page.total >= page.next_cursor,
+              page.records.enumerated().allSatisfy({ $0.element.cursor == after + $0.offset + 1 }) else {
+            throw LedgerStreamError.invalidCursor
+        }
+        return LedgerPage(items: page.records.map(\.record), nextAfter: page.next_cursor)
+    }
+
+    // MARK: A run's steps
+
     public func ledger(runId: String, after: Int) async throws -> LedgerPage {
         try await get("api/gateway/runs/\(runId)/ledger", query: [.init(name: "after", value: String(after))], as: LedgerPage.self)
     }
@@ -466,18 +887,50 @@ public actor LiveGatewayClient: GatewayClient {
             timeout: 30))
     }
 
+    public nonisolated func ledgerEvents(runID: String, after: Int) -> AsyncThrowingStream<LedgerStreamEvent, Error> {
+        var url = URLComponents(url: baseURL.appending(path: "api/gateway/runs/\(runID)/ledger/stream"), resolvingAgainstBaseURL: false)!
+        url.queryItems = [.init(name: "after", value: String(after))]
+        var request = URLRequest(url: url.url!)
+        request.timeoutInterval = 60
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        credential.apply(to: &request, write: false)
+        let streamRequest = request
+        let session = self.session
+        return AsyncThrowingStream(bufferingPolicy: .bufferingOldest(128)) { continuation in
+            let task = Task {
+                do {
+                    try await self.requireSignIn()
+                    let (bytes, response) = try await session.bytes(for: streamRequest, delegate: LedgerRedirectGuard())
+                    defer { bytes.task.cancel() }
+                    guard let http = response as? HTTPURLResponse else { throw GatewayError.invalidResponse }
+                    if http.statusCode == 401 { await self.lockSignIn(); throw GatewayError.unauthorized }
+                    if [404, 405].contains(http.statusCode) {
+                        bytes.task.cancel()
+                        try await pollLedger(client: self, runID: runID, after: after, continuation: continuation)
+                        continuation.finish(); return
+                    }
+                    guard (200..<300).contains(http.statusCode) else { throw GatewayError.http(status: http.statusCode, body: "") }
+                    var parser = LedgerSSEParser()
+                    for try await byte in bytes {
+                        try Task.checkCancellation()
+                        if let event = try parser.feed(byte: byte) {
+                            try yieldLedger(event, to: continuation)
+                            if case .done = event { continuation.finish(); return }
+                        }
+                    }
+                    // EOF without done is reconnectable, never proof of completion.
+                    throw GatewayError.invalidResponse
+                } catch { continuation.finish(throwing: error) }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     public func cancel(runId: String) async throws {
         _ = try await request("POST", "api/gateway/commands", body: CancelCommand(runId: runId))
     }
 
-    public func occurrences(automationId: String, limit: Int) async throws -> [LastOccurrence] {
-        // Full answers: 6 of them take 7 s on a public gateway, more over a watch's radio.
-        try await get("api/gateway/automations/\(automationId)/occurrences", query: [.init(name: "limit", value: String(limit))], as: OccurrencesPage.self, timeout: 60).items
-    }
-
-    public func markSeen(automationId: String, cursor: String) async throws {
-        _ = try await request("POST", "api/gateway/automations/\(automationId)/seen", body: SeenRequest(attentionCursor: cursor))
-    }
+    // MARK: Email and voice
 
     public func emailStatus() async throws -> EmailStatus { try await get("api/gateway/me/email", as: EmailStatus.self) }
 
@@ -487,6 +940,9 @@ public actor LiveGatewayClient: GatewayClient {
         return VoiceCatalog.parse(voices: try await v, transcription: try await t)
     }
 
+    public func transcribe(wav: Data, sessionId: String) async throws -> String { try await transcribe(wav: wav, sessionId: sessionId, model: nil) }
+    /// The recording is kept under `voice/dictation/` (the reserved upload namespace): a conversation's
+    /// files tell the person's spoken questions from the files they gave.
     public func transcribe(wav: Data, sessionId: String, model: TranscriptionChoice?) async throws -> String {
         if lockedOut { throw GatewayError.unauthorized }
         let boundary = "watch-" + UUID().uuidString
@@ -494,7 +950,7 @@ public actor LiveGatewayClient: GatewayClient {
         func field(_ name: String, _ value: String) {
             body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".utf8))
         }
-        field("session_id", sessionId); field("content_type", "audio/wav"); field("filename", "ask.wav")
+        field("session_id", sessionId); field("content_type", "audio/wav"); field("filename", "ask.wav"); field("source_path", "voice/dictation/" + UUID().uuidString.lowercased() + ".wav")
         body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"ask.wav\"\r\nContent-Type: audio/wav\r\n\r\n".utf8))
         body.append(wav)
         body.append(Data("\r\n--\(boundary)--\r\n".utf8))
@@ -514,6 +970,7 @@ public actor LiveGatewayClient: GatewayClient {
         return try JSONDecoder().decode(TranscribeResponse.self, from: out).text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    public nonisolated func speech(text: String, scope: SpeechScope) -> AsyncThrowingStream<Data, Error> { speech(text: text, scope: scope, voice: nil) }
     public nonisolated func speech(text: String, scope: SpeechScope, voice: VoiceChoice?) -> AsyncThrowingStream<Data, Error> {
         let path: String
         switch scope {
@@ -531,9 +988,11 @@ public actor LiveGatewayClient: GatewayClient {
         return AsyncThrowingStream { continuation in
             let task = Task { @Sendable in
                 do {
+                    try await self.requireSignIn()
                     let (bytes, resp) = try await session.bytes(for: request)
+                    defer { bytes.task.cancel() }
                     guard let http = resp as? HTTPURLResponse else { throw GatewayError.invalidResponse }
-                    if http.statusCode == 401 { throw GatewayError.unauthorized }
+                    if http.statusCode == 401 { await self.lockSignIn(); throw GatewayError.unauthorized }
                     guard (200..<300).contains(http.statusCode) else {
                         var body = ""
                         for try await line in bytes.lines { body += line; if body.count > 400 { break } }

@@ -2,7 +2,7 @@ import XCTest
 import AVFoundation
 import UIKit
 import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 @testable import AbstractAssistantPhone
 
 /// Explicit device-only verification. It uses the host app's sealed sign-in in place;
@@ -12,7 +12,7 @@ final class LiveGatewayMediaTests: XCTestCase {
     @MainActor func testInspectFailedAutomationsReadOnly() async throws {
         #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
         let connection = try XCTUnwrap(ConnectionVault.read())
-        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession(), readTries: 1)
         _ = try await client.me() // Stop on the first authentication failure.
         let rows = try await client.automations()
         var findings: [JSONValue] = []
@@ -38,7 +38,7 @@ final class LiveGatewayMediaTests: XCTestCase {
     @MainActor func testInspectProviderConnectionReadOnly() async throws {
         #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
         let connection = try XCTUnwrap(ConnectionVault.read())
-        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession(), readTries: 1)
         _ = try await client.me()
         var report: [String: JSONValue] = ["configuration_changed": .bool(false), "automation_started": .bool(false)]
         defer { try? write(report, name: "provider-connection.json") }
@@ -77,7 +77,7 @@ final class LiveGatewayMediaTests: XCTestCase {
     @MainActor func testCompareAutomationWorkflowsWithoutTools() async throws {
         #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
         let connection = try XCTUnwrap(ConnectionVault.read())
-        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession(), readTries: 1)
         _ = try await client.me()
         var results: [JSONValue] = []
         defer { try? write(["email_task_started": .bool(false), "configuration_changed": .bool(false), "results": .array(results)], name: "workflow-route-check.json") }
@@ -122,7 +122,7 @@ final class LiveGatewayMediaTests: XCTestCase {
     @MainActor func testCompareRecordedAutomationRoutingReadOnly() async throws {
         #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
         let connection = try XCTUnwrap(ConnectionVault.read())
-        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession(), readTries: 1)
         _ = try await client.me()
         var report: [String: JSONValue] = ["read_only": .bool(true)]
         defer { try? write(report, name: "recorded-routing.json") }
@@ -159,7 +159,7 @@ final class LiveGatewayMediaTests: XCTestCase {
     @MainActor func testAutomationControllerWithoutTools() async throws {
         #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
         let connection = try XCTUnwrap(ConnectionVault.read())
-        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession(), readTries: 1)
         _ = try await client.me()
         let original = try await client.automationDefinition(id: "2de2f21d-0340-5148-8173-600babbb34b0")
         var runtime: [String: JSONValue] = ["allowed_tools": .array([])]
@@ -208,12 +208,12 @@ final class LiveGatewayMediaTests: XCTestCase {
     @MainActor func testAutomationToolCallingReadOnlyMetadata() async throws {
         #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
         let connection = try XCTUnwrap(ConnectionVault.read())
-        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession(), readTries: 1)
         _ = try await client.me()
         let originalID = "2de2f21d-0340-5148-8173-600babbb34b0"
         let original = try await client.automationDefinition(id: originalID)
         let inventory = try await client.tools()
-        guard inventory.contains(where: { $0.name == "list_email_accounts" && $0.isAvailable }) else { throw VerificationError.message("Read-only account metadata tool is unavailable") }
+        guard inventory.contains(where: { $0.name == "list_email_accounts" && $0.offered }) else { throw VerificationError.message("Read-only account metadata tool is unavailable") }
         var runtime: [String: JSONValue] = ["allowed_tools": .array([.string("list_email_accounts")])]
         for key in ["provider", "model"] { runtime[key] = original.target?["input_data"]?["_runtime"]?[key] }
         var input: [String: JSONValue] = ["prompt": .string("Call list_email_accounts once to verify access to account metadata. Then reply exactly OK. Do not read email bodies or send messages."), "tools": .array([.string("list_email_accounts")]), "_runtime": .object(runtime)]
@@ -310,7 +310,7 @@ final class LiveGatewayMediaTests: XCTestCase {
             report["outcome"] = .string("no_saved_connection"); XCTFail("This iPhone has no saved gateway connection."); return
         }
         report["gateway"] = .string(connection.gateway.absoluteString)
-        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession(), readTries: 1)
         do {
             _ = try await client.me()
             report["voice_defaults"] = try await raw(connection, path: "api/gateway/voice/defaults")
@@ -338,7 +338,7 @@ final class LiveGatewayMediaTests: XCTestCase {
         #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
         let connection = try XCTUnwrap(ConnectionVault.read())
         let session = try XCTUnwrap(UserDefaults.standard.string(forKey: "phone.session." + connection.scope))
-        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession(), readTries: 1)
         _ = try await client.me()
         let turns = try await client.turns(ofSession: session)
         var target: String?
@@ -389,7 +389,7 @@ final class LiveGatewayMediaTests: XCTestCase {
     @MainActor func testConversationArchiveInventoryReadOnly() async throws {
         #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
         let connection = try XCTUnwrap(ConnectionVault.read())
-        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession(), readTries: 1)
         _ = try await client.me()
         let recent = try await client.recentRuns(limit: 60)
         let archived = try await client.archivedRuns(limit: 200)
@@ -397,9 +397,9 @@ final class LiveGatewayMediaTests: XCTestCase {
         let selection = ConversationTools.snapshot(nil, inventory: inventory)
         for category in ToolCatalogGroup.groups(inventory) {
             let allAuto = selection.settingCategory(category.id, to: .auto, inventory: inventory)
-            XCTAssertTrue(inventory.filter { $0.categoryID == category.id && !$0.isAvailable }.allSatisfy { allAuto.modes[$0.name] == .off })
+            XCTAssertTrue(inventory.filter { $0.categoryID == category.id && !$0.offered }.allSatisfy { allAuto.modes[$0.name] == .off })
         }
-        try write(["outcome": .string("passed"), "recent_sessions": .number(Double(SessionSummary.group(recent).count)), "recent_roots": .number(Double(recent.count)), "archived_sessions": .number(Double(SessionSummary.group(archived).count)), "archived_roots": .number(Double(archived.count)), "categories": .number(Double(ToolCatalogGroup.groups(inventory).count)), "disabled_tools": .number(Double(inventory.filter { !$0.isAvailable }.count))], name: "conversation-history-inventory.json")
+        try write(["outcome": .string("passed"), "recent_sessions": .number(Double(SessionSummary.group(recent).count)), "recent_roots": .number(Double(recent.count)), "archived_sessions": .number(Double(SessionSummary.group(archived).count)), "archived_roots": .number(Double(archived.count)), "categories": .number(Double(ToolCatalogGroup.groups(inventory).count)), "disabled_tools": .number(Double(inventory.filter { !$0.offered }.count))], name: "conversation-history-inventory.json")
         #else
         throw XCTSkip("Read-only conversation inventory verification is opt-in and device-only.")
         #endif
@@ -409,7 +409,7 @@ final class LiveGatewayMediaTests: XCTestCase {
         #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
         let connection = try XCTUnwrap(ConnectionVault.read())
         let session = try XCTUnwrap(UserDefaults.standard.string(forKey: "phone.session." + connection.scope))
-        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession(), readTries: 1)
         _ = try await client.me()
         let turns = try await client.turns(ofSession: session)
         var messages: [ConversationMessage] = []
@@ -438,7 +438,7 @@ final class LiveGatewayMediaTests: XCTestCase {
         #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
         let connection = try XCTUnwrap(ConnectionVault.read())
         let savedSession = try XCTUnwrap(UserDefaults.standard.string(forKey: "phone.session." + connection.scope))
-        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession(), readTries: 1)
         _ = try await client.me()
         let turns = try await client.turns(ofSession: savedSession)
         var cycles = 0, tools = 0, inputs = 0, approvals = 0, issues = 0
@@ -462,7 +462,7 @@ final class LiveGatewayMediaTests: XCTestCase {
         #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
         let connection = try XCTUnwrap(ConnectionVault.read())
         let savedSession = try XCTUnwrap(UserDefaults.standard.string(forKey: "phone.session." + connection.scope))
-        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession(), readTries: 1)
         _ = try await client.me()
         let turns = try await client.turns(ofSession: savedSession)
         let store = AssistantStore(); store.connect(connection, client: client)
@@ -487,7 +487,7 @@ final class LiveGatewayMediaTests: XCTestCase {
         #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
         let connection = try XCTUnwrap(ConnectionVault.read())
         let session = try XCTUnwrap(UserDefaults.standard.string(forKey: "phone.session." + connection.scope))
-        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession(), readTries: 1)
         _ = try await client.me()
         let turns = try await client.turns(ofSession: session)
         var count = 0, complete = 0, reads = 0, issues = 0
@@ -513,7 +513,7 @@ final class LiveGatewayMediaTests: XCTestCase {
         #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
         let connection = try XCTUnwrap(ConnectionVault.read())
         let session = try XCTUnwrap(UserDefaults.standard.string(forKey: "phone.session." + connection.scope))
-        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession(), readTries: 1)
         _ = try await client.me()
         let turns = try await client.turns(ofSession: session)
         let files = SessionFilesController(); files.bind(connection.scope + session)
@@ -564,7 +564,7 @@ final class LiveGatewayMediaTests: XCTestCase {
         let connection = try XCTUnwrap(ConnectionVault.read())
         report["gateway"] = .string(connection.gateway.absoluteString)
         let transport = PhoneTransport.makeSession()
-        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: transport)
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: transport, readTries: 1)
         do {
             _ = try await client.me() // One auth failure stops here; never retry credentials.
             var choices = try await client.workflows(forInterface: "abstractassistant.agent.v1")

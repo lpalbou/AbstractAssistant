@@ -31,7 +31,7 @@ import Testing
 }
 
 @Test func askRunsCarryTheAssistantPersonaAndMetricsDecode() throws {
-    let obj = try JSONSerialization.jsonObject(with: JSONEncoder().encode(StartRunRequest(prompt: "hi", sessionId: "s"))) as! [String: Any]
+    let obj = try JSONSerialization.jsonObject(with: JSONEncoder().encode(StartRunRequest(prompt: "hi", sessionId: "s", system: AssistantPersona.watch))) as! [String: Any]
     #expect(((obj["input_data"] as! [String: Any])["system"] as? String)?.contains("You are AbstractAssistant") == true)
     let row = try JSONDecoder().decode(RunSummary.self, from: Data(#"{"run_id":"r","status":"completed","session_id":"s","steps":12,"llm_calls":3,"tool_calls":2,"tokens_total":8244,"session_kind":"chat"}"#.utf8))
     #expect(row.toolCalls == 2 && row.llmCalls == 3 && row.sessionKind == "chat")
@@ -83,7 +83,7 @@ import Testing
 }
 
 @Test func theMockFindsWordsInQuestionsAndAnswers() async throws {
-    let mock = MockGatewayClient()
+    let mock = MockGatewayClient(world: .watch)
     #expect(try await mock.searchSessions("assay QC", limit: 10).items.map(\.sessionId) == ["s-qc"])
     #expect(try await mock.searchSessions("arm B", limit: 10).items.first?.sessionId == "s-adtte")
     #expect(try await mock.searchSessions("nothing like this", limit: 10).items.isEmpty)

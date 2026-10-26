@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import PhoneGatewayClient
+@testable import AbstractGatewayClient
 
 private final class HistoryWireStub: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var reply: (URLRequest) -> (Int, String) = { _ in (500, "") }
@@ -22,7 +22,7 @@ private final class HistoryWireStub: URLProtocol, @unchecked Sendable {
     private func client() -> LiveGatewayClient {
         HistoryWireStub.requests = []
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [HistoryWireStub.self]
-        return LiveGatewayClient(baseURL: URL(string: "https://gateway.test")!, token: "test", session: URLSession(configuration: config))
+        return LiveGatewayClient(baseURL: URL(string: "https://gateway.test")!, token: "test", session: URLSession(configuration: config), readTries: 1)
     }
     @Test func paginationDeduplicatesAndRejectsUnrelatedRows() async throws {
         let client = client()

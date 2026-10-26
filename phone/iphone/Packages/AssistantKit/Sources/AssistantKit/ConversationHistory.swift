@@ -1,10 +1,7 @@
 import Foundation
+import AbstractGatewayClient
 
-public extension GatewayClient {
-    func setArchived(sessionId: String, _ archived: Bool) async throws { throw GatewayError.invalidResponse }
-    func archivedRuns(limit: Int) async throws -> [RunSummary] { throw GatewayError.invalidResponse }
-}
-
+/// The iPhone's conversation list: Today, Yesterday, Earlier, and how long ago.
 public struct ConversationHistorySection: Identifiable, Sendable {
     public let id: String
     public let sessions: [SessionSummary]

@@ -1,6 +1,6 @@
 import Foundation
 import Observation
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 @MainActor @Observable
 public final class AssistantStore {
@@ -293,7 +293,7 @@ public final class AssistantStore {
     }
     public var archivedSessions: [SessionSummary] { SessionSummary.group(archivedRuns) }
     public func canArchive(_ session: SessionSummary) -> Bool {
-        client != nil && !session.isLive && sessionArchiveBusy.isEmpty && !isOpening &&
+        client != nil && !session.anyTurnLive && sessionArchiveBusy.isEmpty && !isOpening &&
             (session.id != sessionID || canSend)
     }
     public func clearHistoryError() { historyError = nil }
@@ -428,7 +428,7 @@ public final class AssistantStore {
     public var sessionApprovalGrants: Set<String> {
         _ = approvalTrustRevision
         return Set(defaults.stringArray(forKey: toolsKey + ".approvalTrust") ?? []).filter {
-            effectiveTools == nil || effectiveTools?.modes[$0] == .approve
+            effectiveTools == nil || effectiveTools?.modes[$0] == .ask
         }
     }
     public func revokeSessionApprovals() {
@@ -444,7 +444,7 @@ public final class AssistantStore {
     public func reviewLegacySessionApprovals(askingAgain names: Set<String>) {
         guard canEditToolPreferences, !legacySessionApprovalNames.isEmpty,
               names.isSubset(of: Set(legacySessionApprovalNames)), var selection = conversationTools else { return }
-        for name in names where selection.modes[name] == .auto { selection.modes[name] = .approve }
+        for name in names where selection.modes[name] == .auto { selection.modes[name] = .ask }
         setConversationTools(selection)
     }
     public func loadMessageStats() async {
@@ -869,7 +869,7 @@ public final class AssistantStore {
             guard await answer(wait, .approve), epoch == activityEpoch, key == toolsKey,
                   revision == approvalTrustRevision else { return false }
             autoAnsweredWaits.insert(wait.id)
-            let granted = sessionApprovalGrants.union(selection.modes.filter { $0.value == .approve }.keys)
+            let granted = sessionApprovalGrants.union(selection.modes.filter { $0.value == .ask }.keys)
             defaults.set(Array(granted).sorted(), forKey: key + ".approvalTrust")
             approvalTrustRevision += 1
             await followActiveRun()
@@ -898,7 +898,7 @@ public final class AssistantStore {
             for wait in activityWaits {
                 guard epoch == activityEpoch, key == toolsKey, revision == approvalTrustRevision, !stopRequested else { return }
                 guard wait.kind == .toolApproval, let calls = wait.details, !calls.isEmpty,
-                      calls.allSatisfy({ modes[$0.name] == .auto || (modes[$0.name] == .approve && granted.contains($0.name)) }) else { continue }
+                      calls.allSatisfy({ modes[$0.name] == .auto || (modes[$0.name] == .ask && granted.contains($0.name)) }) else { continue }
                 if !autoAnsweredWaits.contains(wait.id) {
                     guard await answer(wait, .approve), epoch == activityEpoch else { continue }
                     autoAnsweredWaits.insert(wait.id)

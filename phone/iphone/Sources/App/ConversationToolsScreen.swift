@@ -1,6 +1,6 @@
 import SwiftUI
 import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 struct ConversationToolsScreen: View {
     @Environment(AssistantStore.self) private var store
@@ -178,12 +178,12 @@ struct ConversationToolsScreen: View {
                 HStack(alignment: .top, spacing: 8) { toolTitle(tool); Spacer(minLength: 4); riskBadge(tool) }
                 VStack(alignment: .leading, spacing: 6) { toolTitle(tool); riskBadge(tool) }
             }
-            if !tool.isAvailable {
+            if !tool.offered {
                 Text(tool.whyDisabled ?? "This tool is disabled on the gateway.").font(.caption).foregroundStyle(PhoneTheme.secondary)
             } else if let description = tool.description, !description.isEmpty {
                 Text(description).font(.caption).foregroundStyle(PhoneTheme.secondary).lineLimit(3)
             }
-            Picker(tool.displayName, selection: Binding(get: { !tool.isAvailable ? .off : inherit ? (inheritedModes[tool.name] ?? .approve) : (modes[tool.name] ?? .off) }, set: { mode in
+            Picker(tool.displayName, selection: Binding(get: { !tool.offered ? .off : inherit ? (inheritedModes[tool.name] ?? .ask) : (modes[tool.name] ?? .off) }, set: { mode in
                 if inherit {
                     modes = inheritedModes
                     inherit = false
@@ -192,7 +192,7 @@ struct ConversationToolsScreen: View {
             })) {
                 ForEach(ToolMode.allCases, id: \.self) { Text($0.label).tag($0) }
             }.pickerStyle(.segmented).accessibilityLabel(tool.displayName).accessibilityIdentifier("tool." + tool.name)
-                .disabled(!tool.isAvailable)
+                .disabled(!tool.offered)
         }.padding(.vertical, 10)
     }
     private func toolTitle(_ tool: ToolInfo) -> some View {
@@ -200,7 +200,7 @@ struct ConversationToolsScreen: View {
     }
     private func riskBadge(_ tool: ToolInfo) -> some View {
         let value: (String, Color) = {
-            guard tool.isAvailable else { return ("Disabled on gateway", PhoneTheme.secondary) }
+            guard tool.offered else { return ("Disabled on gateway", PhoneTheme.secondary) }
             switch tool.riskTier?.lowercased() {
             case "observe": return ("Reads only", PhoneTheme.mint)
             case "act": return ("Makes changes", PhoneTheme.amber)
@@ -232,7 +232,7 @@ struct ConversationToolsScreen: View {
         saving = true; error = nil
         defer { saving = false }
         let selected = inherit ? nil : ConversationTools(modes: Dictionary(inventory.map {
-            ($0.name, $0.isAvailable ? (modes[$0.name] ?? .off) : .off)
+            ($0.name, $0.offered ? (modes[$0.name] ?? .off) : .off)
         }, uniquingKeysWith: { _, new in new }))
         do {
             switch scope {

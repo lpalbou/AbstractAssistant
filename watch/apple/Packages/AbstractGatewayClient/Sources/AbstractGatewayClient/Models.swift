@@ -31,6 +31,8 @@ public enum JSONValue: Codable, Hashable, Sendable {
     }
 
     public var stringValue: String? { if case .string(let s) = self { s } else { nil } }
+    public var arrayValue: [JSONValue]? { if case .array(let values) = self { values } else { nil } }
+    public var objectValue: [String: JSONValue]? { if case .object(let value) = self { value } else { nil } }
     public subscript(key: String) -> JSONValue? { if case .object(let o) = self { o[key] } else { nil } }
 
     /// Compact one-line rendering for display.
@@ -162,6 +164,7 @@ public struct RunWaiting: Codable, Hashable, Sendable {
 /// Row of `GET /api/gateway/runs` and body of `GET /api/gateway/runs/{id}`.
 public struct RunSummary: Codable, Hashable, Sendable, Identifiable {
     public var runId: String
+    public var parentRunId: String?
     public var workflowId: String?
     public var status: String
     public var sessionId: String?
@@ -191,14 +194,15 @@ public struct RunSummary: Codable, Hashable, Sendable, Identifiable {
 
     public init(runId: String, workflowId: String?, status: String, sessionId: String? = nil, createdAt: String? = nil,
                 updatedAt: String? = nil, error: String? = nil, waiting: RunWaiting? = nil, output: JSONValue? = nil,
-                kind: String? = nil, subtitle: String? = nil) {
+                kind: String? = nil, subtitle: String? = nil, parentRunId: String? = nil) {
+        self.parentRunId = parentRunId
         self.runId = runId; self.workflowId = workflowId; self.status = status; self.sessionId = sessionId
         self.createdAt = createdAt; self.updatedAt = updatedAt; self.error = error; self.waiting = waiting
         self.output = output; self.kind = kind; self.subtitle = subtitle
     }
 
     enum CodingKeys: String, CodingKey {
-        case runId = "run_id", workflowId = "workflow_id", status, sessionId = "session_id"
+        case runId = "run_id", parentRunId = "parent_run_id", workflowId = "workflow_id", status, sessionId = "session_id"
         case createdAt = "created_at", updatedAt = "updated_at", error, waiting, output, kind, subtitle
         case steps, llmCalls = "llm_calls", toolCalls = "tool_calls", tokensTotal = "tokens_total", sessionKind = "session_kind"
         case automationId = "automation_id"
@@ -214,12 +218,22 @@ public struct RunSummary: Codable, Hashable, Sendable, Identifiable {
         return output.displayText
     }
 
+    /// Public conversation text only; arbitrary workflow JSON is not an assistant reply.
+    public var conversationText: String? {
+        guard let output else { return nil }
+        if let text = output.stringValue { return text }
+        for key in ["response", "answer", "text", "output"] { if let text = output[key]?.stringValue { return text } }
+        return nil
+    }
+
     /// True when the row's `waiting.reason` says a person must act (`user`). Rows waiting on a
     /// `subworkflow`, a timer (`until`), a `job` or an `event` are not shown to the person.
     public var waitsOnPerson: Bool { status == "waiting" && waiting?.reason == "user" }
     /// The child run a root waits on (`subworkflow:<child run id>`), if any.
     public var waitingOnChild: String? {
-        guard status == "waiting", let key = waiting?.waitKey, key.hasPrefix("subworkflow:") else { return nil }
+        guard status == "waiting" else { return nil }
+        if waiting?.reason == "subworkflow", let child = waiting?.details?["sub_run_id"]?.stringValue, !child.isEmpty { return child }
+        guard let key = waiting?.waitKey, key.hasPrefix("subworkflow:") else { return nil }
         let id = String(key.dropFirst("subworkflow:".count))
         return id.isEmpty ? nil : id
     }
@@ -302,6 +316,17 @@ public struct Principal: Codable, Hashable, Sendable {
     }
 }
 
+/// Why an occurrence failed (`failure {reason_code, message, attempts}`).
+public struct OccurrenceFailure: Codable, Hashable, Sendable {
+    public var reasonCode: String?
+    public var message: String?
+    public var attempts: Int?
+    public init(reasonCode: String? = nil, message: String? = nil, attempts: Int? = nil) {
+        self.reasonCode = reasonCode; self.message = message; self.attempts = attempts
+    }
+    enum CodingKeys: String, CodingKey { case reasonCode = "reason_code", message, attempts }
+}
+
 /// `last_occurrence` of an automation row, and the rows of `GET /automations/{id}/occurrences`.
 public struct LastOccurrence: Codable, Hashable, Sendable {
     public var status: String?
@@ -312,15 +337,18 @@ public struct LastOccurrence: Codable, Hashable, Sendable {
     public var finishedAt: String?
     public var answer: String?
     public var triggerSummary: String?
+    public var failure: OccurrenceFailure?
+    public var attempts: Int?
     /// The message the trigger sent (the task as it was for that run, with what the trigger brought).
     public var userTurn: String?
     public init(status: String?, excerpt: String?, runId: String? = nil, index: Int? = nil, firedAt: String? = nil,
-                finishedAt: String? = nil, answer: String? = nil, triggerSummary: String? = nil, userTurn: String? = nil) {
+                finishedAt: String? = nil, answer: String? = nil, triggerSummary: String? = nil,
+                failure: OccurrenceFailure? = nil, attempts: Int? = nil, userTurn: String? = nil) {
         self.status = status; self.excerpt = excerpt; self.runId = runId; self.index = index
         self.firedAt = firedAt; self.finishedAt = finishedAt; self.answer = answer; self.triggerSummary = triggerSummary
-        self.userTurn = userTurn
+        self.failure = failure; self.attempts = attempts; self.userTurn = userTurn
     }
-    enum CodingKeys: String, CodingKey { case status, excerpt, runId = "run_id", index, firedAt = "fired_at", finishedAt = "finished_at", answer, trigger, userTurn = "user_turn" }
+    enum CodingKeys: String, CodingKey { case status, excerpt, runId = "run_id", index, firedAt = "fired_at", finishedAt = "finished_at", answer, trigger, failure, attempts, userTurn = "user_turn" }
     enum TriggerKeys: String, CodingKey { case summary }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -331,6 +359,8 @@ public struct LastOccurrence: Codable, Hashable, Sendable {
         firedAt = try c.decodeIfPresent(String.self, forKey: .firedAt)
         finishedAt = try c.decodeIfPresent(String.self, forKey: .finishedAt)
         answer = try c.decodeIfPresent(String.self, forKey: .answer)
+        failure = try c.decodeIfPresent(OccurrenceFailure.self, forKey: .failure)
+        attempts = try c.decodeIfPresent(Int.self, forKey: .attempts)
         userTurn = try c.decodeIfPresent(String.self, forKey: .userTurn)
         if let t = try? c.nestedContainer(keyedBy: TriggerKeys.self, forKey: .trigger) { triggerSummary = try t.decodeIfPresent(String.self, forKey: .summary) }
     }
@@ -338,7 +368,9 @@ public struct LastOccurrence: Codable, Hashable, Sendable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encodeIfPresent(status, forKey: .status); try c.encodeIfPresent(excerpt, forKey: .excerpt); try c.encodeIfPresent(runId, forKey: .runId)
         try c.encodeIfPresent(index, forKey: .index); try c.encodeIfPresent(firedAt, forKey: .firedAt); try c.encodeIfPresent(finishedAt, forKey: .finishedAt); try c.encodeIfPresent(answer, forKey: .answer)
+        try c.encodeIfPresent(failure, forKey: .failure); try c.encodeIfPresent(attempts, forKey: .attempts)
         try c.encodeIfPresent(userTurn, forKey: .userTurn)
+        if let triggerSummary { var t = c.nestedContainer(keyedBy: TriggerKeys.self, forKey: .trigger); try t.encode(triggerSummary, forKey: .summary) }
     }
 }
 
@@ -443,7 +475,35 @@ public struct AutomationSummary: Codable, Hashable, Sendable, Identifiable {
     public var revision: Int?
     /// The run in progress right now (scheduled or Run now), nil when idle.
     public var currentOccurrence: CurrentOccurrence?
+    /// What starts it, in the gateway's own words (`trigger_text`), when it serves them.
+    public var triggerText: String?
+    /// The schedule's sentence, nil for a trigger that is not a schedule: `scheduleText` without the
+    /// watch's fallbacks (the source id, "when an email arrives"). What `triggerWords` says.
+    public var scheduleSentence: String?
     public var every: String? { triggerConfig?["every"]?.stringValue }
+
+    /// It runs when something happens (mail, a feed item, a call), not on a clock: no next run.
+    public var isEventTrigger: Bool { triggerSource != nil && triggerSource != "schedule" }
+
+    /// What starts it, in words — never a source id: the gateway's `trigger_text`, else the schedule's
+    /// sentence, "When mail arrives in <address>", "When <feed> has a new item", "When <webhook> is
+    /// called", "By hand". `names` gives the connections' labels and the mailboxes' addresses.
+    public func triggerWords(_ names: TriggerNames = TriggerNames()) -> String {
+        if let text = triggerText?.trimmingCharacters(in: .whitespaces), !text.isEmpty { return text }
+        let label = triggerConfig?["connection_id"]?.stringValue.flatMap { names.connections[$0] }
+        switch triggerSource {
+        case nil: return scheduleSentence ?? rowDetail
+        case "schedule": return scheduleSentence ?? "On a schedule"
+        case "manual": return "By hand"
+        case "email.received":
+            let account = triggerConfig?["account"]?.stringValue ?? "self"
+            let address = names.mailboxes[account == "self" ? "default" : account]
+            return address.map { "When mail arrives in \($0)" } ?? "When mail arrives in your mailbox"
+        case "feed.item": return label.map { "When \($0) has a new item" } ?? "When the feed has a new item"
+        case "webhook.received": return label.map { "When \($0) is called" } ?? "When its web address is called"
+        default: return "When its trigger fires"
+        }
+    }
 
     public init(id: String, name: String?, status: String?, scheduleText: String?, lastOccurrence: LastOccurrence?,
                 cadence: String? = nil, detail: String? = nil, nextFireAt: String? = nil, attention: Attention? = nil,
@@ -452,6 +512,7 @@ public struct AutomationSummary: Codable, Hashable, Sendable, Identifiable {
                 growingMaxTokens: Int? = nil) {
         self.triggerSource = triggerSource; self.triggerConfig = triggerConfig; self.revision = revision
         self.growingMaxTokens = growingMaxTokens
+        self.scheduleSentence = triggerSource == nil || triggerSource == "schedule" ? scheduleText : nil
         self.currentOccurrence = currentOccurrence
         self.id = id; self.name = name; self.status = status; self.scheduleText = scheduleText
         self.lastOccurrence = lastOccurrence; self.cadence = cadence; self.detail = detail
@@ -461,7 +522,7 @@ public struct AutomationSummary: Codable, Hashable, Sendable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case id, automationId = "automation_id", name, title, status, scheduleText = "schedule_text", lastOccurrence = "last_occurrence"
         case nextFireAt = "next_fire_at", attention, contextMode = "context_mode", occurrenceCount = "occurrence_count", trigger, cadence, detail
-        case revision, currentOccurrence = "current_occurrence", growingMaxTokens = "growing_max_tokens"
+        case revision, currentOccurrence = "current_occurrence", growingMaxTokens = "growing_max_tokens", triggerText = "trigger_text"
     }
     enum TriggerKeys: String, CodingKey { case sourceId = "source_id", sourceVersion = "source_version", config, summary }
 
@@ -482,6 +543,7 @@ public struct AutomationSummary: Codable, Hashable, Sendable, Identifiable {
         cadence = try c.decodeIfPresent(String.self, forKey: .cadence)
         detail = try c.decodeIfPresent(String.self, forKey: .detail)
         revision = try? c.decodeIfPresent(Int.self, forKey: .revision)
+        triggerText = try? c.decodeIfPresent(String.self, forKey: .triggerText)
         currentOccurrence = try? c.decodeIfPresent(CurrentOccurrence.self, forKey: .currentOccurrence)
         if let t = try? c.nestedContainer(keyedBy: TriggerKeys.self, forKey: .trigger) {
             triggerSource = try? t.decodeIfPresent(String.self, forKey: .sourceId)
@@ -489,16 +551,20 @@ public struct AutomationSummary: Codable, Hashable, Sendable, Identifiable {
             if case .object(let o)?? = try? t.decodeIfPresent(JSONValue.self, forKey: .config) { triggerConfig = o }
         }
         var text = try c.decodeIfPresent(String.self, forKey: .scheduleText)
+        var fallback: String?
         if text == nil, let t = try? c.nestedContainer(keyedBy: TriggerKeys.self, forKey: .trigger) {
             let source = try t.decodeIfPresent(String.self, forKey: .sourceId) ?? ""
             let config = (try? t.decodeIfPresent(JSONValue.self, forKey: .config)) ?? nil
             if let every = config?["every"]?.stringValue { text = "every \(every)" }
             else if let kind = config?["kind"]?.stringValue { text = kind }
             else if let summary = try t.decodeIfPresent(String.self, forKey: .summary) { text = summary }
-            else if source.hasPrefix("email") { text = "when an email arrives" }
-            else if !source.isEmpty { text = source }
+            else if source.hasPrefix("email") { fallback = "when an email arrives" }
+            else if !source.isEmpty { fallback = source }
         }
-        scheduleText = text
+        scheduleText = text ?? fallback
+        // A served schedule sentence only means something for a schedule (another source's row may
+        // carry its id there): the words of an event trigger come from `triggerWords`.
+        scheduleSentence = isEventTrigger ? nil : text
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -527,8 +593,10 @@ public struct AutomationDefinition: Decodable, Sendable {
     public var revision: Int?
     public var title: String?
     public var target: [String: JSONValue]?
-    public init(revision: Int?, title: String?, target: [String: JSONValue]?) {
-        self.revision = revision; self.title = title; self.target = target
+    /// `policy {tool_approval, tool_policy}`: who approves its runs' tools.
+    public var policy: [String: JSONValue]?
+    public init(revision: Int?, title: String?, target: [String: JSONValue]?, policy: [String: JSONValue]? = nil) {
+        self.revision = revision; self.title = title; self.target = target; self.policy = policy
     }
     public var prompt: String? { target?["input_data"]?["prompt"]?.stringValue }
 
@@ -641,16 +709,19 @@ public struct WorkflowChoice: Hashable, Sendable, Identifiable {
         return false
     }
 
-    /// The bundles page: one choice per entrypoint, in the gateway's order; the interface's default
-    /// is the entrypoint the page names in `default_agent_workflows`.
+    /// The bundles page: one choice per runnable entrypoint (not archived, not deprecated, not refused
+    /// by `actions.can_run`), in the gateway's order; the interface's default is the entrypoint the page
+    /// names in `default_agent_workflows`. An empty interface: every runnable workflow, no default.
     static func choices(from page: JSONValue, interface: String) -> [WorkflowChoice] {
         guard case .array(let items)? = page["items"] else { return [] }
         let defaultId = page["default_agent_workflows"]?[interface]?["workflow_id"]?.stringValue
         return items.flatMap { b -> [WorkflowChoice] in
-            guard let id = b["bundle_id"]?.stringValue, let v = b["bundle_version"]?.stringValue,
+            guard b["archived"] != .bool(true), b["actions"]?["can_run"] != .bool(false),
+                  let id = b["bundle_id"]?.stringValue, let v = b["bundle_version"]?.stringValue,
                   case .array(let eps)? = b["entrypoints"] else { return [] }
             return eps.compactMap { e in
-                guard let f = e["flow_id"]?.stringValue else { return nil }
+                guard e["deprecated"] != .bool(true), e["actions"]?["can_run"] != .bool(false),
+                      let f = e["flow_id"]?.stringValue else { return nil }
                 return WorkflowChoice(bundleId: id, bundleVersion: v, flowId: f, name: e["name"]?.stringValue ?? f,
                                       isDefault: defaultId == "\(id)@\(v):\(f)", interface: interface,
                                       registryScope: b["registry_scope"]?.stringValue)
@@ -665,33 +736,51 @@ public struct WorkflowChoice: Hashable, Sendable, Identifiable {
 public struct WorkflowInputs: Sendable, Equatable {
     public var defaults: [String: JSONValue]
     public var required: [String]
-    public init(defaults: [String: JSONValue], required: [String]) { self.defaults = defaults; self.required = required }
+    public var fields: [WorkflowInput]? = nil
+    public init(defaults: [String: JSONValue], required: [String], fields: [WorkflowInput]? = nil) { self.defaults = defaults; self.required = required; self.fields = fields }
+    public var editableFields: [WorkflowInput] { (fields ?? []).filter { !["prompt", "tools", "_runtime"].contains($0.id) } }
 
     public static func parse(_ v: JSONValue) -> WorkflowInputs? {
+        var defaults = v["defaults"]?.objectValue ?? [:]
+        let fields: [WorkflowInput]
         if case .array(let inputs)? = v["inputs"] {
-            var d: [String: JSONValue] = [:], r: [String] = []
-            for i in inputs {
-                guard let id = i["id"]?.stringValue else { continue }
-                if let def = i["default"], def != .null { d[id] = def }
-                if case .bool(true)? = i["required"] { r.append(id) }
+            fields = inputs.compactMap { item in
+                guard let id = item["id"]?.stringValue else { return nil }
+                let schema = item["schema"] ?? item
+                if let value = item["default"] ?? schema["default"], value != .null || WorkflowInput.nullable(schema) { defaults[id] = value }
+                return WorkflowInput(id: id, label: item["label"]?.stringValue ?? schema["title"]?.stringValue ?? id,
+                    type: WorkflowInput.type(in: schema, fallback: item["type"]?.stringValue ?? "unknown"),
+                    required: item["required"] == .bool(true), description: schema["description"]?.stringValue, choices: schema["enum"]?.arrayValue, allowsNull: WorkflowInput.nullable(schema))
             }
-            return WorkflowInputs(defaults: d, required: r)
+        } else if case .object(let props)? = v["input_data_schema"]?["properties"] {
+            let required = v["input_data_schema"]?["required"]?.arrayValue?.compactMap(\.stringValue) ?? []
+            fields = props.keys.sorted().map { id in
+                let schema = props[id]!
+                if let value = schema["default"], value != .null || WorkflowInput.nullable(schema) { defaults[id] = value }
+                return WorkflowInput(id: id, label: schema["title"]?.stringValue ?? id, type: WorkflowInput.type(in: schema),
+                    required: required.contains(id), description: schema["description"]?.stringValue, choices: schema["enum"]?.arrayValue, allowsNull: WorkflowInput.nullable(schema))
+            }
+        } else { return nil }
+        return WorkflowInputs(defaults: defaults, required: fields.filter(\.required).map(\.id), fields: fields)
+    }
+
+    public func overrides(from text: [String: String]) throws -> [String: JSONValue] {
+        var result: [String: JSONValue] = [:]
+        for field in editableFields {
+            guard let raw = text[field.id], !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            result[field.id] = try field.value(from: raw)
         }
-        guard let schema = v["input_data_schema"], case .object(let props)? = schema["properties"] else { return nil }
-        var d: [String: JSONValue] = [:]
-        if case .object(let top)? = v["defaults"] { d = top }
-        for (k, p) in props { if let def = p["default"], def != .null { d[k] = def } }
-        var r: [String] = []
-        if case .array(let req)? = schema["required"] { r = req.compactMap(\.stringValue) }
-        return WorkflowInputs(defaults: d, required: r)
+        return result
     }
 
     /// The new automation's `input_data`: the workflow's defaults and the task, or the inputs it
     /// still needs (a required one with no default and not the task).
-    public func inputData(task: String) -> Result<[String: JSONValue], WorkflowInputsMissing> {
+    public func inputData(task: String, tools: [String]? = nil, overrides: [String: JSONValue] = [:]) -> Result<[String: JSONValue], WorkflowInputsMissing> {
         var out = defaults
-        out["prompt"] = .string(task)
-        let missing = required.filter { out[$0] == nil }
+        out.merge(overrides) { _, new in new }
+        if fields == nil || fields!.contains(where: { $0.id == "prompt" }) { out["prompt"] = .string(task) }
+        if let tools, fields == nil || fields!.contains(where: { $0.id == "tools" }) { out["tools"] = .array(tools.map(JSONValue.string)) }
+        let missing = required.filter { id in out[id] == nil || (out[id] == .null && fields?.first(where: { $0.id == id })?.allowsNull != true) }
         return missing.isEmpty ? .success(out) : .failure(WorkflowInputsMissing(names: missing))
     }
 }
@@ -716,12 +805,27 @@ public struct NewAutomation: Sendable {
     public var buildsOnEarlierRuns: Bool
     /// How much of its earlier runs each run reads, in tokens (nil: the gateway's default).
     public var growingMaxTokens: Int?
-    /// The tools its runs may use and which ask first (nil: the workflow's own and the gateway's
-    /// grant for unattended runs).
+    /// The watch's: the tools its runs may use and which ask first, written into the target's inputs
+    /// (`tools`, `_runtime.allowed_tools`, `_runtime.tool_policy`). Nil: the workflow's own and the
+    /// gateway's grant for unattended runs.
     public var tools: ToolChoices.Plan?
+    /// The iPhone's: the tools as modes; the offered ones ride the target's inputs, who approves them
+    /// rides `policy.tool_policy` (the definition's, not the caller's runtime vars).
+    public var toolModes: ConversationTools?
+    /// The iPhone's `policy.tool_approval` (ask before any tool); nil: "ask" when the plan asks for one.
+    public var askBeforeTools: Bool?
+    /// An explicit name (nil: the task's first line).
+    public var customTitle: String?
+
     public init(task: String, target: Target, when: When, buildsOnEarlierRuns: Bool, tools: ToolChoices.Plan?) {
         self.task = task; self.target = target; self.when = when
         self.buildsOnEarlierRuns = buildsOnEarlierRuns; self.tools = tools
+    }
+
+    public init(task: String, target: Target, when: When, buildsOnEarlierRuns: Bool, askBeforeTools: Bool, growingMaxTokens: Int? = nil,
+                tools: ConversationTools? = nil, title: String? = nil) {
+        self.task = task; self.target = target; self.when = when; self.buildsOnEarlierRuns = buildsOnEarlierRuns
+        self.askBeforeTools = askBeforeTools; self.growingMaxTokens = growingMaxTokens; self.toolModes = tools; self.customTitle = title
     }
 
     /// The tools in the target's inputs: `tools` and `_runtime.allowed_tools` (what is offered) and
@@ -741,8 +845,9 @@ public struct NewAutomation: Sendable {
         return out
     }
 
-    /// The task's first line, at most 120 characters (the other clients' default title).
+    /// The explicit name, else the task's first line, at most 120 characters (the other clients' default title).
     public var title: String {
+        if let custom = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !custom.isEmpty { return custom }
         let first = task.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n", omittingEmptySubsequences: false).first.map(String.init) ?? ""
         let line = first.trimmingCharacters(in: .whitespaces)
         return line.count <= 120 ? line : String(line.prefix(119)) + "…"
@@ -750,29 +855,33 @@ public struct NewAutomation: Sendable {
 
     public var body: JSONValue {
         let t = task.trimmingCharacters(in: .whitespacesAndNewlines)
-        let target: JSONValue
+        var target: [String: JSONValue], input: [String: JSONValue]
         switch self.target {
         case .gatewayDefault(let interface):
-            target = .object(["flow_id": .string("@default"), "interface": .string(interface),
-                              "input_data": .object(withTools(["prompt": .string(t)]))])
-        case .workflow(let w, let input):
-            target = .object(["bundle_ref": .string("\(w.bundleId)@\(w.bundleVersion)"), "flow_id": .string(w.flowId),
-                              "input_data": .object(withTools(input))])
+            target = ["flow_id": .string("@default"), "interface": .string(interface)]; input = ["prompt": .string(t)]
+        case .workflow(let w, let inputData):
+            target = ["bundle_ref": .string("\(w.bundleId)@\(w.bundleVersion)"), "flow_id": .string(w.flowId)]; input = inputData
         }
+        input = withTools(input)
+        if let toolModes { input = toolModes.automationInput(input) }
+        target["input_data"] = .object(input)
+        // With the tools chosen, their policy decides (the runtime keeps it); "ask" when one asks.
+        var policy: [String: JSONValue] = ["tool_approval": .string(askBeforeTools.map { $0 ? "ask" : "auto" } ?? tools.map { $0.ask.isEmpty ? "auto" : "ask" } ?? "auto")]
+        if let toolModes { policy["tool_policy"] = toolModes.automationPolicy }
         let config: [String: JSONValue]
         switch when {
         case .every(let e): config = ["kind": .string("every"), "every": .string(e)]
         case .daily(let at): config = ["kind": .string("daily"), "at": .string(at)]
         }
+        var context: [String: JSONValue] = ["mode": .string(buildsOnEarlierRuns ? "growing" : "independent")]
+        if buildsOnEarlierRuns, let n = growingMaxTokens, n > 0 { context["growing"] = .object(["max_tokens": .number(Double(n))]) }
         return .object([
             "request_id": .string(requestId),
             "title": .string(title),
-            "target": target,
+            "target": .object(target),
             "trigger": .object(["source_id": .string("schedule"), "source_version": .number(2), "config": .object(config)]),
-            "context": .object(["mode": .string(buildsOnEarlierRuns ? "growing" : "independent")]
-                .merging(buildsOnEarlierRuns ? growingMaxTokens.map { ["growing": JSONValue.object(["max_tokens": .number(Double($0))])] } ?? [:] : [:]) { a, _ in a }),
-            // With the tools chosen, their policy decides (the runtime keeps it); "ask" when one asks.
-            "policy": .object(["tool_approval": .string(tools.map { $0.ask.isEmpty ? "auto" : "ask" } ?? "auto")]),
+            "context": .object(context),
+            "policy": .object(policy),
         ])
     }
 }
@@ -825,18 +934,20 @@ public struct ResumeCommand: Encodable, Sendable {
     }
 }
 
-/// `POST /api/gateway/runs/start` body for one chat turn.
-/// The run's own approval policy (`_runtime.tool_policy`, read by the runtime per run): tools at or
-/// below `autoApproveMaxRiskRank` run without asking; a name in `requireApprovalTools` always asks.
-/// A run's own tool approvals (`_runtime.tool_policy`): run without asking, or always ask
-/// (`requireApprovalTools` wins when a name is in both; a name in neither asks).
+/// A run's own tool approvals (`_runtime.tool_policy`, read by the runtime per run): the named tools
+/// run without asking, tools at or below `autoApproveMaxRiskRank` too; a name in
+/// `requireApprovalTools` always asks (it wins when a name is in both; a name in none asks).
 public struct RunToolPolicy: Encodable, Sendable, Equatable {
-    public var autoApproveTools: [String]
+    public var autoApproveMaxRiskRank: Int?
     public var requireApprovalTools: [String]
+    public var autoApproveTools: [String]?
     public init(autoApproveTools: [String], requireApprovalTools: [String]) {
         self.autoApproveTools = autoApproveTools; self.requireApprovalTools = requireApprovalTools
     }
-    enum CodingKeys: String, CodingKey { case autoApproveTools = "auto_approve_tools", requireApprovalTools = "require_approval_tools" }
+    public init(autoApproveMaxRiskRank: Int? = nil, requireApprovalTools: [String], autoApproveTools: [String]? = nil) {
+        self.autoApproveMaxRiskRank = autoApproveMaxRiskRank; self.requireApprovalTools = requireApprovalTools; self.autoApproveTools = autoApproveTools
+    }
+    enum CodingKeys: String, CodingKey { case autoApproveTools = "auto_approve_tools", autoApproveMaxRiskRank = "auto_approve_max_risk_rank", requireApprovalTools = "require_approval_tools" }
 }
 
 /// One tool of `GET /api/gateway/discovery/tools`, with the gateway's risk tier
@@ -848,6 +959,8 @@ public struct ToolInfo: Decodable, Sendable, Hashable {
     /// Switched on by the gateway's admin (`enabled`) and usable on this host (`available`).
     public var enabled: Bool?
     public var available: Bool?
+    /// Why the gateway has it off, in its own words (`why_disabled`).
+    public var whyDisabled: String?
     /// What it does, its group (`files`, `web`, `comms.email`, …) and whether the gateway asks
     /// before running it by default (`ask` or `auto`).
     public var description: String?
@@ -867,7 +980,7 @@ public struct ToolInfo: Decodable, Sendable, Hashable {
         case name, riskTier = "risk_tier", riskRank = "risk_rank", risk, enabled, available, description, toolset
         case approvalDefault = "approval_default", modelControlledDestination = "model_controlled_destination"
         case riskRefiner = "risk_refiner", mutating, destructiveCapable = "destructive_capable", commsSend = "comms_send"
-        case remoteWriteCapable = "remote_write_capable", capturesEnvironment = "captures_environment"
+        case remoteWriteCapable = "remote_write_capable", capturesEnvironment = "captures_environment", whyDisabled = "why_disabled"
     }
     struct Risk: Decodable { var rank: Int?; var tier: String? }
     public init(name: String, riskTier: String?, riskRank: Int?, enabled: Bool? = nil, description: String? = nil,
@@ -896,6 +1009,7 @@ public struct ToolInfo: Decodable, Sendable, Hashable {
         riskRank = (try? c.decodeIfPresent(Int.self, forKey: .riskRank)) ?? risk?.rank
         enabled = try? c.decodeIfPresent(Bool.self, forKey: .enabled)
         available = try? c.decodeIfPresent(Bool.self, forKey: .available)
+        whyDisabled = try? c.decodeIfPresent(String.self, forKey: .whyDisabled)
         description = try? c.decodeIfPresent(String.self, forKey: .description)
         toolset = try? c.decodeIfPresent(String.self, forKey: .toolset)
         approvalDefault = try? c.decodeIfPresent(String.self, forKey: .approvalDefault)
@@ -910,7 +1024,19 @@ public struct ToolInfo: Decodable, Sendable, Hashable {
 }
 
 /// How a run may use one tool: not offered, offered and run without asking, offered and asked first.
-public enum ToolMode: String, Codable, CaseIterable, Sendable { case off, auto, ask }
+public enum ToolMode: String, Codable, CaseIterable, Sendable {
+    case off, auto, ask
+    /// The iPhone kept Ask as `approve` before the two apps shared this type: both read back.
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        guard let mode = ToolMode(rawValue: raw == "approve" ? "ask" : raw) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "unknown tool mode \(raw)"))
+        }
+        self = mode
+    }
+    /// The word an entity visit's `tool_policy.modes` takes (`off`, `auto`, `approve`).
+    public var visitValue: String { self == .ask ? "approve" : rawValue }
+}
 
 /// The tools of a run from the gateway's catalog and the person's choices: defaults for new
 /// conversations, then this conversation's changes on top. A tool the gateway has not set up is
@@ -956,14 +1082,14 @@ public enum ToolChoices {
     }
 }
 
-struct ToolsPage: Decodable { let items: [ToolInfo] }
+struct ToolsPage: Decodable { let items: [ToolInfo]; var error: String? = nil }
 
 public struct StartRunRequest: Encodable, Sendable {
     public struct InputData: Encodable, Sendable {
         public struct Runtime: Encodable, Sendable {
             public var toolPolicy: RunToolPolicy?
             /// The tools the agent may call (with `tools` below: as the desktop assistant sends them).
-            public var allowedTools: [String]?
+            public var allowedTools: [String]? = nil
             enum CodingKeys: String, CodingKey { case toolPolicy = "tool_policy", allowedTools = "allowed_tools" }
         }
         public var prompt: String
@@ -972,15 +1098,17 @@ public struct StartRunRequest: Encodable, Sendable {
         /// after the agent's built-in loop and tool rules, verified on gateway 0.15).
         public var system: String?
         /// The tools offered to the agent; nil: the workflow's own default set (9 file/code/web tools).
-        public var tools: [String]?
+        public var tools: [String]? = nil
         public var runtime: Runtime?
+        /// The person's files for this turn (`$artifact` references from an upload).
+        public var attachments: [JSONValue]? = nil
         /// The Assistant's workflow: the image an edit, an upscale or an image-to-video starts from
         /// (the conversation's newest image), as the iPhone and the menu-bar Assistant send it.
-        public var primaryImageArtifact: JSONValue?
-        public var hasPrimaryImageContext: Bool?
-        public var context: JSONValue?
+        public var primaryImageArtifact: JSONValue? = nil
+        public var hasPrimaryImageContext: Bool? = nil
+        public var context: JSONValue? = nil
         enum CodingKeys: String, CodingKey {
-            case prompt, useSessionHistory = "use_session_history", system, tools, runtime = "_runtime", context
+            case prompt, useSessionHistory = "use_session_history", system, tools, runtime = "_runtime", context, attachments
             case primaryImageArtifact = "primary_image_artifact", hasPrimaryImageContext = "has_primary_image_context"
         }
     }
@@ -993,8 +1121,9 @@ public struct StartRunRequest: Encodable, Sendable {
     public var sessionId: String?
     public var inputData: InputData
 
+    /// `system`: who answers (`AssistantPersona.watch`, `AssistantPersona.iPhone`; nil: the agent's own).
     public init(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy? = nil, tools: [String]? = nil,
-                system: String? = AssistantPersona.system, workflow: WorkflowChoice? = nil, primaryImage: MediaItem? = nil) {
+                system: String?, workflow: WorkflowChoice? = nil, primaryImage: MediaItem? = nil) {
         self.sessionId = sessionId
         let runtime = toolPolicy == nil && tools == nil ? nil : InputData.Runtime(toolPolicy: toolPolicy, allowedTools: tools)
         self.inputData = InputData(prompt: prompt, system: system, tools: tools, runtime: runtime)
@@ -1014,6 +1143,29 @@ public struct StartRunRequest: Encodable, Sendable {
     enum CodingKeys: String, CodingKey {
         case flowId = "flow_id", interface, sessionId = "session_id", inputData = "input_data"
         case bundleId = "bundle_id", bundleVersion = "bundle_version", registryScope = "registry_scope"
+    }
+}
+
+/// The Assistant workflow the account chose (`GET /accounts/me/preferences` → `apps[]` for
+/// `abstractassistant.agent.v1`), the same contract as the desktop client. Never a code workflow as
+/// a fallback when the assistant workflow is missing or has been archived.
+public enum AssistantWorkflow {
+    public static func request(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, preferences: JSONValue) throws -> StartRunRequest {
+        guard case .array(let apps)? = preferences["apps"],
+              let app = apps.first(where: { $0["interface"]?.stringValue == WorkflowChoice.assistantInterface }),
+              case .bool(true)? = app["effective"]?["available"] else {
+            throw GatewayError.http(status: 409, body: "{\"detail\":\"Choose an available Assistant workflow in the gateway’s Accounts → Preferences.\"}")
+        }
+        var body = StartRunRequest(prompt: prompt, sessionId: sessionId, toolPolicy: toolPolicy, system: AssistantPersona.iPhone)
+        body.interface = WorkflowChoice.assistantInterface
+        body.inputData.hasPrimaryImageContext = false
+        if let value = app["value"], value != .null {
+            guard let effective = app["effective"], let flow = effective["flow_id"]?.stringValue,
+                  let bundle = effective["bundle_id"]?.stringValue, let version = effective["bundle_version"]?.stringValue,
+                  let scope = effective["registry_scope"]?.stringValue else { throw GatewayError.invalidResponse }
+            body.flowId = flow; body.bundleId = bundle; body.bundleVersion = version; body.registryScope = scope
+        }
+        return body
     }
 }
 
@@ -1054,10 +1206,11 @@ public struct EntitySummary: Codable, Hashable, Sendable, Identifiable {
     public init(name: String, extra: [String: JSONValue] = [:]) { self.name = name; self.extra = extra }
     public init(from decoder: Decoder) throws {
         let all = try decoder.singleValueContainer().decode([String: JSONValue].self)
-        guard let n = all["name"]?.stringValue ?? all["id"]?.stringValue ?? all["entity"]?.stringValue else {
+        guard let n = all["slug"]?.stringValue ?? all["name"]?.stringValue ?? all["id"]?.stringValue ?? all["entity"]?.stringValue else {
             throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "entity row without a name"))
         }
         name = n; extra = all.filter { $0.key != "name" }
+        if let display = all["display_name"]?.stringValue ?? all["name"]?.stringValue, all["slug"] != nil { extra["display_name"] = .string(display) }
     }
     public func encode(to encoder: Encoder) throws {
         var all = extra; all["name"] = .string(name)
@@ -1313,13 +1466,13 @@ struct TranscribeRequest: Encodable {
 struct TranscribeResponse: Decodable { let text: String }
 
 
-/// Who answers on the watch. The gateway's default agent has no persona ("I'm ChatGPT, made by
-/// OpenAI" when asked, 2026-10-17), so every Ask run carries this as its `system` pin, the same pin
-/// the gateway's own Telegram bridge uses; the agent keeps its tools (verified live).
+/// Who answers. The gateway's default agent has no persona ("I'm ChatGPT, made by OpenAI" when
+/// asked, 2026-10-17), so every run carries one as its `system` pin, the same pin the gateway's own
+/// Telegram bridge uses; the agent keeps its tools (verified live). One per device: how to answer differs.
 public enum AssistantPersona {
-    /// Added after the agent's built-in loop and tool rules. Like the desktop assistant's prompt, it
-    /// says when to use tools; then how to answer for a watch (read aloud, short).
-    public static let system = """
+    /// The watch's. Added after the agent's built-in loop and tool rules. Like the desktop assistant's
+    /// prompt, it says when to use tools; then how to answer for a watch (read aloud, short).
+    public static let watch = """
     You are AbstractAssistant, the user's personal AI assistant, built on AbstractFramework and running on their own AbstractGateway. \
     When asked your name or who you are, you are AbstractAssistant.
 
@@ -1332,6 +1485,14 @@ public enum AssistantPersona {
     The user is talking to you from their Apple Watch, often by voice, and your answer is read aloud: lead with the answer in \
     one or two short sentences, name the source briefly when you used one, then add detail only when it helps. Avoid tables \
     and long lists.
+    """
+
+    /// The iPhone's.
+    public static let iPhone = """
+    You are AbstractAssistant, the user's personal AI assistant, built on AbstractFramework and running on their own AbstractGateway. \
+    When asked your name or who you are, you are AbstractAssistant. \
+    The user is talking to you from their iPhone, by text or voice, and your answer is read aloud: lead with the answer in one or two short sentences, \
+    then add detail only when it helps. Use your tools when they help.
     """
 }
 
@@ -1346,6 +1507,10 @@ public struct SessionSummary: Hashable, Sendable, Identifiable {
     public var llmCalls: Int
     public var kind: String?
     public var updatedAt: Date?
+
+    /// Some turn has not ended / waits on the person, not only the newest (what the iPhone shows).
+    public var anyTurnLive = false
+    public var anyTurnNeedsPerson = false
 
     public var status: String { latest.status }
     /// The newest turn has not ended (it may wait on an approval in the agent's child run).
@@ -1376,7 +1541,8 @@ public struct SessionSummary: Hashable, Sendable, Identifiable {
             return SessionSummary(id: key, firstRunId: oldest.runId, latest: newest, turns: rows.count,
                                   toolCalls: rows.compactMap(\.toolCalls).reduce(0, +), llmCalls: rows.compactMap(\.llmCalls).reduce(0, +),
                                   kind: newest.sessionKind,
-                                  updatedAt: (newest.updatedAt ?? newest.createdAt).flatMap(ISO8601.date))
+                                  updatedAt: (newest.updatedAt ?? newest.createdAt).flatMap(ISO8601.date),
+                                  anyTurnLive: rows.contains { !$0.isTerminal }, anyTurnNeedsPerson: rows.contains(where: \.waitsOnPerson))
         }
     }
 
@@ -1511,4 +1677,14 @@ public struct SessionSearchPage: Decodable, Sendable {
     /// Older conversations are still being indexed: the list may grow on the next search.
     public var partial: Bool { indexing?.complete == false }
     public init(items: [SessionHit], complete: Bool = true) { self.items = items; self.indexing = Indexing(complete: complete) }
+}
+
+/// The names a trigger is said with: connection id -> its label, mailbox id -> its address
+/// (`default` = the primary).
+public struct TriggerNames: Hashable, Sendable {
+    public var connections: [String: String]
+    public var mailboxes: [String: String]
+    public init(connections: [String: String] = [:], mailboxes: [String: String] = [:]) {
+        self.connections = connections; self.mailboxes = mailboxes
+    }
 }

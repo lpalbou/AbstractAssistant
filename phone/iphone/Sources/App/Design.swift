@@ -1,5 +1,5 @@
 import SwiftUI
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 enum PhoneTheme {
     static let ground = Color(red: 0.035, green: 0.045, blue: 0.085)

@@ -1,5 +1,5 @@
 import Foundation
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 public enum AccessKind: String, CaseIterable, Identifiable, Sendable {
     case filesRead, filesChanged, searches, pages

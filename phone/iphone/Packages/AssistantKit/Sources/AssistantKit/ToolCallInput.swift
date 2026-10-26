@@ -1,5 +1,5 @@
 import Foundation
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 /// Only structured arguments are retained; malformed raw strings are never displayed.
 public enum ToolCallInput {

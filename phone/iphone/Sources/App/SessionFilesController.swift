@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 import UniformTypeIdentifiers
-import PhoneGatewayClient
+import AbstractGatewayClient
 import AssistantKit
 
 struct SessionWorkspace: Identifiable {

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 private final class MediaInputWire: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var started: JSONValue?
@@ -29,7 +29,7 @@ private final class MediaInputWire: URLProtocol, @unchecked Sendable {
 @Suite(.serialized) struct MediaRunInputTests {
     @Test func existingStartRouteKeepsSelectedWorkflowAndPrimaryImagePins() async throws {
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MediaInputWire.self]
-        let client = LiveGatewayClient(baseURL: URL(string: "https://gateway.test")!, token: "fixture", session: URLSession(configuration: config))
+        let client = LiveGatewayClient(baseURL: URL(string: "https://gateway.test")!, token: "fixture", session: URLSession(configuration: config), readTries: 1)
         let old = PhoneArtifact(artifactId: "old", runId: "earlier-run", filename: "Old.png", contentType: "image/png").ref
         let upload = PhoneArtifact(artifactId: "fresh", runId: "session_memory_chat", filename: "New.png", contentType: "image/png").ref
         for attachments in [[], [upload]] {

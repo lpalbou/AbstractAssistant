@@ -1,5 +1,5 @@
 import XCTest
-import PhoneGatewayClient
+import AbstractGatewayClient
 import AssistantKit
 @testable import AbstractAssistantPhone
 
@@ -8,7 +8,7 @@ final class AttachmentAndVoiceTests: XCTestCase {
         let base = FileManager.default.temporaryDirectory.appending(path: "preview-test-\(UUID())")
         defer { try? FileManager.default.removeItem(at: base) }
         let storage = PhoneTemporaryStorage(temporaryDirectory: base)
-        let files = AttachmentsController(storage: storage), client = MockGatewayClient()
+        let files = AttachmentsController(storage: storage), client = MockGatewayClient(world: .phone)
         let artifact = try await client.artifacts(sessionId: "test").first!
         var previous: URL?
         for _ in 0..<12 {
@@ -31,7 +31,7 @@ final class AttachmentAndVoiceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: source) }
         let copy = try ImportedMedia.copy(source), folder = copy.deletingLastPathComponent()
         let files = AttachmentsController()
-        files.importFile(copy, client: MockGatewayClient(), sessionId: "test", owned: true)
+        files.importFile(copy, client: MockGatewayClient(world: .phone), sessionId: "test", owned: true)
         for _ in 0..<200 where files.busy { try await Task.sleep(for: .milliseconds(10)) }
         XCTAssertEqual(files.pending.count, 1)
         XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path))
@@ -40,13 +40,13 @@ final class AttachmentAndVoiceTests: XCTestCase {
 
     @MainActor func testPreviewUsesALocalFileAndResetRemovesIt() async throws {
         let files = AttachmentsController()
-        let client = MockGatewayClient()
+        let client = MockGatewayClient(world: .phone)
         let artifact = try await client.artifacts(sessionId: "test").first!
         files.open(artifact, client: client)
         for _ in 0..<100 where files.busy { try await Task.sleep(for: .milliseconds(10)) }
         let url = try XCTUnwrap(files.preview)
         XCTAssertTrue(url.isFileURL)
-        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), MockGatewayClient.cannedAnswer)
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), MockGatewayClient.World.phone.cannedAnswer)
         files.reset()
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
     }
@@ -55,7 +55,7 @@ final class AttachmentAndVoiceTests: XCTestCase {
         let url = FileManager.default.temporaryDirectory.appending(path: "phone-test-\(UUID()).txt")
         try Data("hello".utf8).write(to: url)
         defer { try? FileManager.default.removeItem(at: url) }
-        files.importFile(url, client: MockGatewayClient(), sessionId: "original")
+        files.importFile(url, client: MockGatewayClient(world: .phone), sessionId: "original")
         for _ in 0..<200 where files.busy { try await Task.sleep(for: .milliseconds(10)) }
         files.bind("original")
         XCTAssertEqual(files.pending.count, 1)

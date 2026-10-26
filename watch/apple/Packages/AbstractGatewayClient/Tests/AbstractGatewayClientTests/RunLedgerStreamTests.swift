@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import PhoneGatewayClient
+@testable import AbstractGatewayClient
 
 @Suite struct LedgerSSEParserTests {
     @Test func splitBytesMultilineJSONCommentsAndPrivateFrames() throws {
@@ -49,7 +49,7 @@ private final class LedgerWireStub: URLProtocol, @unchecked Sendable {
     private func client() -> LiveGatewayClient {
         LedgerWireStub.requests = []
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [LedgerWireStub.self]
-        return LiveGatewayClient(baseURL: URL(string: "https://gateway.test")!, token: "test-token", session: URLSession(configuration: config))
+        return LiveGatewayClient(baseURL: URL(string: "https://gateway.test")!, token: "test-token", session: URLSession(configuration: config), readTries: 1)
     }
     @Test func authenticatedStreamUsesConsumedCursorAndDone() async throws {
         let client = client()

@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 @testable import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 @Suite @MainActor struct ActivityStoreTests {
     private func run(_ json: String) throws -> RunSummary {
@@ -86,23 +86,23 @@ import PhoneGatewayClient
     }
     @Test func approveAllKeepsModesAndUsesOrdinaryChildApproval() async throws {
         let client = try await nestedClient()
-        let store = try await store(client, selection: .init(modes: ["read_file": .approve, "write_file": .off, "disabled_tool": .approve]))
+        let store = try await store(client, selection: .init(modes: ["read_file": .ask, "write_file": .off, "disabled_tool": .ask]))
         await store.followActiveRun()
         let wait = try #require(store.conversationWait)
         #expect(await store.approveAll(wait))
         #expect(await client.answered == ["leaf"])
         #expect(await client.answers == [.approve])
-        #expect(store.conversationTools?.modes["read_file"] == .approve)
+        #expect(store.conversationTools?.modes["read_file"] == .ask)
         #expect(store.sessionApprovalGrants == ["read_file"])
         #expect(store.conversationTools?.modes["write_file"] != .auto)
         #expect(store.conversationTools?.modes["disabled_tool"] != .auto)
-        #expect(store.conversationTools == .init(modes: ["read_file": .approve, "write_file": .off, "disabled_tool": .approve]))
+        #expect(store.conversationTools == .init(modes: ["read_file": .ask, "write_file": .off, "disabled_tool": .ask]))
         store.disconnect()
     }
     @Test func revokingSessionApprovalsDuringARunPreservesAutoAndOffModes() async throws {
         let client = try await nestedClient()
         await client.keepRunningAfterAnswer()
-        let original = ConversationTools(modes: ["read_file": .approve, "write_file": .auto, "disabled_tool": .off])
+        let original = ConversationTools(modes: ["read_file": .ask, "write_file": .auto, "disabled_tool": .off])
         let store = try await store(client, selection: original)
         await store.followActiveRun()
         #expect(await store.approveAll(try #require(store.conversationWait)))
@@ -120,7 +120,7 @@ import PhoneGatewayClient
     }
     @Test func approveAllWithInheritedDefaultsDoesNotCreateAutoOverrides() async throws {
         let client = try await nestedClient(), store = try await store(client)
-        store.setAppTools(.init(modes: ["read_file": .approve, "write_file": .auto]))
+        store.setAppTools(.init(modes: ["read_file": .ask, "write_file": .auto]))
         let original = store.appTools
         await store.followActiveRun()
         #expect(await store.approveAll(try #require(store.conversationWait)))
@@ -186,7 +186,7 @@ import PhoneGatewayClient
         #expect(store.sessionApprovalGrants.isEmpty && store.legacySessionApprovalNames.count == 2)
         #expect(store.conversationTools == original)
         store.reviewLegacySessionApprovals(askingAgain: ["read_file"])
-        #expect(store.conversationTools?.modes["read_file"] == .approve)
+        #expect(store.conversationTools?.modes["read_file"] == .ask)
         #expect(store.conversationTools?.modes["write_file"] == .auto)
         #expect(store.conversationTools?.modes["disabled_tool"] == .off)
         #expect(store.legacySessionApprovalNames.isEmpty)
@@ -206,7 +206,7 @@ import PhoneGatewayClient
     @Test func grantedNamesAutoApproveLaterChildWaitButOffAndUnknownToolsStillAsk() async throws {
         let client = try await nestedClient()
         await client.keepRunningAfterAnswer()
-        let store = try await store(client, selection: .init(modes: ["read_file": .approve, "write_file": .off]))
+        let store = try await store(client, selection: .init(modes: ["read_file": .ask, "write_file": .off]))
         await store.followActiveRun()
         let wait = try #require(store.conversationWait)
         #expect(await store.approveAll(wait))
@@ -243,7 +243,7 @@ import PhoneGatewayClient
         await store.followActiveRun()
         #expect(await store.approveAll(try #require(store.conversationWait)))
         #expect(store.canSend)
-        store.setConversationTools(.init(modes: ["read_file": .approve]))
+        store.setConversationTools(.init(modes: ["read_file": .ask]))
         await client.nextApproval(names: ["read_file"], key: "after-edit")
         store.send("Another request")
         for _ in 0..<1000 { if store.activeRunID != nil { break }; await Task.yield() }
@@ -331,7 +331,7 @@ import PhoneGatewayClient
         let pending = Task { await store.followActiveRun() }
         for _ in 0..<1000 { if await client.waiting { break }; await Task.yield() }
         #expect(await client.waiting)
-        store.disconnect(); store.connect(nil, client: MockGatewayClient())
+        store.disconnect(); store.connect(nil, client: MockGatewayClient(world: .phone))
         await client.release(); await pending.value
         #expect(store.activityRootID == nil && store.activity.items.isEmpty)
         #expect(store.conversationWait == nil && store.activeRunID == nil)
@@ -419,7 +419,7 @@ import PhoneGatewayClient
         await client.failNextLedger(.unauthorized); await client.gateNextLedger(1)
         let old = Task { await store.loadAnswerActivity(runID: "history") }
         await waitForGate(1, client: client)
-        store.disconnect(); store.connect(nil, client: MockGatewayClient())
+        store.disconnect(); store.connect(nil, client: MockGatewayClient(world: .phone))
         await client.releaseLedger(1); await old.value
         #expect(store.client != nil && store.error == nil && store.answerActivities.isEmpty)
         store.disconnect()
@@ -431,7 +431,7 @@ private actor ActivityClient: GatewayClient {
     nonisolated let isMock = true
     var waiting = false
     var continuation: CheckedContinuation<Void, Never>?
-    let mock = MockGatewayClient()
+    let mock = MockGatewayClient(world: .phone)
     var states: [String: RunSummary] = [:]
     var records: [String: [LedgerRecord]] = [:]
     var ledgerReads: [(String, Int)] = []

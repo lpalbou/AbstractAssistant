@@ -1,6 +1,6 @@
 import SwiftUI
 import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 import Observation
 
 struct ConversationShareSnapshot: Identifiable {

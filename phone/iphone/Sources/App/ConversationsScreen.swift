@@ -1,6 +1,6 @@
 import SwiftUI
 import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 struct ConversationsSheet: View {
     var onOpen: () -> Void
@@ -102,9 +102,9 @@ private struct ConversationHistoryList: View {
                     .background(PhoneTheme.lavender.opacity(0.08), in: Circle())
             }.buttonStyle(.plain)
                 .disabled(archived ? !store.sessionArchiveBusy.isEmpty : !store.canArchive(session))
-                .opacity(!archived && session.isLive ? 0.35 : 1)
+                .opacity(!archived && session.anyTurnLive ? 0.35 : 1)
                 .accessibilityLabel(archived ? "Restore conversation" : "Archive conversation")
-                .accessibilityHint(!archived && session.isLive ? "Available after this conversation finishes." : "")
+                .accessibilityHint(!archived && session.anyTurnLive ? "Available after this conversation finishes." : "")
                 .accessibilityIdentifier((archived ? "conversation.restore." : "conversation.archive.") + session.id)
         }.padding(16).background(PhoneTheme.surface, in: RoundedRectangle(cornerRadius: 20))
     }
@@ -142,8 +142,8 @@ private struct ConversationHistoryList: View {
         }
     }
     @ViewBuilder private func state(_ session: SessionSummary) -> some View {
-        if session.needsPerson { stat("Needs you", symbol: "hand.raised", color: PhoneTheme.amber) }
-        else if session.isLive { stat("Working", symbol: "circle.dotted", color: PhoneTheme.mint) }
+        if session.anyTurnNeedsPerson { stat("Needs you", symbol: "hand.raised", color: PhoneTheme.amber) }
+        else if session.anyTurnLive { stat("Working", symbol: "circle.dotted", color: PhoneTheme.mint) }
         else if session.status == "failed" { stat("Failed", symbol: "exclamationmark.circle", color: PhoneTheme.amber) }
     }
 }

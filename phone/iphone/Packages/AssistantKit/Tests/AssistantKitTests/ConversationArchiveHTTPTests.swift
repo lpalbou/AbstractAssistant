@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import PhoneGatewayClient
+import AbstractGatewayClient
 import AssistantKit
 
 private final class ArchiveWire: URLProtocol, @unchecked Sendable {
@@ -55,7 +55,7 @@ private final class ArchiveWire: URLProtocol, @unchecked Sendable {
     private func client(_ mode: String) -> LiveGatewayClient {
         ArchiveWire.configure(mode)
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [ArchiveWire.self]
-        return LiveGatewayClient(baseURL: URL(string: "https://gateway.test")!, token: "fixture-key", session: URLSession(configuration: config))
+        return LiveGatewayClient(baseURL: URL(string: "https://gateway.test")!, token: "fixture-key", session: URLSession(configuration: config), readTries: 1)
     }
     private func store(_ api: LiveGatewayClient) async -> AssistantStore {
         let value = AssistantStore(defaults: UserDefaults(suiteName: "archive-wire-\(UUID())")!)
@@ -81,7 +81,7 @@ private final class ArchiveWire: URLProtocol, @unchecked Sendable {
         #expect(value.sessions.count == 1 && value.historyError != nil && value.sessionArchiveBusy.isEmpty)
         value.disconnect()
         let live = await store(client("becameLive")); let stale = try #require(live.sessions.first)
-        #expect(!stale.isLive); #expect(!(await live.setArchived(stale, true)))
+        #expect(!stale.anyTurnLive); #expect(!(await live.setArchived(stale, true)))
         #expect(!ArchiveWire.paths.contains { $0.hasSuffix("/archive") })
         #expect(live.historyError?.contains("working") == true); live.disconnect()
     }
@@ -97,7 +97,7 @@ private final class ArchiveWire: URLProtocol, @unchecked Sendable {
         let task = Task { await value.setArchived(session, true) }
         for _ in 0..<10000 { if ArchiveWire.isHeld { break }; await Task.yield() }
         #expect(ArchiveWire.isHeld); #expect(!value.canSend && !value.canOpenConversation)
-        value.connect(nil, client: MockGatewayClient()); let context = value.contextID
+        value.connect(nil, client: MockGatewayClient(world: .phone)); let context = value.contextID
         ArchiveWire.release(status: 200, body: "{}")
         #expect(!(await task.value)); #expect(value.contextID == context && value.historyError == nil && value.archivedRuns.isEmpty)
         #expect(value.sessionArchiveBusy.isEmpty); value.disconnect()

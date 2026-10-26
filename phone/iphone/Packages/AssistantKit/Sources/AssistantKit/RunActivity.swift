@@ -1,5 +1,5 @@
 import Foundation
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 public struct RunActivityItem: Identifiable, Equatable, Sendable {
     public enum Kind: String, Sendable { case model, tool, result, wait, failure, workflow }

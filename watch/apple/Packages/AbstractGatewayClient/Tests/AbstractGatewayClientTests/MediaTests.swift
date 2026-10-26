@@ -61,14 +61,14 @@ private let imageOutput = """
     let orchestrator = WorkflowChoice(bundleId: "abstractassistant-orchestrator", bundleVersion: "0.0.0", flowId: "d5d4e5a1",
                                       name: "AbstractAssistant Orchestrator", interface: WorkflowChoice.assistantInterface, registryScope: "private")
     let body = try JSONSerialization.jsonObject(with: JSONEncoder().encode(
-        StartRunRequest(prompt: "draw an apple", sessionId: "s", workflow: orchestrator))) as! [String: Any]
+        StartRunRequest(prompt: "draw an apple", sessionId: "s", system: AssistantPersona.watch, workflow: orchestrator))) as! [String: Any]
     #expect(body["bundle_id"] as? String == "abstractassistant-orchestrator")
     #expect(body["bundle_version"] as? String == "0.0.0")
     #expect(body["flow_id"] as? String == "d5d4e5a1")
     #expect(body["interface"] as? String == "abstractassistant.agent.v1")
     #expect(body["registry_scope"] as? String == "private")
     // None chosen: the gateway's default agent, as before.
-    let plain = try JSONSerialization.jsonObject(with: JSONEncoder().encode(StartRunRequest(prompt: "hi", sessionId: "s"))) as! [String: Any]
+    let plain = try JSONSerialization.jsonObject(with: JSONEncoder().encode(StartRunRequest(prompt: "hi", sessionId: "s", system: AssistantPersona.watch))) as! [String: Any]
     #expect(plain["flow_id"] as? String == "@default" && plain["interface"] as? String == "abstractcode.agent.v1")
     #expect(plain["bundle_id"] == nil)
 }
@@ -78,7 +78,7 @@ private let imageOutput = """
                                       name: "AbstractAssistant Orchestrator", interface: WorkflowChoice.assistantInterface)
     let image = MediaItem(artifactId: "9e95848e506f", runId: "6a27d3a7", contentType: "image/png", kind: .image, sizeBytes: 1_851_974)
     let body = try JSONSerialization.jsonObject(with: JSONEncoder().encode(
-        StartRunRequest(prompt: "make it simpler", sessionId: "s", workflow: orchestrator, primaryImage: image))) as! [String: Any]
+        StartRunRequest(prompt: "make it simpler", sessionId: "s", system: AssistantPersona.watch, workflow: orchestrator, primaryImage: image))) as! [String: Any]
     let input = body["input_data"] as! [String: Any]
     let ref = input["primary_image_artifact"] as? [String: String]
     #expect(ref == ["$artifact": "9e95848e506f", "run_id": "6a27d3a7", "content_type": "image/png"])
@@ -86,11 +86,11 @@ private let imageOutput = """
     #expect((input["context"] as? [String: Any])?["primary_image_artifact"] as? [String: String] == ref)
     // No image yet: the workflow is told so (it then asks for one rather than guessing).
     let none = try JSONSerialization.jsonObject(with: JSONEncoder().encode(
-        StartRunRequest(prompt: "make it simpler", sessionId: "s", workflow: orchestrator))) as! [String: Any]
+        StartRunRequest(prompt: "make it simpler", sessionId: "s", system: AssistantPersona.watch, workflow: orchestrator))) as! [String: Any]
     #expect((none["input_data"] as! [String: Any])["has_primary_image_context"] as? Bool == false)
     // An agent has no such input: nothing is sent to it.
     let agent = try JSONSerialization.jsonObject(with: JSONEncoder().encode(
-        StartRunRequest(prompt: "hi", sessionId: "s", primaryImage: image))) as! [String: Any]
+        StartRunRequest(prompt: "hi", sessionId: "s", system: AssistantPersona.watch, primaryImage: image))) as! [String: Any]
     let agentInput = agent["input_data"] as! [String: Any]
     #expect(agentInput["primary_image_artifact"] == nil && agentInput["has_primary_image_context"] == nil)
 }
@@ -111,7 +111,7 @@ private let imageOutput = """
 }
 
 @Test func theMockMakesAPictureWithTheAssistantsWorkflow() async throws {
-    let mock = MockGatewayClient(wordInterval: 0.001)
+    let mock = MockGatewayClient(world: .watch, wordInterval: 0.001)
     let orchestrator = try await mock.conversationWorkflows().first { $0.interface == WorkflowChoice.assistantInterface }
     let id = try await mock.startRun(prompt: "Draw an apple", sessionId: "s", toolPolicy: nil, tools: nil, workflow: orchestrator, primaryImage: nil)
     try await Task.sleep(for: .milliseconds(1400))

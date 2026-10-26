@@ -1,6 +1,6 @@
 import Foundation
 import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 import AssistantPush
 
 /// The iPhone's sign-in, a Keychain item shared through the app group (`SharedSignInStore`) so the

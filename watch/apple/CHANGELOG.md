@@ -7,6 +7,40 @@ iPhone app); the Python package's history is in
 
 ## [Unreleased]
 
+### Changed
+
+- **A question that could not be sent keeps its recording.** When the upload or the transcription
+  fails, the orb says "Not sent." with Retry and Discard under it; the recording
+  waits in its own file through leaving the page and relaunching, and nothing sends it on its own.
+  Retry sends the same recording; Discard deletes it. (Backlog 1054, slice 0.)
+- **A haptic when listening starts**, as there was one when the microphone closes and when an
+  answer arrives.
+- **The sign-in lives in the Keychain, shared through the app group.** A Keychain item of the
+  app's service, readable after the first unlock (the notification extension reads it while the
+  device is locked), bound to this device, never in a backup, never synced; the app group doubles
+  as the access group so the extension (and, on the watch, the complication) read the same item.
+  Until now it was a file in the app group sealed with a key kept beside it, which protected
+  nothing; that file (and the plain one of the interim builds) is moved into the Keychain at its
+  first read, so nobody signs in again. The watch's kept sign-ins moved from UserDefaults into a
+  second Keychain item (backlog 1053).
+- **The hold on the orb is shorter and its ring smaller.** A hold toggles in about a second
+  (1.05 s, 30 % less than before) and its ring closes well inside the screen instead of reaching
+  past its edge.
+- **The read-aloud button is a speaker, not a play button.** Beside Back on the orb page and
+  on an automation's page, the voice button shows a speaker at rest (pause while it speaks, as
+  before); its spoken label is "Read aloud".
+
+- **One gateway client for the watch and the iPhone (backlog 1053 step 3).** The iPhone's copy of
+  this client (`PhoneGatewayClient`) is folded back into `Packages/AbstractGatewayClient`, which now
+  holds every route and wire model either app uses; the iPhone's `AssistantKit` depends on it. For
+  the watch: an error the gateway explains shows its words (`detail`) instead of the generic line;
+  a recording is uploaded under `voice/dictation/`, so the iPhone's file list tells it apart from a
+  file; the archived conversations are read page after page instead of one page of 200; a
+  workflow the gateway marks archived, deprecated or not runnable is not offered; an entity row's
+  `slug` is its name when the gateway sends one; a discovery that reports an error fails the read;
+  speech that meets a 401 stops the client as every other call does. The sample client takes a
+  world (`MockGatewayClient(world: .watch)`); its data, launch hooks and timings are the watch's.
+
 ### Added
 
 - **One product with the iPhone (version 0.16.0, build 39).** The watch app is now the companion of

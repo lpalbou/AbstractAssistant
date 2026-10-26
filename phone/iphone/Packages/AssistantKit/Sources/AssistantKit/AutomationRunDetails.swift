@@ -1,5 +1,5 @@
 import Foundation
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 /// Presentation of a recorded occurrence. A provider's 401 is not a phone sign-in failure.
 public struct AutomationRunExplanation: Sendable {
@@ -62,4 +62,12 @@ extension LastOccurrence {
     public var isActive: Bool { ["admitted", "running", "waiting", "backoff"].contains(status ?? "") }
     public var occurrenceKey: String { index.map { "occurrence-\($0)" } ?? stableID }
     public var stableID: String { runId ?? "occurrence-\(index.map(String.init) ?? firedAt ?? "unknown")" }
+}
+
+public extension GatewayClient {
+    /// The gateway's budget for an automation that builds on its earlier runs; nil from a gateway
+    /// without `GET /automations/defaults` (404), never an invented value.
+    func defaultGrowingMaxTokens() async throws -> Int? {
+        do { return try await automationDefaults().growingMaxTokens } catch GatewayError.http(status: 404, body: _) { return nil }
+    }
 }

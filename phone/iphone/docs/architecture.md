@@ -14,7 +14,7 @@ flowchart LR
     APNs[Apple push] --> NSE[Notification service extension]
     Vault --> NSE
     NSE --> Gateway
-    Store --> Client[PhoneGatewayClient snapshot]
+    Store --> Client[AbstractGatewayClient, shared with the watch]
     Voice --> Client
     Views --> Files[Attachment import and authenticated preview]
     Files --> Client
@@ -27,8 +27,11 @@ flowchart LR
 
 `Sources/App` owns native views, the sign-in (`ConnectionVault`), push registration
 (`PhonePush`), the watch handoff (`WatchLink`), recording and playback. The `AssistantKit`
-Swift package owns account-scoped state and URL validation. Its second target,
-`PhoneGatewayClient` (named apart from the watch's `AbstractGatewayClient`, so both packages live in one project), contains the HTTP wire types and protocol.
+Swift package owns the iPhone's own logic: account-scoped state, URL validation, the attention
+feed, run activity and the conversation list's grouping. The gateway's HTTP wire types, the
+`GatewayClient` protocol, the live client, the sign-in and the sample client are the
+`AbstractGatewayClient` package every Apple client shares
+(`watch/apple/Packages/AbstractGatewayClient`); `AssistantKit` depends on it.
 
 The gateway remains the source of truth for session history, workflows, tools, approval
 policy, entities, model/voice defaults and automations. The app reads account preferences
@@ -95,13 +98,16 @@ reads the lists again.
 
 ## Relationship to the Watch app
 
-The initial client snapshot comes from `watch/apple/Packages/AbstractGatewayClient`.
-`Packages/AssistantKit/WATCH_SNAPSHOT.json` records the source-file hashes. This isolates
-the phone from ongoing Watch edits and avoids changing the Watch’s package or builds.
-Phone changes add account workflow preference resolution and selection, artifact upload
-and authenticated downloads, the Assistant interface/persona,
-HTTP diagnostics and phone-oriented demo prose. Credential persistence and UI are entirely
-separate. A shared package can be extracted after both clients’ APIs settle.
+The iPhone and the watch use one gateway client, the `AbstractGatewayClient` package in
+`watch/apple/Packages/AbstractGatewayClient` (backlog 1053 step 3; the iPhone kept a copy of it,
+`PhoneGatewayClient`, from 2026-10-19 until then). It holds every route and wire model either app
+uses: what only the iPhone calls (the account's Assistant workflow, uploads and authenticated
+downloads, entity visits, the ledger stream, the event stream's SSE tail) sits beside what only the
+watch calls. Where the two apps still differ on purpose the difference is named, not forked: the
+iPhone reads once (`LiveGatewayClient(…, readTries: 1)`, the watch tries a failed read three times),
+each answers with its own persona (`AssistantPersona.iPhone`, `AssistantPersona.watch`), and the
+sample client keeps one world per app (`MockGatewayClient(world: .phone)`: the demo's answers,
+tools and automations, which the iPhone's tests assert). Credential persistence and UI stay separate.
 
 ## Voice lifecycle
 

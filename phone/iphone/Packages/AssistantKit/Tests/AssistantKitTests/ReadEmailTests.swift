@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import PhoneGatewayClient
+import AbstractGatewayClient
 import AssistantKit
 
 @Suite struct ReadEmailTests {
@@ -47,8 +47,8 @@ import AssistantKit
         #expect(a.readEmailCount == 105 && a.readEmails.count == 100)
     }
     @Test func replayIsolatesSeveralReadAndSentMessages() async throws {
-        let first = try await AnswerActivity.load(runID: "media-demo", client: MockGatewayClient(emailFixture: true, mediaImage: Data([1])))
-        let other = try await AnswerActivity.load(runID: "media-demo", client: MockGatewayClient(mediaImage: Data([1])))
+        let first = try await AnswerActivity.load(runID: "media-demo", client: MockGatewayClient(world: .phone, emailFixture: true, mediaImage: Data([1])))
+        let other = try await AnswerActivity.load(runID: "media-demo", client: MockGatewayClient(world: .phone, mediaImage: Data([1])))
         #expect(first.activity.readEmailCount == 3 && first.activity.sentEmailCount == 3)
         #expect(other.activity.readEmailCount == 0 && other.activity.sentEmailCount == 0)
     }

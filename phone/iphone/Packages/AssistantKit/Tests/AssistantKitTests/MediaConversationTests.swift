@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 @Suite @MainActor struct MediaConversationTests {
     private func fixture() async throws -> (AssistantStore, MediaClient, SessionSummary) {
@@ -77,7 +77,7 @@ import PhoneGatewayClient
 
 private actor MediaClient: GatewayClient {
     nonisolated let isMock = true
-    let mock = MockGatewayClient()
+    let mock = MockGatewayClient(world: .phone)
     var states: [String: RunSummary] = [:]
     func append(_ row: RunSummary) { states[row.runId] = row }
     func configure(_ rows: [RunSummary]) { states = Dictionary(uniqueKeysWithValues: rows.map { ($0.runId, $0) }) }

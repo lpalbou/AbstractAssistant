@@ -1,5 +1,5 @@
 import Foundation
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 public struct AnswerActivity: Sendable {
     public var activity: RunActivity

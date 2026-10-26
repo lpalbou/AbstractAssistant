@@ -268,7 +268,7 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
             // The watch is its own device: it always notifies, then says so (one request per notice
             // it showed, none otherwise) so the person's other clients can tell.
             if await post(n), let record = n.recordKey {
-                try? await client.reportNotification(recordKey: record, device: Self.deviceId)
+                try? await client.reportNotification(NotificationReport(channel: "watch", recordKey: record, device: Self.deviceId))
             }
         }
         return .handled

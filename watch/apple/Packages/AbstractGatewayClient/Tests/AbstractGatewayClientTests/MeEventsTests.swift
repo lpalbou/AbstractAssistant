@@ -122,14 +122,21 @@ struct MeEventsTests {
         #expect(kept == s)
     }
 
+    @Test func aStateKeptBeforeTheSharedClientStillReads() throws {
+        // What the watch saved before `shown` existed: losing it would take stock again and drop news.
+        let old = #"{"cursor":7,"caughtUp":true,"waits":[],"raised":{"a":[6]},"seen":{"a":5},"resolved":["k"]}"#
+        let s = try JSONDecoder().decode(AttentionState.self, from: Data(old.utf8))
+        #expect(s.cursor == 7 && s.caughtUp && s.newResults == 1 && s.resolved == ["k"] && s.shown.isEmpty)
+    }
+
     @Test func theReportBodyIsTheGatewaysShape() throws {
-        let body = try JSONEncoder().encode(NotificationReport(recordKey: "automation:completed:a:1", device: "w1"))
+        let body = try JSONEncoder().encode(NotificationReport(channel: "watch", recordKey: "automation:completed:a:1", device: "w1"))
         let object = try JSONSerialization.jsonObject(with: body) as? [String: String]
         #expect(object == ["channel": "watch", "outcome": "sent", "record_key": "automation:completed:a:1", "device": "w1"])
     }
 
     @Test func theMockServesPagesAfterACursor() async throws {
-        let mock = MockGatewayClient()
+        let mock = MockGatewayClient(world: .watch)
         for i in 1...3 { await mock.appendEvent(result(i, "a", i)) }
         let p = try await mock.events(after: 1, limit: 1)
         #expect(p.events.map(\.sequence) == [2] && p.more && p.head == 3)

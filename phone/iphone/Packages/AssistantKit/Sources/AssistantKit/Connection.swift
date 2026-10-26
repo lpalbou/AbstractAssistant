@@ -1,6 +1,6 @@
 import Foundation
 import CryptoKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 public enum ConnectionError: Error, LocalizedError, Equatable {
     case invalidURL

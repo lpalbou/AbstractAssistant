@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 @Suite struct ArtifactProvenanceTests {
     private func artifact(_ fields: String) throws -> PhoneArtifact {

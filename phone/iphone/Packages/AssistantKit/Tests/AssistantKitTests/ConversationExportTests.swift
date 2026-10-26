@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import PhoneGatewayClient
+import AbstractGatewayClient
 @testable import AssistantKit
 
 struct ConversationExportTests {
@@ -12,7 +12,7 @@ struct ConversationExportTests {
     }
     @Test func repeatedImagesShareOneOriginalAndGeneratedFileStaysWithItsAnswer() async throws {
         let storage = storage(); defer { try? FileManager.default.removeItem(at: storage.temporaryDirectory) }
-        let client = MockGatewayClient(mediaImage: Data("original-image".utf8))
+        let client = MockGatewayClient(world: .phone, mediaImage: Data("original-image".utf8))
         let image = PhoneArtifact(artifactId: "demo-image", runId: "root", filename: "Photo.png", contentType: "image/png")
         let messages: [ConversationMessage] = [.init(role: .user, text: "Use this", artifacts: [image]), .init(role: .assistant, text: "Saved **summary**", runID: "root", artifacts: [image])]
         let value = try await ConversationExportBuilder(storage: storage).prepare(messages: messages, responder: "Assistant", client: client, activities: ["root": try written("/demo/session/discussion-summary.md")])
@@ -26,7 +26,7 @@ struct ConversationExportTests {
     }
     @Test func collisionsKeepBothOriginalsAndNamesCannotEscapeTheExport() async throws {
         let storage = storage(); defer { try? FileManager.default.removeItem(at: storage.temporaryDirectory) }
-        let client = MockGatewayClient(mediaImage: Data("image".utf8), mediaVoice: Data("voice".utf8))
+        let client = MockGatewayClient(world: .phone, mediaImage: Data("image".utf8), mediaVoice: Data("voice".utf8))
         let files: [PhoneArtifact] = [.init(artifactId: "demo-image", runId: "r", filename: "same.bin", contentType: "application/octet-stream"), .init(artifactId: "demo-voice", runId: "r", filename: "same.bin", contentType: "application/octet-stream")]
         let value = try await ConversationExportBuilder(storage: storage).prepare(messages: [.init(role: .user, text: "Files", artifacts: files)], responder: "Assistant", client: client)
         #expect(Set(value.files.map(\.name)).count == 2 && value.files.count == 2)
@@ -37,7 +37,7 @@ struct ConversationExportTests {
         let storage = storage(); defer { try? FileManager.default.removeItem(at: storage.temporaryDirectory) }
         for target in ["/demo/session/missing.md", "/private/other/secret.md"] {
             do {
-                _ = try await ConversationExportBuilder(storage: storage).prepare(messages: [.init(role: .assistant, text: "Saved", runID: "root")], responder: "Assistant", client: MockGatewayClient(), activities: ["root": try written(target)])
+                _ = try await ConversationExportBuilder(storage: storage).prepare(messages: [.init(role: .assistant, text: "Saved", runID: "root")], responder: "Assistant", client: MockGatewayClient(world: .phone), activities: ["root": try written(target)])
                 Issue.record("Expected missing/outside workspace rejection")
             } catch is ConversationExportError { }
         }
@@ -46,7 +46,7 @@ struct ConversationExportTests {
     }
     @Test func cancellationRemovesOwnedCopies() async throws {
         let storage = storage(); defer { try? FileManager.default.removeItem(at: storage.temporaryDirectory) }
-        let task = Task { try await ConversationExportBuilder(storage: storage).prepare(messages: [.init(role: .user, text: "test")], responder: "Assistant", client: MockGatewayClient()) }
+        let task = Task { try await ConversationExportBuilder(storage: storage).prepare(messages: [.init(role: .user, text: "test")], responder: "Assistant", client: MockGatewayClient(world: .phone)) }
         task.cancel()
         do { _ = try await task.value; Issue.record("Expected cancellation") } catch is CancellationError { }
         let root = storage.root.appending(path: "exports")
@@ -54,7 +54,7 @@ struct ConversationExportTests {
     }
     @Test func identicalContentFromDistinctRefsOccursOnlyOnceWithinATurn() async throws {
         let storage = storage(); defer { try? FileManager.default.removeItem(at: storage.temporaryDirectory) }
-        let bytes = Data("same original".utf8), client = MockGatewayClient(mediaImage: bytes, mediaVoice: bytes)
+        let bytes = Data("same original".utf8), client = MockGatewayClient(world: .phone, mediaImage: bytes, mediaVoice: bytes)
         let files = [PhoneArtifact(artifactId: "demo-image", runId: "r", filename: "same.dat", contentType: "application/octet-stream"), PhoneArtifact(artifactId: "demo-voice", runId: "r", filename: "same.dat", contentType: "application/octet-stream")]
         let export = try await ConversationExportBuilder(storage: storage).prepare(messages: [.init(role: .user, text: "Shared", artifacts: files)], responder: "Assistant", client: client)
         #expect(export.files.count == 1 && export.turns.first?.fileIDs.count == 1)

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import PhoneGatewayClient
+import AbstractGatewayClient
 import AssistantKit
 
 private final class WireStub: URLProtocol, @unchecked Sendable {
@@ -29,7 +29,7 @@ private final class WireStub: URLProtocol, @unchecked Sendable {
     private func client() -> LiveGatewayClient {
         WireStub.requests = []; WireStub.bodies = []
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [WireStub.self]
-        return LiveGatewayClient(baseURL: URL(string: "https://gateway.example")!, token: "test-token", session: URLSession(configuration: config))
+        return LiveGatewayClient(baseURL: URL(string: "https://gateway.example")!, token: "test-token", session: URLSession(configuration: config), readTries: 1)
     }
     @Test func expiredCredentialMakesNoFurtherWireRequests() async {
         let client = client(); WireStub.response = { _ in (401, "{}") }
@@ -118,7 +118,7 @@ private final class WireStub: URLProtocol, @unchecked Sendable {
             default: (404, "{}")
             }
         }
-        let tools = ConversationTools(modes: ["read_file": .auto, "send_email": .approve, "execute_command": .off])
+        let tools = ConversationTools(modes: ["read_file": .auto, "send_email": .ask, "execute_command": .off])
         let file = PhoneArtifact(artifactId: "file", runId: "owner", filename: "a.txt", contentType: "text/plain")
         _ = try await client.startRun(prompt: "Review", sessionId: "s", attachments: [file.ref], tools: tools)
         let body = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[2])
@@ -140,7 +140,7 @@ private final class WireStub: URLProtocol, @unchecked Sendable {
             }
             return (200, #"{"run_id":"visit","status":"waiting","turn_n":0,"reply":null}"#)
         }
-        _ = try await client.openEntitySession(name: "castor", sessionID: "local", tools: .init(modes: ["diary_read": .approve]))
+        _ = try await client.openEntitySession(name: "castor", sessionID: "local", tools: .init(modes: ["diary_read": .ask]))
         #expect(WireStub.requests[1].url!.path == "/api/gateway/entities/castor/" + (canonical ? "visit/open" : "sessions"))
         let open = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[1])
         #expect(open["session_id"] == .string("local"))
@@ -163,9 +163,9 @@ private final class WireStub: URLProtocol, @unchecked Sendable {
     @Test func optionalMeasurementsAndDefaultsHandleOlderGatewaysWithoutInventedValues() async throws {
         let client = client(); WireStub.response = { _ in (404, "{}") }
         #expect(try await client.messageStats(runID: "old") == nil)
-        #expect(try await client.automationDefaults() == nil)
+        #expect(try await client.defaultGrowingMaxTokens() == nil)
         WireStub.response = { _ in (403, "{}") }
-        await #expect(throws: GatewayError.self) { try await client.automationDefaults() }
+        await #expect(throws: GatewayError.self) { try await client.defaultGrowingMaxTokens() }
     }
 
     @Test func establishedAssistantRoutesSupportToolsWithoutAnyNewCapabilityEndpoint() async throws {
@@ -179,7 +179,7 @@ private final class WireStub: URLProtocol, @unchecked Sendable {
             }
         }
         #expect(try await client.tools().map(\.name) == ["read_file", "send_email"])
-        let choices = ConversationTools(modes: ["read_file": .auto, "send_email": .approve, "execute_command": .off])
+        let choices = ConversationTools(modes: ["read_file": .auto, "send_email": .ask, "execute_command": .off])
         #expect(try await client.startRun(prompt: "Hi", sessionId: "s", attachments: [], tools: choices) == "established-run")
         let body = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[3])
         #expect(body["input_data"]?["tools"] == .array([.string("read_file"), .string("send_email")]))
@@ -224,7 +224,7 @@ private final class WireStub: URLProtocol, @unchecked Sendable {
             default: (404, "{}")
             }
         }
-        let saved = ConversationTools(modes: ["read_file": .approve, "send_email": .auto, "execute_command": .off, "removed_tool": .auto])
+        let saved = ConversationTools(modes: ["read_file": .ask, "send_email": .auto, "execute_command": .off, "removed_tool": .auto])
         _ = try await client.startRun(prompt: "Use tools", sessionId: "s", attachments: [], tools: saved)
         let body = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[2])
         #expect(body["input_data"]?["tools"] == .array([.string("read_file")]))

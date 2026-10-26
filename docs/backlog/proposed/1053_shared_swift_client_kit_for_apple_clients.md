@@ -98,7 +98,18 @@ JSON under Data Protection, 0600, excluded from backups, the 0.15 pair moved at 
 tests cover the attributes and the move), the watch's kept sign-ins moved from UserDefaults into
 `kept-signins.json` beside it, the iPhone's module is `PhoneGatewayClient` and the watch package
 is a plain dependency of the one project (the static-framework target is gone; ADR 0005 amended).
-Step 3 (converge file by file when a fix touches both) remains, and starts with `Auth.swift`.
+Step 3 shipped the same day as one dedicated pass (an Opus worker on branch
+`phone-client-convergence`, applied to main): `PhoneGatewayClient` is gone, `AbstractGatewayClient`
+holds every route and wire model either app uses (164 package tests), `AssistantKit` depends on it
+(198 tests), `MockGatewayClient(world: .watch | .phone)` is one actor with one sample world per
+app, and the two packages went from 10,653 to 8,673 lines of Swift. Both apps and all three
+extensions build, the watch's Release build (broken on main by two debug-only types used outside
+a debug guard) builds again, and no test that passed before fails. The twenty judgment calls (which
+copy's behaviour won where the two differed) are in `untracked/convergence-log-2026-10-26.md` and
+summarised in both changelogs. Not unified, on purpose: the two media models (`MediaItem` /
+`SessionFile` and `PhoneArtifact` / `WorkspaceEntry`) and the two tool-choice representations,
+each app's persona, and the phone's single read try. This item can be closed once the operator has
+used both apps on the converged client for a few days.
 
 ## Promotion criteria
 - Ruled on 2026-10-26 (above); promote when a session is free to take it.

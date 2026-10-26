@@ -27,9 +27,9 @@ packages:
     path: Packages/AssistantKit
   AssistantPush:
     path: Packages/AssistantPush
-  # The watch's own gateway client (tested there with `swift test`); the iPhone's module is
-  # PhoneGatewayClient, so the two packages can share one project.
-  WatchGatewayClient:
+  # The gateway client every Apple client shares (module AbstractGatewayClient; tested there with
+  # `swift test`); AssistantKit, the iPhone's own logic, depends on it.
+  AbstractGatewayClient:
     path: ../../watch/apple/Packages/AbstractGatewayClient
 targets:
   # ── iPhone ────────────────────────────────────────────────────────────────────────────────────
@@ -41,8 +41,7 @@ targets:
     dependencies:
       - package: AssistantKit
         product: AssistantKit
-      - package: AssistantKit
-        product: PhoneGatewayClient
+      - package: AbstractGatewayClient
       - package: AssistantPush
       - target: AbstractAssistantPhoneNotifications
       # The watch app ships inside the iPhone app (Watch/), as its companion.
@@ -135,8 +134,7 @@ targets:
       - target: AbstractAssistantPhone
       - package: AssistantKit
         product: AssistantKit
-      - package: AssistantKit
-        product: PhoneGatewayClient
+      - package: AbstractGatewayClient
       - package: AssistantPush
     settings:
       base:
@@ -155,8 +153,7 @@ targets:
       - ../../watch/apple/Localization
       - ../../watch/apple/Complication/Assets.xcassets
     dependencies:
-      - package: WatchGatewayClient
-        product: AbstractGatewayClient
+      - package: AbstractGatewayClient
         embed: false
       - package: AssistantPush
       # The Assistant complication (the app's orb on the watch face), embedded in the app.

@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 @Test func gatewayAddressesCannotCarryCredentialsOrDowngradeInternetTraffic() throws {
     #expect(try SavedConnection.parseURL("gateway.example.org/console").absoluteString == "https://gateway.example.org")
@@ -37,7 +37,7 @@ import PhoneGatewayClient
     let connection = SavedConnection(gateway: URL(string: "https://gateway.example")!, user: "alice", credential: .token("test"))
     defaults.set("s-adtte", forKey: "phone.session." + connection.scope)
     let store = AssistantStore(defaults: defaults)
-    store.connect(connection, client: MockGatewayClient())
+    store.connect(connection, client: MockGatewayClient(world: .phone))
     #expect(!store.canSend && store.isRestoring)
     await store.refresh()
     #expect(store.sessionID == "s-adtte")
@@ -53,7 +53,7 @@ import PhoneGatewayClient
     store.connect(nil, client: gate)
     let pending = Task { await store.refresh() }
     while !(await gate.waiting) { await Task.yield() }
-    store.disconnect(); store.connect(nil, client: MockGatewayClient())
+    store.disconnect(); store.connect(nil, client: MockGatewayClient(world: .phone))
     await gate.release()
     await pending.value
     #expect(store.principal == nil && store.runs.isEmpty && !store.isRefreshing)
@@ -63,7 +63,7 @@ import PhoneGatewayClient
 
 @Test @MainActor func expiredSignInInvalidatesTheClientOnce() async {
     let store = AssistantStore()
-    store.connect(nil, client: MockGatewayClient())
+    store.connect(nil, client: MockGatewayClient(world: .phone))
     var invalidations = 0
     store.onUnauthorized = { invalidations += 1 }
     store.authenticationExpired()
@@ -75,7 +75,7 @@ private actor SuspendedClient: GatewayClient {
     nonisolated let isMock = true
     var waiting = false
     var continuation: CheckedContinuation<Void, Never>?
-    let mock = MockGatewayClient()
+    let mock = MockGatewayClient(world: .phone)
     func release() { continuation?.resume(); continuation = nil }
     func me() async throws -> Principal { await withCheckedContinuation { continuation = $0; waiting = true }; return Principal(userId: "old-account", tenantId: "default", roles: ["user"]) }
     func health() async throws -> Bool { true }
@@ -203,7 +203,7 @@ private actor StoppingClient: GatewayClient {
     nonisolated let isMock = true
     var waiting = false
     var continuation: CheckedContinuation<Void, Never>?
-    let mock = MockGatewayClient()
+    let mock = MockGatewayClient(world: .phone)
     func release() { continuation?.resume(); continuation = nil }
     func me() async throws -> Principal { try await mock.me() }
     func health() async throws -> Bool { true }
@@ -251,7 +251,7 @@ private actor StoppingClient: GatewayClient {
 }
 
 @Test func mockCancellationRemainsAConfirmedTerminalRun() async throws {
-    let client = MockGatewayClient()
+    let client = MockGatewayClient(world: .phone)
     let id = try await client.startRun(prompt: "hello", sessionId: nil, toolPolicy: nil)
     try await client.cancel(runId: id)
     let run = try await client.run(id: id)
@@ -278,7 +278,7 @@ private actor StoppingClient: GatewayClient {
 }
 
 @Test @MainActor func automationArchiveAndRestorePreserveTheAutomation() async throws {
-    let client = MockGatewayClient()
+    let client = MockGatewayClient(world: .phone)
     let store = AssistantStore(defaults: UserDefaults(suiteName: "automation-archive-" + UUID().uuidString)!)
     store.connect(nil, client: client)
     await store.refresh()

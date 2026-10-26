@@ -2,13 +2,14 @@
 
 A watchOS 26+ SwiftUI app, the companion of the AbstractAssistant iPhone app and independent of
 it (it signs in and runs without the iPhone), and a Swift package, `AbstractGatewayClient`, that
-talks to AbstractGateway. One XcodeGen spec builds both apps:
+talks to AbstractGateway: the gateway client of every Apple client (the iPhone's `AssistantKit`
+depends on it too). One XcodeGen spec builds both apps:
 [`../../phone/iphone/project.yml`](../../phone/iphone/BUILD.md) (`AbstractAssistant.xcodeproj`),
 with the watch targets `AbstractAssistantWatch` (`ai.abstractframework.assistant.watchkitapp`),
 `AbstractAssistantComplication` (`….watchkitapp.orbclock`), `AbstractAssistantWatchNotifications`
-(`….watchkitapp.notifications`) and `AbstractAssistantWatchUITests`. The watch's gateway client is
-compiled there as a static framework, `WatchGatewayClient` (module `AbstractGatewayClient`): the
-iPhone's own client package exports a module of the same name. It runs in the simulator with built-in
+(`….watchkitapp.notifications`) and `AbstractAssistantWatchUITests`. The gateway client is the
+project's package `AbstractGatewayClient` (module `AbstractGatewayClient`), linked by the watch app
+and, through `AssistantKit`, by the iPhone app. It runs in the simulator with built-in
 sample data, or live against a gateway in the simulator or on a paired watch. For what the app
 does, see [README.md](README.md); for how it is built inside, [docs/architecture.md](docs/architecture.md).
 
@@ -55,7 +56,10 @@ microphone to `ai.abstractframework.assistant.watchkitapp` first: the voice test
 permission question would stop them.
 
 - **Package tests**: `swift test --package-path Packages/AbstractGatewayClient` (models decoded
-  from the gateway's real shapes, sign-in, markdown and speech text, automation edits).
+  from the gateway's real shapes, sign-in, markdown and speech text, automation edits, and the
+  iPhone's routes: uploads, downloads, entity visits, the ledger and event streams). A change to
+  the package is also tested from the iPhone's side:
+  `swift test --package-path ../../phone/iphone/Packages/AssistantKit`.
 - **UI tests**: the `AbstractAssistantWatchUITests` scheme drives the app in the simulator where a
   real tap matters (for example, editing an automation's task starts from its current text).
   Screenshots of each step are written to the folder named by `TEST_RUNNER_SHOTS_DIR`.
@@ -151,7 +155,7 @@ inspection; use the combined workflow for Store delivery.
 ../../phone/iphone/project.yml  the one XcodeGen spec (iPhone app, watch app, complication, extensions, UI tests)
 ../../phone/iphone/Packages/AssistantPush/  the sign-in in the Keychain, push registration and rendering, iPhone handoff; tests
 ../../phone/iphone/NotificationService/     the notification service extension (one source, iPhone and watch)
-Packages/AbstractGatewayClient/ models, LiveGatewayClient, MockGatewayClient, sign-in, markdown; tests
+Packages/AbstractGatewayClient/ the gateway client of the watch and the iPhone: models, LiveGatewayClient, MockGatewayClient (a watch and a phone sample world), sign-in, markdown; tests
 Sources/App/                    SwiftUI: Home, Ask, Approvals, Runs (sessions), Automations, Settings, Shared
 UITests/                        UI tests (own scheme)
 Resources/                      Info.plist, entitlements, assets, privacy manifest, the framework identity file (About)

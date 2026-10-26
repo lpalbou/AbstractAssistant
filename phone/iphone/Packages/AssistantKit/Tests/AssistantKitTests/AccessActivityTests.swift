@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import PhoneGatewayClient
+import AbstractGatewayClient
 import AssistantKit
 
 @Suite struct AccessActivityTests {

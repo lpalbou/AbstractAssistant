@@ -1,19 +1,19 @@
 import Foundation
 import Testing
 import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 @Suite struct AutomationToolsTests {
     private var inventory: [ToolInfo] { [
         ToolInfo(name: "read_file", riskTier: "observe", riskRank: 1, approvalDefault: "auto"),
         ToolInfo(name: "execute_command", riskTier: "destroy", riskRank: 4, approvalDefault: "ask"),
-        ToolInfo(name: "disabled", riskTier: nil, riskRank: nil, approvalDefault: "auto", enabled: false)
+        ToolInfo(name: "disabled", riskTier: nil, riskRank: nil, enabled: false, approvalDefault: "auto")
     ] }
     @Test func settingsSnapshotRespectsExplicitOffAndUnavailable() {
         let defaults = ConversationTools.snapshot(nil, inventory: inventory)
-        #expect(defaults.modes == ["read_file": .auto, "execute_command": .approve, "disabled": .off])
-        let explicit = ConversationTools.snapshot(.init(modes: ["read_file": .approve, "disabled": .auto]), inventory: inventory)
-        #expect(explicit.modes == ["read_file": .approve, "execute_command": .off, "disabled": .off])
+        #expect(defaults.modes == ["read_file": .auto, "execute_command": .ask, "disabled": .off])
+        let explicit = ConversationTools.snapshot(.init(modes: ["read_file": .ask, "disabled": .auto]), inventory: inventory)
+        #expect(explicit.modes == ["read_file": .ask, "execute_command": .off, "disabled": .off])
         #expect(ConversationTools.snapshot(.init(modes: [:]), inventory: inventory).allowed.isEmpty)
     }
     @Test func requiredToolsPinIsFilledBeforeWorkflowValidation() throws {
@@ -26,6 +26,6 @@ import PhoneGatewayClient
             "tools": .array([.string("read_file"), .string("execute_command")]),
             "_runtime": .object(["allowed_tools": .array([.string("read_file")])])
         ])], policy: ["tool_policy": .object(["auto_approve_tools": .array([.string("read_file")]), "require_approval_tools": .array([.string("read_file")])])])
-        #expect(definition.tools?.modes == ["read_file": .approve])
+        #expect(definition.tools?.modes == ["read_file": .ask])
     }
 }

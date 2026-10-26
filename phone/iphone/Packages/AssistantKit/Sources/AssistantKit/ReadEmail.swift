@@ -1,5 +1,5 @@
 import Foundation
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 /// A message opened by read_email, rather than an inbox/search result or mailbox Seen flag.
 public struct ReadEmail: Identifiable, Equatable, Sendable {

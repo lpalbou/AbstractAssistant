@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 /// The iPhone follows the person's event stream (backlog 1047): catch-up at launch (history never
 /// notifies), the SSE tail while in front resuming from the cursor, a local notice per new item,
@@ -21,7 +21,7 @@ struct AttentionFeedTests {
 
     @Test func launchCatchesUpSilentlyThenTheTailNotifiesAndResumesFromTheCursor() async throws {
         let defaults = UserDefaults(suiteName: "attention-feed-\(UUID())")!
-        let mock = MockGatewayClient()
+        let mock = MockGatewayClient(world: .phone)
         await mock.appendEvent(raised(1, "digest", 1))
         let feed = AttentionFeed(defaults: defaults)
         feed.reconnectDelay = 0.05
@@ -59,7 +59,7 @@ struct AttentionFeedTests {
 
     @Test func aGatewayWithoutTheStreamIsLeftToThePolls() async throws {
         let feed = AttentionFeed(defaults: UserDefaults(suiteName: "attention-feed-\(UUID())")!)
-        let mock = MockGatewayClient()
+        let mock = MockGatewayClient(world: .phone)
         await mock.setEventsUnsupported(true)
         feed.start(client: mock, scope: "s", foreground: true)
         try await until { feed.status == .unsupported }
@@ -81,7 +81,7 @@ struct AttentionFeedTests {
     /// The badge is the number of rows the Inbox shows, never the stream's own count.
     @Test func theInboxBadgeNeverCountsAWaitTheInboxDoesNotShow() async throws {
         let store = AssistantStore(defaults: UserDefaults(suiteName: "attention-store-\(UUID())")!)
-        let mock = MockGatewayClient(waits: [])
+        let mock = MockGatewayClient(world: .phone, waits: [])
         await mock.appendEvent(question(1, run: "af48c76f"))
         store.connect(nil, client: mock)
         try await until { store.attention.state.cursor == 1 }
@@ -97,7 +97,7 @@ struct AttentionFeedTests {
     @Test func aRaiseOnTheStreamReadsTheListAgainAndTheBadgeCountsItsRows() async throws {
         let store = AssistantStore(defaults: UserDefaults(suiteName: "attention-store-\(UUID())")!)
         let wait = MockGatewayClient.sampleWaits[0]
-        let mock = MockGatewayClient(waits: [wait])
+        let mock = MockGatewayClient(world: .phone, waits: [wait])
         await mock.appendEvent(UserEvent(id: "w1", type: "attention.raised", sequence: 1, data: .object([
             "kind": .string("approval"), "run_id": .string(wait.runId), "session_id": .string("s"), "wait_key": .string(wait.waitKey),
             "step_id": .string("a"), "record_key": .string("wait:\(wait.runId):\(wait.waitKey):a")])))
@@ -133,7 +133,7 @@ struct AttentionFeedTests {
 /// The mock, except that the first `waits()` returns the list as it was when asked, and only once released.
 private actor GatedWaitsClient: GatewayClient {
     nonisolated let isMock = true
-    let mock = MockGatewayClient(waits: [])
+    let mock = MockGatewayClient(world: .phone, waits: [])
     private var current: [Wait] = []
     private var calls = 0
     private var continuation: CheckedContinuation<Void, Never>?

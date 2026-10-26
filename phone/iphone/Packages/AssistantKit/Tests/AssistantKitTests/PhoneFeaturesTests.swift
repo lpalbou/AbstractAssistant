@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 @Test func malformedArtifactSizesCannotTrapAndPathsStayLocal() throws {
     for (value, expected) in [(1e100, Int.max), (-1e100, 0), (123.0, 123)] {
@@ -30,7 +30,7 @@ import PhoneGatewayClient
 
 @Test @MainActor func restoredHistoryDoesNotEmitANewSpokenReply() async {
     let store = AssistantStore()
-    store.connect(nil, client: MockGatewayClient())
+    store.connect(nil, client: MockGatewayClient(world: .phone))
     await store.refresh()
     if let session = store.sessions.first { await store.openSession(session) }
     #expect(store.completedReply == nil)
@@ -40,7 +40,7 @@ import PhoneGatewayClient
 }
 
 @Test func automationCreationRetryUsesTheSameRequest() async throws {
-    let client = MockGatewayClient()
+    let client = MockGatewayClient(world: .phone)
     let request = NewAutomation(task: "Check the news", target: .gatewayDefault(interface: "abstractassistant.agent.v1"), when: .daily(at: "08:00"), buildsOnEarlierRuns: false, askBeforeTools: true)
     let first = try await client.createAutomation(request), retry = try await client.createAutomation(request)
     #expect(first.id == retry.id)
@@ -69,7 +69,7 @@ import PhoneGatewayClient
 }
 
 @Test func entityCreationRetryKeepsTheSameEntity() async throws {
-    let client = MockGatewayClient(), draft = EntityDraft(name: "Atlas One")
+    let client = MockGatewayClient(world: .phone), draft = EntityDraft(name: "Atlas One")
     let validation = try await client.validateEntity(draft)
     #expect(validation.ok && !validation.exists)
     let first = try await client.createEntity(draft), retry = try await client.createEntity(draft)

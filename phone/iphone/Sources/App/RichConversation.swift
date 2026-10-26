@@ -2,7 +2,7 @@ import UIKit
 import ImageIO
 import UniformTypeIdentifiers
 import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 import LinkPresentation
 
 @MainActor struct RichConversation {

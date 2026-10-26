@@ -55,7 +55,11 @@ struct AbstractAssistantWatchApp: App {
         WindowGroup {
             Group {
             if showsFace {
+                #if DEBUG
                 FacePreview()
+                #else
+                EmptyView()
+                #endif
             } else if model.needsSignIn {
                 SignInView()
             } else if !orbChosen {

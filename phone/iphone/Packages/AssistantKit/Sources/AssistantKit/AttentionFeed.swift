@@ -1,5 +1,5 @@
 import Foundation
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 /// The person's event stream on the iPhone (framework backlog 1047): one catch-up read at launch and
 /// each time the app comes to the front (`GET /me/events?after=`), then the SSE tail

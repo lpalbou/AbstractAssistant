@@ -2,7 +2,7 @@
 import Observation
 import UIKit
 import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 @MainActor @Observable final class AudioMeter {
     var level: Double = 0

@@ -60,8 +60,8 @@ jobs:
         run: bash phone/iphone/scripts/select-xcode.sh
       - name: Install XcodeGen
         run: command -v xcodegen >/dev/null || brew install xcodegen
-      - name: Watch package tests
-        run: swift test --package-path watch/apple/Packages/AbstractGatewayClient --scratch-path "$RUNNER_TEMP/WatchPackageTests" --jobs 1
+      - name: Shared gateway client package tests (AbstractGatewayClient, the watch's and the iPhone's)
+        run: swift test --package-path watch/apple/Packages/AbstractGatewayClient --scratch-path "$RUNNER_TEMP/ClientPackageTests" --jobs 1
       - name: Shared push package tests (sign-in store, registration, push rendering)
         run: swift test --package-path phone/iphone/Packages/AssistantPush --scratch-path "$RUNNER_TEMP/PushPackageTests" --jobs 1
       - name: Generate the AbstractAssistant project (iPhone app, watch companion, extensions)
@@ -94,7 +94,7 @@ jobs:
         run: |
           python3 phone/iphone/scripts/release.py metadata --project phone/iphone/project.yml \
             --run-number "$GITHUB_RUN_NUMBER" --attempt "$GITHUB_RUN_ATTEMPT"
-      - name: Package tests
+      - name: Package tests (AssistantKit, the iPhone's logic on the shared gateway client)
         run: swift test --package-path phone/iphone/Packages/AssistantKit --scratch-path "$RUNNER_TEMP/SwiftTests" --jobs 1
       - name: Generate project
         working-directory: ${{ env.PROJECT_DIR }}

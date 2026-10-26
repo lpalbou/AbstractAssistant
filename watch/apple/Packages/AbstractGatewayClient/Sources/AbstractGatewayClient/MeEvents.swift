@@ -2,9 +2,11 @@ import CryptoKit
 import Foundation
 
 // The person's own event stream on the gateway (framework backlog 1046/1047):
-// `GET /api/gateway/me/events?after=<seq>&limit=<n>` → `{stream, events[], next_after, head, more}`.
-// Events use the CloudEvents 1.0 names; `sequence` is the person's own gapless counter (the cursor).
-// The watch reads it once per background refresh and at launch: one request, no stream.
+// `GET /api/gateway/me/events?after=<seq>&limit=<n>` → `{stream, events[], next_after, head, more}`, and
+// `GET /api/gateway/me/events/stream` (SSE: `id: <sequence>`, `event: <type>`, `data: <JSON>`), resumed
+// with `Last-Event-ID`. Events use the CloudEvents 1.0 names; `sequence` is the gapless cursor.
+// The watch reads the page once per background refresh and at launch (one request, no stream); the
+// iPhone catches up at launch and on foreground, and follows the SSE tail while in front.
 
 /// One event of the stream.
 public struct UserEvent: Codable, Hashable, Sendable {
@@ -103,8 +105,40 @@ public struct AttentionState: Codable, Hashable, Sendable {
     public var seen: [String: Int] = [:]
     /// Record keys already seen (a seen read before its raise keeps it closed).
     public var resolved: [String] = []
+    /// `notification.sent` by client channels: record key -> [(channel, device, epoch s)].
+    public var shown: [String: [ShownNotice]] = [:]
+
+    public struct ShownNotice: Codable, Hashable, Sendable {
+        public var channel: String
+        public var device: String?
+        public var at: Double?
+    }
+
+    /// The client channels whose `notification.sent` can silence another client on the same device.
+    public static let clientChannels: Set<String> = ["tray", "assistant", "code", "watch", "phone"]
+
+    /// The gateway's rule (`events_stream.already_notified`): another client channel on the SAME device
+    /// showed `recordKey` less than `window` seconds ago.
+    public func notifiedElsewhere(_ recordKey: String, channel: String, device: String, now: Date = Date(), window: Double = 60) -> Bool {
+        guard !device.isEmpty else { return false }
+        let clock = now.timeIntervalSince1970
+        return (shown[recordKey] ?? []).contains {
+            $0.channel != channel && Self.clientChannels.contains($0.channel) && $0.device == device
+                && $0.at.map { clock - $0 >= 0 && clock - $0 <= window } == true
+        }
+    }
 
     public init() {}
+
+    enum CodingKeys: String, CodingKey { case cursor, caughtUp, waits, raised, seen, resolved, shown }
+    /// A state kept before the two apps shared this type has no `shown` (the watch's): it still reads.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        cursor = try c.decode(Int.self, forKey: .cursor); caughtUp = try c.decode(Bool.self, forKey: .caughtUp)
+        waits = try c.decode([OpenWait].self, forKey: .waits); raised = try c.decode([String: [Int]].self, forKey: .raised)
+        seen = try c.decode([String: Int].self, forKey: .seen); resolved = try c.decode([String].self, forKey: .resolved)
+        shown = try c.decodeIfPresent([String: [ShownNotice]].self, forKey: .shown) ?? [:]
+    }
 
     /// Approvals and questions waiting (the face's "needs you").
     public var needYou: Int { waits.count }
@@ -153,6 +187,13 @@ public struct AttentionState: Codable, Hashable, Sendable {
                     raised[aid] = (raised[aid] ?? []).filter { $0 > s }
                     if raised[aid]?.isEmpty == true { raised[aid] = nil }
                 }
+            case "notification.sent":
+                guard let channel = e.string("channel"), Self.clientChannels.contains(channel) else { continue }
+                let record = e.string("record_key") ?? e.string("notice").flatMap { $0.hasPrefix("attention:") ? String($0.dropFirst(10)) : nil }
+                guard let record else { continue }
+                let at = e.time.flatMap { ISO8601DateFormatter.events.date(from: $0) ?? ISO8601DateFormatter.eventsPlain.date(from: $0) }?.timeIntervalSince1970
+                shown[record, default: []].append(ShownNotice(channel: channel, device: e.string("device"), at: at))
+                if shown.count > 200, let oldest = shown.keys.sorted().first { shown[oldest] = nil }
             case "run.finished":
                 if let run = e.string("run_id") { waits.removeAll { $0.runId == run } }
                 guard notify, case .object(let origin)? = e.data?["origin"], origin["kind"]?.stringValue == "trigger",
@@ -169,5 +210,69 @@ public struct AttentionState: Codable, Hashable, Sendable {
             if case .automationFinished(let a, let occ, _, _) = $0 { return !raisedOccurrences.contains("\(a)#\(occ)") }
             return true
         }
+    }
+}
+
+extension ISO8601DateFormatter {
+    /// The gateway's event times (`2026-10-25T12:48:44.640530+00:00`).
+    nonisolated(unsafe) static let events: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return f
+    }()
+    nonisolated(unsafe) static let eventsPlain: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime]; return f
+    }()
+}
+
+/// SSE framing for the person's event stream: one `UserEvent` per complete frame (keep-alives skipped).
+public struct UserEventSSEParser: Sendable {
+    private var line = Data()
+    private var id: String?
+    private var data: [String] = []
+
+    public init() {}
+
+    public mutating func feed(byte: UInt8) -> UserEvent? {
+        if byte != 10 { line.append(byte); return nil }
+        if line.last == 13 { line.removeLast() }
+        let text = String(decoding: line, as: UTF8.self)
+        line.removeAll(keepingCapacity: true)
+        if text.isEmpty {
+            defer { id = nil; data = [] }
+            guard !data.isEmpty, var event = try? JSONDecoder().decode(UserEvent.self, from: Data(data.joined(separator: "\n").utf8)) else { return nil }
+            if event.sequence == 0, let id, let n = Int(id) { event.sequence = n }
+            return event
+        }
+        if text.hasPrefix(":") { return nil }
+        let parts = text.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        var value = parts.count > 1 ? String(parts[1]) : ""
+        if value.hasPrefix(" ") { value.removeFirst() }
+        switch parts[0] {
+        case "id": id = value
+        case "data": data.append(value)
+        default: break
+        }
+        return nil
+    }
+}
+
+/// The body of `POST /me/events/notifications`: this client showed the notice on `device`.
+public struct NotificationReport: Encodable, Hashable, Sendable {
+    public var channel: String
+    public var outcome = "sent"
+    public var recordKey: String
+    public var device: String
+    public init(channel: String, recordKey: String, device: String) {
+        self.channel = channel; self.recordKey = recordKey; self.device = device
+    }
+    enum CodingKeys: String, CodingKey { case channel, outcome, recordKey = "record_key", device }
+}
+
+/// A gateway without the person's event stream answers these (404): the app keeps its polls.
+public extension GatewayClient {
+    func events(after: Int, limit: Int) async throws -> UserEventsPage { throw GatewayError.http(status: 404, body: "") }
+    func reportNotification(_ report: NotificationReport) async throws { throw GatewayError.http(status: 404, body: "") }
+    func triggerNames(connections: Bool, mailboxes: Bool) async throws -> TriggerNames { TriggerNames() }
+    nonisolated func userEventStream(lastEventID: Int) -> AsyncThrowingStream<UserEvent, Error> {
+        AsyncThrowingStream { $0.finish(throwing: GatewayError.http(status: 404, body: "")) }
     }
 }

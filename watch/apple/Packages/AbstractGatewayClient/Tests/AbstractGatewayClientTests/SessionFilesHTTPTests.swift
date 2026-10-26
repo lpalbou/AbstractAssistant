@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import PhoneGatewayClient
+@testable import AbstractGatewayClient
 
 private final class FileWire: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var requests: [URLRequest] = []
@@ -19,7 +19,7 @@ private final class FileWire: URLProtocol, @unchecked Sendable {
     private func client(_ json: String, status: Int = 200) -> LiveGatewayClient {
         FileWire.requests = []; FileWire.status = status; FileWire.payload = Data(json.utf8)
         let cfg = URLSessionConfiguration.ephemeral; cfg.protocolClasses = [FileWire.self]
-        return LiveGatewayClient(baseURL: URL(string: "https://gateway.test")!, token: "fixture-key", session: .init(configuration: cfg))
+        return LiveGatewayClient(baseURL: URL(string: "https://gateway.test")!, token: "fixture-key", session: .init(configuration: cfg), readTries: 1)
     }
     @Test func pageUsesOffsetAndVoiceFlagAndKeepsMetadata() async throws {
         let api = client(#"{"items":[{"artifact_id":"recording","run_id":"owner","content_type":"audio/wav","source_path":"client:voice/dictation/test.wav"}],"total":501,"has_more":true,"warnings":["fixture warning"]}"#)

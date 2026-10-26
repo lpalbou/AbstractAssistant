@@ -1,6 +1,6 @@
 import SwiftUI
 import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 struct VoiceSettingsScreen: View {
     @Environment(AssistantStore.self) private var store

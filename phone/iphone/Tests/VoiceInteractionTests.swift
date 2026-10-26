@@ -2,7 +2,7 @@ import XCTest
 import AVFoundation
 import SwiftUI
 import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 @testable import AbstractAssistantPhone
 
 private final class VoiceRequestLog: @unchecked Sendable {
@@ -39,7 +39,7 @@ final class VoiceInteractionTests: XCTestCase {
     private func client() -> LiveGatewayClient {
         VoiceWire.log.clear()
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [VoiceWire.self]
-        return LiveGatewayClient(baseURL: URL(string: "https://gateway.example")!, token: "fixture", session: URLSession(configuration: config))
+        return LiveGatewayClient(baseURL: URL(string: "https://gateway.example")!, token: "fixture", session: URLSession(configuration: config), readTries: 1)
     }
     @MainActor private func waitUntilRecording(_ voice: VoiceController) async throws {
         for _ in 0..<100 { if voice.recording { return }; try await Task.sleep(for: .milliseconds(5)) }
@@ -52,7 +52,7 @@ final class VoiceInteractionTests: XCTestCase {
     @MainActor func testSpeechBufferingRemainsWorkingAndCancelPreventsLateChunks() async throws {
         let voice = VoiceController(configureAudio: false)
         defer { voice.stop() }
-        let client = MockGatewayClient(speechPreparationDelay: 0.7)
+        let client = MockGatewayClient(world: .phone, speechPreparationDelay: 0.7)
         voice.read("Two streamed chunks", client: client, scope: .run("test"), messageID: "buffered")
         XCTAssertTrue(voice.preparing)
         func waitFor(_ predicate: () -> Bool) async throws {
@@ -211,10 +211,10 @@ final class VoiceInteractionTests: XCTestCase {
     }
     @MainActor func testSpeakingSpeedAppliesToActualPlaybackAndNewPreviewReplacesOld() async throws {
         let voice = VoiceController(); defer { voice.stop() }
-        voice.read("First sample", client: MockGatewayClient(), scope: .run("test"), speed: 1.15)
+        voice.read("First sample", client: MockGatewayClient(world: .phone), scope: .run("test"), speed: 1.15)
         for _ in 0..<100 { if !voice.preparing { break }; try await Task.sleep(for: .milliseconds(20)) }
         XCTAssertEqual(voice.playbackRate, 1.15, accuracy: 0.001)
-        voice.read("Second sample", client: MockGatewayClient(), scope: .entity("castor"), speed: 1.5)
+        voice.read("Second sample", client: MockGatewayClient(world: .phone), scope: .entity("castor"), speed: 1.5)
         for _ in 0..<100 { if !voice.preparing { break }; try await Task.sleep(for: .milliseconds(20)) }
         XCTAssertEqual(voice.playbackRate, 1.5, accuracy: 0.001)
         XCTAssertTrue(voice.speaking); XCTAssertNil(voice.error)
@@ -223,7 +223,7 @@ final class VoiceInteractionTests: XCTestCase {
     @MainActor func testActualWAVPlaybackDrivesTheMeterAndStopsCleanly() async throws {
         let voice = VoiceController()
         defer { voice.stop() }
-        voice.read("A test phrase", client: MockGatewayClient(), scope: .run("test"))
+        voice.read("A test phrase", client: MockGatewayClient(world: .phone), scope: .run("test"))
         var levels: [Double] = []
         for _ in 0..<110 {
             try await Task.sleep(for: .milliseconds(30)); levels.append(voice.meter.level)

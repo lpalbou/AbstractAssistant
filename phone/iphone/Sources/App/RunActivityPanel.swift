@@ -1,6 +1,6 @@
 import SwiftUI
 import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 /// A quiet summary until opened; all detail comes from durable runtime events.
 struct RunActivityPanel: View {

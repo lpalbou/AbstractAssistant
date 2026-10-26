@@ -1,6 +1,6 @@
 import SwiftUI
 import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 struct AutomationsScreen: View {
     @Environment(AssistantStore.self) private var store

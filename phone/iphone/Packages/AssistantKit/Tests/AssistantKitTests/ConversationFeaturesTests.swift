@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 @Test func historyBudgetIsInheritedUnlessExplicitAndOnlyForGrowingRuns() {
     func body(_ growing: Bool, _ budget: Int?) -> JSONValue { NewAutomation(task: "Brief me", target: .gatewayDefault(interface: "abstractassistant.agent.v1"), when: .every("1d"), buildsOnEarlierRuns: growing, askBeforeTools: true, growingMaxTokens: budget).body }
@@ -20,10 +20,10 @@ import PhoneGatewayClient
 
 @Test @MainActor func toolsStayScopedToResponderSessionAndGatewayAccount() async throws {
     let defaults = UserDefaults(suiteName: "tools-\(UUID())")!
-    let store = AssistantStore(defaults: defaults), mock = MockGatewayClient()
+    let store = AssistantStore(defaults: defaults), mock = MockGatewayClient(world: .phone)
     let a = SavedConnection(gateway: URL(string: "https://one.example")!, user: "alice", credential: .token("test"))
     store.connect(a, client: mock)
-    let policy = ConversationTools(modes: ["read_file": .auto, "send_email": .approve, "execute_command": .off])
+    let policy = ConversationTools(modes: ["read_file": .auto, "send_email": .ask, "execute_command": .off])
     store.setConversationTools(policy)
     #expect(store.conversationTools == policy)
     store.newConversation(entity: "castor"); #expect(store.conversationTools == nil)

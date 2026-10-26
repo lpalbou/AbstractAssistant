@@ -3,7 +3,7 @@ import UIKit
 import UniformTypeIdentifiers
 import LinkPresentation
 import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 @testable import AbstractAssistantPhone
 
 private final class DeferredShareWire: URLProtocol, @unchecked Sendable {
@@ -22,7 +22,7 @@ private final class DeferredShareWire: URLProtocol, @unchecked Sendable {
 final class ConversationSharingTests: XCTestCase {
     @MainActor func testRichFormattingInlinePositionsAndOriginalFileProviders() async throws {
         let image = UIGraphicsImageRenderer(size: CGSize(width: 1400, height: 900)).image { context in UIColor.systemTeal.setFill(); context.fill(CGRect(x: 0, y: 0, width: 1400, height: 900)) }
-        let bytes = try XCTUnwrap(image.pngData()), client = MockGatewayClient(mediaImage: bytes)
+        let bytes = try XCTUnwrap(image.pngData()), client = MockGatewayClient(world: .phone, mediaImage: bytes)
         let file = PhoneArtifact(artifactId: "demo-image", runId: "r", filename: "Photo.png", contentType: "image/png")
         let source: [ConversationMessage] = [.init(role: .user, text: "Before **bold** and *italic*.\n\n# A heading\n\n- Item one\n- Item two\n\n<script>bad</script>", artifacts: [file]), .init(role: .assistant, text: "After the image.\n\n```\n**literal code**\n```", runID: "r")]
         let export = try await ConversationExportBuilder().prepare(messages: source, responder: "Assistant", client: client, activities: ["r": .init(activity: .init())])
@@ -73,7 +73,7 @@ final class ConversationSharingTests: XCTestCase {
         let attachment = XCTAttachment(image: screenshot); attachment.name = "Rich transcript — native formatted text and inline image"; attachment.lifetime = .keepAlways; add(attachment)
     }
     @MainActor func testShareLeaseKeepsCopiesUntilCompletionAndCleansIdempotently() async throws {
-        let export = try await ConversationExportBuilder().prepare(messages: [.init(role: .user, text: "**Hello**")], responder: "Assistant", client: MockGatewayClient())
+        let export = try await ConversationExportBuilder().prepare(messages: [.init(role: .user, text: "**Hello**")], responder: "Assistant", client: MockGatewayClient(world: .phone))
         let lease = PreparedConversationShare(export: export, rich: try RichConversation(export: export))
         _ = lease.rich.configuration(export: export)
         XCTAssertTrue(FileManager.default.fileExists(atPath: export.folder.path))
@@ -82,8 +82,8 @@ final class ConversationSharingTests: XCTestCase {
     }
     @MainActor func testLateOldAccountUnauthorizedCannotInvalidateNewContext() async throws {
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [DeferredShareWire.self]
-        let oldClient = LiveGatewayClient(baseURL: URL(string: "https://gateway.test")!, token: "fixture", session: .init(configuration: config))
-        let store = AssistantStore(); store.connect(nil, client: MockGatewayClient()); defer { store.disconnect(); DeferredShareWire.pending = nil; DeferredShareWire.started = nil }
+        let oldClient = LiveGatewayClient(baseURL: URL(string: "https://gateway.test")!, token: "fixture", session: .init(configuration: config), readTries: 1)
+        let store = AssistantStore(); store.connect(nil, client: MockGatewayClient(world: .phone)); defer { store.disconnect(); DeferredShareWire.pending = nil; DeferredShareWire.started = nil }
         let storage = PhoneTemporaryStorage(temporaryDirectory: FileManager.default.temporaryDirectory.appending(path: "share-race-" + UUID().uuidString))
         defer { try? FileManager.default.removeItem(at: storage.temporaryDirectory) }
         let file = PhoneArtifact(artifactId: "original", runId: "old", filename: "original.pdf", contentType: "application/pdf")
@@ -92,7 +92,7 @@ final class ConversationSharingTests: XCTestCase {
         let started = expectation(description: "Old download began"); DeferredShareWire.started = started
         let task = Task { await preparation.prepare(snapshot: snapshot, store: store) }
         await fulfillment(of: [started], timeout: 5)
-        store.connect(nil, client: MockGatewayClient())
+        store.connect(nil, client: MockGatewayClient(world: .phone))
         let current = store.contextID
         try XCTUnwrap(DeferredShareWire.pending).reject(); await task.value
         XCTAssertEqual(store.contextID, current); XCTAssertNotNil(store.client)

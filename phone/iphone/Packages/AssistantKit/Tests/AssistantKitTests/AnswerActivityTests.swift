@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import PhoneGatewayClient
+import AbstractGatewayClient
 import AssistantKit
 
 private final class ActivityWire: URLProtocol, @unchecked Sendable {

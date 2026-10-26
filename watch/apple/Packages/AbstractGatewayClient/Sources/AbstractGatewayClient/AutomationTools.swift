@@ -5,9 +5,9 @@ public extension ConversationTools {
     static func snapshot(_ selection: ConversationTools?, inventory: [ToolInfo]) -> ConversationTools {
         ConversationTools(modes: Dictionary(inventory.map { tool in
             let mode: ToolMode
-            if !tool.isAvailable { mode = .off }
+            if !tool.offered { mode = .off }
             else if let selection { mode = selection.modes[tool.name] ?? .off }
-            else { mode = ["off", "disabled"].contains(tool.approvalDefault ?? "") ? .off : tool.approvalDefault == "auto" ? .auto : .approve }
+            else { mode = ["off", "disabled"].contains(tool.approvalDefault ?? "") ? .off : tool.approvalDefault == "auto" ? .auto : .ask }
             return (tool.name, mode)
         }, uniquingKeysWith: { _, new in new }))
     }
@@ -17,7 +17,7 @@ public extension ConversationTools {
     }
     var automationPolicy: JSONValue {
         .object(["auto_approve_tools": .array(modes.filter { $0.value == .auto }.keys.sorted().map(JSONValue.string)),
-                 "require_approval_tools": .array(modes.filter { $0.value == .approve }.keys.sorted().map(JSONValue.string))])
+                 "require_approval_tools": .array(modes.filter { $0.value == .ask }.keys.sorted().map(JSONValue.string))])
     }
     func automationInput(_ existing: [String: JSONValue]) -> [String: JSONValue] {
         var input = existing, runtime = existing["_runtime"]?.objectValue ?? [:]
@@ -27,10 +27,6 @@ public extension ConversationTools {
         input["tools"] = .array(allowed.map(JSONValue.string)); input["_runtime"] = .object(runtime)
         return input
     }
-}
-
-public extension JSONValue {
-    var objectValue: [String: JSONValue]? { if case .object(let value) = self { value } else { nil } }
 }
 
 public extension AutomationDefinition {
@@ -43,7 +39,7 @@ public extension AutomationDefinition {
         let nested = policy?["tool_policy"]
         let auto = names(nested?["auto_approve_tools"]), ask = names(nested?["require_approval_tools"])
         return ConversationTools(modes: Dictionary(uniqueKeysWithValues: allowed.map { name in
-            (name, nested == nil ? (policy?["tool_approval"] == .string("auto") ? .auto : .approve) : auto.contains(name) && !ask.contains(name) ? .auto : .approve)
+            (name, nested == nil ? (policy?["tool_approval"] == .string("auto") ? .auto : .ask) : auto.contains(name) && !ask.contains(name) ? .auto : .ask)
         }))
     }
     func changes(tools: ConversationTools) throws -> [String: JSONValue] {

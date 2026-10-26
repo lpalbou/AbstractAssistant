@@ -571,7 +571,7 @@ final class AppModel: ObservableObject {
         }
         SavedSignIn.clear()
         stopPolling()
-        client = MockGatewayClient(); gatewayHost = "—"
+        client = MockGatewayClient(world: .watch); gatewayHost = "—"
         waits = []; runs = []; automations = []; principal = nil; lastError = nil; failures = 0; failingSince = nil; unreachable = false; seenWaitIDs = []; entities = []; automationsLoaded = false; automationsError = nil; automationsTask?.cancel(); automationsTask = nil; automationsLoading = false; automationsReadAt = nil
         definitions = [:]; results = [:]; savedAt = [:]
         forgetTools()
@@ -1272,7 +1272,7 @@ struct LaunchOptions {
             // `--slow-start`: the first 3 polls fail (a radio coming up); `--offline`: every poll fails;
             // `--slow-definitions`: an automation's definition takes 3 s (Edit shows it at once once read).
             let args = ProcessInfo.processInfo.arguments
-            model = AppModel(client: MockGatewayClient(automationsDelay: args.contains("--slow-automations") ? .seconds(3) : .zero,
+            model = AppModel(client: MockGatewayClient(world: .watch, automationsDelay: args.contains("--slow-automations") ? .seconds(3) : .zero,
                                                        automationsFailures: args.contains("--flaky-automations") ? 1 : 0,
                                                        pollFailures: args.contains("--offline") ? .max : args.contains("--slow-start") ? 3 : 0,
                                                        definitionDelay: args.contains("--slow-definitions") ? .seconds(3) : .zero), gatewayHost: "mbp")
@@ -1356,10 +1356,10 @@ struct LaunchOptions {
         case "session-search": return [.sessions, .sessionSearch("assay QC")]
         case "session-search-media": return [.sessions, .sessionSearch("survival curve")]
         case "session-long":
-            let s = SessionSummary.group(MockGatewayClient.sampleRuns).first { $0.id == "s-qc" }!
+            let s = SessionSummary.group(MockGatewayClient.World.watch.sampleRuns).first { $0.id == "s-qc" }!
             return [.sessions, .session(s)]
         case "session":
-            let s = SessionSummary.group(MockGatewayClient.sampleRuns)[1]
+            let s = SessionSummary.group(MockGatewayClient.World.watch.sampleRuns)[1]
             return [.sessions, .session(s)]
         case "automations": return [.automations]
         case "settings": return [.settings]
@@ -1368,7 +1368,7 @@ struct LaunchOptions {
         case "about": return [.settings, .about]
         case "voice": return [.settings, .voiceSettings]
         case "link": return [.link(URL(string: "https://abstractframework.ai")!)]
-        case "read": return [.read(ReadItem(title: "Answer", text: MockGatewayClient.cannedAnswer, scope: .run("7c1e02aa")))]
+        case "read": return [.read(ReadItem(title: "Answer", text: MockGatewayClient.World.watch.cannedAnswer, scope: .run("7c1e02aa")))]
         default: return []
         }
     }

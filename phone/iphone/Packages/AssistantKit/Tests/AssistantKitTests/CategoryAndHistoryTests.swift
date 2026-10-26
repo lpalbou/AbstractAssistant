@@ -1,21 +1,21 @@
 import Foundation
 import Testing
 import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 @Test func categoryOverridesMaterializeDefaultsAndIgnoreSearchWithoutGrantingDisabledTools() {
     let rows = [ToolInfo(name: "read", riskTier: "observe", riskRank: 0, toolset: "files", approvalDefault: "auto"),
                 ToolInfo(name: "write", riskTier: "act", riskRank: 2, toolset: "files", approvalDefault: "ask"),
-                ToolInfo(name: "blocked", riskTier: nil, riskRank: nil, toolset: "files", enabled: false),
+                ToolInfo(name: "blocked", riskTier: nil, riskRank: nil, enabled: false, toolset: "files"),
                 ToolInfo(name: "send", riskTier: nil, riskRank: nil, toolset: "comms", approvalDefault: "ask")]
     let inherited = ConversationTools.snapshot(nil, inventory: rows)
     #expect(inherited.categoryMode("files", inventory: rows) == nil)
     let enabled = inherited.settingCategory("files", to: .auto, inventory: rows)
-    #expect(enabled.modes == ["read": .auto, "write": .auto, "blocked": .off, "send": .approve])
+    #expect(enabled.modes == ["read": .auto, "write": .auto, "blocked": .off, "send": .ask])
     #expect(enabled.categoryMode("files", inventory: rows) == .auto)
     let off = enabled.settingCategory("files", to: .off, inventory: rows)
     #expect(off.allowed == ["send"])
-    #expect(off.settingCategory("files", to: .approve, inventory: rows).modes["write"] == .approve)
+    #expect(off.settingCategory("files", to: .ask, inventory: rows).modes["write"] == .ask)
     #expect(ToolCatalogGroup.groups(rows, matching: "read").first?.tools.count == 1)
 }
 
@@ -34,11 +34,11 @@ import PhoneGatewayClient
 
 @Test func olderActiveTurnMakesTheWholeSessionUnarchivable() throws {
     let rows = [RunSummary(runId: "new", workflowId: nil, status: "completed", sessionId: "s"), RunSummary(runId: "old", workflowId: nil, status: "running", sessionId: "s")]
-    #expect(try #require(SessionSummary.group(rows).first).isLive)
+    #expect(try #require(SessionSummary.group(rows).first).anyTurnLive)
 }
 
 @Test @MainActor func archiveRestoreAndCurrentConversationResetUseTheGateway() async throws {
-    let client = MockGatewayClient(historyFixture: true)
+    let client = MockGatewayClient(world: .phone, historyFixture: true)
     let store = AssistantStore(defaults: UserDefaults(suiteName: "history-actions-\(UUID())")!)
     store.connect(nil, client: client); await store.refresh()
     let session = try #require(store.sessions.first)
@@ -56,10 +56,10 @@ import PhoneGatewayClient
 }
 
 @Test @MainActor func activeConversationArchiveIsBlocked() async throws {
-    let client = MockGatewayClient()
+    let client = MockGatewayClient(world: .phone)
     let store = AssistantStore(defaults: UserDefaults(suiteName: "history-active-\(UUID())")!)
     store.connect(nil, client: client); await store.refresh()
-    let active = try #require(store.sessions.first { $0.isLive })
+    let active = try #require(store.sessions.first { $0.anyTurnLive })
     #expect(!store.canArchive(active)); #expect(!(await store.setArchived(active, true)))
     #expect(try await client.archivedRuns(limit: 200).isEmpty)
     store.disconnect()

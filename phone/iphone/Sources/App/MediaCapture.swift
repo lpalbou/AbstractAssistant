@@ -2,7 +2,7 @@ import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
 import CoreTransferable
-import PhoneGatewayClient
+import AbstractGatewayClient
 import AssistantKit
 
 struct ImportedMedia: Transferable, Sendable {

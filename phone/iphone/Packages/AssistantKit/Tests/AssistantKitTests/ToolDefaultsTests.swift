@@ -1,12 +1,12 @@
 import Foundation
 import Testing
 import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 @Suite @MainActor struct ToolDefaultsTests {
-    private let base = ConversationTools(modes: ["read_file": .auto, "fetch_url": .approve, "execute_command": .off])
+    private let base = ConversationTools(modes: ["read_file": .auto, "fetch_url": .ask, "execute_command": .off])
     private func store(_ defaults: UserDefaults = UserDefaults(suiteName: "tool-defaults-\(UUID())")!) -> AssistantStore {
-        let result = AssistantStore(defaults: defaults); result.connect(nil, client: MockGatewayClient()); return result
+        let result = AssistantStore(defaults: defaults); result.connect(nil, client: MockGatewayClient(world: .phone)); return result
     }
     @Test func defaultsSurviveNewConversationsButConversationChoicesWin() {
         let store = store()
@@ -27,18 +27,18 @@ import PhoneGatewayClient
     @Test func defaultsPersistAndStayScopedToGatewayAccountAcrossResponders() async {
         let defaults = UserDefaults(suiteName: "tool-defaults-\(UUID())")!
         let connection = SavedConnection(gateway: URL(string: "https://one.example")!, user: "alice", credential: .token("test"))
-        let store = AssistantStore(defaults: defaults); store.connect(connection, client: MockGatewayClient())
+        let store = AssistantStore(defaults: defaults); store.connect(connection, client: MockGatewayClient(world: .phone))
         store.setAppTools(base); store.newConversation(entity: "castor")
         #expect(store.appTools == base)
         store.setAppTools(.init(modes: [:])); store.newConversation()
         #expect(store.appTools?.allowed == [])
         store.setAppTools(base)
         store.disconnect()
-        let restored = AssistantStore(defaults: defaults); restored.connect(connection, client: MockGatewayClient())
+        let restored = AssistantStore(defaults: defaults); restored.connect(connection, client: MockGatewayClient(world: .phone))
         #expect(restored.appTools == base)
-        restored.connect(.init(gateway: connection.gateway, user: "bob", credential: .token("test")), client: MockGatewayClient())
+        restored.connect(.init(gateway: connection.gateway, user: "bob", credential: .token("test")), client: MockGatewayClient(world: .phone))
         #expect(restored.appTools == nil)
-        restored.connect(.init(gateway: URL(string: "https://two.example")!, user: "alice", credential: .token("test")), client: MockGatewayClient())
+        restored.connect(.init(gateway: URL(string: "https://two.example")!, user: "alice", credential: .token("test")), client: MockGatewayClient(world: .phone))
         #expect(restored.appTools == nil)
     }
     @Test func legacyAssistantDefaultMigratesOnceForEveryResponder() throws {
@@ -52,14 +52,14 @@ import PhoneGatewayClient
         reopened.disconnect()
     }
     @Test func effectiveDefaultsActuallyTravelOnTheNextAssistantRequest() async {
-        let client = MockGatewayClient(), store = AssistantStore(defaults: UserDefaults(suiteName: "tool-defaults-\(UUID())")!)
+        let client = MockGatewayClient(world: .phone), store = AssistantStore(defaults: UserDefaults(suiteName: "tool-defaults-\(UUID())")!)
         store.connect(nil, client: client); store.setAppTools(base); store.send("Use my choices")
         for _ in 0..<1000 { if await !client.assistantToolSelections.isEmpty { break }; await Task.yield() }
         #expect(await client.assistantToolSelections == [base])
         store.disconnect()
     }
     @Test func editingWhileWorkingChangesTheNextTurnWithoutResendingTheActiveOne() async {
-        let client = MockGatewayClient(), store = AssistantStore(defaults: UserDefaults(suiteName: "tool-defaults-\(UUID())")!)
+        let client = MockGatewayClient(world: .phone), store = AssistantStore(defaults: UserDefaults(suiteName: "tool-defaults-\(UUID())")!)
         store.connect(nil, client: client); store.send("First request")
         for _ in 0..<1000 { if store.activeRunID != nil && store.canEditToolPreferences { break }; await Task.yield() }
         #expect(store.phase == .working && store.canEditToolPreferences)

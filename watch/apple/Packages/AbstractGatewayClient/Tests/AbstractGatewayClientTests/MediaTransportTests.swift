@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import PhoneGatewayClient
+@testable import AbstractGatewayClient
 
 private final class MediaWireStub: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var status = 200
@@ -20,7 +20,7 @@ private final class MediaWireStub: URLProtocol, @unchecked Sendable {
     private func client(status: Int = 200, bytes: Data = Data([1,2,3])) -> LiveGatewayClient {
         MediaWireStub.status = status; MediaWireStub.bytes = bytes; MediaWireStub.requests = []
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MediaWireStub.self]
-        return LiveGatewayClient(baseURL: URL(string: "https://gateway.test")!, token: "media-token", session: URLSession(configuration: config))
+        return LiveGatewayClient(baseURL: URL(string: "https://gateway.test")!, token: "media-token", session: URLSession(configuration: config), readTries: 1)
     }
     private func destination() throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("media-wire-" + UUID().uuidString)

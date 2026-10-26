@@ -1,6 +1,6 @@
 import SwiftUI
 import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 
 struct NewAutomationScreen: View {
     var onCreated: (AutomationSummary) -> Void
@@ -170,7 +170,7 @@ struct NewAutomationScreen: View {
             let prefs = try await client.accountPreferences(); guard context == store.contextID else { return }
             zone = prefs["time_zone"]?["effective"]?.stringValue ?? zone
             do {
-                let budget = try await client.automationDefaults(); guard context == store.contextID else { return }
+                let budget = try await client.defaultGrowingMaxTokens(); guard context == store.contextID else { return }
                 gatewayHistoryBudget = budget.flatMap { $0 > 0 ? $0 : nil }
             } catch {
                 guard context == store.contextID else { return }

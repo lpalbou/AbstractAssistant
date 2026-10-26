@@ -58,7 +58,9 @@ jobs:
         working-directory: ${{ env.PROJECT_DIR }}
         run: xcodegen generate --spec project.yml
 
-      - name: Package tests (AbstractGatewayClient)
+      # The gateway client the watch and the iPhone share (AssistantKit depends on it; iphone.yml,
+      # which also runs on watch/apple changes, tests AssistantKit against it).
+      - name: Package tests (AbstractGatewayClient, shared with the iPhone)
         working-directory: watch/apple/Packages/AbstractGatewayClient
         run: swift test
 

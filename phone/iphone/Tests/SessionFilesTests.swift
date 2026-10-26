@@ -1,7 +1,7 @@
 import XCTest
 import Foundation
 import AssistantKit
-import PhoneGatewayClient
+import AbstractGatewayClient
 @testable import AbstractAssistantPhone
 
 private final class SessionFileWire: URLProtocol, @unchecked Sendable {

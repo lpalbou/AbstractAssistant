@@ -5,6 +5,30 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
 
+### Changed
+
+- **The sign-in lives in the Keychain, shared through the app group.** A Keychain item of the
+  app's service, readable after the first unlock (the notification extension reads it while the
+  device is locked), bound to this device, never in a backup, never synced; the app group doubles
+  as the access group so the extension (and, on the watch, the complication) read the same item.
+  Until now it was a file in the app group sealed with a key kept beside it, which protected
+  nothing; that file (and the plain one of the interim builds) is moved into the Keychain at its
+  first read, so nobody signs in again. The watch's kept sign-ins moved from UserDefaults into a
+  second Keychain item (backlog 1053).
+- **A paused reading shows a speaker, not a play triangle.** The message's read-aloud button is a
+  speaker at rest, pause while it reads and a filled speaker while paused (a tap resumes): a
+  play triangle never stands for reading aloud, on the iPhone as on the watch.
+
+- **One gateway client for the iPhone and the watch (backlog 1053 step 3).** `PhoneGatewayClient`
+  is gone: the app and `AssistantKit` use the watch's `AbstractGatewayClient` package
+  (`watch/apple/Packages/AbstractGatewayClient`), which now holds every route both apps call, and
+  `WATCH_SNAPSHOT.json` is deleted (there is no snapshot any more). The iPhone keeps reading once
+  (`readTries: 1`), its own persona (`AssistantPersona.iPhone`) and its demo data
+  (`MockGatewayClient(world: .phone)`). For the iPhone: a query with a `+` reaches the gateway intact;
+  the slow lists (automations, waits, runs) wait up to 45–60 s like the watch's; the newest turn of
+  a conversation is the one created last, not the one updated last; the tool modes saved as
+  `approve` read back as Ask. The package tests need macOS 26.
+
 ### Added
 
 - **One product with the Apple Watch (version 0.16.0, build 39).** The iPhone app is now

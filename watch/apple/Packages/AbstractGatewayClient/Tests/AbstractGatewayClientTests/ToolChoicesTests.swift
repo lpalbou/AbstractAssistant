@@ -25,7 +25,7 @@ private let mail = ToolInfo(name: "send_email", riskTier: "outreach", riskRank: 
     #expect(asked.offered == ["execute_command", "web_search"] && asked.auto.isEmpty && asked.ask == ["execute_command", "web_search"])
     // On the wire: `_runtime.tool_policy {auto_approve_tools, require_approval_tools}` and the same
     // tools as `tools` and `_runtime.allowed_tools`; no risk ceiling.
-    let req = StartRunRequest(prompt: "hi", sessionId: "s", toolPolicy: plan.policy, tools: plan.offered)
+    let req = StartRunRequest(prompt: "hi", sessionId: "s", toolPolicy: plan.policy, tools: plan.offered, system: AssistantPersona.watch)
     let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(req)) as! [String: Any]
     let input = json["input_data"] as! [String: Any], rt = input["_runtime"] as! [String: Any]
     let policy = rt["tool_policy"] as! [String: Any]
