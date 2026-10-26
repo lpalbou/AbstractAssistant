@@ -63,6 +63,14 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
   own words when it serves them); one that runs when something happens shows no next run. A run the
   gateway retries reads "The gateway will retry this run."
 
+### Fixed
+
+- **The Inbox badge counts what the Inbox shows.** It counted the larger of the Inbox's list and the
+  open waits of your event stream, and the stream can hold a wait the list leaves out (a flow
+  editor's draft-test run, which the gateway's run list omits), so the tab read "1" over "Nothing
+  needs you". The badge is now the number of rows in the Inbox; the stream only tells the app to
+  read the list again, once more if it changed while a read was under way.
+
 ## [0.7.0] — 2026-10-25
 
 ### Added

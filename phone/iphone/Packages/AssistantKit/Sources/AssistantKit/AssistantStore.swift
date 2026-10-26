@@ -120,6 +120,8 @@ public final class AssistantStore {
     @ObservationIgnored private var conversationGeneration = 0
     @ObservationIgnored private var foreground = false
     @ObservationIgnored private var poll: Task<Void, Never>?
+    /// The stream reported a change while a refresh was already reading: read the lists once more after it.
+    @ObservationIgnored private var listsChanged = false
     @ObservationIgnored private var approvalPoll: Task<Void, Never>?
     private var approvalRevision = 0
     @ObservationIgnored private var turn: Task<Void, Never>?
@@ -144,12 +146,16 @@ public final class AssistantStore {
         attention = AttentionFeed(defaults: defaults)
         attention.onChange = { [weak self] in
             guard let self, self.client != nil else { return }
+            self.listsChanged = true
             Task { await self.refresh() }
         }
     }
 
-    /// Needs-you for the Inbox badge: the live waits, or the stream's when it already knows more.
-    public var inboxBadge: Int { max(waits.count, attention.needYou) }
+    /// The Inbox badge is the number of rows the Inbox shows (`waits`): one source, so the tab can never
+    /// promise a wait the screen does not list. The event stream only says when to read that list again
+    /// (`attention.onChange`); its own count of open waits is never shown, because it can hold a wait the
+    /// list leaves out (a flow editor's draft-test run, which `GET /runs` omits; the 12-row cap of `waits()`).
+    public var inboxBadge: Int { waits.count }
 
     public func connect(_ connection: SavedConnection?, client: any GatewayClient) {
         disconnect()
@@ -240,8 +246,13 @@ public final class AssistantStore {
     public func refresh() async {
         guard let client, !isRefreshing else { return }
         let epoch = generation, historyVersion = historyRevision, approvals = approvalRevision, archives = automationArchiveRevision
-        isRefreshing = true
-        defer { if epoch == generation { isRefreshing = false } }
+        isRefreshing = true; listsChanged = false
+        defer {
+            if epoch == generation {
+                isRefreshing = false
+                if listsChanged { listsChanged = false; Task { await self.refresh() } }
+            }
+        }
         do {
             let me = try await client.me()
             guard epoch == generation else { return }; principal = me

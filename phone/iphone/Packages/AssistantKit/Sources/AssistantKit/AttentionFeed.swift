@@ -4,8 +4,9 @@ import PhoneGatewayClient
 /// The person's event stream on the iPhone (framework backlog 1047): one catch-up read at launch and
 /// each time the app comes to the front (`GET /me/events?after=`), then the SSE tail
 /// (`/me/events/stream`, resumed with `Last-Event-ID`) for as long as the app is in front; nothing
-/// in the background. Folds raised minus seen (`AttentionState`): `needYou` (approvals and questions
-/// open) and `newResults` (automation results not seen) feed the tab badges; each NEW item after the
+/// in the background. Folds raised minus seen (`AttentionState`): `newResults` (automation results not
+/// seen) feeds the Automations badge; the Inbox badge is the store's wait list, which a raised or seen
+/// wait makes the store read again (`onChange`), never the fold's own count; each NEW item after the
 /// first catch-up is handed to `onNotice` (the app posts the local notification) unless another
 /// client on this same device already showed it (the gateway's per-device rule — on a phone no
 /// other client reports, so the phone notifies); once shown, `reportShown` records it on the stream
@@ -16,7 +17,6 @@ public final class AttentionFeed {
     public private(set) var state = AttentionState()
     /// `following` while the tail is open; `unsupported` on a gateway without the stream (404).
     public private(set) var status: Status = .idle
-    public var needYou: Int { state.needYou }
     public var newResults: Int { state.newResults }
 
     public enum Status: Equatable, Sendable { case idle, catchingUp, following, unsupported }

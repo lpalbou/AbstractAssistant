@@ -67,20 +67,112 @@ struct AttentionFeedTests {
         feed.stop()
     }
 
-    @Test func theInboxBadgeCountsTheStreamsOpenWaitsBeforeTheListIsReadAgain() async throws {
+    /// The gateway's `attention.raised` for a question (live shape, `events_stream.record_wait_raised`).
+    private func question(_ seq: Int, run: String) -> UserEvent {
+        UserEvent(id: "q\(seq)", type: "attention.raised", sequence: seq, data: .object([
+            "kind": .string("question"), "wait_kind": .string("ask_user"), "run_id": .string(run), "session_id": .string("editor"),
+            "wait_key": .string("user:\(run):node-2"), "step_id": .string("a477de2d"), "record_key": .string("dc3bcd00"),
+            "prompt_ref": .string("/api/gateway/runs/\(run)")]))
+    }
+
+    /// The screenshot of 2026-10-26: "Nothing needs you" over an Inbox tab badged "1". The stream held an
+    /// open question for a flow editor's draft-test run (parked since June), which `GET /runs?status=waiting`
+    /// leaves out (`include_drafts` is false by default), so the list the Inbox shows never had it.
+    /// The badge is the number of rows the Inbox shows, never the stream's own count.
+    @Test func theInboxBadgeNeverCountsAWaitTheInboxDoesNotShow() async throws {
         let store = AssistantStore(defaults: UserDefaults(suiteName: "attention-store-\(UUID())")!)
         let mock = MockGatewayClient(waits: [])
-        await mock.appendEvent(UserEvent(id: "w1", type: "attention.raised", sequence: 1, data: .object([
-            "kind": .string("approval"), "run_id": .string("r1"), "session_id": .string("s"), "wait_key": .string("k"),
-            "step_id": .string("a"), "record_key": .string("wait:r1:k:a")])))
+        await mock.appendEvent(question(1, run: "af48c76f"))
         store.connect(nil, client: mock)
         try await until { store.attention.state.cursor == 1 }
-        #expect(store.waits.isEmpty && store.inboxBadge == 1)
-        await mock.appendEvent(UserEvent(id: "s1", type: "attention.seen", sequence: 2, data: .object([
-            "kind": .string("approval"), "run_id": .string("r1"), "wait_key": .string("k"), "step_id": .string("a"),
-            "outcome": .string("approved")])))
-        store.setForeground(true)
-        try await until { store.inboxBadge == 0 }
+        await store.refresh()  // a no-op when the stream's change already started one: wait for it
+        try await until { store.lastRefresh != nil && !store.isRefreshing }
+        #expect(store.lastRefresh != nil && store.waits.isEmpty, "the Inbox reads \"Nothing needs you\"")
+        #expect(store.attention.state.needYou == 1, "the stream does hold the draft run's question")
+        #expect(store.inboxBadge == store.waits.count && store.inboxBadge == 0, "badge \(store.inboxBadge), rows \(store.waits.count)")
         store.disconnect()
     }
+
+    /// A raise on the stream reads the list again: the badge follows as soon as the row is there to open.
+    @Test func aRaiseOnTheStreamReadsTheListAgainAndTheBadgeCountsItsRows() async throws {
+        let store = AssistantStore(defaults: UserDefaults(suiteName: "attention-store-\(UUID())")!)
+        let wait = MockGatewayClient.sampleWaits[0]
+        let mock = MockGatewayClient(waits: [wait])
+        await mock.appendEvent(UserEvent(id: "w1", type: "attention.raised", sequence: 1, data: .object([
+            "kind": .string("approval"), "run_id": .string(wait.runId), "session_id": .string("s"), "wait_key": .string(wait.waitKey),
+            "step_id": .string("a"), "record_key": .string("wait:\(wait.runId):\(wait.waitKey):a")])))
+        #expect(store.inboxBadge == 0)
+        store.connect(nil, client: mock)
+        try await until { store.waits.map(\.id) == [wait.id] }
+        #expect(store.inboxBadge == 1)
+        store.disconnect()
+    }
+
+    /// A raise read while a refresh is already reading the list (which then returns the list from
+    /// before the raise) reads it once more, instead of leaving the Inbox and its badge stale until the
+    /// next 15-second poll.
+    @Test func aRaiseDuringARefreshReadsTheListOnceMore() async throws {
+        let store = AssistantStore(defaults: UserDefaults(suiteName: "attention-store-\(UUID())")!)
+        let client = GatedWaitsClient()
+        store.connect(nil, client: client)
+        let first = Task { await store.refresh() }
+        try await until { await client.gated }
+        let wait = MockGatewayClient.sampleWaits[0]
+        await client.setWaits([wait])
+        await client.mock.appendEvent(UserEvent(id: "w1", type: "attention.raised", sequence: 1, data: .object([
+            "kind": .string("approval"), "run_id": .string(wait.runId), "wait_key": .string(wait.waitKey), "step_id": .string("a")])))
+        store.attention.setForeground(true)
+        try await until { store.attention.state.cursor == 1 }
+        await client.release(); await first.value
+        try await until { store.waits.map(\.id) == [wait.id] }
+        #expect(store.inboxBadge == 1 && store.waits.count == 1)
+        store.disconnect()
+    }
+}
+
+/// The mock, except that the first `waits()` returns the list as it was when asked, and only once released.
+private actor GatedWaitsClient: GatewayClient {
+    nonisolated let isMock = true
+    let mock = MockGatewayClient(waits: [])
+    private var current: [Wait] = []
+    private var calls = 0
+    private var continuation: CheckedContinuation<Void, Never>?
+    var gated: Bool { continuation != nil }
+    func setWaits(_ waits: [Wait]) { current = waits }
+    func release() { continuation?.resume(); continuation = nil }
+    func waits() async throws -> [Wait] {
+        calls += 1
+        let snapshot = current
+        if calls == 1 { await withCheckedContinuation { continuation = $0 } }
+        return snapshot
+    }
+    func me() async throws -> Principal { try await mock.me() }
+    func health() async throws -> Bool { true }
+    func events(after: Int, limit: Int) async throws -> UserEventsPage { try await mock.events(after: after, limit: limit) }
+    nonisolated func userEventStream(lastEventID: Int) -> AsyncThrowingStream<UserEvent, Error> { mock.userEventStream(lastEventID: lastEventID) }
+    func recentRuns(limit: Int) async throws -> [RunSummary] { try await mock.recentRuns(limit: limit) }
+    func prompt(ofRun id: String) async throws -> String? { try await mock.prompt(ofRun: id) }
+    func turns(ofSession id: String) async throws -> [RunSummary] { try await mock.turns(ofSession: id) }
+    func run(id: String) async throws -> RunSummary { try await mock.run(id: id) }
+    func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?) async throws -> String { try await mock.startRun(prompt: prompt, sessionId: sessionId, toolPolicy: toolPolicy) }
+    func tools() async throws -> [ToolInfo] { try await mock.tools() }
+    func answer(_ wait: Wait, with answer: WaitAnswer) async throws { try await mock.answer(wait, with: answer) }
+    func automations() async throws -> [AutomationSummary] { try await mock.automations() }
+    func runAutomationNow(id: String) async throws { try await mock.runAutomationNow(id: id) }
+    func automationCommand(id: String, type: String) async throws { try await mock.automationCommand(id: id, type: type) }
+    func automation(id: String) async throws -> AutomationSummary { try await mock.automation(id: id) }
+    func workflows(forInterface interface: String) async throws -> [WorkflowChoice] { try await mock.workflows(forInterface: interface) }
+    func workflowInputs(_ w: WorkflowChoice) async throws -> WorkflowInputs { try await mock.workflowInputs(w) }
+    func createAutomation(_ a: NewAutomation) async throws -> AutomationSummary { try await mock.createAutomation(a) }
+    func automationDefinition(id: String) async throws -> AutomationDefinition { try await mock.automationDefinition(id: id) }
+    func reviseAutomation(id: String, changes: [String: JSONValue], expectedRevision: Int?) async throws { try await mock.reviseAutomation(id: id, changes: changes, expectedRevision: expectedRevision) }
+    func entities() async throws -> [EntitySummary] { try await mock.entities() }
+    func openEntityChat(name: String) async throws -> String { try await mock.openEntityChat(name: name) }
+    func entityChatTurn(name: String, chatId: String, text: String) async throws -> String { try await mock.entityChatTurn(name: name, chatId: chatId, text: text) }
+    func ledger(runId: String, after: Int) async throws -> LedgerPage { try await mock.ledger(runId: runId, after: after) }
+    func cancel(runId: String) async throws { try await mock.cancel(runId: runId) }
+    func occurrences(automationId: String, limit: Int) async throws -> [LastOccurrence] { try await mock.occurrences(automationId: automationId, limit: limit) }
+    func markSeen(automationId: String, cursor: String) async throws { try await mock.markSeen(automationId: automationId, cursor: cursor) }
+    nonisolated func speech(text: String, scope: SpeechScope) -> AsyncThrowingStream<Data, Error> { AsyncThrowingStream { $0.finish() } }
+    func transcribe(wav: Data, sessionId: String) async throws -> String { try await mock.transcribe(wav: wav, sessionId: sessionId) }
 }
