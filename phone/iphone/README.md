@@ -270,8 +270,10 @@ the public App Store automatically.
 
 - In front, active runs are checked every three seconds and the lists every fifteen seconds.
   While the app is closed, approvals, questions, published alerts and automation results arrive
-  as notifications through Apple push once your gateway's push relay is on (nothing to set up:
-  the app registers itself at sign-in; the system's notification permission is the only switch).
+  as notifications through Apple push once your gateway has a push forwarder (nothing to set up
+  on the iPhone: the app registers itself at sign-in; the system's notification permission is the
+  only switch). On development builds a push can keep its generic words; see
+  [troubleshooting](docs/troubleshooting.md#a-notification-shows-only-approval-needed-or-tap-to-read-it).
 - Answers use the gateway’s run output; the phone does not implement token-by-token SSE.
 - The conversation picker shows the most recent 60 chat/discussion runs and opens up to
   30 turns per conversation. Older history remains on the gateway.

@@ -405,6 +405,66 @@ A file that does not match is refused and left untouched. The code works once, w
 minutes, on the gateway's own machine. An Assistant that is already running does not receive a
 code: quit it and open it again from the console.
 
+## The AbstractAssistant family
+
+This repository holds every client of the Assistant. Each one is a thin client of the same
+gateway, so a conversation, an automation or a wait is the same record on every device.
+
+```mermaid
+flowchart LR
+  subgraph Mac["macOS, Linux, Windows"]
+    Desk["Desktop app (Python, PyQt5)\nabstractassistant/ · ai.abstractframework.assistant.mac"]
+  end
+  subgraph Phone["iPhone: AbstractAssistant 0.16.0"]
+    PApp["iPhone app (container)\nai.abstractframework.assistant"]
+    PNSE["Notification service extension\n….assistant.notifications"]
+  end
+  subgraph Wrist["Apple Watch (the iPhone app's companion)"]
+    WApp["Watch app\n….assistant.watchkitapp"]
+    WNSE["Notification service extension\n….watchkitapp.notifications"]
+    Face["Assistant complication\n….watchkitapp.orbclock"]
+  end
+  Keys[("Keychain item, shared through\ngroup.ai.abstractframework.assistant")]
+  Web["Web app (scaffold)\nweb/"]
+  GW["AbstractGateway\nruns · waits · automations\n/me/events · /me/push/devices"]
+  Fwd["Push forwarder\n(the publisher's, or your own)"]
+  APNs["Apple Push Notification service"]
+
+  PApp -- "sign-in handoff\n(WatchConnectivity)" --> WApp
+  PApp --> Keys
+  PNSE --> Keys
+  WApp --> Keys
+  WNSE --> Keys
+  Face --> Keys
+  Desk --> GW
+  Web --> GW
+  PApp -- "PUT /me/push/devices/{id}" --> GW
+  WApp -- "PUT /me/push/devices/{id}" --> GW
+  GW --> Fwd --> APNs
+  APNs --> PNSE
+  APNs --> WNSE
+  PNSE -- "GET /me/events?after=s-1&limit=1" --> GW
+  WNSE -- "GET /me/events?after=s-1&limit=1" --> GW
+```
+
+- **Desktop** (`abstractassistant/`): this page. Its macOS bundle can be signed and notarized
+  ([ADR 0006](adr/0006_macos_signing_and_distribution.md)); the host stays PyQt5 this cycle
+  ([ADR 0008](adr/0008_desktop_host.md)).
+- **iPhone and Apple Watch** are one product built from one project, `phone/iphone/project.yml`
+  ([ADR 0005](adr/0005_one_apple_project.md), amending [ADR 0003](adr/0003_unified_apple_product.md)).
+  The sign-in is one Keychain item shared through the app group, so the notification extensions
+  and the complication read it; the iPhone hands it to the watch, and the latest sign-in wins on
+  either device. Each app registers its push token with the gateway at sign-in, on a new token and
+  at most once a day. A push names only its kind and event; the extension reads that event from
+  your gateway and shows it as the app would. See the
+  [iPhone architecture](../phone/iphone/docs/architecture.md#one-sign-in-apple-push-and-the-watch)
+  and the [watch architecture](../watch/apple/docs/architecture.md).
+- **Web** (`web/`): a scaffold on the framework's app server, not a release
+  ([web/README.md](../web/README.md), [ADR 0007](adr/0007_web_assistant.md)).
+- Notes are captured and recalled in the Apple apps, while AbstractNote stays a gateway service
+  ([ADR 0004](adr/0004_notes_inside_the_assistant_abstractnote_stays_a_service.md)); the Notes
+  surface is not built yet.
+
 ## Validation
 
 `tests/basic` runs headless (`QT_QPA_PLATFORM=offscreen`) and covers the gateway client and

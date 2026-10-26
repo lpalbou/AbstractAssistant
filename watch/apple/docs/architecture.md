@@ -163,8 +163,10 @@ sequenceDiagram
   (its device id is kept on the watch; one request per notice shown, none otherwise).
   Time-sensitive needs the `com.apple.developer.usernotifications.time-sensitive` entitlement to
   break through a Focus; without it watchOS delivers it as an ordinary notification.
-- **Older gateway (no `/me/events`, 404)**: the refresh reads the waits (the tools' risk tiers only
-  when there is a new one) and posts each new approval or question once (an ordinary tool approval
+- **When the event stream is not read**: a look answers one of three ways: read, no stream (the
+  gateway answered 404: an older gateway, remembered for a day per gateway so it is not asked on
+  every look, then asked once more), or failed (a timeout, a 401, a proxy's page). In the last two
+  the refresh reads the waits (the tools' risk tiers only when there is a new one) and posts each new approval or question once (an ordinary tool approval
   offers Allow, the watch must be unlocked, and Deny; a send or a destructive call opens the app),
   and reads the automations (`GET /api/gateway/automations`) to post one notification per automation
   whose latest run is newer than the one known on this watch. The app's own automation reads post
@@ -194,7 +196,8 @@ sequenceDiagram
   sign-in"; otherwise it reads `GET /me/events?after=s-1&limit=1` (8 s) and renders it as the
   catch-up would (approval/question time-sensitive with the `needs` user info; result/failure
   passive with the automation's name, kept in the app group; a published alert with its title).
-  On timeout the generic localized text stays. Every attention notification's id is the gateway's
+  On timeout the generic localized text stays, and each push's outcome is a `PushTrace` line in the
+  app group (the `--dump-notify` readout prints them). Every attention notification's id is the gateway's
   collapse id, `sha256("attention:" + record_key)[:32]`, so the catch-up skips what a push showed.
 - **One sign-in with the iPhone**: `WatchLink` takes the iPhone's sign-in from WatchConnectivity
   (application context, or the queued user info) when it is newer than the watch's own and names
@@ -224,8 +227,8 @@ sequenceDiagram
 | Gap | Effect on the watch |
 |---|---|
 | No device pairing, one token per account | the watch signs in with an account token or an emailed code; rotating the token signs out every client |
-| Push relay off by default (`--push-relay off`) | until the gateway operator turns the relay on, waits arrive on the next poll or background refresh |
-| The gateway's packaged push topics are still `….assistant.watch` / `….assistant.iphone` | the new apps' registrations (`….assistant`, `….assistant.watchkitapp`) are refused (422) until the gateway lists them |
+| No built-in push forwarder yet | until the gateway's admin sets one (the console's Push forwarder setting), waits arrive on the next poll or background refresh |
+| Released gateways list only the retired push topics (`….assistant.watch`, `….assistant.iphone`) | the apps' registrations (`….assistant`, `….assistant.watchkitapp`) are refused (422) until the gateway's next release, which lists them |
 | No risk level in the wait payload | the risk comes from the tool catalog; Double Tap allows only approvals that neither send nor destroy |
 | No compact view of a run's records | the live steps read the run's full records (a thinking record carries the conversation); reads are skipped when the run has not changed |
 | No "seen" state for conversations | new answers are tracked on each watch |

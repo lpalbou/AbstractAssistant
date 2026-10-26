@@ -31,7 +31,12 @@ The composer has one microphone button. Hold it while you speak and release it: 
 stops, the gateway transcribes it, and the words are sent as your next message — exactly what
 Return would do with them. Text already in the composer goes out with the spoken words. A short
 tap records nothing and reminds you to hold. The status line follows the gesture ("Listening —
-release to send", "Transcribing…"); a failed transcription is reported there and nothing is sent.
+release to send", "Transcribing…").
+
+When the transcription fails, nothing is sent and the recording is kept: a line under the
+conversation says "Not sent. Your recording is kept", with the reason, and offers **Retry** (sends
+the same recording again) and **Discard**. Nothing is resent without your click, and the kept
+recording lives in memory until the app quits.
 
 ## Voice conversation (hands-free)
 

@@ -113,6 +113,25 @@ scripts/deploy-watch.sh --no-build --forget                       # clear the si
 The device id comes from `xcrun devicectl list devices` (`WATCH_DEVICE`). Give the watch its own
 gateway account; an admin token on a watch carries admin rights to every approval.
 
+## The notifier readout
+
+When a notification seems missing or shows only its generic words, launch a Debug build with
+`--dump-notify` and the console attached:
+
+```sh
+xcrun devicectl device process launch --device <watch-id> --console \
+  ai.abstractframework.assistant.watchkitapp --dump-notify
+```
+
+It prints `notify-readout` lines: the system's notification permission and the app's toggle, the
+event-stream cursor and what it counts (needs you, new results), the gateways remembered as having
+no event stream, the runs and waits already posted, when the watch last looked (background
+refreshes and launches, the last 40), the notifications still in Notification Center and pending,
+the watch face's snapshot, and `push extension`: the last lines of what the notification service
+extensions did with each push (shown with its event, or why it kept its generic words: no sign-in,
+an earlier sign-in, the gateway's status or error, the event missing from the page, an event it
+cannot render). Release builds ignore the argument.
+
 ## App Store packaging
 
 Store delivery uses **Actions → Apple app (iPhone + Watch)**. The existing AbstractAssistant

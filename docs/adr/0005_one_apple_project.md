@@ -41,7 +41,9 @@ watch app and its own iOS app, so the family must be real, not composed at relea
   group), so ADR 0003's unsigned-candidate CI step refuses by design: a Store candidate now needs an
   archive-signing configuration.
 - The gateway's packaged push topics must list the new ids (`ai.abstractframework.assistant`,
-  `ai.abstractframework.assistant.watchkitapp`); until then registrations are refused (422).
+  `ai.abstractframework.assistant.watchkitapp`). AbstractGateway lists exactly these from its
+  next release (unreleased at the time of writing); a released gateway refuses the registrations
+  (422).
 - Installs of the retired ids keep their own sandbox: people sign in once in the new app.
 
 ## References

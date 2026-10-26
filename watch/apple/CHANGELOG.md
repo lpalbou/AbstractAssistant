@@ -7,32 +7,6 @@ iPhone app); the Python package's history is in
 
 ## [Unreleased]
 
-### Changed
-
-- **The top row's icons are the time's size.** Back, Share, the voice button, Stop, the shield and
-  the pencil are 28 pt circles (20 % smaller), centred on the time; the band under the row is 45 pt.
-  The keyboard, tools and info icons beside the orb keep their size.
-- **A question that could not be sent keeps its recording.** When the upload or the transcription
-  fails, the orb says "Not sent." with Retry and Discard under it; the recording
-  waits in its own file through leaving the page and relaunching, and nothing sends it on its own.
-  Retry sends the same recording; Discard deletes it. (Backlog 1054, slice 0.)
-- **A haptic when listening starts**, as there was one when the microphone closes and when an
-  answer arrives.
-- **The sign-in lives in the Keychain, shared through the app group.** A Keychain item of the
-  app's service, readable after the first unlock (the notification extension reads it while the
-  device is locked), bound to this device, never in a backup, never synced; the app group doubles
-  as the access group so the extension (and, on the watch, the complication) read the same item.
-  Until now it was a file in the app group sealed with a key kept beside it, which protected
-  nothing; that file (and the plain one of the interim builds) is moved into the Keychain at its
-  first read, so nobody signs in again. The watch's kept sign-ins moved from UserDefaults into a
-  second Keychain item (backlog 1053).
-- **The hold on the orb is shorter and its ring smaller.** A hold toggles in about a second
-  (1.05 s, 30 % less than before) and its ring closes well inside the screen instead of reaching
-  past its edge.
-- **The read-aloud button is a speaker, not a play button.** Beside Back on the orb page and
-  on an automation's page, the voice button shows a speaker at rest (pause while it speaks, as
-  before); its spoken label is "Read aloud".
-
 ### Added
 
 - **One product with the iPhone (version 0.16.0, build 39).** The watch app is now the companion of
@@ -48,19 +22,7 @@ iPhone app); the Python package's history is in
   event from your gateway and shows "Approval needed" / "A question for you" (time-sensitive; a tap
   opens what waits for you), "<automation> has a result" / "<automation> failed", or a published
   alert's title; "From an earlier sign-in" for a push meant for another sign-in. The app's own catch-up
-  never shows an item a push already showed. Pushes are sent once your gateway's push relay is on.
-
-### Changed
-
-- **Your sign-in is sealed** (ChaChaPoly under a private key file in the app group, readable by the
-  notification extension), no longer in the app's plain storage; a sign-in kept by 0.5.0 is sealed
-  at the first launch. Sign-ins kept with "Keep my sign-in" stay in the app's storage for now.
-- The project moved: one XcodeGen spec for the iPhone and the watch, `phone/iphone/project.yml`
-  (`AbstractAssistant.xcodeproj`); `scripts/build.sh`, `test-watch.sh`, `deploy-watch.sh`,
-  `run-live.sh` and `testflight.sh` use it. The empty iOS container target is gone.
-
-### Added
-
+  never shows an item a push already showed. Pushes are sent once your gateway has a push forwarder.
 - **Choose the gateway on the sign-in page, and come back with one tap.** The sign-in page has two
   lines in the same capsule: the gateway (the last one signed into, else
   `gateway.abstractframework.ai`) and "Sign in with user or email". A tap on the gateway opens a
@@ -69,24 +31,44 @@ iPhone app); the Python package's history is in
   "Sign out and forget" or Cancel. A kept sign-in shows on the sign-in page, for its gateway, as
   "Sign in as <user>" (at most 3), and one tap signs in with it. It is forgotten when the gateway
   refuses it, when you sign out and forget, or replaced when you sign in again as that user with a
-  new credential. Kept sign-ins are stored like the current one (the app's storage, not a sealed
-  store). The field starts with the user signed in last only when no kept row offers that user
+  new credential. Kept sign-ins are a second Keychain item, beside the current one. The field starts with the user signed in last only when no kept row offers that user
   (one way into an account, never two), and empties when another gateway is chosen.
-
-### Changed
-
-- **The top row sits on the time's line, on every page.** Back (and the gear on Home), the page's
-  title and the icons beside Back (Share, Stop, the shield, the voice button) are centred on the
-  system time, 10 pt higher than before, and the row's band is 48 pt instead of 58: every page
-  starts 10 pt higher. The title leaves the time its room at the right. The orb page's tools, which
-  mirror the keyboard's distance from the top, follow the band.
-
 - **A readout of the notifier, for a debug build.** Launching with `--dump-notify` (the console
   attached: `xcrun devicectl device process launch --console …`) prints the system's permission,
   the toggle, when the watch last looked (the background refresh and launches, the last 40, kept
   on the watch), the runs and waits already posted, the notifications still in Notification
   Center and the face's snapshot: what to read first when a notification seems missing.
 
+### Changed
+
+- **The sign-in lives in the Keychain, shared through the app group.** A Keychain item of the
+  app's service, readable after the first unlock (the notification extension reads it while the
+  watch is locked), bound to this device, never in a backup, never synced; the app group doubles
+  as the access group so the extension and the complication read the same item. A sign-in kept by
+  0.5.0 or an interim build is moved into the Keychain at its first read, so nobody signs in again.
+  The sign-ins kept with "Keep my sign-in" are a second Keychain item (backlog 1053).
+- The project moved: one XcodeGen spec for the iPhone and the watch, `phone/iphone/project.yml`
+  (`AbstractAssistant.xcodeproj`); `scripts/build.sh`, `test-watch.sh`, `deploy-watch.sh`,
+  `run-live.sh` and `testflight.sh` use it. The empty iOS container target is gone.
+- **The top row sits on the time's line, on every page.** Back (and the gear on Home), the page's
+  title and the icons beside Back (Share, Stop, the shield, the voice button) are centred on the
+  system time, 10 pt higher than before: every page starts higher. The title leaves the time its room at the right. The orb page's tools, which
+  mirror the keyboard's distance from the top, follow the band.
+- **The top row's icons are the time's size.** Back, Share, the voice button, Stop, the shield and
+  the pencil are 28 pt circles (20 % smaller), centred on the time; the band under the row is 45 pt.
+  The keyboard, tools and info icons beside the orb keep their size.
+- **The hold on the orb is shorter and its ring smaller.** A hold toggles in about a second
+  (1.05 s, 30 % less than before) and its ring closes well inside the screen instead of reaching
+  past its edge.
+- **The read-aloud button is a speaker, not a play button.** Beside Back on the orb page and
+  on an automation's page, the voice button shows a speaker at rest (pause while it speaks, as
+  before); its spoken label is "Read aloud".
+- **A question that could not be sent keeps its recording.** When the upload or the transcription
+  fails, the orb says "Not sent." with Retry and Discard under it; the recording
+  waits in its own file through leaving the page and relaunching, and nothing sends it on its own.
+  Retry sends the same recording; Discard deletes it. (Backlog 1054, slice 0.)
+- **A haptic when listening starts**, as there was one when the microphone closes and when an
+  answer arrives.
 - **Settings → Connection's "Sign in as someone else" is "Sign out"**, a red button, and asks
   whether to keep the sign-in, as Sign out at the bottom of Settings (red too) now does.
 
@@ -108,6 +90,12 @@ iPhone app); the Python package's history is in
   allows, starting right under it, not centred in the area below the row, which left it low.
   Zoom (the crown), drag and double tap keep the picture within the screen from wherever it
   rests. The UI test checks the picture's own frame against the rule.
+
+### Known issues
+
+- On a development build, a push can keep its generic words ("Approval needed", "Tap to read it")
+  when the notification service extension does not replace them. The extension records why in the
+  app group; `--dump-notify` prints it under "push extension".
 
 ## [0.5.0] - 2026-10-25
 

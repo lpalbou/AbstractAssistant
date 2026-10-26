@@ -678,7 +678,9 @@ service extensions (framework backlog 1049):
   the extension reads `GET /me/events?after=s-1&limit=1` (8 s) and renders it like the app's
   catch-up: approval/question time-sensitive (tab Inbox), result/failure passive with the
   automation's name (tab Automations), a published alert passive with its title. On timeout the
-  generic text stays.
+  generic text stays. Each push's outcome (shown, or why it kept its generic words) is one line of
+  `PushTrace` in the app group's defaults (the last 12), printed by the watch's `--dump-notify`
+  readout.
 - **No double alert.** The notification id of an attention item is the gateway's collapse id,
   `sha256("attention:" + record_key)[:32]`, on both paths; `PhoneNotifier` skips an id that is
   already delivered.

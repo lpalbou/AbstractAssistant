@@ -167,6 +167,21 @@ default); switched off, replies appear when they are finished. The app always te
 which, so the gateway's own default does not decide for it.
 See [settings.md](settings.md#live-replies).
 
+## Is there an iPhone or Apple Watch app?
+
+Yes: **AbstractAssistant for iPhone and Apple Watch** is one app, version 0.16.0, in pre-release
+through TestFlight. The iPhone app carries the watch app; sign in on the iPhone and the watch is
+signed in too, and a watch without its iPhone signs in on its own. Both talk to the same gateway as
+this desktop app. See the [iPhone README](../phone/iphone/README.md) and the
+[watch README](../watch/apple/README.md).
+
+## Why do notifications not reach my iPhone or watch while the app is closed?
+
+Apple push needs a push forwarder on your gateway; there is nothing to set on the devices. Without
+one, the apps catch up when they open (the watch also about every 15 minutes in the background).
+On development builds a push can keep its generic words. See
+[iPhone troubleshooting](../phone/iphone/docs/troubleshooting.md#notifications-do-not-appear).
+
 ## Can I use it outside macOS?
 
 macOS is the primary tray target. Linux and Windows may work, especially for the CLI, but they are

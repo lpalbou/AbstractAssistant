@@ -17,14 +17,18 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 - [settings.md](settings.md) — every setting, where its value comes from (gateway default vs. this app) and where it is stored, including the workflow choice, Stream replies, appearance and About
 - [voice.md](voice.md) — speaking replies, dictation, and the hands-free voice conversation loop
 - [automations.md](automations.md) — scheduled tasks on the gateway: the Sessions | Automations tabs, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and your event stream (the attention line, the menu-bar badge, one notification per item on a Mac), the capability gate, offline behavior, limits
+- [macos-signing.md](macos-signing.md) — signing and notarizing the macOS app bundle (`build-macos-app --sign`, `--notarize`, `--dmg`, `--local-test`): one-time Apple setup, credentials, verification and the failures you can meet
 
-- [../phone/iphone/README.md](../phone/iphone/README.md) — AbstractAssistant for iPhone (0.16.0, carries the watch app; one sign-in; Apple push): conversations, scoped tools, automations, notifications and tab badges from your event stream, restorable image previews and voice playback; [architecture](../phone/iphone/docs/architecture.md), [release history](../phone/iphone/CHANGELOG.md), [run troubleshooting and app updates](../phone/iphone/docs/troubleshooting.md), [testing/distribution](../phone/iphone/docs/distribution.md) and [build guide](../phone/iphone/BUILD.md)
+## iPhone, Apple Watch and the web
+
+- [../phone/iphone/README.md](../phone/iphone/README.md) — AbstractAssistant for iPhone (0.16.0, carries the watch app; one Keychain sign-in shared with the watch and the extensions; Apple push): conversations, scoped tools, automations, notifications and tab badges from your event stream, restorable image previews and voice playback; [architecture](../phone/iphone/docs/architecture.md), [release history](../phone/iphone/CHANGELOG.md), [troubleshooting, notifications and app updates](../phone/iphone/docs/troubleshooting.md), [testing/distribution](../phone/iphone/docs/distribution.md) and [build guide](../phone/iphone/BUILD.md) (the five targets, `scripts/deploy-phone.sh`)
+- [../watch/apple/README.md](../watch/apple/README.md) — AbstractAssistant for Apple Watch (0.16.0, the iPhone app's independent companion, pre-release through TestFlight): voice around the orb with the work shown live, tools and workflow per conversation, images and recordings in answers, approvals, sessions with search and archive, automations, notifications from your event stream and Apple push, your avatar on the watch face; [build guide](../watch/apple/BUILD.md) (with the `--dump-notify` readout); its pages are indexed in [../watch/apple/docs/README.md](../watch/apple/docs/README.md)
+- [../web/README.md](../web/README.md) — the Assistant on the web: a scaffold on the framework's app server, run by hand against a gateway, not a release
 
 ## Design records
 
-- [adr/README.md](adr/README.md) — architecture decision records (the gateway-native boundary)
+- [adr/README.md](adr/README.md) — architecture decision records: the gateway-native boundary, the one Apple product and project, notes inside the Apple apps, macOS signing, the web assistant, the desktop host
 - [backlog/overview.md](backlog/overview.md) — planned and proposed work
-- [../watch/apple/README.md](../watch/apple/README.md) — AbstractAssistant for Apple Watch (0.16.0, the iPhone app's independent companion, pre-release through TestFlight): voice around the orb with the work shown live, tools and workflow per conversation, images and recordings in answers, approvals, sessions with search and archive, automations, notifications from your event stream and your avatar on the watch face; its pages are indexed in [../watch/apple/docs/README.md](../watch/apple/docs/README.md)
 
 ## Project
 

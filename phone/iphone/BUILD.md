@@ -64,16 +64,24 @@ xcrun devicectl device process launch --device <iphone-id> ai.abstractframework.
 ```
 
 To sign that iPhone in from the Mac without typing on it (Debug builds only; the app checks the
-token with GET /api/gateway/me, seals it, hands it to the watch and registers for push, as the
-account-token sign-in does):
+token with GET /api/gateway/me, keeps it in the Keychain, hands it to the watch and registers for
+push, as the account-token sign-in does):
 
 ```sh
 scripts/deploy-phone.sh --device <iphone-id> --gateway https://<your-gateway> --token <token> --user <user>
 ```
 
-`--no-build` reinstalls the last build, `--forget` clears the sign-in, `--console` stays attached and
-prints the app's `phone-trace` lines (sign-in, watch handoff, push registration), and
-`--shoot FILE.png` takes a screenshot. Release builds ignore these launch arguments.
+`--env FILE` reads `GW_URL`, `GW_TOKEN` and optionally `GW_USER` from a private file instead,
+`--no-build` reinstalls the last build, `--forget` clears the sign-in, `--screen NAME` opens a
+screen, `--console` stays attached and prints the app's `phone-trace` lines (sign-in, watch
+handoff, push registration), and `--shoot FILE.png [--wait S]` takes a screenshot. The device comes
+from `--device` or `PHONE_DEVICE` (`xcrun devicectl list devices`). Launched with `--dump-trace`, a
+Debug build also prints the last 40 trace lines it kept. Release builds compile these launch
+arguments out.
+
+On the watch, a Debug build launched with `--dump-notify` prints the notifier's readout, including
+what each notification service extension did with the last pushes (see the
+[watch build guide](../../watch/apple/BUILD.md#the-notifier-readout)).
 
 This uses Xcode's automatic development provisioning and may register the five app
 identifiers (with Push Notifications, Time Sensitive Notifications and the app group) and the

@@ -15,30 +15,6 @@ here changes how it runs from `pip` on Linux, Windows or macOS.
 - Team: the family's team, **`K3R4D6HP2A`** (as in the [iPhone pipeline](../phone/iphone/docs/distribution.md))
 - Channel: Developer ID + notarization, downloaded directly (not the Mac App Store)
 
-## What this Mac already has (2026-10-26)
-
-So that nothing below is redone. Names only; no secrets are kept in this repository.
-
-- **Developer ID Application: Laurent-Philippe Albou (K3R4D6HP2A)**, created in Xcode on
-  2026-10-26 and in the login keychain (`security find-identity -v -p codesigning` lists it).
-  Part 1 step 4 is done, except the `.p12` backup.
-- **Apple Development: Laurent-Philippe Albou (…)**, also team `K3R4D6HP2A` (measured on a
-  signed probe: `TeamIdentifier=K3R4D6HP2A`). It is the identity for the local launch test below,
-  never for a release.
-- **Apple Distribution**: issued on 2026-10-16, but its `.cer` was never imported, so Keychain
-  shows it as "Not in Keychain". It is a Mac/iOS **App Store** certificate: not needed for this
-  app (ADR 0006 section 2).
-- `~/Desktop/apple-csr/` (`make-csr.sh`, `import-certificates.sh`) and `~/.apple-signing/keys/`:
-  the 2026-10-16 certificate-request scripts and the private keys they generated.
-- `untracked/apns/` holds the **APNs push key** (`.p8` with a key id and team id, no issuer). It
-  is **not** an App Store Connect API key and cannot notarize.
-- The **App Store Connect team API key** exists only as the GitHub secrets `ASC_KEY_ID`,
-  `ASC_ISSUER_ID`, `ASC_KEY_P8` (the iPhone pipeline's `app-store` environment). A secret cannot
-  be read back from GitHub, so local notarization needs its own credentials (Part 1 step 5).
-- The build environment: this Mac's pyenv Python and the repo `.venv` cannot build the bundle (no
-  `webrtcvad-wheels`; and `numba` there refuses NumPy 2.5: "Numba needs NumPy 2.4 or less").
-  **Rebuild the build venv before any signed build** (Part 2).
-
 ## Part 1 — Apple account setup (once, whatever builds the app)
 
 These steps do not depend on how the app is built. If the desktop host later changes (for
@@ -155,7 +131,7 @@ same team, and an ad-hoc build cannot run under it at all (its libpython is refu
 ```bash
 export TEAM_ID=K3R4D6HP2A
 build-macos-app --skip-install --local-test \
-  --identity "Apple Development: Laurent-Philippe Albou (<id shown by find-identity>)"
+  --identity "Apple Development: <Name> (<id shown by find-identity>)"
 # then, from Terminal (so a crash prints), NOT from /Applications:
 dist/macos/AbstractAssistant.app/Contents/MacOS/AbstractAssistant
 ```

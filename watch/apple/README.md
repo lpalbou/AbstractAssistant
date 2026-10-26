@@ -63,8 +63,10 @@ its information is in, and an error only once reading it has failed several time
 **Get answers while away.** An answer that arrives after you left the app comes as a notification.
 New approvals and questions, and new results from your automations, are read from your gateway's
 event stream in the background about every 15 minutes and when the app opens: what needs you comes
-as a time-sensitive notification, results as quiet news. (With an older gateway the watch reads the
-waits instead, and an ordinary tool approval can be allowed or denied from the notification itself.) An automation that finishes a run
+as a time-sensitive notification, results as quiet news. With a push forwarder on your gateway they
+arrive at once, through Apple push, and the app never shows twice what a push showed. (With an older
+gateway, or when the stream cannot be read, the watch reads the waits and automations instead, and an
+ordinary tool approval can be allowed or denied from the notification itself.) An automation that finishes a run
 posts a notification ("Morning digest finished"; a tap opens it), shown as a banner when the app
 is open; Settings → Notifications turns this off.
 
@@ -124,10 +126,14 @@ curl https://<host>.<tailnet>.ts.net/api/health
 
 - While the app is on screen it polls the gateway every 15 seconds. While it is closed,
   approvals, questions, published alerts and automation results arrive through Apple push once
-  your gateway's push relay is on (the app registers itself at sign-in; nothing to set up);
-  until then watchOS decides when background checks run.
-- Your sign-in is kept in the watch's Keychain (shared with its notification extension). The sign-ins you
-  keep at Sign out ("Keep my sign-in") are still in the app's plain storage.
+  your gateway has a push forwarder (the app registers itself at sign-in; nothing to set up);
+  until then watchOS decides when background checks run, about every 15 minutes.
+- Known issue: on a development build, a push can arrive with its generic words ("Approval
+  needed", "Open the Assistant to answer") when the notification extension did not replace them;
+  the item itself is in the app. A Debug build's `--dump-notify` readout shows why
+  ([BUILD.md](BUILD.md#the-notifier-readout)).
+- Your sign-in is kept in the watch's Keychain (shared with its notification extension and the
+  complication). The sign-ins you keep at Sign out ("Keep my sign-in") are a second Keychain item.
 - Tools allowed with Approve all are approved by the watch when it sees their approvals (on the orb
   page, or in its regular check while the app is open); with the app closed, they ask. Approve all
   covers the run's own conversation, or its automation, by that one's own tools.

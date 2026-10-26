@@ -40,11 +40,28 @@ before a later step failed. Refreshing details only reads existing records.
 
 ## Notifications do not appear
 
-Notifications come from your gateway's event stream while the app runs, and when it next opens or
-comes to the front; there are no push notifications while it is closed. Check that iOS allows
-notifications for AbstractAssistant (Settings → Notifications) and that your gateway offers the
-stream (an older gateway keeps the Inbox and Automations lists up to date, without notifications).
-A Focus can hold "Approval needed" back unless AbstractAssistant is allowed in that Focus.
+Notifications come from your gateway's event stream while the app runs and when it next opens or
+comes to the front, and through Apple push while it is closed. Check, in order:
+
+- iOS allows notifications for AbstractAssistant (Settings → Notifications). This permission is
+  the only switch: the app registers for push by itself at each sign-in and at most once a day.
+- Your gateway has a push forwarder. Without one, nothing is pushed and the app catches up when it
+  opens. An admin sets it in the gateway console (My email → Notifications → Push forwarder).
+- Your gateway offers the event stream. An older gateway keeps the Inbox and Automations lists up
+  to date, without notifications.
+- A Focus can hold "Approval needed" back unless AbstractAssistant is allowed in that Focus.
+
+## A notification shows only "Approval needed" or "Tap to read it"
+
+A push carries only its kind; the notification service extension reads the event from your
+gateway and replaces the generic words with the automation's name or the alert's title. The
+generic words stay when the extension cannot read the event in time (about 8 seconds), when the
+iPhone has no sign-in, or when the push was meant for an earlier sign-in ("From an earlier
+sign-in"). The item itself is always in the Inbox or Automations.
+
+Known issue: on a development build, pushes can keep their generic words even with a reachable
+gateway. The extensions record why in the app group; a Debug watch build launched with
+`--dump-notify` prints those lines (see the [watch build guide](../../../watch/apple/BUILD.md#the-notifier-readout)).
 
 ## Find the installed version
 

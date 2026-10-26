@@ -5,20 +5,6 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
 
-### Changed
-
-- **The sign-in lives in the Keychain, shared through the app group.** A Keychain item of the
-  app's service, readable after the first unlock (the notification extension reads it while the
-  device is locked), bound to this device, never in a backup, never synced; the app group doubles
-  as the access group so the extension (and, on the watch, the complication) read the same item.
-  Until now it was a file in the app group sealed with a key kept beside it, which protected
-  nothing; that file (and the plain one of the interim builds) is moved into the Keychain at its
-  first read, so nobody signs in again. The watch's kept sign-ins moved from UserDefaults into a
-  second Keychain item (backlog 1053).
-- **A paused reading shows a speaker, not a play triangle.** The message's read-aloud button is a
-  speaker at rest, pause while it reads and a filled speaker while paused (a tap resumes): a
-  play triangle never stands for reading aloud, on the iPhone as on the watch.
-
 ### Added
 
 - **One product with the Apple Watch (version 0.16.0, build 39).** The iPhone app is now
@@ -26,7 +12,8 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
   the watch app as its companion (`ai.abstractframework.assistant.watchkitapp`). One project builds
   both, their watch face complication and two notification service extensions. The iPhone and the
   watch share one version from now on: 0.16.0 for both, the next number after the desktop app's
-  0.15.0, so the family reads as one release line.
+  0.15.0, so the family reads as one release line. The earlier developer app
+  `ai.abstractframework.assistant.iphone` is retired: sign in once in AbstractAssistant.
 - **Sign in once.** After you sign in on the iPhone (account token or emailed code), the watch takes
   the same sign-in through WatchConnectivity. A watch without its iPhone still signs in on its own;
   the latest sign-in wins on either device.
@@ -38,26 +25,28 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
   would: "Approval needed" / "A question for you" (time-sensitive, opens the Inbox), "<automation> has
   a result" / "<automation> failed" (opens Automations), a published alert with its title. A push for
   an earlier sign-in says "From an earlier sign-in"; when the gateway cannot be read in time, the
-  generic text stays. Pushes are sent only once your gateway's push relay is on.
+  generic text stays. Pushes are sent only once your gateway has a push forwarder.
 - **Sign a development iPhone in from the Mac (Debug builds only).** `scripts/deploy-phone.sh`
   builds the signed Debug app, installs it over CoreDevice and launches it with
   `--gateway URL --token TOKEN [--user ID]`: the app checks the token with GET /api/gateway/me,
-  seals the sign-in, hands it to the watch and registers for push, as the account-token sign-in does;
-  `--forget-gateway` clears it. `--console` shows the app's `phone-trace` lines (sign-in, watch
-  handoff, push registration) and `--dump-trace` prints the last 40 at launch. Release builds
-  compile all of this out.
+  keeps the sign-in, hands it to the watch and registers for push, as the account-token sign-in
+  does; `--forget` clears it. `--console` shows the app's `phone-trace` lines (sign-in, watch
+  handoff, push registration) and the app's `--dump-trace` launch argument prints the last 40.
+  Release builds compile all of this out.
 
 ### Changed
 
-- **Your sign-in is sealed in the app's own storage, no longer in the iPhone Keychain** (ChaChaPoly
-  under a private key file in the app group, readable by the notification extension; framework rule:
-  no OS keychain). The earlier developer app `ai.abstractframework.assistant.iphone` is retired: sign
-  in once in AbstractAssistant.
-- A notification for an approval, a question or a result now has the same identifier as its push
+- **The sign-in lives in the Keychain, shared through the app group.** A Keychain item of the
+  app's service, readable after the first unlock (the notification extension reads it while the
+  device is locked), bound to this device, never in a backup, never synced; the app group doubles
+  as the access group so the extension (and, on the watch, the complication) read the same item.
+  A sign-in kept in a file by an earlier build is moved into the Keychain at its first read, so
+  nobody signs in again. The watch's kept sign-ins are a second Keychain item (backlog 1053).
+- A notification for an approval, a question or a result has the same identifier as its push
   (the gateway's collapse id), and the app never shows again what a push already showed.
-
-### Changed
-
+- **A paused reading shows a speaker, not a play triangle.** The message's read-aloud button is a
+  speaker at rest, pause while it reads and a filled speaker while paused (a tap resumes): a
+  play triangle never stands for reading aloud, on the iPhone as on the watch.
 - An automation says what starts it in words: "When mail arrives in you@example.org", "When Python
   news has a new item", "When Orders is called", "By hand", or the schedule's sentence (the gateway's
   own words when it serves them); one that runs when something happens shows no next run. A run the
@@ -70,6 +59,13 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
   editor's draft-test run, which the gateway's run list omits), so the tab read "1" over "Nothing
   needs you". The badge is now the number of rows in the Inbox; the stream only tells the app to
   read the list again, once more if it changed while a read was under way.
+
+### Known issues
+
+- On a development build, a push can keep its generic words ("Approval needed", "Tap to read it")
+  when the notification service extension does not replace them. The extension records why in the
+  app group (read with the watch's `--dump-notify` readout); the item itself is in the Inbox or
+  Automations when you open the app.
 
 ## [0.7.0] — 2026-10-25
 
