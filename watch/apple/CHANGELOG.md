@@ -19,8 +19,8 @@ iPhone app); the Python package's history is in
   kept beside it, which protected nothing. It is now plain JSON under Data Protection "complete
   until first user authentication", owner-only, excluded from backups, deleted at sign-out; a
   sign-in sealed by 0.15 is moved over at its first read, so nobody signs in again. The kept
-  sign-ins moved from UserDefaults into a second protected file beside it. No OS keychain, no
-  encryption of our own (backlog 1053, the operator's ruling of 2026-10-26).
+  sign-ins moved from UserDefaults into a second protected file beside it. One store for the watch, the
+  iPhone and the Mac app to come, testable on every platform; no encryption of our own (backlog 1053).
 - **The hold on the orb is shorter and its ring smaller.** A hold toggles in about a second
   (1.05 s, 30 % less than before) and its ring closes well inside the screen instead of reaching
   past its edge.

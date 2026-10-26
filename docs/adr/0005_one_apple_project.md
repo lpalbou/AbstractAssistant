@@ -28,9 +28,10 @@ watch app and its own iOS app, so the family must be real, not composed at relea
   `AbstractGatewayClient`); the iPhone's AssistantKit package exports a module of the same name and
   SwiftPM refuses two packages with one target name in one graph. Both packages keep their own tests.
 - A new package, `phone/iphone/Packages/AssistantPush`, is shared by both apps and both extensions:
-  the sign-in in a protected file in the app group `group.ai.abstractframework.assistant` (no OS
-  keychain; plain JSON under the device's Data Protection, excluded from backups: backlog 1053, 2026-10-26;
-  it was sealed with a key file beside it until then), the
+  the sign-in in a protected file in the app group `group.ai.abstractframework.assistant` (plain
+  JSON under the device's Data Protection, excluded from backups: backlog 1053, 2026-10-26; it was
+  sealed with a key file beside it until then; a file rather than the Keychain for one store across
+  the watch, the iPhone and the Mac app, testable everywhere; the Keychain stays an option), the
   push registration, the iPhone-to-watch sign-in handoff and how a push is rendered.
 - One version for the family (`MARKETING_VERSION` 0.16.0, one build number).
 

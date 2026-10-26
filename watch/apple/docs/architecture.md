@@ -207,7 +207,7 @@ sequenceDiagram
 - The credential (an account token, or a 30-day session with its CSRF value) is a plain JSON file
   in the app group (`SharedSignInStore`, a `ProtectedFile`: written under the device's Data
   Protection "complete until first user authentication" so the notification extension can read it
-  while the watch is locked, owner-only, excluded from backups; never the OS keychain, no
+  while the watch is locked, owner-only, excluded from backups; a file rather than the Keychain so the watch, the iPhone and the Mac app share one store, no
   encryption of our own); the address and account name also stay in UserDefaults for the sign-in
   page. A credential sealed by 0.15 (a key file beside it) is moved to the plain file at its first
   read. Sign out forgets it, unless the person chooses "Keep my sign-in", which keeps it in a

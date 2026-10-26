@@ -49,9 +49,12 @@ beside it. Measured by lines deleted in this repository, not by a new abstractio
 2. **One module name.** Rename one of the two `AbstractGatewayClient` modules, make the watch's
    package an ordinary local-path dependency of the project, delete the static-framework target.
    Local-path packages are how every package is consumed already (`project.yml:25-29`).
-3. **Converge file by file, only when touched.** `Auth.swift` (identical) moves into one package
-   and the other depends on it. Transport, models and mocks converge only when a fix must land
-   in both; no "shared kit" is built ahead of such a fix.
+3. **Converge into one package, `AbstractGatewayClient`** (the watch's, the original), file by
+   file, until `PhoneGatewayClient` is empty and deleted: the goal is one gateway client for the
+   watch, the iPhone and the Mac app to come, under the original name. `Auth.swift` (identical)
+   first; transport, models and mocks as fixes touch them or as a dedicated pass when the operator
+   wants the convergence done. `PhoneGatewayClient` is the diverged copy, named to stand out, not
+   a second product.
 
 ## Non-goals
 - No consumer outside this repository: AbstractNote's watch is retired under ADR 0004, and its
@@ -74,21 +77,16 @@ beside it. Measured by lines deleted in this repository, not by a new abstractio
 - Watch: `SavedSignIn` loads from the shared file (`watch/apple/Sources/App/Settings/SignInView.swift`),
   `KeptSignIns` still in UserDefaults (`:139-142`).
 
-## Ruling (operator, 2026-10-26)
-No OS keychain, anywhere: AbstractFramework stays OS-agnostic and its clients must behave the same
-on every installation. A credential is a plain file in the app's own container, protected by the
-operating system's at-rest encryption where one exists (Data Protection class "complete until
-first user authentication" on Apple devices, so the notification extensions can read it after the
-first unlock), owner-only permissions, excluded from backups, deleted at sign-out. No encryption
-of our own on top: a key kept beside the data protects nothing and adds code. The cost accepted
-with it: no "this device only" semantics beyond what backup exclusion gives, and the file is
-readable by every target in the app group (the complication included).
-
-## Expected outcomes
-- One `AbstractGatewayClient` module, no static-framework target, fewer lines of Swift in this
-  repository (measured here only).
-- One credential file, plain, Class C, excluded from backup, holding the current and the kept
-  sign-ins; no credential in UserDefaults.
+## Ruling (operator, 2026-10-26, clarified the same day)
+The framework's no-keychain rule is about its Python packages, which must run on Linux, macOS and
+Windows alike; the Apple apps may use the Keychain, "the best simple secure practice". The store
+shipped is a plain file under the device's Data Protection (class "complete until first user
+authentication", so the notification extensions can read it after the first unlock), owner-only,
+excluded from backups, deleted at sign-out, no encryption of our own: one store for the watch, the
+iPhone and the Mac app to come, testable with `swift test` on every platform. What a Keychain item
+in a shared access group would add over it: "this device only" semantics and per-target scoping
+(the complication can read the file although it never calls the gateway). Switch only if one of
+those is wanted; the file is not a rule.
 
 ## Progress — 2026-10-26
 Steps 1 and 2 shipped on main (commit 24f47c9): `ProtectedFile` replaces the sealed pair (plain

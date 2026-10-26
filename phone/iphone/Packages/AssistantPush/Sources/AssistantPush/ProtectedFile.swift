@@ -5,7 +5,10 @@ import Foundation
 /// "complete until first user authentication" (encrypted at rest by the device, readable once the
 /// device has been unlocked after a boot, so a notification service extension can read it while
 /// the device is locked), owner-only permissions, excluded from backups, deleted on request.
-/// The framework's rule: no OS keychain, the same behaviour on every installation; and no
+/// A file rather than a Keychain item: the same store on the watch, the iPhone and the Mac app
+/// to come, testable with `swift test` on every platform; the Keychain is allowed for the Apple
+/// apps (the framework's own no-keychain rule is about its Python packages, which must run on
+/// Linux and Windows too) and would add "this device only" semantics if ever wanted. No
 /// encryption of our own on top (a key kept beside the data protects nothing and adds code).
 ///
 /// Until 0.16.0 the file was sealed with ChaChaPoly under a key file in the same folder
