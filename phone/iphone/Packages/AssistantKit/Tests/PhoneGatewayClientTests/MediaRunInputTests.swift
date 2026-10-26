@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import AbstractGatewayClient
+import PhoneGatewayClient
 
 private final class MediaInputWire: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var started: JSONValue?

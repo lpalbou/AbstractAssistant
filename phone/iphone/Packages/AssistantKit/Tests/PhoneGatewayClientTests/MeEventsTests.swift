@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import AbstractGatewayClient
+@testable import PhoneGatewayClient
 
 /// The person's event stream on the iPhone (backlog 1046/1047): the SSE frames and the page decode,
 /// the raised-minus-seen fold (the gateway's exact shapes), and the per-device notification memory.

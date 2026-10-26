@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 import AssistantKit
-import AbstractGatewayClient
+import PhoneGatewayClient
 
 @Suite @MainActor struct ToolDefaultsTests {
     private let base = ConversationTools(modes: ["read_file": .auto, "fetch_url": .approve, "execute_command": .off])

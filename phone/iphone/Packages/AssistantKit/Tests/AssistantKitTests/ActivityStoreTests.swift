@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 @testable import AssistantKit
-import AbstractGatewayClient
+import PhoneGatewayClient
 
 @Suite @MainActor struct ActivityStoreTests {
     private func run(_ json: String) throws -> RunSummary {

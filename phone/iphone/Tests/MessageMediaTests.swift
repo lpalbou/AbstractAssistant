@@ -1,7 +1,7 @@
 import XCTest
 import UIKit
 import AVFoundation
-import AbstractGatewayClient
+import PhoneGatewayClient
 import AssistantKit
 @testable import AbstractAssistantPhone
 

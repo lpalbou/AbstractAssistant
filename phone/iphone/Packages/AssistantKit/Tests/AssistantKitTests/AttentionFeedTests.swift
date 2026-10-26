@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 import AssistantKit
-import AbstractGatewayClient
+import PhoneGatewayClient
 
 /// The iPhone follows the person's event stream (backlog 1047): catch-up at launch (history never
 /// notifies), the SSE tail while in front resuming from the cursor, a local notice per new item,

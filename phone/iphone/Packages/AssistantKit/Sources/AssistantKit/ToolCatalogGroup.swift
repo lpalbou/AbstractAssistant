@@ -1,5 +1,5 @@
 import Foundation
-import AbstractGatewayClient
+import PhoneGatewayClient
 
 /// Categories come from gateway declarations, never from guesses about tool names.
 public struct ToolCatalogGroup: Identifiable, Sendable {

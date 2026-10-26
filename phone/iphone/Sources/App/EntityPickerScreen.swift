@@ -1,6 +1,6 @@
 import SwiftUI
 import AssistantKit
-import AbstractGatewayClient
+import PhoneGatewayClient
 
 struct EntityPickerScreen: View {
     var canSwitch: Bool

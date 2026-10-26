@@ -2,7 +2,7 @@ import SwiftUI
 import AVFoundation
 import ImageIO
 import AssistantKit
-import AbstractGatewayClient
+import PhoneGatewayClient
 
 /// Conversation-owned previews. Downloads stay in the app's disposable preview namespace.
 @MainActor @Observable final class MessageMediaController: NSObject, AVAudioPlayerDelegate {

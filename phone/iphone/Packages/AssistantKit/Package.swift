@@ -5,9 +5,9 @@ let package = Package(
     name: "AssistantKit",
     platforms: [.iOS(.v26), .macOS(.v14)],
     products: [.library(name: "AssistantKit", targets: ["AssistantKit"]),
-               .library(name: "AbstractGatewayClient", targets: ["AbstractGatewayClient"])],
-    targets: [.target(name: "AbstractGatewayClient"),
-              .target(name: "AssistantKit", dependencies: ["AbstractGatewayClient"]),
-              .testTarget(name: "AbstractGatewayClientTests", dependencies: ["AbstractGatewayClient"]),
-              .testTarget(name: "AssistantKitTests", dependencies: ["AssistantKit", "AbstractGatewayClient"])]
+               .library(name: "PhoneGatewayClient", targets: ["PhoneGatewayClient"])],
+    targets: [.target(name: "PhoneGatewayClient"),
+              .target(name: "AssistantKit", dependencies: ["PhoneGatewayClient"]),
+              .testTarget(name: "PhoneGatewayClientTests", dependencies: ["PhoneGatewayClient"]),
+              .testTarget(name: "AssistantKitTests", dependencies: ["AssistantKit", "PhoneGatewayClient"])]
 )

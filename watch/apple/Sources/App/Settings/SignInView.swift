@@ -107,8 +107,8 @@ enum KnownGateways {
 
 /// A sign-in kept at Sign out ("Keep my sign-in") for a one-tap return from the sign-in page: the
 /// gateway, the account, and its credential (an account token, or a session id with its CSRF
-/// value). Kept in UserDefaults, the same scaffold storage as `SavedSignIn` (not a sealed store; a
-/// known gap), keyed by the gateway's host and the user.
+/// value). Kept in a protected file beside the sign-in (`SharedSignInStore.protectedFile`, the same
+/// storage as `SavedSignIn`: no UserDefaults, no keychain), keyed by the gateway's host and the user.
 struct KeptSignIn: Codable, Equatable, Identifiable {
     var gateway: String
     var user: String
@@ -136,10 +136,10 @@ struct KeptSignIn: Codable, Equatable, Identifiable {
     }
 }
 
-/// The kept sign-ins (UserDefaults "gateway.kept", JSON), one per gateway host and user, most
-/// recently kept first. The sign-in page shows at most 3 for the chosen gateway.
+/// The kept sign-ins (`kept-signins.json` beside the sign-in, a `ProtectedFile`), one per gateway
+/// host and user, most recently kept first. The sign-in page shows at most 3 for the chosen gateway.
 enum KeptSignIns {
-    static let storageKey = "gateway.kept"
+    static let fileName = "kept-signins"
     static let shown = 3
     static let limit = 24
 
@@ -149,39 +149,41 @@ enum KeptSignIns {
 
     static func key(host: String, user: String) -> String { host + "|" + user.lowercased() }
 
-    static func all(_ d: UserDefaults = .standard) -> [KeptSignIn] {
-        guard let data = d.data(forKey: storageKey),
+    static func all(_ dir: URL = SharedSignInStore.directory()) -> [KeptSignIn] {
+        guard let data = try? SharedSignInStore.protectedFile(named: fileName, in: dir).read(),
               let list = try? JSONDecoder().decode([KeptSignIn].self, from: data) else { return [] }
         return list.sorted { $0.keptAt > $1.keptAt }
     }
 
     /// The kept sign-ins for this gateway, most recent first, at most `shown`.
-    static func entries(for gateway: URL, _ d: UserDefaults = .standard) -> [KeptSignIn] {
+    static func entries(for gateway: URL, _ dir: URL = SharedSignInStore.directory()) -> [KeptSignIn] {
         let h = host(gateway)
-        return Array(all(d).filter { $0.signIn.map { host($0.gateway) } == h }.prefix(shown))
+        return Array(all(dir).filter { $0.signIn.map { host($0.gateway) } == h }.prefix(shown))
     }
 
-    static func entry(gateway: URL, user: String, _ d: UserDefaults = .standard) -> KeptSignIn? {
+    static func entry(gateway: URL, user: String, _ dir: URL = SharedSignInStore.directory()) -> KeptSignIn? {
         let k = key(host: host(gateway), user: user)
-        return all(d).first { $0.id == k }
+        return all(dir).first { $0.id == k }
     }
 
     /// Keeps `s` as `user`'s sign-in on its gateway, replacing the one kept before.
-    static func keep(_ s: SavedSignIn, user: String, _ d: UserDefaults = .standard) {
+    static func keep(_ s: SavedSignIn, user: String, _ dir: URL = SharedSignInStore.directory()) {
         let new = KeptSignIn(s, user: user)
-        write([new] + all(d).filter { $0.id != new.id }, d)
+        write([new] + all(dir).filter { $0.id != new.id }, dir)
     }
 
-    static func forget(gateway: URL, user: String, _ d: UserDefaults = .standard) {
+    static func forget(gateway: URL, user: String, _ dir: URL = SharedSignInStore.directory()) {
         let k = key(host: host(gateway), user: user)
-        let list = all(d)
-        if list.contains(where: { $0.id == k }) { write(list.filter { $0.id != k }, d) }
+        let list = all(dir)
+        if list.contains(where: { $0.id == k }) { write(list.filter { $0.id != k }, dir) }
     }
 
-    static func clear(_ d: UserDefaults = .standard) { d.removeObject(forKey: storageKey) }
+    static func clear(_ dir: URL = SharedSignInStore.directory()) { SharedSignInStore.protectedFile(named: fileName, in: dir).remove() }
 
-    private static func write(_ list: [KeptSignIn], _ d: UserDefaults) {
-        if let data = try? JSONEncoder().encode(Array(list.prefix(limit))) { d.set(data, forKey: storageKey) }
+    private static func write(_ list: [KeptSignIn], _ dir: URL) {
+        let file = SharedSignInStore.protectedFile(named: fileName, in: dir)
+        if list.isEmpty { file.remove(); return }
+        if let data = try? JSONEncoder().encode(Array(list.prefix(limit))) { try? file.write(data) }
     }
 }
 

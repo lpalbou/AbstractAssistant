@@ -1,6 +1,6 @@
 import Foundation
 import Observation
-import AbstractGatewayClient
+import PhoneGatewayClient
 
 @MainActor @Observable
 public final class AssistantStore {

@@ -1221,7 +1221,7 @@ struct LaunchOptions {
         // sign-ins; `--test-known <url,url>` remembers gateways (oldest first);
         // `--test-kept <user,user>` keeps a sign-in for each user on the default gateway.
         if args.contains("--reset-signins") {
-            SavedSignIn.clear(defaults); KnownGateways.clear(defaults); KeptSignIns.clear(defaults)
+            SavedSignIn.clear(defaults); KnownGateways.clear(defaults); KeptSignIns.clear()
             defaults.removeObject(forKey: "gateway.url"); defaults.removeObject(forKey: "gateway.user")
         }
         if let list = value("--test-known") {
@@ -1231,7 +1231,7 @@ struct LaunchOptions {
         if let user = value("--test-last-user") { UserDefaults.standard.set(user, forKey: "gateway.user") }
         if let users = value("--test-kept"), let gw = SavedSignIn.normalize(SavedSignIn.defaultGateway) {
             for user in users.split(separator: ",").map(String.init) {
-                KeptSignIns.keep(SavedSignIn(gateway: gw, user: user, credential: .token("test-kept-token")), user: user, defaults)
+                KeptSignIns.keep(SavedSignIn(gateway: gw, user: user, credential: .token("test-kept-token")), user: user)
             }
         }
         #endif

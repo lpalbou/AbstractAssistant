@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import AbstractGatewayClient
+import PhoneGatewayClient
 import AssistantKit
 
 private final class ArchiveWire: URLProtocol, @unchecked Sendable {

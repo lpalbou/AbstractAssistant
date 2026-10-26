@@ -1,6 +1,6 @@
 import XCTest
 import AssistantKit
-import AbstractGatewayClient
+import PhoneGatewayClient
 @testable import AbstractAssistantPhone
 
 final class ConnectionVaultTests: XCTestCase {

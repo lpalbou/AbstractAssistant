@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 import AssistantKit
-import AbstractGatewayClient
+import PhoneGatewayClient
 
 @Test func categoryOverridesMaterializeDefaultsAndIgnoreSearchWithoutGrantingDisabledTools() {
     let rows = [ToolInfo(name: "read", riskTier: "observe", riskRank: 0, toolset: "files", approvalDefault: "auto"),

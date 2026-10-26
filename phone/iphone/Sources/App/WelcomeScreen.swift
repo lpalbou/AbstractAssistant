@@ -1,6 +1,6 @@
 import SwiftUI
 import AssistantKit
-import AbstractGatewayClient
+import PhoneGatewayClient
 
 struct WelcomeScreen: View {
     var onConnect: (SavedConnection) -> Void

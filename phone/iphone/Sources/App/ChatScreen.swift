@@ -3,7 +3,7 @@ import PhotosUI
 import UniformTypeIdentifiers
 import QuickLook
 import AssistantKit
-import AbstractGatewayClient
+import PhoneGatewayClient
 
 struct ChatScreen: View {
     var openSettings: () -> Void

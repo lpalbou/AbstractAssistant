@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import AbstractGatewayClient
+@testable import PhoneGatewayClient
 
 /// The live wait block of a tool approval (GET /runs/{id}, gateway 0.14, 2026-10-16):
 /// `details: {mode, tool_calls: [{name, arguments}]}` and a `tool_approval:` key.

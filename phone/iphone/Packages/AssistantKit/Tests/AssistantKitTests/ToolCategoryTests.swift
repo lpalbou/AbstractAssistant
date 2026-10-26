@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 import AssistantKit
-import AbstractGatewayClient
+import PhoneGatewayClient
 
 @Test func gatewayCategoriesAvailabilityAndRiskArePreserved() throws {
     let rows = try JSONDecoder().decode([ToolInfo].self, from: Data(#"[{"name":"get_email_attachment","toolset":"comms","approval_default":"ask","risk_tier":"act","risk_rank":2,"enabled":true},{"name":"capture_camera","toolset":"camera","available":false,"why_disabled":"Camera is off"},{"name":"send_telegram","toolset":"comms","enabled":false},{"name":"custom_plugin","toolset":"  "}]"#.utf8))

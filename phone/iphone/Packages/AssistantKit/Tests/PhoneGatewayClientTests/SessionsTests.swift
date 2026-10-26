@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import AbstractGatewayClient
+@testable import PhoneGatewayClient
 
 @Test func turnsGroupIntoSessionsNewestFirst() {
     func r(_ id: String, _ s: String, _ status: String, tools: Int) -> RunSummary {

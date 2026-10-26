@@ -1,5 +1,5 @@
 import Foundation
-import AbstractGatewayClient
+import PhoneGatewayClient
 
 /// A confirmed mail-server submission, projected from the authorized tool ledger.
 public struct SentEmail: Identifiable, Equatable, Sendable {

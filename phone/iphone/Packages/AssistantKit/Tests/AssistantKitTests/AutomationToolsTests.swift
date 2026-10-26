@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 import AssistantKit
-import AbstractGatewayClient
+import PhoneGatewayClient
 
 @Suite struct AutomationToolsTests {
     private var inventory: [ToolInfo] { [

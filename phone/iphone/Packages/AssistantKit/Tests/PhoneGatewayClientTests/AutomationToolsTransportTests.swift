@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import AbstractGatewayClient
+@testable import PhoneGatewayClient
 
 private final class AutomationWireStub: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var reply: (URLRequest) -> (Int, String) = { _ in (500, "") }

@@ -2,7 +2,7 @@ import XCTest
 import AVFoundation
 import SwiftUI
 import AssistantKit
-import AbstractGatewayClient
+import PhoneGatewayClient
 @testable import AbstractAssistantPhone
 
 private final class VoiceRequestLog: @unchecked Sendable {

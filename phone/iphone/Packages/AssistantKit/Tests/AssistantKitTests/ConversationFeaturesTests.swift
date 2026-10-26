@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 import AssistantKit
-import AbstractGatewayClient
+import PhoneGatewayClient
 
 @Test func historyBudgetIsInheritedUnlessExplicitAndOnlyForGrowingRuns() {
     func body(_ growing: Bool, _ budget: Int?) -> JSONValue { NewAutomation(task: "Brief me", target: .gatewayDefault(interface: "abstractassistant.agent.v1"), when: .every("1d"), buildsOnEarlierRuns: growing, askBeforeTools: true, growingMaxTokens: budget).body }

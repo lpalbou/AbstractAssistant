@@ -3,7 +3,7 @@ import UIKit
 import UniformTypeIdentifiers
 import LinkPresentation
 import AssistantKit
-import AbstractGatewayClient
+import PhoneGatewayClient
 @testable import AbstractAssistantPhone
 
 private final class DeferredShareWire: URLProtocol, @unchecked Sendable {

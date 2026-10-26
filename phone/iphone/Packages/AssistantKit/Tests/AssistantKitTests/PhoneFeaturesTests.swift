@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 import AssistantKit
-import AbstractGatewayClient
+import PhoneGatewayClient
 
 @Test func malformedArtifactSizesCannotTrapAndPathsStayLocal() throws {
     for (value, expected) in [(1e100, Int.max), (-1e100, 0), (123.0, 123)] {

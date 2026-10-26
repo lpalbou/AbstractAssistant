@@ -1,6 +1,6 @@
 import Foundation
 import UserNotifications
-import AbstractGatewayClient
+import PhoneGatewayClient
 
 /// Local notifications from the person's event stream (framework backlog 1047): what needs you is
 /// time-sensitive ("Approval needed", "A question for you"; a tap opens the Inbox, whose wait screens

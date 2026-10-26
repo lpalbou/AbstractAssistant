@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import AbstractGatewayClient
+import PhoneGatewayClient
 @testable import AssistantKit
 
 @Suite struct SentEmailTests {

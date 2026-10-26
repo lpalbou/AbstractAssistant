@@ -33,7 +33,7 @@ CPU priority and keeps DerivedData in `build/DerivedData`. It does not boot, res
 or change any simulator. If another command-line Xcode build starts, the script stops only
 its own build and exits with status 75 so the other development takes priority.
 The simulator app is signed locally with an ad-hoc identity so the app group (where the
-sealed sign-in lives) works; this needs no developer account and does not sign a
+protected sign-in file lives) works; this needs no developer account and does not sign a
 physical-device build. The iPhone build compiles the watch app too (it is embedded).
 
 Xcode’s GUI build service is shared: also check for other active builds before starting,
@@ -102,7 +102,7 @@ entry is still available without credentials.
 ## UI tests
 
 The separate **AbstractAssistantPhoneUITests** scheme drives the demo and runs the hosted
-tests (the sealed sign-in store among them). When resources are available, use the guarded script against your own
+tests (the protected sign-in store among them). When resources are available, use the guarded script against your own
 iPhone simulator with isolated DerivedData and one job:
 
 ```sh
@@ -127,7 +127,7 @@ manual promotion of the same build to the public App Store.
 ## Opt-in live media verification
 
 Use a development-signed iPhone with an existing gateway sign-in. The hosted test reads
-its sealed sign-in in place; it never exports it. This starts real, potentially billed
+its protected sign-in in place; it never exports it. This starts real, potentially billed
 provider generations on that account and uploads the reviewed orchestrator bundle if absent.
 
 ```sh

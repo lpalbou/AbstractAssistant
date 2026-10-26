@@ -1,5 +1,5 @@
 import XCTest
-import AbstractGatewayClient
+import PhoneGatewayClient
 import AssistantKit
 @testable import AbstractAssistantPhone
 

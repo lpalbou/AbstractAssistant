@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 @testable import AssistantPush
@@ -8,30 +9,40 @@ private func scratch() -> URL {
 
 private let gateway = URL(string: "https://gateway.example")!
 
-@Suite struct SealedSignInTests {
-    @Test func aSignInRoundTripsSealedAndPrivate() throws {
+@Suite struct ProtectedSignInTests {
+    @Test func aSignInIsAPlainProtectedFileOutOfBackups() throws {
         let dir = scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
         let s = SharedSignIn(gateway: gateway, user: "ana", tenant: "default", session: "sid-1", csrf: "csrf-1")
         try SharedSignInStore.save(s, to: dir)
         #expect(SharedSignInStore.load(from: dir) == s)
-        // Sealed: the secret is not in the file in clear.
-        let raw = try Data(contentsOf: dir.appending(path: "signin.sealed"))
-        #expect(!String(decoding: raw, as: UTF8.self).contains("sid-1"))
-        for name in ["signin.sealed", "sealing.key"] {
-            let mode = try FileManager.default.attributesOfItem(atPath: dir.appending(path: name).path)[.posixPermissions] as? Int
-            #expect(mode == 0o600)
-        }
+        // Plain JSON the OS protects: no key file, owner-only, out of backups.
+        let file = dir.appending(path: "signin.json")
+        #expect(String(decoding: try Data(contentsOf: file), as: UTF8.self).contains("sid-1"))
+        #expect(!FileManager.default.fileExists(atPath: dir.appending(path: "sealing.key").path))
+        #expect(try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int == 0o600)
+        #expect(ProtectedFile(directory: dir, name: "signin").isExcludedFromBackup)
+        #expect(try dir.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup == true)
         SharedSignInStore.clear(at: dir)
         #expect(SharedSignInStore.load(from: dir) == nil)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
     }
 
-    @Test func withoutItsKeyTheFileCannotBeOpened() throws {
+    /// A sign-in sealed by 0.15 (ChaChaPoly under a key file) is read once, moved to the plain
+    /// file, and the sealed pair is gone: the person stays signed in across the change.
+    @Test func aSealedSignInOf015IsMovedOnFirstRead() throws {
         let dir = scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
-        try SharedSignInStore.save(SharedSignIn(gateway: gateway, user: "ana", token: "t"), to: dir)
-        try FileManager.default.removeItem(at: dir.appending(path: "sealing.key"))
-        #expect(SharedSignInStore.load(from: dir) == nil)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let s = SharedSignIn(gateway: gateway, user: "ana", token: "tok-1")
+        let key = SymmetricKey(size: .bits256)
+        try key.withUnsafeBytes { Data($0) }.write(to: dir.appending(path: "sealing.key"))
+        try ChaChaPoly.seal(JSONEncoder().encode(s), using: key).combined.write(to: dir.appending(path: "signin.sealed"))
+        #expect(SharedSignInStore.load(from: dir) == s)
+        #expect(FileManager.default.fileExists(atPath: dir.appending(path: "signin.json").path))
+        #expect(!FileManager.default.fileExists(atPath: dir.appending(path: "signin.sealed").path))
+        #expect(!FileManager.default.fileExists(atPath: dir.appending(path: "sealing.key").path))
+        #expect(SharedSignInStore.load(from: dir) == s)
     }
 
     @Test func everySignInHasItsOwnHandle() {

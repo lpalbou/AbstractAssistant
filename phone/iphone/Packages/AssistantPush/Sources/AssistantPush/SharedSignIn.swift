@@ -3,8 +3,9 @@ import Foundation
 /// The sign-in of an AbstractAssistant app: the gateway, the account and its credential (an account
 /// token, or a 30-day session with its CSRF value), plus `reg`, this sign-in's push registration
 /// handle (16 bytes as hex, new at every sign-in: a push carrying another one is from an earlier
-/// sign-in). Kept sealed in the app group (`SharedSignInStore`) so the app's notification service
-/// extension reads the same sign-in; never in UserDefaults, never in the OS keychain.
+/// sign-in). Kept in a protected file in the app group (`SharedSignInStore`) so the app's
+/// notification service extension reads the same sign-in; never in UserDefaults, never in the OS
+/// keychain.
 public struct SharedSignIn: Codable, Equatable, Sendable {
     public var gateway: URL
     public var user: String?
@@ -53,10 +54,11 @@ public struct SharedSignIn: Codable, Equatable, Sendable {
     }
 }
 
-/// The sealed sign-in in the app group `group.ai.abstractframework.assistant` (shared by the app,
-/// its notification service extension and, on the watch, the complication): `Library/Sealed/`
-/// holds `sealing.key` and `signin.sealed`. A build without the app group (an unsigned simulator
-/// build) keeps it in the app's own Application Support.
+/// The sign-in in the app group `group.ai.abstractframework.assistant` (shared by the app, its
+/// notification service extension and, on the watch, the complication): `Library/Sealed/signin.json`,
+/// a `ProtectedFile` (the folder keeps its 0.15 name so an earlier sign-in is found and moved).
+/// A build without the app group (an unsigned simulator build) keeps it in the app's own
+/// Application Support.
 public enum SharedSignInStore {
     public static let appGroup = "group.ai.abstractframework.assistant"
 
@@ -69,7 +71,12 @@ public enum SharedSignInStore {
         return support.appending(path: "Sealed", directoryHint: .isDirectory)
     }
 
-    private static func file(_ dir: URL) -> SealedFile { SealedFile(directory: dir, name: "signin") }
+    private static func file(_ dir: URL) -> ProtectedFile { ProtectedFile(directory: dir, name: "signin") }
+
+    /// Another protected file beside the sign-in (the watch's kept sign-ins).
+    public static func protectedFile(named name: String, in dir: URL = directory()) -> ProtectedFile {
+        ProtectedFile(directory: dir, name: name)
+    }
 
     public static func load(from dir: URL = directory()) -> SharedSignIn? {
         guard let data = try? file(dir).read() else { return nil }

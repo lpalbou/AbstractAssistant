@@ -7,6 +7,11 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ### Changed
 
+- **The sign-in is a plain file the device protects, out of backups.** It was sealed with a key
+  kept beside it, which protected nothing. It is now plain JSON under Data Protection "complete
+  until first user authentication", owner-only, excluded from backups, deleted at sign-out; a
+  sign-in sealed by 0.15 is moved over at its first read, so nobody signs in again. No OS keychain, no
+  encryption of our own (backlog 1053, the operator's ruling of 2026-10-26).
 - **A paused reading shows a speaker, not a play triangle.** The message's read-aloud button is a
   speaker at rest, pause while it reads and a filled speaker while paused (a tap resumes): a
   play triangle never stands for reading aloud, on the iPhone as on the watch.

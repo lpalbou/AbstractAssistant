@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import AbstractGatewayClient
+import PhoneGatewayClient
 
 @Suite struct MediaArtifactsTests {
     private func run(_ output: String) throws -> RunSummary {

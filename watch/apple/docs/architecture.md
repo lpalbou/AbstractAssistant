@@ -16,7 +16,7 @@ flowchart LR
     Files[MediaStore<br/>images · recordings · cache]
     BG[AnswerNotifier · RuntimeKeeper<br/>background · notifications · keep awake]
     Kit[AbstractGatewayClient<br/>Swift package]
-    Store[(app group, sealed<br/>gateway · credential · reg)]
+    Store[(app group, protected file<br/>gateway · credential · reg)]
     Push[WatchPush · WatchLink<br/>APNs registration · iPhone handoff]
     NSE[notification service extension<br/>renders a push from the event]
     Push --> Store
@@ -204,13 +204,15 @@ sequenceDiagram
 
 - The watch sends no `user_id` or `tenant_id`: the gateway derives the principal from the
   credential.
-- The credential (an account token, or a 30-day session with its CSRF value) is sealed in the
-  app group (`SharedSignInStore`: ChaChaPoly under a 0600 key file, readable after first unlock so
-  the notification extension can read it; never the OS keychain); the address and account name
-  also stay in UserDefaults for the sign-in page. A credential kept by an earlier version in
-  UserDefaults is sealed and removed there at the first read. Sign out forgets it, unless the
-  person chooses "Keep my sign-in", which keeps it in the app's plain storage (`KeptSignIns`, one
-  per gateway host and user; a known gap) for a one-tap return. A kept credential the gateway rejects (401) is
+- The credential (an account token, or a 30-day session with its CSRF value) is a plain JSON file
+  in the app group (`SharedSignInStore`, a `ProtectedFile`: written under the device's Data
+  Protection "complete until first user authentication" so the notification extension can read it
+  while the watch is locked, owner-only, excluded from backups; never the OS keychain, no
+  encryption of our own); the address and account name also stay in UserDefaults for the sign-in
+  page. A credential sealed by 0.15 (a key file beside it) is moved to the plain file at its first
+  read. Sign out forgets it, unless the person chooses "Keep my sign-in", which keeps it in a
+  second protected file beside it (`KeptSignIns`, one per gateway host and user) for a one-tap
+  return. A kept credential the gateway rejects (401) is
   forgotten, and a fresh sign-in as the same user on that gateway replaces it. The gateways signed
   into are remembered (`KnownGateways`, at most 8) for the sign-in page's chooser.
 - After a 401 the client sends nothing more (the gateway locks out an address after repeated

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import AbstractGatewayClient
+@testable import PhoneGatewayClient
 
 /// Shapes captured from gateway.abstractframework.ai (0.15) on 2026-10-17.
 @Test func automationRowDecodesRealKeys() throws {

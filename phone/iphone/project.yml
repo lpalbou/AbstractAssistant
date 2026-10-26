@@ -27,6 +27,10 @@ packages:
     path: Packages/AssistantKit
   AssistantPush:
     path: Packages/AssistantPush
+  # The watch's own gateway client (tested there with `swift test`); the iPhone's module is
+  # PhoneGatewayClient, so the two packages can share one project.
+  WatchGatewayClient:
+    path: ../../watch/apple/Packages/AbstractGatewayClient
 targets:
   # ── iPhone ────────────────────────────────────────────────────────────────────────────────────
   AbstractAssistantPhone:
@@ -38,7 +42,7 @@ targets:
       - package: AssistantKit
         product: AssistantKit
       - package: AssistantKit
-        product: AbstractGatewayClient
+        product: PhoneGatewayClient
       - package: AssistantPush
       - target: AbstractAssistantPhoneNotifications
       # The watch app ships inside the iPhone app (Watch/), as its companion.
@@ -132,7 +136,7 @@ targets:
       - package: AssistantKit
         product: AssistantKit
       - package: AssistantKit
-        product: AbstractGatewayClient
+        product: PhoneGatewayClient
       - package: AssistantPush
     settings:
       base:
@@ -151,7 +155,8 @@ targets:
       - ../../watch/apple/Localization
       - ../../watch/apple/Complication/Assets.xcassets
     dependencies:
-      - target: WatchGatewayClient
+      - package: WatchGatewayClient
+        product: AbstractGatewayClient
         embed: false
       - package: AssistantPush
       # The Assistant complication (the app's orb on the watch face), embedded in the app.
@@ -193,22 +198,6 @@ targets:
           # The build deployed to the watch is Debug (watch/apple/scripts/deploy-watch.sh): optimised,
           # so the orbs' per-frame maths does not run several times slower than the release.
           SWIFT_OPTIMIZATION_LEVEL: "-O"
-
-  # The watch's gateway client (../../watch/apple/Packages/AbstractGatewayClient, tested there with
-  # `swift test`), compiled here as a static framework: the iPhone's AssistantKit package exports a
-  # module of the same name, and SwiftPM refuses two packages with one target name in one project.
-  WatchGatewayClient:
-    type: framework
-    platform: watchOS
-    sources: [../../watch/apple/Packages/AbstractGatewayClient/Sources/AbstractGatewayClient]
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: ai.abstractframework.assistant.watchkitapp.client
-        PRODUCT_NAME: AbstractGatewayClient
-        PRODUCT_MODULE_NAME: AbstractGatewayClient
-        MACH_O_TYPE: staticlib
-        SKIP_INSTALL: YES
-        GENERATE_INFOPLIST_FILE: YES
 
   # The Assistant complication: the app's orb on the watch faces (circular, rectangular, corner,
   # inline). It reads what the app shares in their app group; it never calls the gateway itself.

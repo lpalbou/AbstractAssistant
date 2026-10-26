@@ -1,6 +1,6 @@
 import SwiftUI
 import AssistantKit
-import AbstractGatewayClient
+import PhoneGatewayClient
 
 struct NewAutomationScreen: View {
     var onCreated: (AutomationSummary) -> Void

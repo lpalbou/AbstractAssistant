@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 import AssistantKit
-import AbstractGatewayClient
+import PhoneGatewayClient
 
 @Test func gatewayAddressesCannotCarryCredentialsOrDowngradeInternetTraffic() throws {
     #expect(try SavedConnection.parseURL("gateway.example.org/console").absoluteString == "https://gateway.example.org")

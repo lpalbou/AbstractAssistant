@@ -8,13 +8,13 @@ The watch side is described in [watch/apple/docs/architecture.md](../../../watch
 flowchart LR
     Views[SwiftUI screens] --> Store[AssistantStore]
     Views --> Voice[Microphone and playback]
-    Vault[Sealed sign-in in the app group] --> Store
+    Vault[Protected sign-in in the app group] --> Store
     Vault --> Push[AssistantPush: registration, handoff]
     Push --> Watch[Watch app over WatchConnectivity]
     APNs[Apple push] --> NSE[Notification service extension]
     Vault --> NSE
     NSE --> Gateway
-    Store --> Client[AbstractGatewayClient snapshot]
+    Store --> Client[PhoneGatewayClient snapshot]
     Voice --> Client
     Views --> Files[Attachment import and authenticated preview]
     Files --> Client
@@ -25,10 +25,10 @@ flowchart LR
     Gateway --> Runtime[AbstractRuntime / providers]
 ```
 
-`Sources/App` owns native views, the sealed sign-in (`ConnectionVault`), push registration
+`Sources/App` owns native views, the protected sign-in (`ConnectionVault`), push registration
 (`PhonePush`), the watch handoff (`WatchLink`), recording and playback. The `AssistantKit`
 Swift package owns account-scoped state and URL validation. Its second target,
-`AbstractGatewayClient`, contains the HTTP wire types and protocol.
+`PhoneGatewayClient` (named apart from the watch's `AbstractGatewayClient`, so both packages live in one project), contains the HTTP wire types and protocol.
 
 The gateway remains the source of truth for session history, workflows, tools, approval
 policy, entities, model/voice defaults and automations. The app reads account preferences
@@ -41,7 +41,7 @@ preferences are stored locally, scoped by gateway/tenant/account.
 The HTTP client uses an ephemeral URLSession, explicit bearer or session/CSRF headers,
 and refuses redirects. A 401 locks the client out; the store removes the sign-in and stops
 polling rather than repeatedly hitting the gateway’s failed-sign-in limit. Credentials are
-sealed in the app group (see below), never in the OS keychain, never encoded in a URL or
+kept in a protected file in the app group (see below), never in the OS keychain, never encoded in a URL or
 passed as launch arguments.
 
 Store generations separate account changes and conversation changes. Old refreshes and
@@ -658,11 +658,13 @@ or downloads executable updates. See [troubleshooting](troubleshooting.md).
 `Packages/AssistantPush` is shared by the iPhone app, the watch app and both notification
 service extensions (framework backlog 1049):
 
-- **Sealed sign-in.** `SharedSignInStore` keeps the gateway, account and credential (token, or
-  session + CSRF) sealed with ChaChaPoly under a 0600 key file in the app group
-  `group.ai.abstractframework.assistant` (`Library/Sealed/`), readable after first unlock so the
-  extension can read it while the phone is locked. No OS keychain. Each save is a sign-in and
-  takes a new `reg` (16 random bytes as hex).
+- **Protected sign-in.** `SharedSignInStore` keeps the gateway, account and credential (token, or
+  session + CSRF) as plain JSON in a `ProtectedFile` in the app group
+  `group.ai.abstractframework.assistant` (`Library/Sealed/signin.json`): written under Data
+  Protection "complete until first user authentication" so the extension can read it while the
+  device is locked, owner-only, excluded from backups, deleted at sign-out. No OS keychain and no
+  encryption of our own (a key kept beside the data protects nothing). A sign-in sealed by 0.15 is
+  moved to the plain file at its first read.
 - **Watch handoff.** After a sign-in (token or emailed code) `WatchLink` sends it to the watch
   (`updateApplicationContext`, plus `transferUserInfo`). The watch takes it when it is newer than
   its own sign-in; a watch without its iPhone still signs in on its own.
@@ -673,7 +675,7 @@ service extensions (framework backlog 1049):
   `relay: off` changes nothing on the phone; there is no push setting.
 - **The extension.** The relay's push names only a kind (`push.<kind>.title/body` in
   `Localization/en.lproj`), `s` (the stream sequence) and `r` (the sign-in handle). A push whose
-  `r` differs from the sealed sign-in's is shown passive as "From an earlier sign-in"; otherwise
+  `r` differs from the stored sign-in's is shown passive as "From an earlier sign-in"; otherwise
   the extension reads `GET /me/events?after=s-1&limit=1` (8 s) and renders it like the app's
   catch-up: approval/question time-sensitive (tab Inbox), result/failure passive with the
   automation's name (tab Automations), a published alert passive with its title. On timeout the

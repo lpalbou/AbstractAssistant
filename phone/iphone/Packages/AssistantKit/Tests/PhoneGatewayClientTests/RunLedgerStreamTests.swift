@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import AbstractGatewayClient
+@testable import PhoneGatewayClient
 
 @Suite struct LedgerSSEParserTests {
     @Test func splitBytesMultilineJSONCommentsAndPrivateFrames() throws {

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import AbstractGatewayClient
+@testable import PhoneGatewayClient
 
 @Test func markdownBlocksCoverWhatAgentsWrite() {
     let md = """

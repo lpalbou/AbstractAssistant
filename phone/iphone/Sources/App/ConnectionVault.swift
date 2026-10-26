@@ -1,6 +1,6 @@
 import Foundation
 import AssistantKit
-import AbstractGatewayClient
+import PhoneGatewayClient
 import AssistantPush
 
 /// The iPhone's sign-in, sealed in the app group (`SharedSignInStore`: a ChaChaPoly file under a

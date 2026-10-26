@@ -2,7 +2,7 @@ import XCTest
 import AVFoundation
 import UIKit
 import AssistantKit
-import AbstractGatewayClient
+import PhoneGatewayClient
 @testable import AbstractAssistantPhone
 
 /// Explicit device-only verification. It uses the host app's sealed sign-in in place;

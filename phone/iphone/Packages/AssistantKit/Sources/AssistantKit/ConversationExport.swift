@@ -1,6 +1,6 @@
 import Foundation
 import CryptoKit
-import AbstractGatewayClient
+import PhoneGatewayClient
 
 public struct ConversationExportFile: Identifiable, Sendable {
     public let id: String

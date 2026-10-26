@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import AbstractGatewayClient
+@testable import PhoneGatewayClient
 
 private final class MediaWireStub: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var status = 200

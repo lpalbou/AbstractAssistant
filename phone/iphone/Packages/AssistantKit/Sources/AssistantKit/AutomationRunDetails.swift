@@ -1,5 +1,5 @@
 import Foundation
-import AbstractGatewayClient
+import PhoneGatewayClient
 
 /// Presentation of a recorded occurrence. A provider's 401 is not a phone sign-in failure.
 public struct AutomationRunExplanation: Sendable {

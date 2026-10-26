@@ -1,6 +1,6 @@
 import SwiftUI
 import AssistantKit
-import AbstractGatewayClient
+import PhoneGatewayClient
 
 enum ActivityDetail: String, Identifiable { case cycles, tools, all; var id: String { rawValue } }
 

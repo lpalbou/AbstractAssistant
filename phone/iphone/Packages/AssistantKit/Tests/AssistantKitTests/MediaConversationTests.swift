@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 import AssistantKit
-import AbstractGatewayClient
+import PhoneGatewayClient
 
 @Suite @MainActor struct MediaConversationTests {
     private func fixture() async throws -> (AssistantStore, MediaClient, SessionSummary) {
