@@ -13,7 +13,8 @@
 set -e; setopt null_glob
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SECRETS="$ROOT/../../../untracked/watch/.secrets"
-DEVICE="${PHONE_DEVICE:-$(head -1 "$SECRETS/phone-device-id.txt" 2>/dev/null)}"
+DEVICE="${PHONE_DEVICE:-}"
+if [ -z "$DEVICE" ] && [ -r "$SECRETS/phone-device-id.txt" ]; then DEVICE="$(head -1 "$SECRETS/phone-device-id.txt")"; fi   # no file: --device decides later, not a silent exit
 TEAM="${DEVELOPMENT_TEAM:-$(sed -n 's/^ *DEVELOPMENT_TEAM: *//p' "$ROOT/project.yml" | head -1)}"
 ENVF=""; GW=""; TOKEN=""; GUSER=""; SCREEN=""; SHOOT=""; WAIT=10; BUILD=1; CONSOLE=0; FORGET=0; ARGS=()
 while [ $# -gt 0 ]; do case "$1" in
