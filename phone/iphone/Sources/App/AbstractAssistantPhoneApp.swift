@@ -49,9 +49,8 @@ struct PhoneRoot: View {
         .foregroundStyle(PhoneTheme.ink)
         .onChange(of: automationNames, initial: true) { _, names in AutomationNameBook.remember(names) }
         .task {
-            // Push (backlog 1049) and the watch: this iPhone's device id, the sign-in handed to the watch.
+            // Push (backlog 1049): this iPhone's device id.
             PhonePush.deviceID = store.attention.deviceID
-            WatchLink.shared.activate()
             store.onUnauthorized = { do { try ConnectionVault.remove() } catch { storageError = error.localizedDescription } }
             // The person's event stream: a local notification per new item; a tap opens its tab.
             PhoneNotifier.shared.activate()
@@ -104,17 +103,15 @@ struct PhoneRoot: View {
     private var automationNames: [String: String] {
         Dictionary(store.automations.compactMap { a in a.name.flatMap { $0.isEmpty ? nil : (a.id, $0) } }, uniquingKeysWith: { a, _ in a })
     }
-    /// `persist`: a sign-in (both paths: an account token or an emailed code), saved sealed with a
-    /// new push handle and handed to the watch; otherwise the saved sign-in at launch.
+    /// `persist`: a sign-in (both paths: an account token or an emailed code), saved with a new push
+    /// handle; otherwise the saved sign-in at launch. The watch signs in on its own: the two devices
+    /// never share or hand over a sign-in.
     private func connect(_ connection: SavedConnection, persist: Bool = true) {
         do {
             if persist { try ConnectionVault.save(connection) }
             storageError = nil
             store.connect(connection, client: LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession(), readTries: 1))
-            if persist, let signIn = ConnectionVault.current() {
-                WatchLink.shared.send(signIn, queue: true)
-                PhonePush.askPermissionOnce()
-            }
+            if persist { PhonePush.askPermissionOnce() }
             PhonePush.start()
         } catch { storageError = error.localizedDescription }
     }

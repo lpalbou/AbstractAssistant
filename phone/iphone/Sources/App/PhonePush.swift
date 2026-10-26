@@ -3,7 +3,6 @@ import AssistantPush
 import OSLog
 import UIKit
 import UserNotifications
-import WatchConnectivity
 
 /// Apple push on the iPhone (framework backlog 1049): the app registers its APNs token with the
 /// person's gateway at sign-in (a new `reg`), on every new token and at most daily, and forgets it
@@ -71,48 +70,6 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         PhonePush.log.error("no push token: \(error.localizedDescription, privacy: .public)")
         PhoneTrace.note("push: no token: \(error.localizedDescription)")
-    }
-}
-
-/// The iPhone hands its sign-in to the watch app (one sign-in for the product): the application
-/// context holds the latest one (delivered whenever the watch app next runs), and
-/// `transferUserInfo` queues it as well at each sign-in. The watch takes it when it is newer than
-/// its own; a watch without its iPhone signs in on its own.
-final class WatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
-    static let shared = WatchLink()
-
-    func activate() {
-        guard WCSession.isSupported() else { return }
-        WCSession.default.delegate = self
-        WCSession.default.activate()
-    }
-
-    /// A sign-in on the iPhone: to the watch now (context) and queued (user info).
-    func send(_ signIn: SharedSignIn, queue: Bool) {
-        guard WCSession.isSupported(), WCSession.default.activationState == .activated,
-              WCSession.default.isPaired, WCSession.default.isWatchAppInstalled else {
-            PhoneTrace.note("watch: not sent (supported \(WCSession.isSupported()) activation \(WCSession.default.activationState.rawValue) paired \(WCSession.default.isPaired) app \(WCSession.default.isWatchAppInstalled))")
-            return
-        }
-        let message = SignInHandoff(signIn).message
-        do { try WCSession.default.updateApplicationContext(message); PhoneTrace.note("watch: sign-in in the context\(queue ? ", queued" : "")") }
-        catch {
-            PhonePush.log.error("watch context not sent: \(error.localizedDescription, privacy: .public)")
-            PhoneTrace.note("watch: context not sent: \(error.localizedDescription)")
-        }
-        if queue { WCSession.default.transferUserInfo(message) }
-    }
-
-    func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
-        guard activationState == .activated, let current = SharedSignInStore.load(), current.hasCredential else { return }
-        // The context stays current (a watch app installed after the sign-in gets it too).
-        send(current, queue: false)
-    }
-
-    func sessionDidBecomeInactive(_ session: WCSession) {}
-    func sessionDidDeactivate(_ session: WCSession) { WCSession.default.activate() }
-    func sessionWatchStateDidChange(_ session: WCSession) {
-        if let current = SharedSignInStore.load(), current.hasCredential { send(current, queue: false) }
     }
 }
 

@@ -8,7 +8,7 @@ import WatchKit
 /// notification service extension reads the same sign-in;
 /// the address and the account name (no secret) also stay in UserDefaults for the sign-in page.
 /// A save is a sign-in: it takes a new push registration handle (`reg`). It comes from the sign-in
-/// page, the launch arguments, or the iPhone (`WatchPush` adopts the iPhone's sign-in).
+/// page or the launch arguments: the watch signs in on its own, never through the iPhone.
 struct SavedSignIn {
     var gateway: URL
     var user: String?
@@ -45,7 +45,7 @@ struct SavedSignIn {
         return legacy
     }
 
-    /// `at`: when it was signed in (the iPhone's time for a sign-in it handed over).
+    /// `at`: when it was signed in.
     func save(_ d: UserDefaults = .standard, at date: Date = Date()) {
         d.set(gateway.absoluteString, forKey: "gateway.url")
         d.set(user, forKey: "gateway.user")
@@ -61,10 +61,15 @@ struct SavedSignIn {
     }
 
     /// Signing out forgets the credential; the gateway address stays as the next sign-in's default.
-    static func clear(_ d: UserDefaults = .standard) {
+    /// False when a sign-in is still there afterwards (the Keychain refused to delete it).
+    @discardableResult
+    static func clear(_ d: UserDefaults = .standard) -> Bool {
         SharedSignInStore.clear()
         for k in legacyKeys { d.removeObject(forKey: k) }
+        if SharedSignInStore.load() != nil { SharedSignInStore.clear() }   // once more before saying so
+        return SharedSignInStore.load() == nil
     }
+
 
     /// "gateway.example.org" → "https://gateway.example.org"; plain http only when typed.
     static func normalize(_ text: String) -> URL? {
@@ -84,31 +89,9 @@ struct SavedSignIn {
     }
 }
 
-/// Every gateway this watch has signed into, most recent first: normalized addresses in
-/// UserDefaults ("gateway.known"), at most 8. The sign-in page's gateway chooser lists them.
-enum KnownGateways {
-    static let storageKey = "gateway.known"
-    static let limit = 8
-
-    static func all(_ d: UserDefaults = .standard) -> [URL] {
-        (d.stringArray(forKey: storageKey) ?? []).compactMap(SavedSignIn.normalize)
-    }
-
-    /// Signed in on `url`: it moves to the top of the list.
-    static func add(_ url: URL, _ d: UserDefaults = .standard) {
-        guard let u = SavedSignIn.normalize(url.absoluteString) else { return }
-        var list = (d.stringArray(forKey: storageKey) ?? []).filter { $0.lowercased() != u.absoluteString.lowercased() }
-        list.insert(u.absoluteString, at: 0)
-        d.set(Array(list.prefix(limit)), forKey: storageKey)
-    }
-
-    static func clear(_ d: UserDefaults = .standard) { d.removeObject(forKey: storageKey) }
-}
-
-/// A sign-in kept at Sign out ("Keep my sign-in") for a one-tap return from the sign-in page: the
-/// gateway, the account, and its credential (an account token, or a session id with its CSRF
-/// value). A Keychain item beside the sign-in (`SharedSignInStore`, the same store as `SavedSignIn`:
-/// never UserDefaults), keyed by the gateway's host and the user.
+/// An account kept at Sign out ("Keep my sign-in") for a one-tap return from the sign-in page: the
+/// account and its credential (an account token, or a session id with its CSRF value). It belongs
+/// to one gateway's entry in `GatewayBook`, never to a list shared by every gateway.
 struct KeptSignIn: Codable, Equatable, Identifiable {
     var gateway: String
     var user: String
@@ -117,7 +100,7 @@ struct KeptSignIn: Codable, Equatable, Identifiable {
     var csrf: String?
     var keptAt: Date
 
-    var id: String { KeptSignIns.key(host: URL(string: gateway).map(KeptSignIns.host) ?? gateway, user: user) }
+    var id: String { user.lowercased() }
 
     init(_ s: SavedSignIn, user: String, at date: Date = Date()) {
         gateway = s.gateway.absoluteString; self.user = user; keptAt = date
@@ -136,54 +119,146 @@ struct KeptSignIn: Codable, Equatable, Identifiable {
     }
 }
 
-/// The kept sign-ins (the Keychain item `kept-signins` beside the sign-in), one per gateway host
-/// and user, most recently kept first. The sign-in page shows at most 3 for the chosen gateway.
-enum KeptSignIns {
-    static let fileName = "kept-signins"
+/// One gateway of the book: its address, when it was last signed into or out of (the chooser's
+/// order), and the accounts kept on it, most recently kept first.
+struct GatewayEntry: Codable, Equatable {
+    var gateway: String
+    var usedAt: Date
+    var accounts: [KeptSignIn]
+
+    var url: URL? { SavedSignIn.normalize(gateway) }
+}
+
+/// Every gateway this watch has signed into, each with the accounts kept on it: gateway → accounts,
+/// so an account kept on one gateway is never offered on another. One Keychain item (`gateways`,
+/// beside the sign-in in `SharedSignInStore`, never UserDefaults: a kept account holds its
+/// credential). A gateway with accounts is never dropped; at most `gatewayLimit` without any are
+/// remembered. Earlier builds kept the addresses in UserDefaults (`gateway.known`) and the
+/// accounts in one flat Keychain list (`kept-signins`): the first read moves both in, then deletes them.
+enum GatewayBook {
+    static let itemName = "gateways"
+    static let legacyKeptName = "kept-signins"
+    static let legacyKnownKey = "gateway.known"
+    /// Gateways without a kept account that are remembered.
+    static let gatewayLimit = 8
+    /// Accounts kept per gateway.
+    static let accountLimit = 8
+    /// Rows the sign-in page shows for the chosen gateway (it must fit one screen).
     static let shown = 3
-    static let limit = 24
 
-    static func host(_ url: URL) -> String {
-        (url.host() ?? url.absoluteString).lowercased() + (url.port.map { ":\($0)" } ?? "")
+    /// A gateway's identity: its normalized address, lowercased (scheme, host, port, path).
+    static func key(_ url: URL) -> String {
+        (SavedSignIn.normalize(url.absoluteString) ?? url).absoluteString.lowercased()
     }
 
-    static func key(host: String, user: String) -> String { host + "|" + user.lowercased() }
-
-    static func all(_ store: SecretStore = SharedSignInStore.store) -> [KeptSignIn] {
-        guard let data = try? SharedSignInStore.read(named: fileName, from: store),
-              let list = try? JSONDecoder().decode([KeptSignIn].self, from: data) else { return [] }
-        return list.sorted { $0.keptAt > $1.keptAt }
+    /// The book, most recently used gateway first.
+    static func entries(_ store: SecretStore = SharedSignInStore.store, _ d: UserDefaults = .standard) -> [GatewayEntry] {
+        if let data = try? SharedSignInStore.read(named: itemName, from: store),
+           let book = try? JSONDecoder().decode([GatewayEntry].self, from: data) {
+            return book.sorted { $0.usedAt > $1.usedAt }
+        }
+        return migrate(store, d)
     }
 
-    /// The kept sign-ins for this gateway, most recent first, at most `shown`.
-    static func entries(for gateway: URL, _ store: SecretStore = SharedSignInStore.store) -> [KeptSignIn] {
-        let h = host(gateway)
-        return Array(all(store).filter { $0.signIn.map { host($0.gateway) } == h }.prefix(shown))
+    /// The gateways, most recent first.
+    static func gateways(_ store: SecretStore = SharedSignInStore.store) -> [URL] {
+        entries(store).compactMap(\.url)
     }
 
-    static func entry(gateway: URL, user: String, _ store: SecretStore = SharedSignInStore.store) -> KeptSignIn? {
-        let k = key(host: host(gateway), user: user)
-        return all(store).first { $0.id == k }
+    /// The accounts kept on this gateway, most recently kept first.
+    static func accounts(on gateway: URL, _ store: SecretStore = SharedSignInStore.store) -> [KeptSignIn] {
+        let k = key(gateway)
+        return entries(store).first { $0.gateway.lowercased() == k }?.accounts ?? []
     }
 
-    /// Keeps `s` as `user`'s sign-in on its gateway, replacing the one kept before.
-    static func keep(_ s: SavedSignIn, user: String, _ store: SecretStore = SharedSignInStore.store) {
+    static func account(on gateway: URL, user: String, _ store: SecretStore = SharedSignInStore.store) -> KeptSignIn? {
+        accounts(on: gateway, store).first { $0.id == user.lowercased() }
+    }
+
+    /// Signed into (or out of) this gateway: it moves to the top of the chooser.
+    static func touch(_ gateway: URL, at date: Date = Date(), _ store: SecretStore = SharedSignInStore.store) {
+        try? update(gateway, at: date, store) { _ in }
+    }
+
+    /// Keeps `s` as `user`'s account on its gateway, replacing the one kept before for that user.
+    /// Throws when the Keychain refuses it, or when it does not read back: a sign-in the person
+    /// asked to keep is never lost without a word.
+    static func keep(_ s: SavedSignIn, user: String, _ store: SecretStore = SharedSignInStore.store) throws {
         let new = KeptSignIn(s, user: user)
-        write([new] + all(store).filter { $0.id != new.id }, store)
+        try update(s.gateway, at: new.keptAt, store) { accounts in
+            accounts = Array(([new] + accounts.filter { $0.id != new.id }).prefix(accountLimit))
+        }
+        guard account(on: s.gateway, user: user, store)?.signIn?.credential == s.credential else { throw KeepError() }
     }
 
+    struct KeepError: Error {}
+
+    /// Forgets `user`'s account on this gateway (the gateway itself stays in the chooser).
     static func forget(gateway: URL, user: String, _ store: SecretStore = SharedSignInStore.store) {
-        let k = key(host: host(gateway), user: user)
-        let list = all(store)
-        if list.contains(where: { $0.id == k }) { write(list.filter { $0.id != k }, store) }
+        guard account(on: gateway, user: user, store) != nil else { return }
+        let k = key(gateway)
+        var book = entries(store)
+        if let i = book.firstIndex(where: { $0.gateway.lowercased() == k }) {
+            book[i].accounts.removeAll { $0.id == user.lowercased() }
+        }
+        try? write(book, store)
     }
 
-    static func clear(_ store: SecretStore = SharedSignInStore.store) { SharedSignInStore.remove(named: fileName, from: store) }
+    static func clear(_ store: SecretStore = SharedSignInStore.store, _ d: UserDefaults = .standard) {
+        SharedSignInStore.remove(named: itemName, from: store)
+        SharedSignInStore.remove(named: legacyKeptName, from: store)
+        d.removeObject(forKey: legacyKnownKey)
+    }
 
-    private static func write(_ list: [KeptSignIn], _ store: SecretStore) {
-        if list.isEmpty { SharedSignInStore.remove(named: fileName, from: store); return }
-        guard let data = try? JSONEncoder().encode(Array(list.prefix(limit))) else { return }
-        try? SharedSignInStore.write(named: fileName, data, to: store)
+    private static func update(_ gateway: URL, at date: Date, _ store: SecretStore, _ change: (inout [KeptSignIn]) -> Void) throws {
+        let k = key(gateway)
+        var book = entries(store)
+        var entry = book.first { $0.gateway.lowercased() == k }
+            ?? GatewayEntry(gateway: (SavedSignIn.normalize(gateway.absoluteString) ?? gateway).absoluteString, usedAt: date, accounts: [])
+        entry.usedAt = max(entry.usedAt, date)
+        change(&entry.accounts)
+        book.removeAll { $0.gateway.lowercased() == k }
+        try write([entry] + book, store)
+    }
+
+    /// Writes the book, most recent first: every gateway with an account, and at most
+    /// `gatewayLimit` of those without one.
+    private static func write(_ book: [GatewayEntry], _ store: SecretStore) throws {
+        var bare = 0
+        let kept = book.sorted { $0.usedAt > $1.usedAt }.filter { e in
+            if !e.accounts.isEmpty { return true }
+            bare += 1
+            return bare <= gatewayLimit
+        }
+        try SharedSignInStore.write(named: itemName, JSONEncoder().encode(kept), to: store)
+    }
+
+    /// The first read of a watch upgraded from an earlier build: the flat kept list and the known
+    /// addresses become the book (the known order kept), then the old ones are deleted, only once
+    /// the book is written.
+    private static func migrate(_ store: SecretStore, _ d: UserDefaults) -> [GatewayEntry] {
+        let known = (d.stringArray(forKey: legacyKnownKey) ?? []).compactMap(SavedSignIn.normalize)
+        let kept = (try? SharedSignInStore.read(named: legacyKeptName, from: store))
+            .flatMap { try? JSONDecoder().decode([KeptSignIn].self, from: $0) } ?? []
+        guard !known.isEmpty || !kept.isEmpty else { return [] }
+        var book: [GatewayEntry] = []
+        let now = Date()
+        for (i, url) in known.enumerated() {
+            book.append(GatewayEntry(gateway: url.absoluteString, usedAt: now.addingTimeInterval(-Double(i)), accounts: []))
+        }
+        for account in kept.sorted(by: { $0.keptAt > $1.keptAt }) {
+            guard let url = SavedSignIn.normalize(account.gateway) else { continue }
+            let k = key(url)
+            if let i = book.firstIndex(where: { $0.gateway.lowercased() == k }) {
+                if !book[i].accounts.contains(where: { $0.id == account.id }) { book[i].accounts.append(account) }
+            } else {
+                book.append(GatewayEntry(gateway: url.absoluteString, usedAt: account.keptAt, accounts: [account]))
+            }
+        }
+        do { try write(book, store) } catch { return book.sorted { $0.usedAt > $1.usedAt } }
+        SharedSignInStore.remove(named: legacyKeptName, from: store)
+        d.removeObject(forKey: legacyKnownKey)
+        return book.sorted { $0.usedAt > $1.usedAt }
     }
 }
 
@@ -245,20 +320,20 @@ struct SignInView: View {
         .task { await runTestHooks() }
     }
 
-    /// The sign-ins kept on the chosen gateway (at most 3).
-    private var kept: [KeptSignIn] { KeptSignIns.entries(for: gateway) }
+    /// The accounts kept on the chosen gateway (at most 3), and on no other.
+    private var kept: [KeptSignIn] { Array(GatewayBook.accounts(on: gateway).prefix(GatewayBook.shown)) }
 
     /// What the field starts with: the user signed in last, on that gateway, unless a kept sign-in
     /// already offers that user as a row (two ways into one account would read as two accounts).
     static var initialIdentifier: String {
         guard let user = UserDefaults.standard.string(forKey: "gateway.user"), !user.isEmpty else { return "" }
-        return KeptSignIns.entry(gateway: lastGateway, user: user) == nil ? user : ""
+        return GatewayBook.account(on: lastGateway, user: user) == nil ? user : ""
     }
 
     /// The gateway signed into last, else the most recent known one, else AbstractFramework's.
     static var lastGateway: URL {
         UserDefaults.standard.string(forKey: "gateway.url").flatMap(SavedSignIn.normalize)
-            ?? KnownGateways.all().first
+            ?? GatewayBook.gateways().first
             ?? SavedSignIn.normalize(SavedSignIn.defaultGateway)!
     }
 
@@ -349,7 +424,7 @@ struct SignInView: View {
 
     private func quickSignIn(_ kept: KeptSignIn) {
         guard let s = kept.signIn else {
-            if let url = SavedSignIn.normalize(kept.gateway) { KeptSignIns.forget(gateway: url, user: kept.user) }
+            if let url = SavedSignIn.normalize(kept.gateway) { GatewayBook.forget(gateway: url, user: kept.user) }
             error = "That sign-in can't be used. Sign in again."
             return
         }
@@ -454,18 +529,24 @@ struct CapsuleRow<Trailing: View>: View {
     }
 }
 
-/// The gateway chooser (a tap on the sign-in page's gateway line): every gateway signed into, most
-/// recent first, the current one marked, then "Another gateway…", which takes a typed address
-/// ("gateway.example.org" is read as https).
+/// The gateway chooser (a tap on the sign-in page's gateway line): every gateway of the book
+/// (`GatewayBook`: signed into, or with accounts kept on it), most recent first, the current one
+/// marked, AbstractFramework's own always, each with how many accounts are kept on it; then
+/// "Another gateway…", which takes a typed address ("gateway.example.org" is read as https).
 struct GatewayChooser: View {
     let current: URL
     let choose: (URL) -> Void
     @State private var invalid = false
 
+    /// The book's gateways (the current one on top when the book does not have it yet), then
+    /// AbstractFramework's when it is not among them.
     private var options: [URL] {
-        let known = KnownGateways.all()
-        let same: (URL) -> Bool = { $0.absoluteString.lowercased() == current.absoluteString.lowercased() }
-        return known.contains(where: same) ? known : [current] + known
+        let book = GatewayBook.gateways()
+        var list = book.contains { GatewayBook.key($0) == GatewayBook.key(current) } ? book : [current] + book
+        if let home = SavedSignIn.normalize(SavedSignIn.defaultGateway), !list.contains(where: { GatewayBook.key($0) == GatewayBook.key(home) }) {
+            list.append(home)
+        }
+        return list
     }
 
     var body: some View {
@@ -473,16 +554,24 @@ struct GatewayChooser: View {
             VStack(spacing: 6) {
                 Text("Gateway").font(.rounded(.headline)).frame(maxWidth: .infinity)
                 ForEach(options, id: \.absoluteString) { url in
-                    let isCurrent = url.absoluteString.lowercased() == current.absoluteString.lowercased()
+                    let isCurrent = GatewayBook.key(url) == GatewayBook.key(current)
+                    let accounts = GatewayBook.accounts(on: url).count
                     Button { choose(url) } label: {
                         CapsuleRow(symbol: "server.rack", text: SavedSignIn.label(url), color: isCurrent ? Theme.text : Theme.text2,
-                                   trailingWidth: isCurrent ? 16 : 0) {
-                            if isCurrent { Image(systemName: "checkmark").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.cyan) }
+                                   trailingWidth: (accounts > 0 ? 26 : 0) + (isCurrent ? 16 : 0)) {
+                            HStack(spacing: 3) {
+                                // How many accounts are kept there (one tap each on the sign-in page).
+                                if accounts > 0 {
+                                    Label("\(accounts)", systemImage: "person.fill").labelStyle(CountLabel())
+                                }
+                                if isCurrent { Image(systemName: "checkmark").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.cyan) }
+                            }
                         }
                     }
                     .buttonStyle(.tap)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(SavedSignIn.label(url) + (isCurrent ? ", current" : ""))
+                    .accessibilityLabel(SavedSignIn.label(url) + (accounts > 0 ? ", \(accounts) kept \(accounts == 1 ? "account" : "accounts")" : "")
+                                        + (isCurrent ? ", current" : ""))
                     .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
                     .accessibilityIdentifier("gateway.option.\(SavedSignIn.label(url))")
                 }
@@ -502,6 +591,14 @@ struct GatewayChooser: View {
             }
             .padding(.horizontal, 4)
         }
+    }
+}
+
+/// "👤2": a glyph and a number, small and muted (the chooser's kept accounts).
+private struct CountLabel: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 1) { configuration.icon.font(.system(size: 9)); configuration.title.font(.rounded(.caption2)) }
+            .foregroundStyle(Theme.muted)
     }
 }
 

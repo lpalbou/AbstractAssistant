@@ -68,8 +68,7 @@ xcrun devicectl device process launch --device <iphone-id> ai.abstractframework.
 ```
 
 To sign that iPhone in from the Mac without typing on it (Debug builds only; the app checks the
-token with GET /api/gateway/me, keeps it in the Keychain, hands it to the watch and registers for
-push, as the account-token sign-in does):
+token with GET /api/gateway/me, keeps it in the Keychain and registers for push, as the account-token sign-in does):
 
 ```sh
 scripts/deploy-phone.sh --device <iphone-id> --gateway https://<your-gateway> --token <token> --user <user>
@@ -77,8 +76,8 @@ scripts/deploy-phone.sh --device <iphone-id> --gateway https://<your-gateway> --
 
 `--env FILE` reads `GW_URL`, `GW_TOKEN` and optionally `GW_USER` from a private file instead,
 `--no-build` reinstalls the last build, `--forget` clears the sign-in, `--screen NAME` opens a
-screen, `--console` stays attached and prints the app's `phone-trace` lines (sign-in, watch
-handoff, push registration), and `--shoot FILE.png [--wait S]` takes a screenshot. The device comes
+screen, `--console` stays attached and prints the app's `phone-trace` lines (sign-in, push
+registration), and `--shoot FILE.png [--wait S]` takes a screenshot. The device comes
 from `--device` or `PHONE_DEVICE` (`xcrun devicectl list devices`). Launched with `--dump-trace`, a
 Debug build also prints the last 40 trace lines it kept. Release builds compile these launch
 arguments out.

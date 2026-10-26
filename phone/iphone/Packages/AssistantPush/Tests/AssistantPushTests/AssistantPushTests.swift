@@ -80,29 +80,6 @@ private let gateway = URL(string: "https://gateway.example")!
     }
 }
 
-@Suite struct HandoffTests {
-    @Test func theWatchTakesANewerSignInFromTheIPhone() throws {
-        let phone = SharedSignIn(gateway: gateway, user: "ana", session: "sid", csrf: "c", signedInAt: Date(timeIntervalSince1970: 200))
-        let h = try #require(SignInHandoff(message: SignInHandoff(phone).message))
-        #expect(h.signIn.sameCredential(as: phone) && h.signIn.reg != phone.reg)
-        #expect(h.shouldAdopt(over: nil))
-        let older = SharedSignIn(gateway: gateway, user: "bob", token: "t", signedInAt: Date(timeIntervalSince1970: 100))
-        #expect(h.shouldAdopt(over: older))
-        // The watch signed in on its own after the iPhone: it keeps its own.
-        let newer = SharedSignIn(gateway: gateway, user: "bob", token: "t", signedInAt: Date(timeIntervalSince1970: 300))
-        #expect(!h.shouldAdopt(over: newer))
-        // The same credential again (a redelivered context) changes nothing.
-        var same = h.signIn; same.signedInAt = Date(timeIntervalSince1970: 50)
-        #expect(!h.shouldAdopt(over: same))
-    }
-
-    @Test func aMessageWithoutCredentialIsIgnored() {
-        #expect(SignInHandoff(message: ["other": 1]) == nil)
-        let empty = SignInHandoff(SharedSignIn(gateway: gateway, user: "a"))
-        #expect(!empty.shouldAdopt(over: nil))
-    }
-}
-
 /// The suites that share the stubbed network run one test at a time.
 @Suite(.serialized) enum Network {}
 

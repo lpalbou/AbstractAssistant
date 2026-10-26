@@ -541,10 +541,10 @@ final class AppModel: ObservableObject {
         // permission question comes now, as a closed app's alerts need it.
         WatchPush.start()
         AnswerNotifier.shared.requestPermission()
-        KnownGateways.add(signIn.gateway)
-        if let user = signIn.user, let kept = KeptSignIns.entry(gateway: signIn.gateway, user: user),
+        GatewayBook.touch(signIn.gateway)
+        if let user = signIn.user, let kept = GatewayBook.account(on: signIn.gateway, user: user),
            kept.signIn?.credential != signIn.credential {
-            KeptSignIns.forget(gateway: signIn.gateway, user: user)
+            GatewayBook.forget(gateway: signIn.gateway, user: user)
         }
         stopPolling()
         client = LiveGatewayClient(baseURL: signIn.gateway, credential: signIn.credential)
@@ -558,18 +558,31 @@ final class AppModel: ObservableObject {
     }
 
     /// Forgets the credential (the gateway address stays as the next default) and shows the sign-in
-    /// page. `keep`: the sign-in is kept first (`KeptSignIns`), for a one-tap return from the sign-in
-    /// page. Otherwise a sign-in kept for this user on this gateway is forgotten with it: "Sign out
+    /// page; the watch stays signed out, across launches, until someone signs in on it. `keep`: the
+    /// account is kept first on its gateway (`GatewayBook`), for a one-tap return from the sign-in
+    /// page. Otherwise an account kept for this user on this gateway is forgotten with it: "Sign out
     /// and forget", or the gateway rejecting the credential (a 401), so its row does not come back.
     func signOut(keep: Bool = false, notice: String? = nil) {
+        var notice = notice
         // The person signing out: the gateway forgets this watch's push token. A credential the
         // gateway rejected (401, `notice`) sends nothing more (it locks out an address after failures).
         if notice == nil { WatchPush.signedOut(SavedSignIn.current()) }
-        if let current = SavedSignIn.load(), let user = current.user ?? principal?.userId {
-            if keep { KeptSignIns.keep(current, user: user) }
-            else { KeptSignIns.forget(gateway: current.gateway, user: user) }
+        if let current = SavedSignIn.load() {
+            // The gateway stays in the chooser, whatever signed the watch in there (a launch
+            // argument, a build before the chooser).
+            GatewayBook.touch(current.gateway)
+            if let user = current.user ?? principal?.userId {
+                if keep {
+                    do { try GatewayBook.keep(current, user: user) }
+                    catch { notice = "Your sign-in could not be kept on this watch." }
+                } else {
+                    GatewayBook.forget(gateway: current.gateway, user: user)
+                }
+            }
         }
-        SavedSignIn.clear()
+        // Forgotten by hand: the name goes too (the field would offer it again).
+        if !keep && notice == nil { UserDefaults.standard.removeObject(forKey: "gateway.user") }
+        if !SavedSignIn.clear() { notice = "The sign-in could not be removed from this watch's Keychain." }
         stopPolling()
         client = MockGatewayClient(world: .watch); gatewayHost = "—"
         waits = []; runs = []; automations = []; principal = nil; lastError = nil; failures = 0; failingSince = nil; unreachable = false; seenWaitIDs = []; entities = []; automationsLoaded = false; automationsError = nil; automationsTask?.cancel(); automationsTask = nil; automationsLoading = false; automationsReadAt = nil
@@ -1221,19 +1234,22 @@ struct LaunchOptions {
         // sign-ins; `--test-known <url,url>` remembers gateways (oldest first);
         // `--test-kept <user,user>` keeps a sign-in for each user on the default gateway.
         if args.contains("--reset-signins") {
-            SavedSignIn.clear(defaults); KnownGateways.clear(defaults); KeptSignIns.clear()
+            SavedSignIn.clear(defaults); GatewayBook.clear()
             defaults.removeObject(forKey: "gateway.url"); defaults.removeObject(forKey: "gateway.user")
         }
+        if let users = value("--test-kept"), let gw = SavedSignIn.normalize(SavedSignIn.defaultGateway) {
+            for user in users.split(separator: ",").map(String.init) {
+                try? GatewayBook.keep(SavedSignIn(gateway: gw, user: user, credential: .token("test-kept-token")), user: user)
+            }
+        }
+        // (after the kept ones: the known gateways are the more recent)
         if let list = value("--test-known") {
-            for url in list.split(separator: ",").compactMap({ SavedSignIn.normalize(String($0)) }) { KnownGateways.add(url, defaults) }
+            for (i, url) in list.split(separator: ",").compactMap({ SavedSignIn.normalize(String($0)) }).enumerated() {
+                GatewayBook.touch(url, at: Date().addingTimeInterval(Double(i + 1)))
+            }
         }
         // `--test-last-user <name>`: the user signed in last (what the field starts with).
         if let user = value("--test-last-user") { UserDefaults.standard.set(user, forKey: "gateway.user") }
-        if let users = value("--test-kept"), let gw = SavedSignIn.normalize(SavedSignIn.defaultGateway) {
-            for user in users.split(separator: ",").map(String.init) {
-                KeptSignIns.keep(SavedSignIn(gateway: gw, user: user, credential: .token("test-kept-token")), user: user)
-            }
-        }
         #endif
         // Simulator previews: `--orb-design B` picks the orb design (the same key Settings writes).
         if let d = value("--orb-design"), OrbDesign(rawValue: d.uppercased()) != nil {

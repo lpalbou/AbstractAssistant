@@ -6,7 +6,8 @@ AbstractGateway, with the conversation at the center and the controls you need c
 **iPhone · 0.16.0 · iOS 26+** · with the [Apple Watch app](../../watch/apple/README.md) inside
 
 AbstractAssistant is one product for iPhone and Apple Watch: install it on the iPhone and the
-watch app comes with it. Sign in once on the iPhone and the watch is signed in too.
+watch app comes with it. The iPhone and the watch are independent: each signs in on its own, and
+either works without the other's app.
 
 ## Three small spaces
 

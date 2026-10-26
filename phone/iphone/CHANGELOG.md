@@ -37,10 +37,8 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
   both, their watch face complication and two notification service extensions. The iPhone and the
   watch share one version from now on: 0.16.0 for both, the next number after the desktop app's
   0.15.0, so the family reads as one release line. The earlier developer app
-  `ai.abstractframework.assistant.iphone` is retired: sign in once in AbstractAssistant.
-- **Sign in once.** After you sign in on the iPhone (account token or emailed code), the watch takes
-  the same sign-in through WatchConnectivity. A watch without its iPhone still signs in on its own;
-  the latest sign-in wins on either device.
+  `ai.abstractframework.assistant.iphone` is retired. The iPhone and the watch sign in each on
+  their own: neither hands its sign-in to the other, and neither needs the other's app.
 - **Notifications while the app is closed (Apple push, framework backlog 1049).** The app registers
   itself with your gateway at each sign-in, on each new push token and at most once a day, and
   forgets the registration when you sign out; there is nothing to set up and no push setting (the
@@ -53,9 +51,9 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 - **Sign a development iPhone in from the Mac (Debug builds only).** `scripts/deploy-phone.sh`
   builds the signed Debug app, installs it over CoreDevice and launches it with
   `--gateway URL --token TOKEN [--user ID]`: the app checks the token with GET /api/gateway/me,
-  keeps the sign-in, hands it to the watch and registers for push, as the account-token sign-in
-  does; `--forget` clears it. `--console` shows the app's `phone-trace` lines (sign-in, watch
-  handoff, push registration) and the app's `--dump-trace` launch argument prints the last 40.
+  keeps the sign-in and registers for push, as the account-token sign-in
+  does; `--forget` clears it. `--console` shows the app's `phone-trace` lines (sign-in, push
+  registration) and the app's `--dump-trace` launch argument prints the last 40.
   Release builds compile all of this out.
 
 ### Changed

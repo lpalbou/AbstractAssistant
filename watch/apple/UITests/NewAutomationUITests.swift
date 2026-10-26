@@ -47,7 +47,9 @@ final class NewAutomationUITests: XCTestCase {
         sleep(1)
         app.buttons["When: Every day"].firstMatch.tap()
         let eight = app.buttons["Every 8 hours"].firstMatch
-        XCTAssertTrue(eight.waitForExistence(timeout: 5))
+        // From 30 s to a week: 8 hours is further down the list.
+        XCTAssertTrue(app.buttons["Every 30 sec"].firstMatch.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(ScheduleChoicesUITests.scrollTo(eight, in: app), app.debugDescription)
         eight.tap()
         sleep(1)
         shot("n3-filled")

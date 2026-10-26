@@ -29,8 +29,6 @@ struct AbstractAssistantWatchApp: App {
         AnswerNotifier.shared.openAutomation = { [weak model] id in model?.openAutomation(id: id) }
         AnswerNotifier.shared.openWait = { [weak model] w in model?.show([w.kind == .askUser ? .askUser(w) : .approval(w)]) }
         AnswerNotifier.shared.openWaits = { [weak model] in model?.show([.waits]) }
-        // One sign-in for the product: the iPhone's, handed over WatchConnectivity, signs the watch in.
-        WatchLink.shared.adopt = { [weak model] signIn in model?.connect(signIn) }
         // What happened while the app was closed (one read of the event stream; a launch in the
         // background is the refresh's, which reads it itself).
         Task { await AnswerNotifier.shared.catchUpAtLaunch() }
@@ -73,24 +71,31 @@ struct AbstractAssistantWatchApp: App {
             } else {
             ZStack(alignment: .topLeading) {
                 NavigationStack(path: model.stackPath) {
-                    HomeView()
-                        .navigationDestination(for: Route.self) { RoutePage(route: $0) }
-                }
-                // Settings slides in from the left, where its gear is, and its pages after it: a
-                // stack of the app's own (a navigation stack would push from the right).
-                if let pages = model.settingsPath {
-                    ZStack {
-                        SettingsView().zIndex(0)
-                        // A page's identity is its place and its route: a page replacing another at the
-                        // same depth starts fresh.
-                        ForEach(Array(pages.enumerated()), id: \.element.hashValue) { i, route in
-                            RoutePage(route: route).transition(.move(edge: .leading)).zIndex(Double(i + 1))
+                    // Settings opens over Home only (its gear is on Home): it is drawn in the stack's
+                    // first page, and Home is disabled while Settings is in, so the Digital Crown comes
+                    // back to Home when Settings goes (drawn beside the stack, Settings took the crown
+                    // with it, and Home did not scroll until a finger touched it). `settingsIn` moves
+                    // with the slide: Home dims and comes back with it.
+                    ZStack(alignment: .topLeading) {
+                        HomeView().disabled(model.settingsIn)
+                        // Settings slides in from the left, where its gear is, and its pages after it: a
+                        // stack of the app's own (a navigation stack would push from the right).
+                        if let pages = model.settingsPath {
+                            ZStack {
+                                SettingsView().zIndex(0)
+                                // A page's identity is its place and its route: a page replacing another at the
+                                // same depth starts fresh.
+                                ForEach(Array(pages.enumerated()), id: \.element.hashValue) { i, route in
+                                    RoutePage(route: route).transition(.move(edge: .leading)).zIndex(Double(i + 1))
+                                }
+                            }
+                            .animation(.easeInOut(duration: AppModel.settingsSlide), value: pages)
+                            .background(Theme.ground.ignoresSafeArea())
+                            .offset(x: model.settingsIn ? 0 : -WKInterfaceDevice.current().screenBounds.width)
+                            .zIndex(1)
                         }
                     }
-                    .animation(.easeInOut(duration: AppModel.settingsSlide), value: pages)
-                    .background(Theme.ground.ignoresSafeArea())
-                    .offset(x: model.settingsIn ? 0 : -WKInterfaceDevice.current().screenBounds.width)
-                    .zIndex(1)
+                    .navigationDestination(for: Route.self) { RoutePage(route: $0) }
                 }
                 // The one corner button, over every page: the gear on Home, Back elsewhere.
                 CornerButton().zIndex(2)

@@ -17,7 +17,7 @@ flowchart LR
     BG[AnswerNotifier · RuntimeKeeper<br/>background · notifications · keep awake]
     Kit[AbstractGatewayClient<br/>Swift package]
     Store[(Keychain, app group<br/>gateway · credential · reg)]
-    Push[WatchPush · WatchLink<br/>APNs registration · iPhone handoff]
+    Push[WatchPush<br/>APNs registration]
     NSE[notification service extension<br/>renders a push from the event]
     Push --> Store
     NSE --> Store
@@ -199,9 +199,9 @@ sequenceDiagram
   On timeout the generic localized text stays, and each push's outcome is a `PushTrace` line in the
   app group (the `--dump-notify` readout prints them). Every attention notification's id is the gateway's
   collapse id, `sha256("attention:" + record_key)[:32]`, so the catch-up skips what a push showed.
-- **One sign-in with the iPhone**: `WatchLink` takes the iPhone's sign-in from WatchConnectivity
-  (application context, or the queued user info) when it is newer than the watch's own and names
-  another account or credential; it then signs in as the sign-in page would (a new `reg`).
+- **Its own sign-in**: the watch and the iPhone are independent devices. The watch signs in on its
+  own (the sign-in page, or launch arguments in Debug builds), never through the iPhone, and does
+  not need the iPhone app; no sign-in passes between them (no WatchConnectivity).
 
 ## Security
 
@@ -213,10 +213,14 @@ sequenceDiagram
   extension and the complication through the app group, which doubles as the keychain access
   group; the address and account name also stay in UserDefaults for the sign-in page. Files kept
   by earlier builds in the app group are moved into the Keychain at their first read. Sign out
-  forgets it, unless the person chooses "Keep my sign-in", which keeps it in a second Keychain
-  item (`KeptSignIns`, one per gateway host and user) for a one-tap return. A kept credential the gateway rejects (401) is
-  forgotten, and a fresh sign-in as the same user on that gateway replaces it. The gateways signed
-  into are remembered (`KnownGateways`, at most 8) for the sign-in page's chooser.
+  forgets it, unless the person chooses "Keep my sign-in", which keeps the account on its gateway
+  in a second Keychain item (`GatewayBook`: gateway → its kept accounts, so an account is only
+  ever offered on its own gateway) for a one-tap return. A kept credential the gateway rejects
+  (401) is forgotten, and a fresh sign-in as the same user on that gateway replaces it. The same
+  book remembers every gateway signed into or out of (a gateway with a kept account is never
+  dropped; at most 8 without one) for the sign-in page's chooser, which also always offers
+  AbstractFramework's gateway. A sign-out stands across launches: nothing signs the watch in
+  again but someone signing in on it.
 - After a 401 the client sends nothing more (the gateway locks out an address after repeated
   failures) and the app returns to the sign-in screen.
 - Transport is HTTPS; plain HTTP is accepted only for local-network addresses (development).

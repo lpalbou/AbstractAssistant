@@ -25,8 +25,8 @@ struct NewAutomationView: View {
 
     /// The agent interface the watch runs (its Ask uses the same).
     static let interface = "abstractcode.agent.v1"
-    /// The presets every client offers (the UI kit's `SCHEDULE_PRESETS`).
-    static let presets = ["5m", "30m", "1h", "8h", "24h", "7d"]
+    /// How often it can run (`ScheduleLine.presets`: from 30 s to a week).
+    static let presets = ScheduleLine.presets
 
     private var ready: Bool { !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !creating }
 

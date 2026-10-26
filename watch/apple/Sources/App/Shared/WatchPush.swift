@@ -1,7 +1,6 @@
 import AssistantPush
 import Foundation
 import UserNotifications
-import WatchConnectivity
 import WatchKit
 
 /// Apple push on the watch (framework backlog 1049): the app registers its APNs token with the
@@ -49,7 +48,6 @@ enum WatchPush {
 /// The APNs token arrives here.
 final class WatchAppDelegate: NSObject, WKApplicationDelegate {
     func applicationDidFinishLaunching() {
-        WatchLink.shared.activate()
         // Push registration at launch with a saved sign-in (a sign-in registers in `connect`);
         // the simulator's mock screens never register.
         if !ProcessInfo.processInfo.arguments.contains("--mock") { MainActor.assumeIsolated { WatchPush.start() } }
@@ -63,44 +61,5 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate {
         #if DEBUG
         print("push no token: \(error.localizedDescription)")
         #endif
-    }
-}
-
-/// The iPhone's sign-in, handed over WatchConnectivity (application context, or a queued user info):
-/// one sign-in for the product. The watch takes it when it is newer than its own and names another
-/// account or credential (`SignInHandoff.shouldAdopt`); without its iPhone the watch signs in on its own.
-final class WatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
-    static let shared = WatchLink()
-    /// Signs the app in with the iPhone's sign-in (set by the app; on the main actor).
-    @MainActor var adopt: ((SavedSignIn) -> Void)?
-
-    func activate() {
-        guard WCSession.isSupported() else { return }
-        WCSession.default.delegate = self
-        WCSession.default.activate()
-    }
-
-    func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
-        guard activationState == .activated else { return }
-        receive(session.receivedApplicationContext)
-    }
-
-    func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
-        receive(applicationContext)
-    }
-
-    func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
-        receive(userInfo)
-    }
-
-    private func receive(_ message: [String: Any]) {
-        guard let handoff = SignInHandoff(message: message), handoff.shouldAdopt(over: SavedSignIn.current()),
-              let signIn = SavedSignIn(handoff.signIn) else { return }
-        let at = handoff.signedInAt
-        Task { @MainActor in
-            // Checked again on the main actor: the context and the user info can both arrive.
-            guard handoff.shouldAdopt(over: SavedSignIn.current()) else { return }
-            if let adopt { adopt(signIn) } else { signIn.save(at: at) }
-        }
     }
 }

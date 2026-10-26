@@ -7,7 +7,32 @@ iPhone app); the Python package's history is in
 
 ## [Unreleased]
 
+### Fixed
+
+- **Signing out signs you out, and the watch signs in on its own.** After a sign-out the watch came
+  back signed in at its next launch: it took the iPhone's sign-in, which WatchConnectivity hands
+  over again at every launch. The watch and the iPhone are independent devices: neither hands its
+  sign-in to the other any more, and neither needs the other's app. Sign out also checks the
+  credential is really gone from the Keychain and says so if it is not, and "Sign out and forget"
+  forgets the account name too.
+- **"Keep my sign-in" keeps it where you can find it.** Kept accounts are filed under their
+  gateway (gateway → accounts, one Keychain item): the sign-in page offers an account on its own
+  gateway only, and the gateway chooser lists every gateway signed into or with a kept account
+  (with how many), plus AbstractFramework's always. A gateway the watch had been signed into by the
+  iPhone or a launch argument used to be missing from the chooser, and with it its kept accounts.
+  A kept sign-in that cannot be written says so. Earlier builds' kept sign-ins and gateways move in
+  at the first read.
+- **The Digital Crown scrolls Home again after Settings.** Closing Settings left the crown with
+  nothing to scroll until a finger touched Home: Settings was drawn beside the navigation stack and
+  took the crown's focus with it. It is now drawn over Home inside the stack, and Home is disabled
+  while Settings is in, so the crown returns to Home on its own when Settings goes.
+
 ### Changed
+
+- **Finer schedule choices.** Every 30 seconds, minute, 5, 15 and 30 minutes, then every hour, 2,
+  4, 6, 8 and 12 hours, day, 2 days and week, when editing an automation and when creating one. An
+  interval written in seconds reads as minutes ("Every 60s" is "Every minute"). The gateway still
+  refuses less than a minute for an automation that reads a mailbox or a feed, and says so.
 
 - **A question that could not be sent keeps its recording.** When the upload or the transcription
   fails, the orb says "Not sent." with Retry and Discard under it; the recording
@@ -46,10 +71,8 @@ iPhone app); the Python package's history is in
 - **One product with the iPhone (version 0.16.0, build 39).** The watch app is now the companion of
   the AbstractAssistant iPhone app: it ships inside it (bundle id
   `ai.abstractframework.assistant.watchkitapp`, complication `….watchkitapp.orbclock`), installs on
-  the paired watch with it, and still runs and signs in on its own. The iPhone and the watch share
-  one version from now on: 0.16.0, the next number after the desktop app's 0.15.0.
-- **The iPhone's sign-in signs the watch in.** When you sign in on the iPhone, the watch takes the
-  same gateway and credential (WatchConnectivity), unless you signed in on the watch more recently.
+  the paired watch with it, and runs and signs in on its own, without the iPhone app. The iPhone
+  and the watch share one version from now on: 0.16.0, the next number after the desktop app's 0.15.0.
 - **Notifications while the app is closed (Apple push, framework backlog 1049).** The watch
   registers its push token with your gateway at each sign-in, on each new token and at most once a
   day, and removes it at sign-out; nothing to set up. Its notification service extension fetches the

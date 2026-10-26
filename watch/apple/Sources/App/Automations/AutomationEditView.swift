@@ -29,8 +29,6 @@ struct AutomationEditView: View {
     @State private var titleEdited = false
     @State private var loadFailed = false
 
-    private static let presets = ["30m", "1h", "2h", "4h", "6h", "8h", "12h", "24h", "7d"]
-
     init(automation: AutomationSummary) {
         self.automation = automation
         _every = State(initialValue: automation.every ?? "")
@@ -39,7 +37,7 @@ struct AutomationEditView: View {
         _tokens = State(initialValue: automation.growingMaxTokens)
     }
 
-    private var everyChanged: Bool { automation.every != nil && every != automation.every }
+    private var everyChanged: Bool { automation.every.map { !ScheduleLine.same(every, $0) } ?? false }
     private var remembersChanged: Bool { remembers != (automation.contextMode != "independent") }
     private var activeChanged: Bool { active != (automation.status != "paused") }
     private var taskChanged: Bool {
@@ -136,7 +134,7 @@ struct AutomationEditView: View {
                     HStack {
                         Text(Self.label(e)).font(.rounded(.footnote))
                         Spacer()
-                        if e == every { Image(systemName: "checkmark").foregroundStyle(Theme.cyan) }
+                        if ScheduleLine.same(e, every) { Image(systemName: "checkmark").foregroundStyle(Theme.cyan) }
                     }
                 }
             }
@@ -151,15 +149,20 @@ struct AutomationEditView: View {
         }
     }
 
+    /// The presets; its own interval first when none of them is it.
     private var options: [String] {
-        Self.presets.contains(every) || every.isEmpty ? Self.presets : [every] + Self.presets
+        let presets = ScheduleLine.presets
+        return every.isEmpty || presets.contains(where: { ScheduleLine.same($0, every) }) ? presets : [every] + presets
     }
 
-    /// "30m" → "Every 30 min", "1h" → "Every hour", "12h" → "Every 12 hours", "24h" → "Every day".
+    /// "30s" → "Every 30 sec", "60s" → "Every minute", "30m" → "Every 30 min", "1h" → "Every hour",
+    /// "12h" → "Every 12 hours", "24h" → "Every day".
     static func label(_ e: String) -> String {
         switch ScheduleLine.compact(e) {
+        case "1m": return "Every minute"
         case "1h": return "Every hour"
         case "1d": return "Every day"
+        case let c where c.hasSuffix("s"): return "Every \(c.dropLast()) sec"
         case let c where c.hasSuffix("m"): return "Every \(c.dropLast()) min"
         case let c where c.hasSuffix("h"): return "Every \(c.dropLast()) hours"
         case let c where c.hasSuffix("d"): return "Every \(c.dropLast()) days"

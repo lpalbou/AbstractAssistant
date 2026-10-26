@@ -86,6 +86,7 @@ struct SettingsView: View {
                         .font(.rounded(.caption2)).foregroundStyle(Theme.muted).lineLimit(1).minimumScaleFactor(0.7)
                     Button("Sign out", role: .destructive) { confirmingSignOut = true }
                         .buttonStyle(FilledButtonStyle(fill: Theme.redButton))
+                        .accessibilityIdentifier("settings.signout")
                 }
             }
         }

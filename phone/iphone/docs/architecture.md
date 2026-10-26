@@ -9,8 +9,7 @@ flowchart LR
     Views[SwiftUI screens] --> Store[AssistantStore]
     Views --> Voice[Microphone and playback]
     Vault[Sign-in in the Keychain, shared through the app group] --> Store
-    Vault --> Push[AssistantPush: registration, handoff]
-    Push --> Watch[Watch app over WatchConnectivity]
+    Vault --> Push[AssistantPush: registration]
     APNs[Apple push] --> NSE[Notification service extension]
     Vault --> NSE
     NSE --> Gateway
@@ -26,7 +25,7 @@ flowchart LR
 ```
 
 `Sources/App` owns native views, the sign-in (`ConnectionVault`), push registration
-(`PhonePush`), the watch handoff (`WatchLink`), recording and playback. The `AssistantKit`
+(`PhonePush`), recording and playback. The `AssistantKit`
 Swift package owns the iPhone's own logic: account-scoped state, URL validation, the attention
 feed, run activity and the conversation list's grouping. The gateway's HTTP wire types, the
 `GatewayClient` protocol, the live client, the sign-in and the sample client are the
@@ -107,7 +106,8 @@ watch calls. Where the two apps still differ on purpose the difference is named,
 iPhone reads once (`LiveGatewayClient(…, readTries: 1)`, the watch tries a failed read three times),
 each answers with its own persona (`AssistantPersona.iPhone`, `AssistantPersona.watch`), and the
 sample client keeps one world per app (`MockGatewayClient(world: .phone)`: the demo's answers,
-tools and automations, which the iPhone's tests assert). Credential persistence and UI stay separate.
+tools and automations, which the iPhone's tests assert). Credential persistence and UI stay separate:
+each device signs in on its own, and no sign-in passes between them.
 
 ## Voice lifecycle
 
@@ -659,7 +659,7 @@ An unavailable transaction is reported as unverified. Apple manages binary updat
 update permissions. The app opens TestFlight/App Store, never embeds App Store Connect credentials
 or downloads executable updates. See [troubleshooting](troubleshooting.md).
 
-## One sign-in, Apple push and the watch
+## The sign-in, Apple push and the watch
 
 `Packages/AssistantPush` is shared by the iPhone app, the watch app and both notification
 service extensions (framework backlog 1049):
@@ -670,9 +670,8 @@ service extensions (framework backlog 1049):
   a backup, never synced), shared with the extension through the app group
   `group.ai.abstractframework.assistant`, which doubles as the keychain access group. Files kept by
   earlier builds in the app group are moved into the Keychain at their first read and deleted.
-- **Watch handoff.** After a sign-in (token or emailed code) `WatchLink` sends it to the watch
-  (`updateApplicationContext`, plus `transferUserInfo`). The watch takes it when it is newer than
-  its own sign-in; a watch without its iPhone still signs in on its own.
+- **No handoff.** The iPhone and the watch are independent devices: each signs in on its own and
+  neither sends its sign-in to the other (no WatchConnectivity), so neither app needs the other.
 - **Registration.** `PhonePush` asks for the APNs token at launch with a sign-in and after each
   sign-in; `PushRegistrar` sends `PUT /api/gateway/me/push/devices/{device_id}` with exactly
   `{token, topic, env, app: "phone", reg, name}` on a new token, a new sign-in, or once a day,

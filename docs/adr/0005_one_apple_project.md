@@ -32,7 +32,8 @@ watch app and its own iOS app, so the family must be real, not composed at relea
   (the app group doubles as the keychain access group; readable after first unlock, bound to the
   device, never in a backup: backlog 1053, 2026-10-26; files in the app group before that, moved
   into the Keychain at their first read), the
-  push registration, the iPhone-to-watch sign-in handoff and how a push is rendered.
+  push registration and how a push is rendered. (The iPhone-to-watch sign-in handoff it also held
+  was removed on 2026-10-26: see the amendment below.)
 - One version for the family (`MARKETING_VERSION` 0.16.0, one build number).
 
 ## Consequences
@@ -45,6 +46,15 @@ watch app and its own iOS app, so the family must be real, not composed at relea
   next release (unreleased at the time of writing); a released gateway refuses the registrations
   (422).
 - Installs of the retired ids keep their own sandbox: people sign in once in the new app.
+
+## Amendment 2026-10-26 — no shared sign-in
+
+The operator ruled that the iPhone and the watch are independent devices: either signs in on its
+own, and neither app may need the other to work. The iPhone-to-watch sign-in handoff
+(WatchConnectivity, `SignInHandoff`, `WatchLink` on both sides) is removed. It also broke Sign
+out: the system redelivers the iPhone's application context at every launch, so a watch signed
+out by hand came back signed in. "One sign-in shared between them" in the Context above no longer
+holds; one project, one version and the shared packages still do.
 
 ## References
 

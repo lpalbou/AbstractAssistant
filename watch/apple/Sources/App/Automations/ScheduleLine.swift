@@ -48,15 +48,34 @@ struct ScheduleLine: View {
         }
     }
 
-    /// "90m" → "90m", "120m" → "2h", "24h" → "1d", "48h" → "2d".
-    static func compact(_ every: String) -> String {
-        guard let unit = every.last, let n = Int(every.dropLast()), n > 0 else { return every }
+    /// How often an automation can run, shortest first (a new automation, Edit).
+    static let presets = ["30s", "1m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "24h", "48h", "7d"]
+
+    /// "30s" → 30, "5m" → 300, "2h" → 7200, "1d" → 86400 (the gateway's `^[1-9][0-9]*[smhd]$`).
+    static func seconds(_ every: String) -> Int? {
+        guard let unit = every.last, let n = Int(every.dropLast()), n > 0 else { return nil }
         switch unit {
-        case "m" where n % 1440 == 0: return "\(n / 1440)d"
-        case "m" where n % 60 == 0: return "\(n / 60)h"
-        case "h" where n % 24 == 0: return "\(n / 24)d"
-        default: return every
+        case "s": return n
+        case "m": return n * 60
+        case "h": return n * 3600
+        case "d": return n * 86_400
+        default: return nil
         }
+    }
+
+    /// In its largest whole unit: "60s" → "1m", "90m" → "90m", "120m" → "2h", "24h" → "1d", "48h" → "2d".
+    static func compact(_ every: String) -> String {
+        guard let s = seconds(every) else { return every }
+        if s % 86_400 == 0 { return "\(s / 86_400)d" }
+        if s % 3600 == 0 { return "\(s / 3600)h" }
+        if s % 60 == 0 { return "\(s / 60)m" }
+        return "\(s)s"
+    }
+
+    /// The same interval written two ways ("60s" and "1m").
+    static func same(_ a: String, _ b: String) -> Bool {
+        guard let x = seconds(a), let y = seconds(b) else { return a == b }
+        return x == y
     }
 
     /// Time until the next run in one unit: "now", "45m", "6h", "3d".
