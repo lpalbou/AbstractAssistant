@@ -1,0 +1,155 @@
+[
+  {
+    "discovery": {
+      "_source": "GET /api/gateway/discovery/tools on a scratch gateway 68eaaa2 (runtime b7c9feb, core 289528d), macOS 26.3, 2026-10-04; trimmed to 5 tools",
+      "command_sandbox": {
+        "configured": true,
+        "flag": "--unsandboxed-commands",
+        "kind": "macos-sandbox-exec",
+        "kinds": {
+          "allowed_only": "macos-sandbox-exec",
+          "any_except_denied": "macos-sandbox-exec"
+        },
+        "line": "Commands sandboxed: macOS sandbox-exec",
+        "sentence": "Every command a run starts is confined by the operating system to that run's workspaces.",
+        "state": "sandboxed",
+        "unsandboxed_commands_allowed": false
+      },
+      "items": [
+        {
+          "approval_default": "auto",
+          "description": "Read a text file (line-numbered). Oversized reads return a labeled PARTIAL chunk plus the exact continuation call (start_char).",
+          "destructive_capable": false,
+          "enabled": true,
+          "mutating": false,
+          "name": "read_file",
+          "risk_rank": 1,
+          "risk_tier": "observe",
+          "toolset": "files"
+        },
+        {
+          "approval_default": "ask",
+          "description": "Write full file content (create/overwrite/append). WARNING: mode='w' overwrites the entire file; for small edits, use edit_file().",
+          "destructive_capable": false,
+          "enabled": true,
+          "mutating": true,
+          "name": "write_file",
+          "risk_rank": 2,
+          "risk_tier": "act",
+          "toolset": "files"
+        },
+        {
+          "approval_default": "ask",
+          "description": "Execute shell commands safely with security controls and platform detection",
+          "destructive_capable": true,
+          "enabled": true,
+          "mutating": true,
+          "name": "execute_command",
+          "risk_rank": 4,
+          "risk_tier": "destroy",
+          "sandbox": "Sandboxed to this run's workspaces",
+          "sandboxed": true,
+          "toolset": "system"
+        },
+        {
+          "approval_default": "ask",
+          "description": "Start one long-lived local helper process for this run (dev server, watcher, background helper) with an optional readiness contract; sandboxed to this run's workspaces, auto-cleaned when the run ends.",
+          "enabled": true,
+          "name": "local_helper_start",
+          "risk_rank": 4,
+          "risk_tier": "destroy",
+          "sandbox": "Sandboxed to this run's workspaces",
+          "sandboxed": true,
+          "toolset": "system"
+        },
+        {
+          "approval_default": "ask",
+          "description": "Run a command in a PERSISTENT shell session (cwd/env/venv persist across calls). Sandboxed to this run's workspaces when the host sets a workspace policy; NOT durable (never survives a host restart).",
+          "destructive_capable": true,
+          "enabled": false,
+          "mutating": true,
+          "name": "shell_exec",
+          "risk_rank": 4,
+          "risk_tier": "destroy",
+          "sandbox": "Sandboxed to this run's workspaces",
+          "sandboxed": true,
+          "toolset": "shell"
+        }
+      ],
+      "tool_mode": "approval"
+    },
+    "expected": {
+      "allowed_tools": [
+        "read_file",
+        "write_file",
+        "execute_command",
+        "local_helper_start"
+      ],
+      "tool_policy": {
+        "auto_approve_tools": [
+          "read_file"
+        ],
+        "require_approval_tools": [
+          "write_file",
+          "execute_command",
+          "local_helper_start"
+        ]
+      }
+    },
+    "name": "desktop fixture discovery_tools_command_sandbox.json"
+  },
+  {
+    "discovery": {
+      "items": [
+        {
+          "approval_default": "auto",
+          "name": "web_search",
+          "toolset": "web"
+        },
+        {
+          "approval_default": "auto",
+          "name": "fetch_url",
+          "toolset": "web"
+        },
+        {
+          "approval_default": "ask",
+          "name": "send_email",
+          "toolset": "email"
+        },
+        {
+          "approval_default": "ask",
+          "name": "fetch_url",
+          "toolset": "web"
+        },
+        {
+          "approval_default": "ask",
+          "enabled": false,
+          "name": "delete_file",
+          "toolset": "files"
+        },
+        {
+          "approval_default": "auto",
+          "name": "",
+          "toolset": "x"
+        }
+      ]
+    },
+    "expected": {
+      "allowed_tools": [
+        "send_email",
+        "fetch_url",
+        "web_search"
+      ],
+      "tool_policy": {
+        "auto_approve_tools": [
+          "fetch_url",
+          "web_search"
+        ],
+        "require_approval_tools": [
+          "send_email"
+        ]
+      }
+    },
+    "name": "toolset order, duplicates, disabled"
+  }
+]

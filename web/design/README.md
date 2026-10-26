@@ -7,7 +7,7 @@ This folder is the design contract for the web client.
 | File | What it is | Who uses it |
 |---|---|---|
 | `tokens.css` | Design tokens as CSS custom properties (`--aa-*`), light and dark | `web/src` imports it; nothing else in it |
-| `mockup.html` | Static, dependency-free mockup: Assistant, Inbox, Automations and an orb/composer specimen, both themes | Open it in a browser; `?theme=light|dark`; `#inbox`, `#automations`, `#states` |
+| `mockup.html` | Static, dependency-free mockup: Assistant, Inbox, Automations and an orb/composer specimen, both themes | Open it in a browser; `?theme=light|dark`; `#inbox`, `#automations`, `#states`. Spaces switch by `:target`; only hiding the conversation behind another space needs `:has()`, so a browser without it shows that space under the conversation rather than a blank page. This routing is for the mockup only; the app uses real routing |
 | `README.md` | Principles, information architecture, behaviour, copy | Anyone building or reviewing the web client |
 
 `mockup.html` also carries a reference port of the orb (Canvas 2D) taken line for line from the
@@ -80,6 +80,19 @@ Around them, never competing with them:
 | ≥ 1024 px | Sidebar (17 rem): wordmark, the three spaces with badges, New conversation, conversations, Settings and Appearance (System / Light / Dark). Content column centred at 46 rem. Composer docked under the conversation, same width |
 | ≥ 1440 px | Unchanged column (reading width does not grow). Proposal, not in the mockup: a right rail listing **Needs you** while a conversation is open (see open questions) |
 
+**The desktop palette window (420 × 700).** That is the desktop host's window shape, and it gets
+the compact phone layout (< 600 px): no sidebar, conversations behind the stack button,
+Share/Files/Tools/Settings behind More, the three spaces in the bottom tab bar, and the
+composer as `+`, keyboard button and orb (the keyboard button opens the message box and hides the
+orb). Measured in the mockup at that size: top bar 64 px, composer 92 px and tab bar 82 px leave
+**462 px of conversation**, with no sideways overflow. Two consequences:
+- A full approval card (777 px in the mockup) does not fit; its buttons are below the fold.
+  Below 600 px wide or 760 px tall, the inline approval is the collapsed row ("Approval needed ·
+  Review tools ↗"), and the full card opens as a sheet over the conversation, as on the phone.
+  The mockup still shows the full card inline at that size; the app must not.
+- The tab bar costs 82 px of the 700. In the palette host, open question 5b: move the three
+  spaces into the top bar, or hide the tab bar while the message box is open.
+
 Inbox and Automations replace the conversation in the content column; their own title replaces
 the conversation bar. On compact screens the tab bar stays; it hides while the on-screen
 keyboard is up.
@@ -110,8 +123,10 @@ The phone draws one contour and morphs it (`phone/iphone/Sources/App/Design.swif
 
 **The orb is dark glass in both themes.** On the light page it reads as an object, not a hole;
 the only themed orb value is how much glass stays behind the hand (`--aa-orb-hand-glass`: the
-phone dissolves it, 0.06, because its page is dark; the light theme keeps 0.9 so the orange hand
-stays legible against white).
+phone dissolves it, 0.06, because its page is dark; the light theme keeps all of it, 1, so the
+orange hand stays legible against white). The hand's shimmer also stops at a higher floor than
+the phone's: `--aa-orb-hand-min-alpha` 0.8 instead of 0.48, which measured 2.89:1. At 0.8 the
+faintest stroke clears 3:1 over the brightest (mint-lit) part of the glass in both themes.
 
 ### States and what wins
 
@@ -141,6 +156,12 @@ the current interpolated value so an interrupted morph never jumps.
 - **Clock**: one `requestAnimationFrame` loop for every orb; 30 fps while active (listening,
   reading, working, needs you, morphing), 12 fps at rest (`--aa-orb-fps-*`); paused when the tab
   is hidden or the orb is off screen.
+- **Every value from the tokens**: colours (`--aa-orb-ground`, `-mint`, `-lavender`, `-hand`),
+  the glass behind the hand, the hand's floor alpha, frame rates, the four periods
+  (`--aa-orb-breath-period` 7.4 s, `-pulse-` 3.5 s, `-ribbon-` 40 s, `-rim-` 12.9 s), the morph
+  (`--aa-dur-morph`) and `--aa-motion-scale`. The renderer reads them again when the theme or
+  the motion preference changes. A missing or malformed token throws a visible error; it never
+  falls back to a literal.
 - **Microphone level**: `getUserMedia({audio: {echoCancellation: true, noiseSuppression: true}})`
   → `AudioContext` → `AnalyserNode` (`fftSize` 1024) → RMS of `getFloatTimeDomainData` per frame →
   normalised to the recent range (the phone adapts to your microphone's recent volume range) with
@@ -148,10 +169,12 @@ the current interpolated value so an interrupted morph never jumps.
   the raw RMS against a threshold, independently of the display level, as on the phone.
 - **Playback level**: the read-aloud `<audio>` element through `createMediaElementSource` → its
   own `AnalyserNode` (its own scale). The orb shows `max(mic, playback)`.
-- **Reduced motion** (`prefers-reduced-motion: reduce`, `--aa-motion-scale: 0`): geometry and
-  rotation freeze (time = 0); shapes change without the morph; level still brightens the light
-  and glow, as on the phone ("Reduce Motion retains signal-driven light while freezing geometry
-  and rotation").
+- **Reduced motion** (`prefers-reduced-motion: reduce`; tokens.css sets `--aa-motion-scale: 0`
+  and `--aa-dur-morph: 0ms`): geometry and rotation freeze (time = 0); shapes change without
+  the morph. The level still drives the glow, the glass's light and the ribbons' stroke weight,
+  so a listening or reading orb keeps redrawing while a still one is drawn once. That is the
+  phone's rule: "Reduce Motion retains signal-driven light while freezing geometry and
+  rotation". Measured in the mockup over 1.8 s: listening 4 distinct frames, idle and working 1.
 - **Input**: the orb is a `<button>` (84 × 80 px target around a 68 px orb on phones, 64 px on
   desktop). Enter/Space act like a tap. The visible label above it is `aria-hidden`; the state
   is in the button's accessible name, and the hint ("Speak, then pause to review and edit the
@@ -234,8 +257,12 @@ when unseen, and "Next in 23 hours" or "Last run 08:12" with **Run now** and **P
 
 - **Contrast**: every text pair ≥ 4.5:1 and every control outline, focus ring and the orb's
   marks ≥ 3:1, in both themes — checked from `tokens.css` itself by
-  `untracked/apple-web-wave/contrast.py` (table in that folder's report).
-- **Keyboard**: a "Skip to the message box" link first; then the spaces, conversations, the
+  `untracked/apple-web-wave/contrast.py`. It also enforces the token contract: every block is
+  parsed, a missing or dark-less token fails, the reduced-motion block holds only zeroed motion
+  tokens, and the mockup must read every orb and motion token. The table is in that folder's
+  report.
+- **Keyboard**: a "Skip to main content" link first, which focuses the main region at every
+  width; then the spaces, conversations, the
   conversation bar, the conversation (each answer's actions in order), the composer (`+`,
   message box, Send, orb). In an approval card: the actions, Technical details, Approve,
   Approve all, Deny — Approve is not focused automatically. Escape closes sheets and the image
@@ -245,9 +272,13 @@ when unseen, and "Next in 23 hours" or "Last run 08:12" with **Run now** and **P
   is announced when it settles (sentence or paragraph boundaries, not every token), and the
   approval card and question card are announced once when they appear ("Approval needed").
   The orb's state changes update its accessible name; "Needs you" is also announced politely.
-- **Targets**: 44 × 44 px minimum for every control, including answer actions and badges' parents.
-- **Reduced motion**: as above; the composer and sheet transitions drop to 0 ms
-  (`--aa-dur-*`).
+- **Targets**: every control's box is at least 44 × 44 px, including answer actions, Technical
+  details, a file chip's ✕ and the automation buttons. The Send disc is the phone's 36 px, drawn
+  inside a 44 px button. Checked in the mockup at 420 × 700 in all four views
+  (`review-checks.mjs`: no element under 44 px).
+- **Reduced motion**: as above. Transforms and the composer's opening animation ride `--aa-dur-ui`
+  and `--aa-dur-composer`, which drop to 0 ms. Colour feedback on hover keeps `--aa-dur-quick`;
+  it moves nothing.
 - **Text size**: rem-based; the layout holds at 200 % zoom (the column is 46 rem, the sidebar
   collapses below 1024 px CSS width).
 - **Colour is never alone**: Needs you has the hand and words, failures have a cross and words,
@@ -299,7 +330,10 @@ Dark is the phone, exactly (`Design.swift:5-13`): ground `#090B16`, surface `#13
 hues darkened until text clears 4.5:1 (mint text `#08705E`, lavender text `#5548D6`, amber text
 `#8A4F00`, primary fill `#0B7A67` with white). Decorative colours (`--aa-mint`, `--aa-lavender`,
 `--aa-amber`) are for light inside the orb or marks, never text on light surfaces; use the
-`*-text` tokens for words and icons. The abstractuic mapping and the desktop-theme mapping are
+`*-text` tokens for words and icons. Outlines that are a control's only edge use
+`--aa-control-border`, `--aa-border-strong` or `--aa-accent-border`, all at least 3:1. `--aa-border`
+is a decorative hairline for cards, at about 1.3:1, and must never be the only thing that shows
+where a control is. The abstractuic mapping and the desktop-theme mapping are
 at the top of `tokens.css`.
 
 ## Open questions for the operator
@@ -315,7 +349,8 @@ at the top of `tokens.css`.
 4. **Approval inline vs sheet.** Wide screens show the full approval card inline; the phone
    uses a collapsed row and a sheet. Keep both, or the sheet everywhere for consistency?
 5. **A "Needs you" rail at ≥ 1440 px** while a conversation is open, or keep the Inbox a space
-   only?
+   only? 5b. **In the 420 × 700 palette window**, should the spaces move into the top bar to give
+   the conversation the tab bar's 82 px back?
 6. **A keyboard shortcut for the orb** (e.g. Alt+Space to speak). Browsers and OSes claim most
    combinations; is one wanted at all?
 7. **Wordmark**: "AbstractAssistant" in the sidebar or just "Assistant" (which is also the first

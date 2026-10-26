@@ -59,3 +59,25 @@ to a thinner host around the same gateway-native logic.
 ## Guidance for future agents
 
 Treat this as a host experiment, not an excuse to revisit the gateway-native authority boundary.
+
+## Spike criteria (2026-10-26, ADR 0008)
+
+[ADR 0008](../../adr/0008_desktop_host.md) keeps PyQt5 as the desktop host for this cycle and
+gates this spike on a change of goal by the operator (one component codebase for web and desktop,
+or first-class Windows/Linux distribution). When the gate opens, the spike is ONE week, on
+macOS, Windows and Ubuntu 24.04 (X11 and Wayland), wrapping the web assistant's components
+(ADR 0007) in a Tauri 2 shell, and it must prove with measurements:
+
+- a tray badge updating at 15 fps with click handling (Linux AppIndicator delivers no clicks and
+  writes a file per icon update: this is the expected failure point);
+- hotkey to a focused composer in under 150 ms;
+- AudioWorklet PCM capture to gateway STT without `MediaRecorder` (unusable on stock Ubuntu;
+  `audio/mp4`-only on WKWebView);
+- streamed TTS with first audio under 1 s;
+- a CHILD-run approval answered from the palette (the wait-identity rule of the desktop);
+- the bearer host with gateway CORS for `tauri://localhost` and `http://tauri.localhost`;
+- a signed and notarized `.app` with only the `audio-input` entitlement, keeping the TCC grants
+  under `ai.abstractframework.assistant.mac`.
+
+A spike that fails any of these ends the question for the cycle. Evidence base: the adversarial
+review of 2026-10-26 (session scratch `untracked/apple-web-wave/adversary.md` §3).

@@ -20,7 +20,7 @@ import os
 import io
 import base64
 from pathlib import Path
-from typing import Callable, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 from abstractruntime.integrations.abstractcore.session_attachments import session_memory_owner_run_id
 
@@ -459,6 +459,16 @@ class GatewayVoiceManager:
     HOLD_SAMPLE_RATE = 16000
     HOLD_MIN_SECONDS = 0.35
 
+    # The last hold whose transcription FAILED (the gateway refused the
+    # connection, the STT route errored): the audio is kept so the person can
+    # Retry the same recording or Discard it — nothing resends on its own
+    # (the watch's "Not sent." rule, backlog 1054 slice 0). Before this, the
+    # audio lived only in the worker closure and a failure threw it away.
+    # Class-level defaults: managers built with __new__ (tests) still answer.
+    _failed_hold: Optional[Dict[str, Any]] = None
+    _failed_hold_retrying = False
+    _failed_hold_lock = threading.Lock()
+
     def begin_hold(self, on_audio_level: Callable[[float], None] | None = None) -> bool:
         """Start recording from the microphone for as long as the user holds.
 
@@ -562,23 +572,100 @@ class GatewayVoiceManager:
         except Exception:
             lang = None
 
+        self._transcribe_hold(
+            {"audio": audio, "sample_rate": self.HOLD_SAMPLE_RATE, "language": lang},
+            adapter=adapter,
+            on_transcription=on_transcription,
+            on_error=on_error,
+        )
+        return True
+
+    def _transcribe_hold(
+        self,
+        recording: Dict[str, Any],
+        *,
+        adapter: Any,
+        on_transcription: Callable[[str], None],
+        on_error: Callable[[str], None] | None,
+    ) -> None:
+        """Transcribe one recording on a background thread. A failure KEEPS
+        the recording (``has_failed_hold``) before ``on_error`` fires; the
+        success of that same recording (a retry) forgets it."""
+
         def _work() -> None:
             try:
-                text = adapter.transcribe_from_array(audio, self.HOLD_SAMPLE_RATE, language=lang)
+                text = adapter.transcribe_from_array(
+                    recording["audio"], int(recording["sample_rate"]), language=recording.get("language")
+                )
             except Exception as e:
+                reason = str(e) or e.__class__.__name__
+                with self._failed_hold_lock:
+                    self._failed_hold = {**recording, "reason": reason}
+                    self._failed_hold_retrying = False
                 if on_error is not None:
                     try:
-                        on_error(str(e) or e.__class__.__name__)
+                        on_error(reason)
                     except Exception:
                         pass
                 return
+            with self._failed_hold_lock:
+                current = self._failed_hold
+                if current is not None and current.get("audio") is recording.get("audio"):
+                    self._failed_hold = None
+                    self._failed_hold_retrying = False
             try:
                 on_transcription(str(text or "").strip())
             except Exception as e:
                 warnings.warn(f"#FALLBACK: transcription callback error: {e}")
 
         threading.Thread(target=_work, name="assistant-hold-to-talk-stt", daemon=True).start()
+
+    def has_failed_hold(self) -> bool:
+        """A recording whose transcription failed is waiting for Retry or Discard."""
+        with self._failed_hold_lock:
+            return self._failed_hold is not None
+
+    def failed_hold_seconds(self) -> float:
+        with self._failed_hold_lock:
+            kept = self._failed_hold
+        if kept is None:
+            return 0.0
+        try:
+            return float(len(kept["audio"])) / float(kept["sample_rate"] or 1)
+        except Exception:
+            return 0.0
+
+    def retry_failed_hold(
+        self,
+        on_transcription: Callable[[str], None],
+        on_error: Callable[[str], None] | None = None,
+    ) -> bool:
+        """Send the SAME kept recording to the gateway again. False when there
+        is nothing kept, or a retry is already on its way."""
+        with self._failed_hold_lock:
+            kept = self._failed_hold
+            if kept is None or self._failed_hold_retrying:
+                return False
+            self._failed_hold_retrying = True
+        try:
+            adapter = self._make_stt_adapter()
+        except Exception as e:
+            with self._failed_hold_lock:
+                self._failed_hold_retrying = False
+            if on_error is not None:
+                on_error(str(e) or e.__class__.__name__)
+            return True
+        recording = {key: value for key, value in kept.items() if key != "reason"}
+        self._transcribe_hold(recording, adapter=adapter, on_transcription=on_transcription, on_error=on_error)
         return True
+
+    def discard_failed_hold(self) -> bool:
+        """Forget the kept recording (the person chose Discard)."""
+        with self._failed_hold_lock:
+            had = self._failed_hold is not None
+            self._failed_hold = None
+            self._failed_hold_retrying = False
+        return had
 
     def stop_listening(self) -> None:
         """Stop the STT listening loop."""

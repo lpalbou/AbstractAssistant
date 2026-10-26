@@ -31,6 +31,23 @@ describe("messagesFromHistoryBundle (history_seed.py _seed_from_session_turns)",
     }
   });
 
+  it("a failed or cancelled turn is a notice, not an answer (fix 15)", () => {
+    const seed = messagesFromHistoryBundle({
+      session: {
+        turns: [
+          { run_id: "f", prompt: "Do it", answer: "Provider unreachable", status: "failed" },
+          { run_id: "c", prompt: "Again", answer: "", status: "cancelled" },
+          { run_id: "ok", prompt: "Hi", answer: "Hello", status: "completed" },
+        ],
+      },
+    });
+    expect(seed.messages.filter((m) => m.id.endsWith(":answer")).map((m) => [m.role, m.text])).toEqual([
+      ["notice", "This turn failed: Provider unreachable"],
+      ["notice", "Stopped."],
+      ["assistant", "Hello"],
+    ]);
+  });
+
   it("a bundle without session turns is an error, not an empty conversation", () => {
     expect(() => messagesFromHistoryBundle({ root_run_id: "r" })).toThrow(/no session turns/);
   });

@@ -4,7 +4,10 @@
  *   - CSS custom properties only, every name prefixed `--aa-`.
  *   - Selectors: `:root`, `:root[data-theme="dark"]`, `:root:not([data-theme="light"])`
  *     inside `@media (prefers-color-scheme: dark)`, and `:root` inside
- *     `@media (prefers-reduced-motion: reduce)`. Nothing else.
+ *     `@media (prefers-reduced-motion: reduce)` (motion tokens only). Nothing else.
+ *   - Every themed colour of the light palette is redefined in both dark blocks; the orb
+ *     colours are the only theme-independent ones. contrast.py enforces all of this, plus
+ *     every pair the UI draws (it fails on a missing token instead of inheriting).
  *   - Light palette on bare `:root`; dark palette twice (system preference unless the
  *     user forced light, and an explicit `data-theme="dark"`), so a theme toggle wins
  *     in both directions. The two dark blocks MUST stay identical
@@ -27,7 +30,9 @@
  *
  * THE ORB IS DARK IN BOTH THEMES. `--aa-orb-*` colours do not change with the theme: the orb
  * is a lit object (mint/lavender light in a dark glass), not a surface. Only
- * `--aa-orb-hand-glass` differs (how much glass stays behind the raised hand).
+ * `--aa-orb-hand-glass` differs (how much glass stays behind the raised hand). The orb's
+ * renderer reads every `--aa-orb-*` value, `--aa-dur-morph` and `--aa-motion-scale` from here
+ * and fails loudly if one is missing.
  *
  * ABSTRACTUIC MAPPING (if web/src uses @abstractframework/ui-kit components, alias the
  * kit's tokens to ours AFTER importing ui-kit/theme.css, on the app's root):
@@ -74,7 +79,7 @@
 
   /* ---- colour: lines ---------------------------------------------------- */
   --aa-border: rgba(18, 21, 39, 0.10);
-  --aa-border-strong: rgba(18, 21, 39, 0.20);
+  --aa-border-strong: rgba(18, 21, 39, 0.50);    /* a control outline: 3:1 on ground, surface, raised */
   --aa-control-border: #7C8299;    /* input/button outlines: 3:1 against surface and ground */
   --aa-focus-ring: #5548D6;
 
@@ -92,7 +97,7 @@
   --aa-accent-hover: #096A59;
   --aa-on-accent: #FFFFFF;
   --aa-accent-bg: rgba(11, 122, 103, 0.10);
-  --aa-accent-border: rgba(11, 122, 103, 0.35);
+  --aa-accent-border: #2E8F7D;     /* the only edge of an accent-outlined button: 3:1 */
 
   /* ---- colour: status --------------------------------------------------- */
   --aa-success-text: #08705E;
@@ -114,9 +119,12 @@
   --aa-orb-size: 68px;                 /* phone VoicePresence size (ChatScreen.swift) */
   --aa-orb-size-desktop: 64px;
   --aa-orb-hit: 84px;                  /* touch surface around it (Design.swift:270) */
-  --aa-orb-hand-glass: 0.9;            /* glass kept behind the raised hand: the phone dissolves it
+  --aa-orb-hand-glass: 1;              /* glass kept behind the raised hand: the phone dissolves it
                                           (0.06, Design.swift:129) because its page is dark; on a
-                                          light page the hand needs the dark disc to stay legible */
+                                          light page the hand needs the whole dark disc (3:1) */
+  --aa-orb-hand-min-alpha: 0.8;        /* faintest point of the hand's shimmer. The phone uses
+                                          0.48 (OrbWeave.swift:38), which measures 2.89:1; 0.8
+                                          keeps >= 3:1 over the lit glass in both themes */
 
   /* ---- typography --------------------------------------------------------- */
   --aa-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", system-ui,
@@ -181,7 +189,8 @@
   --aa-orb-rim-period: 12.9;        /* t * 28 deg/s rim gradient while working */
   --aa-orb-fps-idle: 12;
   --aa-orb-fps-active: 30;
-  --aa-motion-scale: 1;             /* 0 under reduced motion: freeze geometry, keep light */
+  --aa-motion-scale: 1;             /* 0 under reduced motion: geometry and rotation freeze; the
+                                       level-driven light (glow, glass, stroke) keeps moving */
 }
 
 @media (prefers-color-scheme: dark) {
@@ -198,8 +207,8 @@
     --aa-text: #EDF2FF;
     --aa-text-muted: #A6B2CC;
     --aa-border: rgba(255, 255, 255, 0.09);
-    --aa-border-strong: rgba(255, 255, 255, 0.16);
-    --aa-control-border: #5D6680;
+    --aa-border-strong: rgba(255, 255, 255, 0.36);
+    --aa-control-border: #6E7896;
     --aa-focus-ring: #ADA6FF;
     --aa-mint: #6BE3CC;
     --aa-mint-text: #6BE3CC;
@@ -212,7 +221,7 @@
     --aa-accent-hover: #8AEAD8;
     --aa-on-accent: #090B16;
     --aa-accent-bg: rgba(107, 227, 204, 0.12);
-    --aa-accent-border: rgba(107, 227, 204, 0.35);
+    --aa-accent-border: rgba(107, 227, 204, 0.50);
     --aa-success-text: #6BE3CC;
     --aa-amber-bg: rgba(255, 196, 110, 0.10);
     --aa-approval-border: rgba(255, 196, 110, 0.30);
@@ -238,8 +247,8 @@
   --aa-text: #EDF2FF;
   --aa-text-muted: #A6B2CC;
   --aa-border: rgba(255, 255, 255, 0.09);
-  --aa-border-strong: rgba(255, 255, 255, 0.16);
-  --aa-control-border: #5D6680;
+  --aa-border-strong: rgba(255, 255, 255, 0.36);
+  --aa-control-border: #6E7896;
   --aa-focus-ring: #ADA6FF;
   --aa-mint: #6BE3CC;
   --aa-mint-text: #6BE3CC;
@@ -252,7 +261,7 @@
   --aa-accent-hover: #8AEAD8;
   --aa-on-accent: #090B16;
   --aa-accent-bg: rgba(107, 227, 204, 0.12);
-  --aa-accent-border: rgba(107, 227, 204, 0.35);
+  --aa-accent-border: rgba(107, 227, 204, 0.50);
   --aa-success-text: #6BE3CC;
   --aa-amber-bg: rgba(255, 196, 110, 0.10);
   --aa-approval-border: rgba(255, 196, 110, 0.30);

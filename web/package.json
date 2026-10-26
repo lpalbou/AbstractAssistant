@@ -27,7 +27,8 @@
     "build": "tsc && vite build && node scripts/check_relative_urls.mjs --dist",
     "check:urls": "node scripts/check_relative_urls.mjs",
     "start": "node ./bin/cli.js",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:layout": "node scripts/check_layout.mjs"
   },
   "dependencies": {
     "@abstractframework/app-server": "0.1.12"
@@ -38,6 +39,7 @@
     "@types/react": "18.3.27",
     "@types/react-dom": "18.3.7",
     "@vitejs/plugin-react": "4.7.0",
+    "playwright": "1.63.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "typescript": "5.9.3",

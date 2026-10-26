@@ -37,6 +37,15 @@ export type SessionRow = {
   workspace_reported: boolean;
 };
 
+/** The words a person sees for a session state ("" = nothing to say). */
+export const STATE_WORDS: Record<SessionState, string> = {
+  waiting: "Needs you",
+  running: "Working",
+  failed: "Stopped or failed",
+  done: "",
+  unknown: "",
+};
+
 const STATE_RANK: Record<SessionState, number> = { waiting: 4, running: 3, failed: 2, done: 1, unknown: 0 };
 const STATUS_TO_STATE: Record<string, SessionState> = {
   waiting: "waiting",

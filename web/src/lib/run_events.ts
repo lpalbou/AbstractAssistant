@@ -51,6 +51,8 @@ export type TurnState = {
   answer: string | null;
   error: string | null;
   cycles: Record<string, number>;
+  /** The follower: reading live, reconnecting after a drop, or given up (cards are then disabled). */
+  follow: "live" | "reconnecting" | "lost";
 };
 
 export type TurnAction =
@@ -60,7 +62,8 @@ export type TurnAction =
   | { type: "wait_sending"; run_id: string; wait_key: string; step_id: string }
   | { type: "wait_failed"; run_id: string; wait_key: string; step_id: string; note: string }
   | { type: "wait_closed"; run_id: string; wait_key: string; step_id?: string; note?: string; stale?: boolean }
-  | { type: "run_status"; run_id: string; status: string; error?: string };
+  | { type: "run_status"; run_id: string; status: string; error?: string }
+  | { type: "follow_state"; state: "live" | "reconnecting" | "lost"; note?: string };
 
 export function initialTurn(rootRunId: string): TurnState {
   return {
@@ -77,6 +80,7 @@ export function initialTurn(rootRunId: string): TurnState {
     answer: null,
     error: null,
     cycles: {},
+    follow: "live",
   };
 }
 
@@ -103,7 +107,56 @@ function toolCallsOf(wait: Json): PendingWait["tool_calls"] {
   const raw = Array.isArray(d.tool_calls) ? d.tool_calls : Array.isArray(d.tool_calls_for_evidence) ? d.tool_calls_for_evidence : [];
   return raw
     .filter(isObj)
-    .map((tc) => ({ name: str(tc.name) || "tool", arguments: tc.arguments, ...(str(tc.call_id) ? { call_id: str(tc.call_id) } : {}) }));
+    .map((tc) => {
+      const id = str(tc.call_id) || str(tc.id) || str(tc.runtime_call_id);
+      return { name: str(tc.name) || "tool", arguments: tc.arguments, ...(id ? { call_id: id } : {}) };
+    });
+}
+
+/** Stable JSON (sorted keys) for comparing tool arguments. */
+function stableJson(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(stableJson).join(",")}]`;
+  if (isObj(v)) return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stableJson(v[k])}`).join(",")}}`;
+  return JSON.stringify(v ?? null);
+}
+
+/**
+ * What a wait ASKS: for an approval the batch of calls (id, name and
+ * arguments), for a question its prompt. The runtime reuses one wait key per
+ * node for every approval batch (adapter.py:42-58), and `GET /runs/{id}`
+ * carries no step id (abstractgateway service.py run_summary), so the key
+ * alone cannot tell this card's question from a newer one.
+ */
+export function waitFingerprint(kind: PendingWait["kind"], prompt: string, calls: PendingWait["tool_calls"]): string {
+  if (kind === "ask_user") return `ask|${prompt.trim()}`;
+  return `tools|${calls
+    .map((c) => `${c.call_id || ""}|${c.name}|${stableJson(c.arguments)}`)
+    .sort()
+    .join("||")}`;
+}
+
+/**
+ * Whether the run, as `GET /runs/{id}` shows it now, still waits on the
+ * question this card shows. Anything else — not waiting, another key, a
+ * different batch or prompt, or a waiting record with nothing to compare —
+ * is "no": the card must not answer a question the person never saw.
+ */
+export function waitStillMatches(card: PendingWait, run: Record<string, unknown>): { ok: true } | { ok: false; why: string } {
+  if (str(run.status).toLowerCase() !== "waiting" || !isObj(run.waiting)) return { ok: false, why: "The run is no longer waiting: already answered, or stopped." };
+  const w = run.waiting;
+  if (str(w.wait_key) !== card.wait_key) return { ok: false, why: "The run is waiting on something else now." };
+  if (card.kind === "tool_approval") {
+    const now = toolCallsOf(w);
+    if (!now.length) return { ok: false, why: "The gateway did not say which tools wait for approval; reopen the conversation." };
+    if (waitFingerprint("tool_approval", "", now) !== waitFingerprint("tool_approval", "", card.tool_calls)) {
+      return { ok: false, why: "A newer request is waiting on the same step: this one was already answered." };
+    }
+    return { ok: true };
+  }
+  if (waitFingerprint("ask_user", str(w.prompt), []) !== waitFingerprint("ask_user", card.prompt, [])) {
+    return { ok: false, why: "A newer question is waiting: this one was already answered." };
+  }
+  return { ok: true };
 }
 
 /** The child run a delegation wait names, or "". A `subworkflow:<child>` key
@@ -257,6 +310,8 @@ export function turnReducer(s: TurnState, a: TurnAction): TurnState {
       const open = waits.some((w) => w.state === "open" || w.state === "sending");
       return { ...s, waits, status: s.status === "waiting" && !open ? "running" : s.status };
     }
+    case "follow_state":
+      return s.follow === a.state ? s : { ...s, follow: a.state, error: a.state === "lost" && a.note ? a.note : s.error };
     case "run_status": {
       if (a.run_id !== s.root_run_id) return s;
       const st = str(a.status).toLowerCase();

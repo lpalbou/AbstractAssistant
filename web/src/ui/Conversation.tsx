@@ -15,11 +15,12 @@ function argsText(args: unknown): string {
 }
 
 /** A tool approval or a question, in the conversation (not a modal). */
-function WaitCard(props: { wait: PendingWait; onAnswer: (w: PendingWait, a: { approved: boolean } | { response: string }) => void }) {
+function WaitCard(props: { wait: PendingWait; frozen: boolean; onAnswer: (w: PendingWait, a: { approved: boolean } | { response: string }) => void }) {
   const { wait } = props;
   const [reply, setReply] = useState("");
   const closed = wait.state === "answered" || wait.state === "stale";
-  const sending = wait.state === "sending";
+  // Once live updates are lost the card may be out of date: no answer from it.
+  const sending = wait.state === "sending" || props.frozen;
   return (
     <section className={`aa-wait aa-wait--${wait.kind}`} aria-label={wait.kind === "tool_approval" ? "Approval needed" : "A question for you"}>
       <h2 className="aa-wait__title">{wait.kind === "tool_approval" ? "The Assistant wants to use a tool" : wait.prompt}</h2>
@@ -32,6 +33,7 @@ function WaitCard(props: { wait: PendingWait; onAnswer: (w: PendingWait, a: { ap
           ))
         : null}
       {wait.note ? <p className="aa-wait__note">{wait.note}</p> : null}
+      {props.frozen && !closed ? <p className="aa-wait__note">Live updates stopped: reopen the conversation to answer.</p> : null}
       {closed ? null : wait.kind === "tool_approval" ? (
         <div className="aa-wait__actions">
           <button type="button" className="aa-button aa-button--primary" disabled={sending} onClick={() => props.onAnswer(wait, { approved: true })}>
@@ -111,7 +113,7 @@ export function Conversation(props: {
             <Bubble m={{ id: "live", role: "assistant", text: props.liveText, run_id: t.root_run_id, ts: "", live: true }} speaking={false} canSpeak={false} onReadAloud={props.onReadAloud} />
           ) : null}
           {t.waits.map((w) => (
-            <WaitCard key={`${w.run_id}|${w.wait_key}|${w.step_id}`} wait={w} onAnswer={props.onAnswer} />
+            <WaitCard key={`${w.run_id}|${w.wait_key}|${w.step_id}`} wait={w} frozen={t.follow === "lost"} onAnswer={props.onAnswer} />
           ))}
           <p className="aa-activity" role="status">
             {t.activity || (t.status === "starting" ? "Starting…" : "Working…")}

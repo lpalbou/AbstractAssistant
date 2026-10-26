@@ -15,6 +15,30 @@ here changes how it runs from `pip` on Linux, Windows or macOS.
 - Team: the family's team, **`K3R4D6HP2A`** (as in the [iPhone pipeline](../phone/iphone/docs/distribution.md))
 - Channel: Developer ID + notarization, downloaded directly (not the Mac App Store)
 
+## What this Mac already has (2026-10-26)
+
+So that nothing below is redone. Names only; no secrets are kept in this repository.
+
+- **Developer ID Application: Laurent-Philippe Albou (K3R4D6HP2A)**, created in Xcode on
+  2026-10-26 and in the login keychain (`security find-identity -v -p codesigning` lists it).
+  Part 1 step 4 is done, except the `.p12` backup.
+- **Apple Development: Laurent-Philippe Albou (…)**, also team `K3R4D6HP2A` (measured on a
+  signed probe: `TeamIdentifier=K3R4D6HP2A`). It is the identity for the local launch test below,
+  never for a release.
+- **Apple Distribution**: issued on 2026-10-16, but its `.cer` was never imported, so Keychain
+  shows it as "Not in Keychain". It is a Mac/iOS **App Store** certificate: not needed for this
+  app (ADR 0006 section 2).
+- `~/Desktop/apple-csr/` (`make-csr.sh`, `import-certificates.sh`) and `~/.apple-signing/keys/`:
+  the 2026-10-16 certificate-request scripts and the private keys they generated.
+- `untracked/apns/` holds the **APNs push key** (`.p8` with a key id and team id, no issuer). It
+  is **not** an App Store Connect API key and cannot notarize.
+- The **App Store Connect team API key** exists only as the GitHub secrets `ASC_KEY_ID`,
+  `ASC_ISSUER_ID`, `ASC_KEY_P8` (the iPhone pipeline's `app-store` environment). A secret cannot
+  be read back from GitHub, so local notarization needs its own credentials (Part 1 step 5).
+- The build environment: this Mac's pyenv Python and the repo `.venv` cannot build the bundle (no
+  `webrtcvad-wheels`; and `numba` there refuses NumPy 2.5: "Numba needs NumPy 2.4 or less").
+  **Rebuild the build venv before any signed build** (Part 2).
+
 ## Part 1 — Apple account setup (once, whatever builds the app)
 
 These steps do not depend on how the app is built. If the desktop host later changes (for
@@ -87,7 +111,11 @@ Set a profile **or** an API key, not both (the build refuses an ambiguous setup)
 written to a private temporary file only for the submission, then deleted.
 
 ```bash
+# In a FRESH venv (an old one may hold the pre-0.11.4 `webrtcvad`, or a numba/NumPy pair that
+# cannot import; the build refuses the first, and the second ships a broken numba):
+python3.12 -m venv ~/venvs/aa-build && . ~/venvs/aa-build/bin/activate
 pip install -e ".[macos-app]"
+python -c "import numba" || echo "numba cannot import here: fix NumPy before building"
 
 # 1. See exactly what will run (checks the configuration, runs nothing):
 build-macos-app --skip-install --notarize --dmg --dry-run
@@ -102,12 +130,50 @@ build-macos-app --skip-install --notarize --dmg    # -> dist/macos/AbstractAssis
 
 Drop `--skip-install` to also copy the signed app into `/Applications`. Each step prints the
 command it runs and stops at the first failure with the tool's output. What the steps are:
-PyInstaller signs every bundled binary with the identity, hardened runtime and a secure timestamp;
-`codesign --force --deep --options runtime --timestamp --entitlements …` seals the app;
-`codesign --verify --deep --strict`; `codesign -dv --verbose=4`; for `--notarize`, `ditto` zip →
-`xcrun notarytool submit --wait` → `xcrun stapler staple` → `xcrun stapler validate`; then
-`spctl --assess`; with `--dmg`, the image is built from the stapled app, signed, notarized and
-stapled in turn.
+
+1. PyInstaller signs inside-out: every bundled binary with the identity, the hardened runtime, a
+   secure timestamp and the entitlements, then the bundle. The build forces
+   `PYINSTALLER_STRICT_BUNDLE_CODESIGN_ERROR=1`, so a failed seal stops it.
+2. There is no second `codesign --deep` pass (it would replace every nested signature; ADR 0006
+   section 5). Instead the build checks:
+   - `codesign --verify --deep --strict`;
+   - `codesign -dv --verbose=4`;
+   - the entitlements;
+   - every nested Mach-O, for the hardened runtime, a secure timestamp and `TEAM_ID`.
+3. For `--notarize`: `ditto` zip → `xcrun notarytool submit --wait` → `xcrun stapler staple` →
+   `xcrun stapler validate`; then `spctl --assess`.
+4. With `--dmg`, the image is built from the stapled app, then signed, notarized and stapled in
+   turn. That makes two submissions, so that the app inside the image carries its own ticket and
+   opens offline.
+
+### Local launch test (this Mac, no notarization)
+
+Run this before the first Developer ID build. It proves the entitlements and the library
+validation for real: the hardened runtime behaves the same for a development identity of the
+same team, and an ad-hoc build cannot run under it at all (its libpython is refused).
+
+```bash
+export TEAM_ID=K3R4D6HP2A
+build-macos-app --skip-install --local-test \
+  --identity "Apple Development: Laurent-Philippe Albou (<id shown by find-identity>)"
+# then, from Terminal (so a crash prints), NOT from /Applications:
+dist/macos/AbstractAssistant.app/Contents/MacOS/AbstractAssistant
+```
+
+Exercise:
+- a voice conversation (macOS asks for the microphone);
+- a spoken reply;
+- the hotkey (grant Accessibility to this build);
+- an attachment;
+- Open from the gateway console.
+
+If it quits, Console (or `log show --last 5m --predicate 'eventMessage CONTAINS "CODE SIGNING"'`)
+names the page or library that was refused.
+
+To test without a given entitlement, copy `packaging/macos/entitlements.plist`, remove the key and
+build again with `ABSTRACTASSISTANT_ENTITLEMENTS=/path/to/copy.plist`. Measured on probes
+(ADR 0006 section 3): without `allow-unsigned-executable-memory`, only llvmlite's JIT is killed;
+Qt, numpy, PortAudio and the cffi/ctypes/pyobjc callbacks keep working.
 
 ## Part 3 — Verify (any signed build, any host)
 
@@ -135,10 +201,11 @@ signed updates.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `errSecInternalComponent` from codesign | the keychain is locked or the private key is missing | unlock the login keychain; re-import the `.p12` |
-| `spctl`: `source=no usable signature` / not Developer ID | signed ad-hoc or with an Apple Development certificate | use the Developer ID Application identity (the build refuses the others up front) |
+| `spctl`: `rejected` / `source=no usable signature` / not Developer ID | signed ad-hoc or with an Apple Development certificate | use the Developer ID Application identity (the build refuses the others up front; `--local-test` skips spctl on purpose) |
 | notarytool `Invalid` | Apple found a problem | `xcrun notarytool log <submission id> <same credentials>`: the JSON names each file |
 | notarytool 401/403 | an Individual API key, a revoked key, or an agreement to accept | a Team key with role Developer or higher; accept agreements |
-| the signed app quits at launch, Console says `Code Signature Invalid` / `CODESIGNING` | an entitlement is missing for JIT or a callback | keep `allow-unsigned-executable-memory`; check `codesign -d --entitlements -` |
+| the signed app is killed (exit 137), log says `CODE SIGNING: … rejecting invalid page` | JIT-compiled code (llvmlite/numba) without `allow-unsigned-executable-memory` | keep the key while numba is bundled; check `codesign -d --entitlements -` |
+| the build stops at "check every nested binary" | a binary without the hardened runtime, timestamp or team (e.g. built ad-hoc, or the identity not reaching PyInstaller) | rebuild with `--sign` / `--local-test`, not by setting the identity after the build |
 | Console says `… not valid for use in process: mapping process and mapped file (non-platform) have different Team IDs` | a library from outside the bundle (e.g. Homebrew's libmagic) | expected for optional outside libraries; add `com.apple.security.cs.disable-library-validation` only if a **bundled** file is named (ADR 0006 section 3) |
 | microphone silent, no prompt | `audio-input` entitlement or `NSMicrophoneUsageDescription` missing | both ship in the build; check the entitlements output above |
 | hotkey does nothing | Accessibility not granted to this build | System Settings → Privacy & Security → Accessibility → enable AbstractAssistant |

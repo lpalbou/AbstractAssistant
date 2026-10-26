@@ -29,7 +29,8 @@ from abstractassistant.build_macos_app import (  # noqa: E402
     SigningError,
     check_assessment,
     check_team,
-    codesign_app_command,
+    check_nested_signature,
+    mach_o_files,
     parse_notary_result,
     plan_release,
     resolve_identity,
@@ -87,20 +88,23 @@ def test_the_bundle_id_is_the_families_and_the_spec_agrees() -> None:
 @pytest.mark.basic
 def test_the_spec_signs_nothing_unless_an_identity_is_set(tmp_path) -> None:
     signing = _spec_signing_function()
-    assert signing({}, tmp_path) == (None, None)
+    assert signing({}, tmp_path) == (None, None, {})
     # Entitlements alone mean nothing without a signature to carry them.
-    assert signing({"ABSTRACTASSISTANT_ENTITLEMENTS": "/x.plist"}, tmp_path) == (None, None)
-    assert signing({"ABSTRACTASSISTANT_CODESIGN_IDENTITY": "  "}, tmp_path) == (None, None)
+    assert signing({"ABSTRACTASSISTANT_ENTITLEMENTS": "/x.plist"}, tmp_path) == (None, None, {})
+    assert signing({"ABSTRACTASSISTANT_CODESIGN_IDENTITY": "  "}, tmp_path) == (None, None, {})
 
 
 @pytest.mark.basic
 def test_the_spec_uses_the_identity_and_the_packaged_entitlements(tmp_path) -> None:
     signing = _spec_signing_function()
-    assert signing({"ABSTRACTASSISTANT_CODESIGN_IDENTITY": DEV_ID}, tmp_path) == (DEV_ID, str(tmp_path / "entitlements.plist"))
+    strict = {"PYINSTALLER_STRICT_BUNDLE_CODESIGN_ERROR": "1"}
+    assert signing({"ABSTRACTASSISTANT_CODESIGN_IDENTITY": DEV_ID}, tmp_path) == (DEV_ID, str(tmp_path / "entitlements.plist"), strict)
     env = {"ABSTRACTASSISTANT_CODESIGN_IDENTITY": DEV_ID, "ABSTRACTASSISTANT_ENTITLEMENTS": "/other.plist"}
-    assert signing(env, tmp_path) == (DEV_ID, "/other.plist")
+    assert signing(env, tmp_path) == (DEV_ID, "/other.plist", strict)
     text = SPEC.read_text(encoding="utf-8")
     assert "codesign_identity=CODESIGN_IDENTITY" in text and "entitlements_file=ENTITLEMENTS_FILE" in text
+    # The strict flag reaches PyInstaller before BUNDLE signs (it is read there).
+    assert text.index("os.environ.update(SIGNING_ENV)") < text.index("app = BUNDLE(")
 
 
 @pytest.mark.basic
@@ -158,6 +162,30 @@ def test_signing_without_an_identity_names_the_variable() -> None:
 def test_identities_gatekeeper_rejects_are_refused(identity) -> None:
     with pytest.raises(SigningError):
         resolve_identity({}, identity)
+
+
+@pytest.mark.basic
+def test_a_local_test_accepts_a_development_identity_and_nothing_weaker() -> None:
+    dev = "Apple Development: Someone (AAK63XPX58)"
+    # The parenthetical of a development name is the person, not the team: TEAM_ID is checked
+    # on the signed app instead, so it must not refuse here.
+    assert resolve_identity({"TEAM_ID": "K3R4D6HP2A"}, dev, local_test=True) == dev
+    assert resolve_identity({}, DEV_ID, local_test=True) == DEV_ID
+    for refused in ("-", "Apple Distribution: Org (K3R4D6HP2A)", "3rd Party Mac Developer Application: X"):
+        with pytest.raises(SigningError):
+            resolve_identity({}, refused, local_test=True)
+
+
+@pytest.mark.basic
+def test_a_local_test_signs_verifies_and_never_notarizes() -> None:
+    steps = _plan(identity="Apple Development: Someone (AAK63XPX58)", local_test=True, team_id="K3R4D6HP2A")
+    kinds = [s.kind for s in steps]
+    assert "nested" in kinds and kinds[-2:] == ["note", "note"]
+    assert not any(s.argv and s.argv[0] in ("spctl", "ditto", "hdiutil") or "notarytool" in s.argv for s in steps)
+    assert "Contents/MacOS/AbstractAssistant" in steps[-1].label
+    for bad in (dict(notary=NotaryAuth(profile="p")), dict(dmg=True)):
+        with pytest.raises(SigningError):
+            _plan(identity=DEV_ID, local_test=True, **bad)
 
 
 @pytest.mark.basic
@@ -226,7 +254,8 @@ def test_a_dry_run_prints_every_command_and_runs_none(monkeypatch, capsys) -> No
     monkeypatch.setattr(build.subprocess, "run", lambda *a, **k: pytest.fail("nothing may run"))
     assert build.main(["--notarize", "--dmg", "--identity", DEV_ID, "--dry-run"]) == 0
     out = capsys.readouterr().out
-    for fragment in ("pyinstaller", "codesign --force --deep --options runtime --timestamp", "notarytool submit",
+    assert out.rstrip().splitlines()[-1].startswith("dry run: would build "), "a dry run never claims a built app"
+    for fragment in ("pyinstaller", "codesign --verify --deep --strict", "<each Mach-O file in the app>", "notarytool submit",
                      "stapler staple", "spctl --assess", "hdiutil create", "/Applications"):
         assert fragment in out, fragment
 
@@ -235,23 +264,22 @@ def test_a_dry_run_prints_every_command_and_runs_none(monkeypatch, capsys) -> No
 
 
 @pytest.mark.basic
-def test_the_app_is_signed_the_way_notarization_requires() -> None:
-    argv = codesign_app_command(Path("/d/A.app"), DEV_ID, ENTITLEMENTS)
-    assert argv[0] == "codesign"
-    for flag in ("--force", "--deep", "--timestamp"):
-        assert flag in argv
-    assert argv[argv.index("--options") + 1] == "runtime"
-    assert argv[argv.index("--entitlements") + 1] == str(ENTITLEMENTS)
-    assert argv[argv.index("--sign") + 1] == DEV_ID
-    assert argv[-1] == "/d/A.app"
+def test_signing_is_inside_out_with_no_deep_reseal() -> None:
+    """PyInstaller signs every binary, then the bundle. A second `codesign --force --deep`
+    would replace every nested signature (deprecated for signing since macOS 13)."""
+    for steps in (_plan(identity=DEV_ID), _plan(identity=DEV_ID, notary=NotaryAuth(profile="p"), dmg=True)):
+        for step in steps:
+            if step.argv[:1] == ("codesign",) and "--sign" in step.argv:
+                assert "--deep" not in step.argv, step.label
+                assert step.argv[-1].endswith(".dmg"), "only the disk image is signed here"
 
 
 @pytest.mark.basic
-def test_sign_only_signs_verifies_and_assesses() -> None:
+def test_sign_only_verifies_checks_every_binary_and_assesses() -> None:
     steps = _plan(identity=DEV_ID)
-    assert [s.argv[0] for s in steps] == ["codesign", "codesign", "codesign", "spctl"]
-    assert ("--verify", "--deep", "--strict") == steps[1].argv[1:4]
-    assert steps[-1].kind == "assess-app"
+    assert [s.kind for s in steps] == ["run", "run", "run", "nested", "assess-app"]
+    assert ("--verify", "--deep", "--strict") == steps[0].argv[1:4]
+    assert steps[3].target == "/d/AbstractAssistant.app"
     assert not any("notarytool" in s.argv for s in steps)
 
 
@@ -262,7 +290,7 @@ def test_notarize_staples_before_assessing_and_ships_a_stapled_zip() -> None:
     staple = _index(steps, "staple the ticket to the app")
     assess = _index(steps, "Gatekeeper assessment of the app")
     final_zip = _index(steps, "zip the stapled app")
-    assert _index(steps, "sign the app") < _index(steps, "zip the app for the notary") < submit < staple < assess < final_zip
+    assert _index(steps, "check every nested binary") < _index(steps, "zip the app for the notary") < submit < staple < assess < final_zip
     assert steps[submit].kind == "notarize" and "--wait" in steps[submit].argv
     assert steps[final_zip].argv[-1] == "/d/AbstractAssistant-9.9.9.zip"
 
@@ -330,36 +358,93 @@ class _Result:
         self.returncode, self.stdout, self.stderr = returncode, stdout, stderr
 
 
+GOOD_NESTED = "CodeDirectory v=20500 flags=0x10000(runtime) hashes=1\nTimestamp=Oct 26, 2026\nTeamIdentifier=K3R4D6HP2A\n"
+
+
+def _bundle(tmp_path) -> Path:
+    """A bundle holding one Mach-O header and one plain file."""
+    app = tmp_path / "AbstractAssistant.app"
+    (app / "Contents" / "MacOS").mkdir(parents=True)
+    (app / "Contents" / "MacOS" / "AbstractAssistant").write_bytes(bytes.fromhex("cffaedfe") + b"\0" * 28)
+    (app / "Contents" / "Info.plist").write_text("<plist/>")
+    return app
+
+
+def _answer(argv, default=None, **_):
+    """codesign -dv of a nested file answers like a good signature; the rest succeed."""
+    if argv[:3] == ["codesign", "--display", "--verbose=2"]:
+        return _Result(0, "", GOOD_NESTED)
+    return default or _Result()
+
+
+@pytest.mark.basic
+def test_mach_o_files_are_found_by_magic_number(tmp_path) -> None:
+    app = _bundle(tmp_path)
+    (app / "Contents" / "MacOS" / "link").symlink_to(app / "Contents" / "MacOS" / "AbstractAssistant")
+    assert mach_o_files(app) == [app / "Contents" / "MacOS" / "AbstractAssistant"]
+
+
+@pytest.mark.basic
+def test_nested_signature_verdicts() -> None:
+    assert check_nested_signature(GOOD_NESTED, team_id="K3R4D6HP2A") is None
+    assert check_nested_signature("flags=0x0(none)\nTimestamp=x") == "no hardened runtime"
+    assert check_nested_signature("flags=0x10002(adhoc,runtime)\n") == "ad-hoc signature"
+    assert check_nested_signature("flags=0x10000(runtime)\nSigned Time=x") == "no secure timestamp"
+    assert "ZZZ" in check_nested_signature("flags=0x10000(runtime)\nTimestamp=x\nTeamIdentifier=ZZZ", team_id="K3R4D6HP2A")
+
+
+@pytest.mark.basic
+def test_one_wrong_nested_binary_fails_the_build(tmp_path) -> None:
+    app = _bundle(tmp_path)
+    (app / "Contents" / "MacOS" / "helper.so").write_bytes(bytes.fromhex("cffaedfe") + b"\0" * 28)
+
+    def _runner(argv, **_):
+        if argv[:3] == ["codesign", "--display", "--verbose=2"] and argv[-1].endswith("helper.so"):
+            return _Result(0, "", "flags=0x2(adhoc)\n")
+        return _answer(argv)
+
+    with pytest.raises(SigningError, match="helper.so: no hardened runtime"):
+        run_plan(_plan(app=app, identity=DEV_ID), runner=_runner)
+
+
+@pytest.mark.basic
+def test_a_bundle_with_no_binaries_is_not_a_pass(tmp_path) -> None:
+    app = tmp_path / "Empty.app"
+    (app / "Contents").mkdir(parents=True)
+    with pytest.raises(SigningError, match="no Mach-O file"):
+        run_plan(_plan(app=app, identity=DEV_ID), runner=_answer)
+
+
 @pytest.mark.basic
 def test_the_runner_stops_at_the_first_failure_with_the_tools_output(capsys) -> None:
     calls = []
 
     def _runner(argv, **_):
         calls.append(argv)
-        return _Result(1, "", "errSecInternalComponent") if len(calls) == 1 else _Result()
+        return _Result(1, "", "a sealed resource is missing or invalid") if len(calls) == 1 else _Result()
 
-    with pytest.raises(SigningError, match="errSecInternalComponent"):
+    with pytest.raises(SigningError, match="sealed resource"):
         run_plan(_plan(identity=DEV_ID), runner=_runner)
     assert len(calls) == 1
-    assert "$ codesign --force --deep" in capsys.readouterr().out
+    assert "$ codesign --verify --deep --strict" in capsys.readouterr().out
 
 
 @pytest.mark.basic
-def test_an_invalid_notarization_fails_even_when_notarytool_exits_zero() -> None:
+def test_an_invalid_notarization_fails_even_when_notarytool_exits_zero(tmp_path) -> None:
     auth = NotaryAuth(profile="p")
 
     def _runner(argv, **_):
         if "notarytool" in argv:
             return _Result(0, '{"id": "sub-1", "status": "Invalid", "message": "Processing complete"}')
-        return _Result()
+        return _answer(argv)
 
     with pytest.raises(SigningError) as excinfo:
-        run_plan(_plan(identity=DEV_ID, notary=auth), notary=auth, runner=_runner)
+        run_plan(_plan(app=_bundle(tmp_path), identity=DEV_ID, notary=auth), notary=auth, runner=_runner)
     assert "sub-1" in str(excinfo.value) and "notarytool log" in str(excinfo.value)
 
 
 @pytest.mark.basic
-def test_the_p8_key_exists_only_while_the_plan_runs() -> None:
+def test_the_p8_key_exists_only_while_the_plan_runs(tmp_path) -> None:
     auth = NotaryAuth(key_id="ABCDE12345", issuer_id=KEY_ENV["ASC_ISSUER_ID"], key_text="-----KEY-----")
     seen = {}
 
@@ -370,9 +455,9 @@ def test_the_p8_key_exists_only_while_the_plan_runs() -> None:
             return _Result(0, '{"id": "s", "status": "Accepted"}')
         if argv[0] == "spctl":
             return _Result(0, "accepted\nsource=Notarized Developer ID")
-        return _Result()
+        return _answer(argv)
 
-    run_plan(_plan(identity=DEV_ID, notary=auth), notary=auth, runner=_runner)
+    run_plan(_plan(app=_bundle(tmp_path), identity=DEV_ID, notary=auth), notary=auth, runner=_runner)
     assert seen["text"].strip() == "-----KEY-----" and seen["mode"] == 0o600
     assert not seen["path"].exists() and not seen["path"].parent.exists()
 
@@ -398,13 +483,35 @@ def test_notary_json_is_read_whole_or_from_its_last_line() -> None:
 
 
 @pytest.mark.basic
-def test_a_notarytool_error_keeps_what_it_said() -> None:
+def test_a_notarytool_error_keeps_what_it_said(tmp_path) -> None:
     auth = NotaryAuth(profile="p")
 
     def _runner(argv, **_):
         if "notarytool" in argv:
             return _Result(69, "", "Error: HTTP status code: 401. Unable to authenticate.")
-        return _Result()
+        return _answer(argv)
 
     with pytest.raises(SigningError, match="401"):
-        run_plan(_plan(identity=DEV_ID, notary=auth), notary=auth, runner=_runner)
+        run_plan(_plan(app=_bundle(tmp_path), identity=DEV_ID, notary=auth), notary=auth, runner=_runner)
+
+
+@pytest.mark.basic
+def test_a_signed_build_forces_strict_bundle_signing(tmp_path, monkeypatch) -> None:
+    """PyInstaller only warns when sealing the bundle fails unless this is set."""
+    monkeypatch.delenv("PYINSTALLER_STRICT_BUNDLE_CODESIGN_ERROR", raising=False)
+    seen = {}
+    monkeypatch.setattr(build, "_ensure_icon_assets", lambda root: None)
+    monkeypatch.setattr(build, "_sync_shared_themes", lambda root: None)
+
+    def _fake_pyinstaller(spec, dist, work):
+        seen["strict"] = build.os.environ.get("PYINSTALLER_STRICT_BUNDLE_CODESIGN_ERROR")
+        seen["identity"] = build.os.environ.get("ABSTRACTASSISTANT_CODESIGN_IDENTITY")
+        raise RuntimeError("stop after PyInstaller")
+
+    monkeypatch.setattr(build, "_pyinstaller_run", _fake_pyinstaller)
+    monkeypatch.setattr(build, "_dist_dir", lambda root: tmp_path / "dist")
+    monkeypatch.setattr(build, "_build_dir", lambda root: tmp_path / "build")
+    monkeypatch.setenv("ABSTRACTASSISTANT_CODESIGN_IDENTITY", "")
+    with pytest.raises(RuntimeError, match="stop after PyInstaller"):
+        build._build_locked(ROOT, install_to_applications=False, identity=DEV_ID)
+    assert seen == {"strict": "1", "identity": DEV_ID}

@@ -36,3 +36,39 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           PYSTRAY_BACKEND: dummy
         run: python -m pytest tests/basic -q
+      # The web Assistant's parity fixtures are generated FROM this package's
+      # builders (web/scripts/gen_*_parity.py): a change to run_input.py or to
+      # the desktop's tool lists must come with regenerated fixtures, or the
+      # web port is out of date without anyone noticing (ADR 0007).
+      - name: Web parity fixtures are current
+        if: matrix.python-version == '3.12'
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          PYTHONPATH=. python -P web/scripts/gen_run_input_parity.py
+          PYTHONPATH=. python -P web/scripts/gen_tool_policy_parity.py
+          git diff --exit-code -- web/src/lib/__fixtures__/
+
+  web:
+    name: Web assistant
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Unit tests
+        run: npm test
+      - name: Build (tsc, vite, relative-URL check)
+        run: npm run build
+      - name: Layout at 420 / 760 / 1024 / 1280 px (headless Chromium)
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:layout

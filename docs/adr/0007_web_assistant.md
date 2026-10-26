@@ -1,11 +1,14 @@
-# ADR 0007 — The Assistant on the web: a gateway app built from this repository, one UI for every host
+# ADR 0007 — The Assistant on the web: a gateway app built from this repository, one component library for every host, separate layouts
 
 Status: Proposed
 Date: 2026-10-26
 Relates to: [ADR 0001](0001_gateway_native_assistant_v2.md) (gateway as authority, one managed
 workflow), backlog [1057](../backlog/planned/1057_web_assistant.md), backlog
-[0003](../backlog/proposed/0003_tauri_shell_spike.md) (Tauri shell spike). ADR 0008 (the desktop
-host) is to be written after review; this ADR only fixes what that host must provide.
+[0003](../backlog/proposed/0003_tauri_shell_spike.md) (Tauri shell spike), [ADR 0008](0008_desktop_host.md)
+(the desktop host stays PyQt5 for this cycle; a Rust/Tauri shell is a spike gated on a change of
+goal). This ADR only fixes what any host of these components must provide.
+Amended 2026-10-26 after the adversarial review (`untracked/apple-web-wave/adversary.md`): layouts,
+follower, wait guard, tool lists, voice per platform, CI.
 
 ## Context
 
@@ -110,11 +113,26 @@ adopts it and deletes its reducer (owner: uic + assistant).
   fails the build on a root-absolute `/api`, `/assets` or `/apps` literal in `src/`, `index.html`
   or `dist/`.
 
-### 4. Hosts: browser and Tauri shell
+### 4. Hosts: one component library, separate layouts
 
-The frontend is host-agnostic. Working hypothesis (operator, 2026-10-26): the same UI becomes the
-window of a future Rust (Tauri 2) desktop shell. Everything host-specific goes through ONE
-interface, `web/src/host/types.ts`:
+A browser page and a palette docked under a menu-bar icon (about 420x700, tall) are different
+shapes (operator, 2026-10-26), so this is NOT one UI for every host. What is shared is the
+component library: the orb, the conversation cards (messages, approvals, questions), the composer,
+the inbox rows, the design tokens (`web/design/tokens.css`), and everything under `src/lib/` and
+`src/gateway/`. Each host gets its own layout:
+
+| Layout | Width | Shape |
+|---|---|---|
+| Wide browser | ≥ 1024 px | sidebar (conversations) beside the conversation (`web/design/README.md`, Layouts) |
+| Narrow browser | 600-1023 px | one column; the conversation list is a sheet behind the header's Conversations button |
+| Phone browser | < 600 px | the same column with tighter gutters; the tab bar of the design is v1.1 |
+| Compact palette (a desktop host) | ~420 px wide, tall | a third layout, not the browser page: the palette's own arrangement of the same components (ADR 0008 decides whether and when a non-Qt host exists) |
+
+The browser layouts are checked in headless Chromium at 420, 760, 1024 and 1280 px with a long
+title (`web/scripts/check_layout.mjs`, in CI): no sideways scroll, no control off screen, every
+button and link at least 44 px.
+
+Everything host-specific goes through ONE interface, `web/src/host/types.ts`:
 
 | The frontend needs | Browser host (implemented) | A desktop host must provide |
 |---|---|---|
@@ -128,15 +146,34 @@ SSE is read with `fetch` + a stream reader (`src/gateway/sse.ts`), not `EventSou
 `EventSource` cannot send an `Authorization` header; `resolveHost` throws for `host: "tauri"`
 ("not implemented") rather than guessing.
 
-The v1 features that need browser APIs use only APIs a Tauri 2 WebView also has (WKWebView on
-macOS, WebView2 on Windows, WebKitGTK on Linux): `fetch` with streamed bodies (SSE, TTS JSON
-Lines), Web Audio `decodeAudioData` (read aloud), `getUserMedia` + `MediaRecorder` (dictation),
-`FormData` uploads. So voice stays in the frontend for both hosts. What a Tauri host must add
-around them: the microphone usage string and entitlement (macOS `NSMicrophoneUsageDescription`),
-the WebView's media permission handler, a CSP that allows the gateway origin, the token store, tray
-+ badge, global hotkey, notifications, autostart, and opening artifacts with the system. Not
-verified here: MediaRecorder MIME support inside each WebView (WKWebView records `audio/mp4`, the
-gateway accepts it — `discovery/capabilities` `contracts.assistant.voice.stt.content_types`).
+Voice per platform (sourced, not run here: `untracked/apple-web-wave/adversary.md` §3(a), from
+wry 0.57.1 / Tauri 2.12.5, MDN, the WebKit blog and Ubuntu's package versions):
+
+| | Browser (this ADR) | macOS WKWebView | Windows WebView2 | Linux WebKitGTK |
+|---|---|---|---|---|
+| Capture (`getUserMedia`) | secure pages only | works; needs `NSMicrophoneUsageDescription` and the `device.audio-input` entitlement; a double prompt is open (wry#1195) | prompts and names `http://tauri.localhost`; a saved "Block" sticks; Tauri ≥ 2.12 `on_permission_request` | denied by default: wry never enables media streams; needs `set_enable_media_stream`, a permission handler and GStreamer's pipewire/pulse plugins |
+| Encoding (`MediaRecorder`, what dictation uses) | Chromium/Firefox webm, Safari mp4 | `audio/mp4` only before Safari 18.4 | webm | **broken on stock Ubuntu**: WebM needs GStreamer ≥ 1.24.9 (22.04 ships 1.20.3, 24.04 ships 1.24.2) |
+| Playback (`decodeAudioData` + scheduled buffers, read aloud) | works | works | works | works |
+| Output device name, system volume, choosing the device | no | no (no `setSinkId` on WebKit) | partial | no |
+
+Decisions:
+
+- **Dictation with `MediaRecorder` is a browser-host feature.** It stays as built for the browser
+  (`src/lib/voice.ts`).
+- **A desktop host captures raw PCM with an AudioWorklet** (Chrome 66+, Safari 14.1+, WebKitGTK
+  WebAudio on by default), encodes WAV in the page, and uploads it on the same path
+  (`attachments/upload` then `audio/transcribe`, which accepts `audio/wav`). Voice activity
+  detection then runs in WASM in the page (Silero through onnxruntime-web, or webrtcvad compiled
+  to WASM) or in the host. Not built: it belongs to the host that needs it (ADR 0008's gate).
+- Read aloud stays in the frontend for every host.
+- A host keeps a small native shim for what no WebView can do: device names, system volume,
+  choosing the output.
+
+What any non-browser host must also add: the WebView's media permission handler, a CSP and a
+gateway CORS rule for its origin (`tauri://localhost` on macOS and Linux, `http://tauri.localhost`
+on Windows), the bearer-header auth adapter (the browser's cookie session does not carry over),
+the token store, tray and badge, global hotkey, notifications, autostart, and opening artifacts
+with the system.
 
 ### 5. Auth in the browser
 
@@ -160,6 +197,17 @@ gateway's sentence.
   `use_session_history: true` (the gateway replays history), the uploaded `$artifact` refs (and the
   first image as `primary_image_artifact`), and `_runtime.stream: true` (live answers are the
   point of a web UI). Not ported: per-route media overrides and speculation.
+- **Tools (decided after review, adversary finding 7):** every send carries explicit
+  `allowed_tools` and `tool_policy`, the desktop's lists for the same gateway answer with no local
+  per-tool settings (`src/lib/tool_policy.ts`, a port of `controller.py:1664-1842`; parity cases
+  generated by the desktop's controller, `web/scripts/gen_tool_policy_parity.py`): every tool the
+  gateway enables (`GET /discovery/tools`, `enabled` not false), auto-approved only when the gateway
+  says `approval_default: "auto"`, every other one asks. Why not the gateway default: a run without
+  lists gets the entry flow's default tool set under the default approval, which is not what the
+  desktop or the iPhone run, and the person would not see the same Assistant on the web. A tool
+  without `approval_default` asks (the desktop falls back to a local list the web does not have).
+  Consequence, measured on the local gateway: 52 tools allowed, 13 automatic, 39 ask. The web has
+  no per-tool settings and no "trust this chat" grant in v1.
 - **Start:** `POST /runs/start {flow_id: "@default", interface, session_id, input_data}` (or the
   explicit bundle fields). A web conversation's id is minted like the desktop's (`sess_<hex>`).
   A failed start is never retried automatically (the iPhone's rule).
@@ -173,28 +221,44 @@ gateway's sentence.
 
 ### 7. Events
 
-- **One turn:** the desktop's stack follower (`run_controller.py:385-432`): one ledger SSE at a
+- **One turn:** the desktop's stack follower (`run_controller.py:202-432`): one ledger SSE at a
   time, root first; a `subworkflow:<child>` wait pushes the child (the approval lives on the child's
-  ledger), the child's `event: done` pops it. One stream at a time matters: a real turn nests 3-4
-  child runs (proven) and HTTP/1.1 gives a page six connections per origin. Deltas come from the
+  ledger). Whenever a stream ends, with `event: done` or without it (a proxy idle timeout, a
+  gateway restart), the follower asks `GET /runs/{id}`: a terminal run is drained with
+  `GET /runs/{id}/ledger` until two reads bring nothing, then popped; a run still going is
+  reconnected from its cursor (backoff 1, 2, 4, 5 s). Four connection failures in a row give up:
+  the turn is marked lost, its cards are disabled, and the page says to reopen the conversation.
+  One stream at a time matters: a real turn nests 3-4 child runs (proven) and HTTP/1.1 gives a
+  page six connections per origin. Deltas come from the
   active stream; a (re)connect drops live text and applies snapshots; the durable `llm_call` record
   with the same step id replaces it (`api.md:517-588`). The answer is the ROOT run's flow-end output.
 - **Waits:** identity (run, wait key, step id); a `resume` record closes the open waits of its key
   on that run. Tool approval and `ask_user` (`reason: user`, or `evt:…:abstract.ask`) render as
   cards in the conversation. Before answering, the client re-reads `GET /runs/{id}` and answers only
-  if `waiting.wait_key` still matches (`service.py:1873`; the iPhone's rule); then
+  if the run still waits on the SAME question: same `waiting.wait_key` (`abstractgateway service.py` `run_summary`; the
+  iPhone's rule) AND the same batch of tool calls (call id, name, arguments) or the same prompt
+  (`waitStillMatches`, `src/lib/run_events.ts`). The key alone is not enough: the runtime reuses
+  one key per node for every approval batch (`adapter.py:42-58`), and the run summary carries no
+  step id, so a stale card could approve a newer batch nobody saw. An approval whose waiting record
+  names no calls is refused. Gateway ask G4 (1057): the waiting `step_id` in the run summary,
+  which would make the comparison exact. Then
   `POST /commands {type: "resume", run_id: <the waiting run>, payload: {wait_key, payload}}` with
   `{approved}` / `{approved: false, reason}` / `{response}` (`client.py:209-245`).
 - **The person's stream:** `GET /me/events?limit=1` for the head, then `/me/events/stream` from
-  it: `run.started` / `run.finished` refresh the list (another device, an automation discussion);
-  `attention.seen` of a wait closes its card here.
+  it: `run.started` / `run.finished` of a listed conversation, or a person's new run, refresh the
+  list (automation occurrences do not); `attention.seen` of a wait closes its card here.
+- **Titles:** each row's opening prompt (`input_data` of its first run), at most 40 per refresh,
+  four at a time, cached for the page's life; a failed title is retried at the next refresh and
+  the list says how many are missing.
+- **History:** a turn whose `status` is `failed` or `cancelled` shows as a notice ("This turn
+  failed: …", "Stopped."), never as an answer to read aloud.
 
 ### 8. Voice in the browser, on the gateway's engines
 
 - **Read aloud:** `POST /runs/{answer run}/voice/tts/stream` (JSON Lines: `queued`, `audio` with
   `audio_b64` WAV, then `done` / `cancelled` / `error`), each WAV decoded and scheduled back to
   back with Web Audio.
-- **Dictation:** MediaRecorder (`audio/webm;codecs=opus`, else `audio/mp4`, else ogg) →
+- **Dictation (browser host):** MediaRecorder (`audio/webm;codecs=opus`, else `audio/mp4`, else ogg) →
   `POST /attachments/upload` → `POST /runs/{owner run}/audio/transcribe {audio_artifact}` (the
   iPhone's path, `GatewayClient.swift:704-728`; the gateway lists webm, mp4 and ogg among accepted
   types). The text lands in the composer for review (the iPhone's default, backlog 1048).
@@ -238,7 +302,9 @@ both apps copy (the server guards, the URL check) goes to abstractuic (U1), not 
 - The desktop's "stop publishing the managed workflow from the client" (overview item 0) becomes
   more urgent: the web client depends on the gateway reporting the default, not on a desktop having
   run once.
-- A Tauri host (ADR 0008) can reuse the frontend unchanged if it implements `src/host/types.ts`.
+- A non-browser host (ADR 0008) reuses the components and `src/lib/`, `src/gateway/` if it
+  implements `src/host/types.ts`; it brings its own layout and, outside the browser, the
+  AudioWorklet dictation path above.
 
 ## Alternatives considered
 
@@ -252,7 +318,11 @@ both apps copy (the server guards, the URL check) goes to abstractuic (U1), not 
 
 ## Validation
 
-`npm test` (vitest: fold parity on the Python fixture, run-input parity, turn reducer on the
-desktop's production subrun fixture, host selection and capabilities, voice lines, SSE framing),
-`npm run build` (tsc + vite + relative-URL check), and the read-only live proofs in
-`untracked/apple-web-wave/w3-web-architecture.md`.
+In CI (`.github/workflows/ci.yml`, job `web`): `npm ci`, `npm test` (vitest: fold parity on the
+Python fixture, run-input and tool-list parity on cases generated by the desktop's code, the turn
+reducer on the desktop's production subrun fixture, the follower against a fake gateway including
+a stream closed without `done`, the wait guard, titles, host selection and capabilities, voice
+lines, SSE framing), `npm run build` (tsc + vite + relative-URL check) and `npm run test:layout`
+(headless Chromium, four widths). The Python job regenerates both parity fixtures and fails on a
+diff. The read-only live proofs are in `untracked/apple-web-wave/w3-web-architecture.md`; sending,
+approving, answering and voice have not been run against a gateway (backlog 1057 phase 1).

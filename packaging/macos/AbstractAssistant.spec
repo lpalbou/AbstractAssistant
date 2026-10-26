@@ -7,7 +7,8 @@ from PyInstaller.utils.hooks import collect_submodules
 
 APP_NAME = "AbstractAssistant"
 # The Mac app joins the AbstractAssistant Apple family (iPhone `ai.abstractframework.assistant`,
-# watch `….watchkitapp`): ADR 0006. Through 0.15.0 it was `ai.abstractcore.abstractassistant`.
+# watch `….watchkitapp`): ADR 0006. Released bundles through 0.14.3 carried
+# `ai.abstractcore.abstractassistant`; 0.15.0 is the first built with this id.
 # abstractassistant/build_macos_app.py carries the same id (a test keeps them equal).
 BUNDLE_ID = "ai.abstractframework.assistant.mac"
 MIN_MACOS = "10.15"
@@ -33,28 +34,30 @@ VERSION = _version()
 
 
 def _signing_from_env(environ, spec_dir):
-    """(codesign identity, entitlements file) for PyInstaller, from the environment.
+    """(codesign identity, entitlements file, environment to set) for PyInstaller.
 
     Unset = the unsigned local build, exactly as before (PyInstaller ad-hoc signs it and no
-    entitlements apply). With ABSTRACTASSISTANT_CODESIGN_IDENTITY set (a "Developer ID
-    Application: … (TEAMID)" identity; `build-macos-app --sign` sets it) every collected
-    binary is signed with that identity, the hardened runtime and a secure timestamp, using
-    packaging/macos/entitlements.plist unless ABSTRACTASSISTANT_ENTITLEMENTS names another
-    file. Self-contained (no imports, no globals) so tests can run it on its own.
+    entitlements apply). With ABSTRACTASSISTANT_CODESIGN_IDENTITY set (`build-macos-app --sign`
+    or `--local-test` set it) PyInstaller signs inside-out: every collected binary with that
+    identity, the hardened runtime, a secure timestamp and packaging/macos/entitlements.plist
+    (or ABSTRACTASSISTANT_ENTITLEMENTS), then the bundle. PYINSTALLER_STRICT_BUNDLE_CODESIGN_ERROR
+    is then forced on, because without it PyInstaller only warns when sealing the bundle fails.
+    Self-contained (no imports, no globals) so tests can run it on its own.
     """
     identity = str(environ.get("ABSTRACTASSISTANT_CODESIGN_IDENTITY") or "").strip() or None
     if identity is None:
         # Entitlements only mean something with a signature that carries them.
-        return None, None
+        return None, None, {}
     entitlements = str(environ.get("ABSTRACTASSISTANT_ENTITLEMENTS") or "").strip()
-    return identity, entitlements or str(spec_dir / "entitlements.plist")
+    return identity, entitlements or str(spec_dir / "entitlements.plist"), {"PYINSTALLER_STRICT_BUNDLE_CODESIGN_ERROR": "1"}
 
 
-CODESIGN_IDENTITY, ENTITLEMENTS_FILE = _signing_from_env(os.environ, Path(SPECPATH).resolve())
+CODESIGN_IDENTITY, ENTITLEMENTS_FILE, SIGNING_ENV = _signing_from_env(os.environ, Path(SPECPATH).resolve())
+os.environ.update(SIGNING_ENV)  # read by PyInstaller when BUNDLE signs, below
 if CODESIGN_IDENTITY:
     if not Path(ENTITLEMENTS_FILE).is_file():
         raise SystemExit(f"entitlements file not found: {ENTITLEMENTS_FILE}")
-    print(f"codesign: {CODESIGN_IDENTITY!r} with {ENTITLEMENTS_FILE}")
+    print(f"codesign: {CODESIGN_IDENTITY!r} with {ENTITLEMENTS_FILE} (strict bundle signing)")
 PATHEX = [str(ROOT)]
 for candidate in (
     ROOT.parent / "abstractruntime" / "src",

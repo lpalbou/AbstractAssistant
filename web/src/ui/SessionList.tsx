@@ -1,24 +1,20 @@
 import { formatRelativeTime } from "@abstractframework/ui-kit";
 
-import type { SessionRow } from "../lib/session_fold";
-
-const STATE_WORDS: Record<SessionRow["state"], string> = {
-  waiting: "Needs you",
-  running: "Working",
-  failed: "Stopped or failed",
-  done: "",
-  unknown: "",
-};
+import { STATE_WORDS, type SessionRow } from "../lib/session_fold";
 
 export function SessionList(props: {
   rows: SessionRow[];
   titles: Record<string, string>;
   truncated: boolean;
   error: string;
+  /** One line about titles that could not be loaded. */
+  notice: string;
   activeId: string;
   onOpen: (row: SessionRow) => void;
   onNew: () => void;
   onRefresh: () => void;
+  /** Closes the list where it is a sheet (below 1024 px). */
+  onClose: () => void;
   onSignOut: () => void;
 }) {
   const now = Date.now();
@@ -26,9 +22,14 @@ export function SessionList(props: {
     <nav className="aa-sidebar" aria-label="Conversations">
       <div className="aa-sidebar__top">
         <span className="aa-brand">Assistant</span>
-        <button type="button" className="aa-button aa-button--primary" onClick={props.onNew}>
-          New
-        </button>
+        <span className="aa-sidebar__actions">
+          <button type="button" className="aa-button aa-button--primary" onClick={props.onNew}>
+            New
+          </button>
+          <button type="button" className="aa-button aa-only-compact" onClick={props.onClose}>
+            Close
+          </button>
+        </span>
       </div>
       {props.error ? (
         <p className="aa-sidebar__error" role="alert">
@@ -38,9 +39,11 @@ export function SessionList(props: {
           </button>
         </p>
       ) : null}
+      {props.notice ? <p className="aa-sidebar__more" role="status">{props.notice}</p> : null}
       <ul className="aa-sessions">
         {props.rows.map((row) => {
-          const title = props.titles[row.session_id] || "Conversation";
+          // An unloaded title is labelled as such (the list says why once, above).
+          const title = props.titles[row.session_id] || "Untitled conversation";
           const state = STATE_WORDS[row.state];
           return (
             <li key={row.session_id}>

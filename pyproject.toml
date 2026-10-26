@@ -27,14 +27,17 @@ classifiers = [
 
 dependencies = [
     # Voice is a core part of the assistant, so local audio I/O ships by
-    # default: abstractvoice[audio-io] pulls sounddevice + webrtcvad + soundfile
+    # default: abstractvoice[audio-io] pulls sounddevice + webrtcvad-wheels + soundfile
     # for in-process streaming TTS playback and microphone capture. (STT itself
     # runs on the gateway, so faster-whisper is NOT a base dependency — it comes
     # with the [voice] extra for anyone who also wants local transcription.)
     # abstractruntime supplies the session-memory run-id contract shared with
     # the gateway (session_attachments); execution itself stays on the gateway.
     "abstractruntime>=0.8.4",
-    "abstractvoice[audio-io]>=0.11.2",
+    # 0.11.4 is the first abstractvoice whose voice extras install `webrtcvad-wheels`
+    # (0.11.2/0.11.3 required the old `webrtcvad`); the macOS bundle's PyInstaller hook
+    # (packaging/macos/hooks/hook-webrtcvad.py) copies webrtcvad-wheels' metadata.
+    "abstractvoice[audio-io]>=0.11.4",
     # Used for an optional local config read (STT language hint) and the shared
     # About/identity helpers (abstractcore.utils.identity, new in 2.16.0); all
     # provider execution happens on the gateway, so no provider extras.
@@ -52,28 +55,29 @@ dependencies = [
     # Markdown rendering in UI
     "markdown-it-py>=4.0.0",
     "pygments>=2.16.0",
-    # webrtcvad (pulled in by the [voice]/[apple]/[gpu] extras) depends on
-    # pkg_resources at import time; pkg_resources remains available through
-    # setuptools 80.x and disappears in 81+. The pin lives in base deps because
-    # extras merge with base at resolve time.
+    # The old `webrtcvad` (abstractvoice < 0.11.4) imported pkg_resources, which
+    # setuptools 81+ removes. `webrtcvad-wheels` (the floor above) reads its version
+    # with importlib.metadata on Python 3.8+, so that reason is gone; the pin stays
+    # until nothing else in the resolved set is shown to import pkg_resources.
+    # It lives in base deps because extras merge with base at resolve time.
     "setuptools>=61.0,<81",
 ]
 
 [project.optional-dependencies]
 lite = []  # Back-compat alias for the base install.
 voice = [
-    "abstractvoice[audio-io,stt]>=0.11.2",
+    "abstractvoice[audio-io,stt]>=0.11.4",
 ]
 apple = [
     "abstractcore[all-apple]>=2.16.0",
-    "abstractvoice[all-apple]>=0.11.2",
+    "abstractvoice[all-apple]>=0.11.4",
 ]
 gpu = [
     "abstractcore[all-gpu]>=2.16.0",
-    "abstractvoice[all-gpu]>=0.11.2",
+    "abstractvoice[all-gpu]>=0.11.4",
 ]
 all = [
-    "abstractvoice[audio-io,stt]>=0.11.2",
+    "abstractvoice[audio-io,stt]>=0.11.4",
 ]  # Back-compat alias for full voice I/O.
 dev = [
     "pytest>=7.0.0",

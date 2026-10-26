@@ -13,26 +13,29 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   one sign-in for both (the watch takes the iPhone's); Apple push on both apps (registration with the
   gateway and notification service extensions, framework backlog 1049). See the iPhone and watch
   changelogs.
-- **The macOS app can be signed and notarized** (ADR 0006, Proposed). `build-macos-app --sign`
-  signs it with a Developer ID Application identity, the hardened runtime and
-  `packaging/macos/entitlements.plist`, then checks it with `codesign --verify` and `spctl`;
-  `--notarize` sends it to Apple with `notarytool` and staples the ticket; `--dmg` builds a disk
-  image; `--dry-run` prints every command. Without these flags the build is the unsigned one it
-  always was. The operator's checklist is `docs/macos-signing.md`. The Mac app's bundle id is now
-  `ai.abstractframework.assistant.mac`, in the iPhone and watch family (was
-  `ai.abstractcore.abstractassistant`): after the next build, macOS asks once more for the
-  microphone and for Accessibility (the hotkey); settings and chats in `~/.abstractassistant` are
-  unchanged. A build environment without `webrtcvad-wheels` is now refused at once instead of
-  failing minutes into PyInstaller.
-- **The Assistant on the web, first scaffold** (`web/`, ADR 0007 Proposed, backlog 1057): a
-  browser app on the framework's app server (`@abstractframework/assistant`, not published yet;
-  the gateway does not list it yet, so it runs by hand: `web/README.md`). Your conversations from
-  the gateway, a conversation's history, send with attachments, the answer as it is written, tool
-  approvals and questions inside the conversation, stop, read aloud and dictation on the gateway's
-  voice engines. The page keeps no token and no copy of your chats, and never installs a workflow:
-  when the Assistant's workflow is missing it says so. The conversation list and the run input are
-  the desktop's, checked by tests against the desktop's own fixtures; the page reaches the gateway
-  only through a small host interface, so a future desktop shell can reuse it.
+- **The macOS app can be signed and notarized** (ADR 0006, Proposed). `build-macos-app --sign` signs
+  with a Developer ID Application identity: PyInstaller signs every binary inside-out with the hardened
+  runtime and `packaging/macos/entitlements.plist`, and the build then checks the seal, every nested
+  binary and Gatekeeper's verdict. `--notarize` sends it to Apple with `notarytool` and staples the
+  ticket; `--dmg` builds a disk image; `--local-test` signs with an Apple Development identity for a
+  launch test on your own Mac, never notarized; `--dry-run` prints every command. Without these flags
+  the build is the unsigned one it always was. The operator's checklist is `docs/macos-signing.md`.
+  The Mac app's bundle id is now `ai.abstractframework.assistant.mac`, in the iPhone and watch
+  family; releases through 0.14.3 used `ai.abstractcore.abstractassistant`. After the next build,
+  macOS asks once more for the microphone and for Accessibility (the hotkey); settings and chats in
+  `~/.abstractassistant` are unchanged. The voice dependency floor is now `abstractvoice>=0.11.4`, the
+  first release that installs `webrtcvad-wheels`, and a build environment without it is refused at
+  once instead of failing minutes into PyInstaller.
+- **The Assistant on the web: a scaffold, not a release** (`web/`, ADR 0007 Proposed, backlog
+  1057). A browser app on the framework's app server (`@abstractframework/assistant`, not published;
+  the gateway does not list it yet, so it runs by hand: `web/README.md`). Proven against a local
+  gateway, read-only: signing in through the app server, the conversation list (identical to the
+  desktop's), opening a conversation's history, and following finished turns to the same answer the
+  gateway keeps. Written to the gateway's contracts but NOT yet exercised against a gateway: sending
+  (with attachments and the desktop's tool lists), the live answer, stop, tool approvals and
+  questions in the conversation, read aloud and dictation. The page keeps no token and no copy of
+  your chats, and never installs a workflow. Tests run in CI, including a layout check at 420 to
+  1280 px.
 
 ### Changed
 
@@ -41,6 +44,17 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   `trigger_text` when it serves one); an automation that runs when something happens shows no next
   run. Runs are called runs everywhere: "Discuss this run (your own copy; the automation's files stay
   read-only)", "This run failed.", "This run is waiting for your answer.", "A run is in progress."
+
+### Fixed
+
+- A message sent with attachments while the gateway could not be reached was reported as "The run
+  failed", stayed in the conversation as if sent, and lost its text and attachments. It now says
+  "Not sent — <reason>", leaves the conversation, and puts the text and the attachments back in the
+  composer. The same applies when the run could not even be prepared (backlog 1056, bug 1).
+- When a hold-to-talk transcription fails, the recording is kept: a line under the conversation says
+  "Not sent. Your recording is kept", with **Retry** (sends the same recording again) and **Discard**.
+  Nothing is sent without your click. The kept recording lives in memory until the app quits
+  (backlog 1056, bug 2).
 
 ## [0.15.0] - 2026-10-25
 

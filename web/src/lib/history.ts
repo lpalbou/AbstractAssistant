@@ -3,7 +3,8 @@
  * (`GET /runs/{latest_run_id}/history_bundle?include_session=true`): a PORT
  * of abstractassistant/gateway/history_seed.py `_seed_from_session_turns`
  * (one user line per turn prompt, with its attachment refs; one assistant
- * line per answer). The run store is the only source: nothing is cached in
+ * line per answer; a failed or cancelled turn becomes a notice, never an
+ * answer you could read aloud). The run store is the only source: nothing is cached in
  * the browser.
  */
 import type { ChatAttachment, ChatMessage } from "./types";
@@ -49,7 +50,15 @@ export function messagesFromHistoryBundle(bundle: unknown): HistorySeed {
       const atts = attachmentsOf(t.attachments);
       out.push({ id: `${runId}:user`, role: "user", text: prompt, run_id: runId, ts: tsUser, ...(atts.length ? { attachments: atts } : {}) });
     }
-    if (answer.trim()) out.push({ id: `${runId}:answer`, role: "assistant", text: answer, run_id: runId, ts: tsAnswer });
+    // A failed or stopped turn is not an answer (adversary finding 22): its
+    // text, if any, is the workflow's failure message, shown as a notice.
+    const status = typeof t.status === "string" ? t.status.trim().toLowerCase() : "";
+    if (status === "failed" || status === "cancelled") {
+      const label = status === "failed" ? "This turn failed" : "Stopped";
+      out.push({ id: `${runId}:answer`, role: "notice", text: answer.trim() ? `${label}: ${answer.trim()}` : `${label}.`, run_id: runId, ts: tsAnswer });
+    } else if (answer.trim()) {
+      out.push({ id: `${runId}:answer`, role: "assistant", text: answer, run_id: runId, ts: tsAnswer });
+    }
   }
   return { messages: out, warnings };
 }

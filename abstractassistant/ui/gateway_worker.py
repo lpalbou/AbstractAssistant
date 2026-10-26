@@ -207,6 +207,19 @@ class GatewayWorker(QThread):
             payload=wait_answer_payload("ask_user", str(response or "")),
         )
 
+    def _emit_run_start_failed(self, exc: BaseException) -> None:
+        """A turn that never became a run: hand its words and its LOCAL files
+        back to the palette (which withdraws the shown turn and refills the
+        composer) instead of reporting a run failure."""
+        self.event_emitted.emit(
+            {
+                "type": "run_start_failed",
+                "error": str(exc) or exc.__class__.__name__,
+                "prompt": self._user_text,
+                "attachments": list(self._attachments),
+            }
+        )
+
     def _upload_attachments(self, *, session_id: str) -> List[Dict[str, Any]]:
         out: List[Dict[str, Any]] = []
         for path in self._attachments:
@@ -1148,8 +1161,15 @@ class GatewayWorker(QThread):
                 self._seed_history_from_gateway(run_id=run_id)
                 self._emit_run_activity(run_id=run_id)
             else:
-                attachments = self._upload_attachments(session_id=session_id) if self._attachments else []
-                preview_items = self._attachment_preview_items(attachments)
+                try:
+                    attachments = self._upload_attachments(session_id=session_id) if self._attachments else []
+                    preview_items = self._attachment_preview_items(attachments)
+                except Exception as exc:
+                    # Nothing was sent (a refused connection, a refused file):
+                    # a run that never started, not a run that failed — the
+                    # palette gives the words and the files back.
+                    self._emit_run_start_failed(exc)
+                    return
                 if preview_items and not self._append_user_message:
                     # The message was already shown with local paths only. Hand
                     # the durable artifact ids back so its preview survives the
@@ -1173,25 +1193,24 @@ class GatewayWorker(QThread):
                     except Exception as e:
                         warnings.warn(f"Failed to append user message: {e}")
 
-                primary_image_artifact = self._pick_primary_image_artifact(attachments)
-                input_data = build_run_input_data(
-                    prompt=self._user_text,
-                    system=self._system_prompt_extra,
-                    attachments=attachments,
-                    allowed_tools=self._allowed_tools,
-                    tool_policy=self._tool_policy,
-                    primary_image_artifact=primary_image_artifact,
-                    provider=self._provider_override,
-                    model=self._model_override,
-                    base_url=self._base_url_override,
-                    media_overrides=self._media_overrides,
-                    thinking=self._thinking,
-                    speculation=self._speculation,
-                    stream=self._stream,
-                    workspace_root=self._workspace_root,
-                )
-
                 try:
+                    primary_image_artifact = self._pick_primary_image_artifact(attachments)
+                    input_data = build_run_input_data(
+                        prompt=self._user_text,
+                        system=self._system_prompt_extra,
+                        attachments=attachments,
+                        allowed_tools=self._allowed_tools,
+                        tool_policy=self._tool_policy,
+                        primary_image_artifact=primary_image_artifact,
+                        provider=self._provider_override,
+                        model=self._model_override,
+                        base_url=self._base_url_override,
+                        media_overrides=self._media_overrides,
+                        thinking=self._thinking,
+                        speculation=self._speculation,
+                        stream=self._stream,
+                        workspace_root=self._workspace_root,
+                    )
                     entry = self._resolve_entrypoint()
                     start_kwargs: Dict[str, Any] = dict(
                         flow_id=entry["flow_id"],
@@ -1208,14 +1227,7 @@ class GatewayWorker(QThread):
                     # Nothing started: the palette restores the composer text,
                     # drops the phantom user turn and shows the gateway's
                     # reason (a refused workspace grant, a missing workflow…).
-                    self.event_emitted.emit(
-                        {
-                            "type": "run_start_failed",
-                            "error": str(exc) or exc.__class__.__name__,
-                            "prompt": self._user_text,
-                            "attachments": list(self._attachments),
-                        }
-                    )
+                    self._emit_run_start_failed(exc)
                     return
                 if self._llm_manager:
                     self._llm_manager.set_last_run_id(run_id)

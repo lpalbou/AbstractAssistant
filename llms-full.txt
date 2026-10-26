@@ -389,7 +389,8 @@ That produces `dist/macos/AbstractAssistant.app`.
 
 The bundle is **unsigned and un-notarized**. Building it yourself is fine (locally built
 apps carry no quarantine attribute), but a copy you send to someone else will be blocked by
-Gatekeeper ("cannot verify developer" / "damaged") until it is signed and notarized. The app is
+Gatekeeper ("cannot verify developer" / "damaged") until it is signed and notarized: see
+[macos-signing.md](macos-signing.md) (`build-macos-app --sign`, `--notarize`, `--dmg`). The app is
 also menu-bar only (`LSUIElement`), so it deliberately shows no Dock icon — look for the tray icon
 in the top-right menu bar, not the Dock.
 
@@ -2394,7 +2395,15 @@ This directory records durable architecture decisions for AbstractAssistant.
 
 - [ADR 0003](0003_unified_apple_product.md) — Accepted — One Store listing and archive for iPhone + independent Watch; generated Store composition and shared release ownership.
 
-- [ADR 0004](0004_one_apple_project.md) — Accepted — One project and one product: the iPhone app is the container, the watch app its independent companion (`.watchkitapp`); shared sealed sign-in and push package; amends ADR 0003.
+- [ADR 0004](0004_notes_inside_the_assistant_abstractnote_stays_a_service.md) — Accepted — Notes are captured and recalled in the assistant's Apple apps; AbstractNote stays a gateway service and web app; the Notes surface is gated by one status probe; nothing is copied between the two repositories again.
+
+- [ADR 0005](0005_one_apple_project.md) — Accepted — One project and one product: the iPhone app is the container, the watch app its independent companion (`.watchkitapp`); shared sealed sign-in and push package; amends ADR 0003.
+
+- [ADR 0006](0006_macos_signing_and_distribution.md) — Proposed — The macOS app joins the Apple family as `ai.abstractframework.assistant.mac`, ships by Developer ID + notarization (not the Mac App Store), signing off by default and layered on a cross-platform app.
+
+- [ADR 0007](0007_web_assistant.md) — Proposed — The Assistant on the web: a gateway app built from `web/`, one component library and tokens for every host behind one host interface, separate layouts; the same managed workflow, presence check only.
+
+- [ADR 0008](0008_desktop_host.md) — Proposed — The desktop host stays PyQt5 for this cycle, polished toward the iPhone look (1056 + orb/tokens port); a Rust/Tauri shell is a gated one-week spike (0003) with measured exit criteria; the bundle id is kept whatever the host.
 
 ## Related Docs
 
@@ -2577,7 +2586,7 @@ app can be added later if separate device data or app records become necessary.
 --- docs/adr/0003_unified_apple_product.md ---
 # ADR 0003 — One AbstractAssistant product for iPhone and Watch
 
-Status: Accepted; amended by [ADR 0004](0004_one_apple_project.md) (one project, the `.watchkitapp` id, no generated composition)
+Status: Accepted; amended by [ADR 0005](0005_one_apple_project.md) (one project, the `.watchkitapp` id, no generated composition)
 Date: 2026-10-19
 
 ## Context
@@ -2859,6 +2868,29 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   one sign-in for both (the watch takes the iPhone's); Apple push on both apps (registration with the
   gateway and notification service extensions, framework backlog 1049). See the iPhone and watch
   changelogs.
+- **The macOS app can be signed and notarized** (ADR 0006, Proposed). `build-macos-app --sign` signs
+  with a Developer ID Application identity: PyInstaller signs every binary inside-out with the hardened
+  runtime and `packaging/macos/entitlements.plist`, and the build then checks the seal, every nested
+  binary and Gatekeeper's verdict. `--notarize` sends it to Apple with `notarytool` and staples the
+  ticket; `--dmg` builds a disk image; `--local-test` signs with an Apple Development identity for a
+  launch test on your own Mac, never notarized; `--dry-run` prints every command. Without these flags
+  the build is the unsigned one it always was. The operator's checklist is `docs/macos-signing.md`.
+  The Mac app's bundle id is now `ai.abstractframework.assistant.mac`, in the iPhone and watch
+  family; releases through 0.14.3 used `ai.abstractcore.abstractassistant`. After the next build,
+  macOS asks once more for the microphone and for Accessibility (the hotkey); settings and chats in
+  `~/.abstractassistant` are unchanged. The voice dependency floor is now `abstractvoice>=0.11.4`, the
+  first release that installs `webrtcvad-wheels`, and a build environment without it is refused at
+  once instead of failing minutes into PyInstaller.
+- **The Assistant on the web: a scaffold, not a release** (`web/`, ADR 0007 Proposed, backlog
+  1057). A browser app on the framework's app server (`@abstractframework/assistant`, not published;
+  the gateway does not list it yet, so it runs by hand: `web/README.md`). Proven against a local
+  gateway, read-only: signing in through the app server, the conversation list (identical to the
+  desktop's), opening a conversation's history, and following finished turns to the same answer the
+  gateway keeps. Written to the gateway's contracts but NOT yet exercised against a gateway: sending
+  (with attachments and the desktop's tool lists), the live answer, stop, tool approvals and
+  questions in the conversation, read aloud and dictation. The page keeps no token and no copy of
+  your chats, and never installs a workflow. Tests run in CI, including a layout check at 420 to
+  1280 px.
 
 ### Changed
 
@@ -2867,6 +2899,17 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   `trigger_text` when it serves one); an automation that runs when something happens shows no next
   run. Runs are called runs everywhere: "Discuss this run (your own copy; the automation's files stay
   read-only)", "This run failed.", "This run is waiting for your answer.", "A run is in progress."
+
+### Fixed
+
+- A message sent with attachments while the gateway could not be reached was reported as "The run
+  failed", stayed in the conversation as if sent, and lost its text and attachments. It now says
+  "Not sent — <reason>", leaves the conversation, and puts the text and the attachments back in the
+  composer. The same applies when the run could not even be prepared (backlog 1056, bug 1).
+- When a hold-to-talk transcription fails, the recording is kept: a line under the conversation says
+  "Not sent. Your recording is kept", with **Retry** (sends the same recording again) and **Discard**.
+  Nothing is sent without your click. The kept recording lives in memory until the app quits
+  (backlog 1056, bug 2).
 
 ## [0.15.0] - 2026-10-25
 
@@ -4100,7 +4143,7 @@ Enter your own gateway’s address. There is no preselected public server.
 - **Registered email + one-time code:** request the code and enter it. Email sign-in must be
   enabled on your gateway, with a mailbox connected for your account.
 
-Your sign-in is sealed in the app's own storage on this iPhone (shared with its notification
+Your sign-in is kept in this iPhone's Keychain (shared with its notification
 extension and handed to your Apple Watch), outside iCloud sync and ordinary preferences. HTTPS is required outside the local network. Local HTTP
 addresses are accepted for development. A phone’s `localhost` is the phone itself; use
 your Mac’s LAN address to reach a gateway running there.
@@ -4236,6 +4279,20 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
 
+### Changed
+
+- **The sign-in lives in the Keychain, shared through the app group.** A Keychain item of the
+  app's service, readable after the first unlock (the notification extension reads it while the
+  device is locked), bound to this device, never in a backup, never synced; the app group doubles
+  as the access group so the extension (and, on the watch, the complication) read the same item.
+  Until now it was a file in the app group sealed with a key kept beside it, which protected
+  nothing; that file (and the plain one of the interim builds) is moved into the Keychain at its
+  first read, so nobody signs in again. The watch's kept sign-ins moved from UserDefaults into a
+  second Keychain item (backlog 1053).
+- **A paused reading shows a speaker, not a play triangle.** The message's read-aloud button is a
+  speaker at rest, pause while it reads and a filled speaker while paused (a tap resumes): a
+  play triangle never stands for reading aloud, on the iPhone as on the watch.
+
 ### Added
 
 - **One product with the Apple Watch (version 0.16.0, build 39).** The iPhone app is now
@@ -4256,6 +4313,13 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
   a result" / "<automation> failed" (opens Automations), a published alert with its title. A push for
   an earlier sign-in says "From an earlier sign-in"; when the gateway cannot be read in time, the
   generic text stays. Pushes are sent only once your gateway's push relay is on.
+- **Sign a development iPhone in from the Mac (Debug builds only).** `scripts/deploy-phone.sh`
+  builds the signed Debug app, installs it over CoreDevice and launches it with
+  `--gateway URL --token TOKEN [--user ID]`: the app checks the token with GET /api/gateway/me,
+  seals the sign-in, hands it to the watch and registers for push, as the account-token sign-in does;
+  `--forget-gateway` clears it. `--console` shows the app's `phone-trace` lines (sign-in, watch
+  handoff, push registration) and `--dump-trace` prints the last 40 at launch. Release builds
+  compile all of this out.
 
 ### Changed
 
@@ -4272,6 +4336,14 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
   news has a new item", "When Orders is called", "By hand", or the schedule's sentence (the gateway's
   own words when it serves them); one that runs when something happens shows no next run. A run the
   gateway retries reads "The gateway will retry this run."
+
+### Fixed
+
+- **The Inbox badge counts what the Inbox shows.** It counted the larger of the Inbox's list and the
+  open waits of your event stream, and the stream can hold a wait the list leaves out (a flow
+  editor's draft-test run, which the gateway's run list omits), so the tab read "1" over "Nothing
+  needs you". The badge is now the number of rows in the Inbox; the stream only tells the app to
+  read the list again, once more if it changed while a read was under way.
 
 ## [0.7.0] — 2026-10-25
 
@@ -4367,13 +4439,13 @@ The watch side is described in [watch/apple/docs/architecture.md](../../../watch
 flowchart LR
     Views[SwiftUI screens] --> Store[AssistantStore]
     Views --> Voice[Microphone and playback]
-    Vault[Sealed sign-in in the app group] --> Store
+    Vault[Sign-in in the Keychain, shared through the app group] --> Store
     Vault --> Push[AssistantPush: registration, handoff]
     Push --> Watch[Watch app over WatchConnectivity]
     APNs[Apple push] --> NSE[Notification service extension]
     Vault --> NSE
     NSE --> Gateway
-    Store --> Client[AbstractGatewayClient snapshot]
+    Store --> Client[PhoneGatewayClient snapshot]
     Voice --> Client
     Views --> Files[Attachment import and authenticated preview]
     Files --> Client
@@ -4384,10 +4456,10 @@ flowchart LR
     Gateway --> Runtime[AbstractRuntime / providers]
 ```
 
-`Sources/App` owns native views, the sealed sign-in (`ConnectionVault`), push registration
+`Sources/App` owns native views, the sign-in (`ConnectionVault`), push registration
 (`PhonePush`), the watch handoff (`WatchLink`), recording and playback. The `AssistantKit`
 Swift package owns account-scoped state and URL validation. Its second target,
-`AbstractGatewayClient`, contains the HTTP wire types and protocol.
+`PhoneGatewayClient` (named apart from the watch's `AbstractGatewayClient`, so both packages live in one project), contains the HTTP wire types and protocol.
 
 The gateway remains the source of truth for session history, workflows, tools, approval
 policy, entities, model/voice defaults and automations. The app reads account preferences
@@ -4400,7 +4472,7 @@ preferences are stored locally, scoped by gateway/tenant/account.
 The HTTP client uses an ephemeral URLSession, explicit bearer or session/CSRF headers,
 and refuses redirects. A 401 locks the client out; the store removes the sign-in and stops
 polling rather than repeatedly hitting the gateway’s failed-sign-in limit. Credentials are
-sealed in the app group (see below), never in the OS keychain, never encoded in a URL or
+a Keychain item shared through the app group (see below), never encoded in a URL or
 passed as launch arguments.
 
 Store generations separate account changes and conversation changes. Old refreshes and
@@ -5017,11 +5089,12 @@ or downloads executable updates. See [troubleshooting](troubleshooting.md).
 `Packages/AssistantPush` is shared by the iPhone app, the watch app and both notification
 service extensions (framework backlog 1049):
 
-- **Sealed sign-in.** `SharedSignInStore` keeps the gateway, account and credential (token, or
-  session + CSRF) sealed with ChaChaPoly under a 0600 key file in the app group
-  `group.ai.abstractframework.assistant` (`Library/Sealed/`), readable after first unlock so the
-  extension can read it while the phone is locked. No OS keychain. Each save is a sign-in and
-  takes a new `reg` (16 random bytes as hex).
+- **The sign-in in the Keychain.** `SharedSignInStore` keeps the gateway, account and credential
+  (token, or session + CSRF) as a Keychain item of the app's service, accessible after the first
+  unlock so the extension can read it while the device is locked, bound to this device (never in
+  a backup, never synced), shared with the extension through the app group
+  `group.ai.abstractframework.assistant`, which doubles as the keychain access group. Files kept by
+  earlier builds in the app group are moved into the Keychain at their first read and deleted.
 - **Watch handoff.** After a sign-in (token or emailed code) `WatchLink` sends it to the watch
   (`updateApplicationContext`, plus `transferUserInfo`). The watch takes it when it is newer than
   its own sign-in; a watch without its iPhone still signs in on its own.
@@ -5032,7 +5105,7 @@ service extensions (framework backlog 1049):
   `relay: off` changes nothing on the phone; there is no push setting.
 - **The extension.** The relay's push names only a kind (`push.<kind>.title/body` in
   `Localization/en.lproj`), `s` (the stream sequence) and `r` (the sign-in handle). A push whose
-  `r` differs from the sealed sign-in's is shown passive as "From an earlier sign-in"; otherwise
+  `r` differs from the stored sign-in's is shown passive as "From an earlier sign-in"; otherwise
   the extension reads `GET /me/events?after=s-1&limit=1` (8 s) and renders it like the app's
   catch-up: approval/question time-sensitive (tab Inbox), result/failure passive with the
   automation's name (tab Automations), a published alert passive with its title. On timeout the
@@ -5266,7 +5339,7 @@ CPU priority and keeps DerivedData in `build/DerivedData`. It does not boot, res
 or change any simulator. If another command-line Xcode build starts, the script stops only
 its own build and exits with status 75 so the other development takes priority.
 The simulator app is signed locally with an ad-hoc identity so the app group (where the
-sealed sign-in lives) works; this needs no developer account and does not sign a
+sign-in lives) works; this needs no developer account and does not sign a
 physical-device build. The iPhone build compiles the watch app too (it is embedded).
 
 Xcode’s GUI build service is shared: also check for other active builds before starting,
@@ -5296,6 +5369,18 @@ xcrun devicectl device install app --device <iphone-id> \
 xcrun devicectl device process launch --device <iphone-id> ai.abstractframework.assistant
 ```
 
+To sign that iPhone in from the Mac without typing on it (Debug builds only; the app checks the
+token with GET /api/gateway/me, seals it, hands it to the watch and registers for push, as the
+account-token sign-in does):
+
+```sh
+scripts/deploy-phone.sh --device <iphone-id> --gateway https://<your-gateway> --token <token> --user <user>
+```
+
+`--no-build` reinstalls the last build, `--forget` clears the sign-in, `--console` stays attached and
+prints the app's `phone-trace` lines (sign-in, watch handoff, push registration), and
+`--shoot FILE.png` takes a screenshot. Release builds ignore these launch arguments.
+
 This uses Xcode's automatic development provisioning and may register the five app
 identifiers (with Push Notifications, Time Sensitive Notifications and the app group) and the
 device with your developer account. It does not upload or distribute the app. iOS offers to
@@ -5323,7 +5408,7 @@ entry is still available without credentials.
 ## UI tests
 
 The separate **AbstractAssistantPhoneUITests** scheme drives the demo and runs the hosted
-tests (the sealed sign-in store among them). When resources are available, use the guarded script against your own
+tests (the sign-in store among them). When resources are available, use the guarded script against your own
 iPhone simulator with isolated DerivedData and one job:
 
 ```sh
@@ -5348,7 +5433,7 @@ manual promotion of the same build to the public App Store.
 ## Opt-in live media verification
 
 Use a development-signed iPhone with an existing gateway sign-in. The hosted test reads
-its sealed sign-in in place; it never exports it. This starts real, potentially billed
+its sign-in in place; it never exports it. This starts real, potentially billed
 provider generations on that account and uploads the reviewed orchestrator bundle if absent.
 
 ```sh
@@ -5411,7 +5496,7 @@ assistant works, the space below the orb shows its steps live (thinking, each to
 about, an image being made) and the orb pulses with each tool call, a satellite circling it for
 each tool running. The answer appears in markdown and the orb speaks it, following its voice; the
 voice button beside Back plays, pauses and rewinds. A tap on the orb pauses or resumes it; Stop
-(beside Back while it listens, works or speaks) or a 1.5 s hold on the orb stops what it is doing,
+(beside Back while it listens, works or speaks) or a one-second hold on the orb stops what it is doing,
 and at rest the same hold reads the last answer aloud. Once a conversation has a message, swipe
 to the left from the orb for its numbers and files (each one shareable).
 
@@ -5514,7 +5599,7 @@ curl https://<host>.<tailnet>.ts.net/api/health
   approvals, questions, published alerts and automation results arrive through Apple push once
   your gateway's push relay is on (the app registers itself at sign-in; nothing to set up);
   until then watchOS decides when background checks run.
-- Your sign-in is sealed on the watch (shared with its notification extension). The sign-ins you
+- Your sign-in is kept in the watch's Keychain (shared with its notification extension). The sign-ins you
   keep at Sign out ("Keep my sign-in") are still in the app's plain storage.
 - Tools allowed with Approve all are approved by the watch when it sees their approvals (on the orb
   page, or in its regular check while the app is open); with the app closed, they ask. Approve all
@@ -5550,6 +5635,32 @@ iPhone app); the Python package's history is in
 [../../CHANGELOG.md](../../CHANGELOG.md).
 
 ## [Unreleased]
+
+### Changed
+
+- **The top row's icons are the time's size.** Back, Share, the voice button, Stop, the shield and
+  the pencil are 28 pt circles (20 % smaller), centred on the time; the band under the row is 45 pt.
+  The keyboard, tools and info icons beside the orb keep their size.
+- **A question that could not be sent keeps its recording.** When the upload or the transcription
+  fails, the orb says "Not sent." with Retry and Discard under it; the recording
+  waits in its own file through leaving the page and relaunching, and nothing sends it on its own.
+  Retry sends the same recording; Discard deletes it. (Backlog 1054, slice 0.)
+- **A haptic when listening starts**, as there was one when the microphone closes and when an
+  answer arrives.
+- **The sign-in lives in the Keychain, shared through the app group.** A Keychain item of the
+  app's service, readable after the first unlock (the notification extension reads it while the
+  device is locked), bound to this device, never in a backup, never synced; the app group doubles
+  as the access group so the extension (and, on the watch, the complication) read the same item.
+  Until now it was a file in the app group sealed with a key kept beside it, which protected
+  nothing; that file (and the plain one of the interim builds) is moved into the Keychain at its
+  first read, so nobody signs in again. The watch's kept sign-ins moved from UserDefaults into a
+  second Keychain item (backlog 1053).
+- **The hold on the orb is shorter and its ring smaller.** A hold toggles in about a second
+  (1.05 s, 30 % less than before) and its ring closes well inside the screen instead of reaching
+  past its edge.
+- **The read-aloud button is a speaker, not a play button.** Beside Back on the orb page and
+  on an automation's page, the voice button shows a speaker at rest (pause while it speaks, as
+  before); its spoken label is "Read aloud".
 
 ### Added
 
@@ -6063,7 +6174,7 @@ flowchart LR
     Files[MediaStore<br/>images · recordings · cache]
     BG[AnswerNotifier · RuntimeKeeper<br/>background · notifications · keep awake]
     Kit[AbstractGatewayClient<br/>Swift package]
-    Store[(app group, sealed<br/>gateway · credential · reg)]
+    Store[(Keychain, app group<br/>gateway · credential · reg)]
     Push[WatchPush · WatchLink<br/>APNs registration · iPhone handoff]
     NSE[notification service extension<br/>renders a push from the event]
     Push --> Store
@@ -6251,13 +6362,14 @@ sequenceDiagram
 
 - The watch sends no `user_id` or `tenant_id`: the gateway derives the principal from the
   credential.
-- The credential (an account token, or a 30-day session with its CSRF value) is sealed in the
-  app group (`SharedSignInStore`: ChaChaPoly under a 0600 key file, readable after first unlock so
-  the notification extension can read it; never the OS keychain); the address and account name
-  also stay in UserDefaults for the sign-in page. A credential kept by an earlier version in
-  UserDefaults is sealed and removed there at the first read. Sign out forgets it, unless the
-  person chooses "Keep my sign-in", which keeps it in the app's plain storage (`KeptSignIns`, one
-  per gateway host and user; a known gap) for a one-tap return. A kept credential the gateway rejects (401) is
+- The credential (an account token, or a 30-day session with its CSRF value) is a Keychain item
+  (`SharedSignInStore`): accessible after the first unlock so the notification extension can read
+  it while the watch is locked, bound to this device (never in a backup), shared with the
+  extension and the complication through the app group, which doubles as the keychain access
+  group; the address and account name also stay in UserDefaults for the sign-in page. Files kept
+  by earlier builds in the app group are moved into the Keychain at their first read. Sign out
+  forgets it, unless the person chooses "Keep my sign-in", which keeps it in a second Keychain
+  item (`KeptSignIns`, one per gateway host and user) for a one-tap return. A kept credential the gateway rejects (401) is
   forgotten, and a fresh sign-in as the same user on that gateway replaces it. The gateways signed
   into are remembered (`KnownGateways`, at most 8) for the sign-in page's chooser.
 - After a 401 the client sends nothing more (the gateway locks out an address after repeated
@@ -6313,14 +6425,17 @@ classifiers = [
 
 dependencies = [
     # Voice is a core part of the assistant, so local audio I/O ships by
-    # default: abstractvoice[audio-io] pulls sounddevice + webrtcvad + soundfile
+    # default: abstractvoice[audio-io] pulls sounddevice + webrtcvad-wheels + soundfile
     # for in-process streaming TTS playback and microphone capture. (STT itself
     # runs on the gateway, so faster-whisper is NOT a base dependency — it comes
     # with the [voice] extra for anyone who also wants local transcription.)
     # abstractruntime supplies the session-memory run-id contract shared with
     # the gateway (session_attachments); execution itself stays on the gateway.
     "abstractruntime>=0.8.4",
-    "abstractvoice[audio-io]>=0.11.2",
+    # 0.11.4 is the first abstractvoice whose voice extras install `webrtcvad-wheels`
+    # (0.11.2/0.11.3 required the old `webrtcvad`); the macOS bundle's PyInstaller hook
+    # (packaging/macos/hooks/hook-webrtcvad.py) copies webrtcvad-wheels' metadata.
+    "abstractvoice[audio-io]>=0.11.4",
     # Used for an optional local config read (STT language hint) and the shared
     # About/identity helpers (abstractcore.utils.identity, new in 2.16.0); all
     # provider execution happens on the gateway, so no provider extras.
@@ -6338,28 +6453,29 @@ dependencies = [
     # Markdown rendering in UI
     "markdown-it-py>=4.0.0",
     "pygments>=2.16.0",
-    # webrtcvad (pulled in by the [voice]/[apple]/[gpu] extras) depends on
-    # pkg_resources at import time; pkg_resources remains available through
-    # setuptools 80.x and disappears in 81+. The pin lives in base deps because
-    # extras merge with base at resolve time.
+    # The old `webrtcvad` (abstractvoice < 0.11.4) imported pkg_resources, which
+    # setuptools 81+ removes. `webrtcvad-wheels` (the floor above) reads its version
+    # with importlib.metadata on Python 3.8+, so that reason is gone; the pin stays
+    # until nothing else in the resolved set is shown to import pkg_resources.
+    # It lives in base deps because extras merge with base at resolve time.
     "setuptools>=61.0,<81",
 ]
 
 [project.optional-dependencies]
 lite = []  # Back-compat alias for the base install.
 voice = [
-    "abstractvoice[audio-io,stt]>=0.11.2",
+    "abstractvoice[audio-io,stt]>=0.11.4",
 ]
 apple = [
     "abstractcore[all-apple]>=2.16.0",
-    "abstractvoice[all-apple]>=0.11.2",
+    "abstractvoice[all-apple]>=0.11.4",
 ]
 gpu = [
     "abstractcore[all-gpu]>=2.16.0",
-    "abstractvoice[all-gpu]>=0.11.2",
+    "abstractvoice[all-gpu]>=0.11.4",
 ]
 all = [
-    "abstractvoice[audio-io,stt]>=0.11.2",
+    "abstractvoice[audio-io,stt]>=0.11.4",
 ]  # Back-compat alias for full voice I/O.
 dev = [
     "pytest>=7.0.0",
@@ -13450,6 +13566,19 @@ class GatewayWorker(QThread):
             payload=wait_answer_payload("ask_user", str(response or "")),
         )
 
+    def _emit_run_start_failed(self, exc: BaseException) -> None:
+        """A turn that never became a run: hand its words and its LOCAL files
+        back to the palette (which withdraws the shown turn and refills the
+        composer) instead of reporting a run failure."""
+        self.event_emitted.emit(
+            {
+                "type": "run_start_failed",
+                "error": str(exc) or exc.__class__.__name__,
+                "prompt": self._user_text,
+                "attachments": list(self._attachments),
+            }
+        )
+
     def _upload_attachments(self, *, session_id: str) -> List[Dict[str, Any]]:
         out: List[Dict[str, Any]] = []
         for path in self._attachments:
@@ -14391,8 +14520,15 @@ class GatewayWorker(QThread):
                 self._seed_history_from_gateway(run_id=run_id)
                 self._emit_run_activity(run_id=run_id)
             else:
-                attachments = self._upload_attachments(session_id=session_id) if self._attachments else []
-                preview_items = self._attachment_preview_items(attachments)
+                try:
+                    attachments = self._upload_attachments(session_id=session_id) if self._attachments else []
+                    preview_items = self._attachment_preview_items(attachments)
+                except Exception as exc:
+                    # Nothing was sent (a refused connection, a refused file):
+                    # a run that never started, not a run that failed — the
+                    # palette gives the words and the files back.
+                    self._emit_run_start_failed(exc)
+                    return
                 if preview_items and not self._append_user_message:
                     # The message was already shown with local paths only. Hand
                     # the durable artifact ids back so its preview survives the
@@ -14416,25 +14552,24 @@ class GatewayWorker(QThread):
                     except Exception as e:
                         warnings.warn(f"Failed to append user message: {e}")
 
-                primary_image_artifact = self._pick_primary_image_artifact(attachments)
-                input_data = build_run_input_data(
-                    prompt=self._user_text,
-                    system=self._system_prompt_extra,
-                    attachments=attachments,
-                    allowed_tools=self._allowed_tools,
-                    tool_policy=self._tool_policy,
-                    primary_image_artifact=primary_image_artifact,
-                    provider=self._provider_override,
-                    model=self._model_override,
-                    base_url=self._base_url_override,
-                    media_overrides=self._media_overrides,
-                    thinking=self._thinking,
-                    speculation=self._speculation,
-                    stream=self._stream,
-                    workspace_root=self._workspace_root,
-                )
-
                 try:
+                    primary_image_artifact = self._pick_primary_image_artifact(attachments)
+                    input_data = build_run_input_data(
+                        prompt=self._user_text,
+                        system=self._system_prompt_extra,
+                        attachments=attachments,
+                        allowed_tools=self._allowed_tools,
+                        tool_policy=self._tool_policy,
+                        primary_image_artifact=primary_image_artifact,
+                        provider=self._provider_override,
+                        model=self._model_override,
+                        base_url=self._base_url_override,
+                        media_overrides=self._media_overrides,
+                        thinking=self._thinking,
+                        speculation=self._speculation,
+                        stream=self._stream,
+                        workspace_root=self._workspace_root,
+                    )
                     entry = self._resolve_entrypoint()
                     start_kwargs: Dict[str, Any] = dict(
                         flow_id=entry["flow_id"],
@@ -14451,14 +14586,7 @@ class GatewayWorker(QThread):
                     # Nothing started: the palette restores the composer text,
                     # drops the phantom user turn and shows the gateway's
                     # reason (a refused workspace grant, a missing workflow…).
-                    self.event_emitted.emit(
-                        {
-                            "type": "run_start_failed",
-                            "error": str(exc) or exc.__class__.__name__,
-                            "prompt": self._user_text,
-                            "attachments": list(self._attachments),
-                        }
-                    )
+                    self._emit_run_start_failed(exc)
                     return
                 if self._llm_manager:
                     self._llm_manager.set_last_run_id(run_id)
@@ -14956,7 +15084,7 @@ import os
 import io
 import base64
 from pathlib import Path
-from typing import Callable, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 from abstractruntime.integrations.abstractcore.session_attachments import session_memory_owner_run_id
 
@@ -15395,6 +15523,16 @@ class GatewayVoiceManager:
     HOLD_SAMPLE_RATE = 16000
     HOLD_MIN_SECONDS = 0.35
 
+    # The last hold whose transcription FAILED (the gateway refused the
+    # connection, the STT route errored): the audio is kept so the person can
+    # Retry the same recording or Discard it — nothing resends on its own
+    # (the watch's "Not sent." rule, backlog 1054 slice 0). Before this, the
+    # audio lived only in the worker closure and a failure threw it away.
+    # Class-level defaults: managers built with __new__ (tests) still answer.
+    _failed_hold: Optional[Dict[str, Any]] = None
+    _failed_hold_retrying = False
+    _failed_hold_lock = threading.Lock()
+
     def begin_hold(self, on_audio_level: Callable[[float], None] | None = None) -> bool:
         """Start recording from the microphone for as long as the user holds.
 
@@ -15498,23 +15636,100 @@ class GatewayVoiceManager:
         except Exception:
             lang = None
 
+        self._transcribe_hold(
+            {"audio": audio, "sample_rate": self.HOLD_SAMPLE_RATE, "language": lang},
+            adapter=adapter,
+            on_transcription=on_transcription,
+            on_error=on_error,
+        )
+        return True
+
+    def _transcribe_hold(
+        self,
+        recording: Dict[str, Any],
+        *,
+        adapter: Any,
+        on_transcription: Callable[[str], None],
+        on_error: Callable[[str], None] | None,
+    ) -> None:
+        """Transcribe one recording on a background thread. A failure KEEPS
+        the recording (``has_failed_hold``) before ``on_error`` fires; the
+        success of that same recording (a retry) forgets it."""
+
         def _work() -> None:
             try:
-                text = adapter.transcribe_from_array(audio, self.HOLD_SAMPLE_RATE, language=lang)
+                text = adapter.transcribe_from_array(
+                    recording["audio"], int(recording["sample_rate"]), language=recording.get("language")
+                )
             except Exception as e:
+                reason = str(e) or e.__class__.__name__
+                with self._failed_hold_lock:
+                    self._failed_hold = {**recording, "reason": reason}
+                    self._failed_hold_retrying = False
                 if on_error is not None:
                     try:
-                        on_error(str(e) or e.__class__.__name__)
+                        on_error(reason)
                     except Exception:
                         pass
                 return
+            with self._failed_hold_lock:
+                current = self._failed_hold
+                if current is not None and current.get("audio") is recording.get("audio"):
+                    self._failed_hold = None
+                    self._failed_hold_retrying = False
             try:
                 on_transcription(str(text or "").strip())
             except Exception as e:
                 warnings.warn(f"#FALLBACK: transcription callback error: {e}")
 
         threading.Thread(target=_work, name="assistant-hold-to-talk-stt", daemon=True).start()
+
+    def has_failed_hold(self) -> bool:
+        """A recording whose transcription failed is waiting for Retry or Discard."""
+        with self._failed_hold_lock:
+            return self._failed_hold is not None
+
+    def failed_hold_seconds(self) -> float:
+        with self._failed_hold_lock:
+            kept = self._failed_hold
+        if kept is None:
+            return 0.0
+        try:
+            return float(len(kept["audio"])) / float(kept["sample_rate"] or 1)
+        except Exception:
+            return 0.0
+
+    def retry_failed_hold(
+        self,
+        on_transcription: Callable[[str], None],
+        on_error: Callable[[str], None] | None = None,
+    ) -> bool:
+        """Send the SAME kept recording to the gateway again. False when there
+        is nothing kept, or a retry is already on its way."""
+        with self._failed_hold_lock:
+            kept = self._failed_hold
+            if kept is None or self._failed_hold_retrying:
+                return False
+            self._failed_hold_retrying = True
+        try:
+            adapter = self._make_stt_adapter()
+        except Exception as e:
+            with self._failed_hold_lock:
+                self._failed_hold_retrying = False
+            if on_error is not None:
+                on_error(str(e) or e.__class__.__name__)
+            return True
+        recording = {key: value for key, value in kept.items() if key != "reason"}
+        self._transcribe_hold(recording, adapter=adapter, on_transcription=on_transcription, on_error=on_error)
         return True
+
+    def discard_failed_hold(self) -> bool:
+        """Forget the kept recording (the person chose Discard)."""
+        with self._failed_hold_lock:
+            had = self._failed_hold is not None
+            self._failed_hold = None
+            self._failed_hold_retrying = False
+        return had
 
     def stop_listening(self) -> None:
         """Stop the STT listening loop."""

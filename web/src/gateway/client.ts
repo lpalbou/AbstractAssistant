@@ -130,6 +130,10 @@ export class GatewayClient {
     return this.request("GET", `bundles?executable_for=${encodeURIComponent(iface)}`, undefined, "Workflows");
   }
 
+  discoveryTools() {
+    return this.request("GET", "discovery/tools", undefined, "Tools");
+  }
+
   accountPreferences() {
     return this.request("GET", "accounts/me/preferences", undefined, "Your preferences");
   }
@@ -243,17 +247,22 @@ export class GatewayClient {
   }
 
   /**
-   * Follow one run's ledger over SSE from `after` until `event: done`
-   * (api.md "Stream ledger updates"). Resolves with the last cursor.
+   * Read one run's ledger over SSE from `after` (api.md "Stream ledger
+   * updates"). Resolves when the server closes the stream, with the last
+   * cursor and whether `event: done` was SEEN: a stream closed without it (a
+   * proxy idle timeout, a gateway restart) says nothing about the run, and the
+   * caller must ask the run (src/gateway/follow.ts). A malformed `step` frame
+   * throws: dropping it would move past a record nobody read.
    */
-  async streamLedger(runId: string, after: number, handlers: StreamHandlers, signal: AbortSignal): Promise<number> {
-    return this.sse(`runs/${encodeURIComponent(runId)}/ledger/stream?after=${Math.max(0, after)}`, signal, (ev) => {
+  async streamLedger(runId: string, after: number, handlers: StreamHandlers, signal: AbortSignal): Promise<{ cursor: number; done: boolean }> {
+    const done = await this.sse(`runs/${encodeURIComponent(runId)}/ledger/stream?after=${Math.max(0, after)}`, signal, (ev) => {
       if (ev.event === "step") {
         const parsed = JSON.parse(ev.data) as unknown;
-        if (isObject(parsed) && typeof parsed.cursor === "number" && isObject(parsed.record)) {
-          after = parsed.cursor;
-          handlers.onStep({ cursor: parsed.cursor, record: parsed.record });
+        if (!isObject(parsed) || typeof parsed.cursor !== "number" || !isObject(parsed.record)) {
+          throw new Error(`Live updates: a ledger step of run ${runId} had no cursor or record.`);
         }
+        after = parsed.cursor;
+        handlers.onStep({ cursor: parsed.cursor, record: parsed.record });
         return false;
       }
       if ((ev.event === "llm.delta" || ev.event === "llm.delta_end") && handlers.onDelta) {
@@ -261,7 +270,15 @@ export class GatewayClient {
         return false;
       }
       return ev.event === "done";
-    }, handlers.onOpen).then(() => after);
+    }, handlers.onOpen);
+    return { cursor: after, done };
+  }
+
+  /** `GET runs/{id}/ledger?after=&limit=`: one page of durable records (api.md "Replay the ledger"). */
+  async ledgerPage(runId: string, after: number, limit = 500): Promise<{ items: Json[]; next_after: number }> {
+    const out = await this.request("GET", `runs/${encodeURIComponent(runId)}/ledger?after=${Math.max(0, after)}&limit=${limit}`, undefined, "Run ledger");
+    if (!Array.isArray(out.items) || typeof out.next_after !== "number") throw new Error(`Run ledger of ${runId}: no items or next_after in the answer.`);
+    return { items: out.items.filter(isObject), next_after: out.next_after };
   }
 
   /** `GET me/events/stream`: the person's own event stream (api.md "Your event stream"). */
@@ -269,7 +286,7 @@ export class GatewayClient {
     return this.sse(`me/events/stream?after=${Math.max(0, after)}&heartbeat_s=15`, signal, (ev) => {
       if (ev.data) onEvent(JSON.parse(ev.data) as Json);
       return false;
-    });
+    }).then(() => undefined);
   }
 
   private async sse(
@@ -277,7 +294,7 @@ export class GatewayClient {
     signal: AbortSignal,
     onEvent: (ev: { event: string; data: string }) => boolean,
     onOpen?: () => void,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const resp = await fetch(this.host.gatewayUrl(route), {
       headers: { Accept: "text/event-stream", ...this.host.auth.headers(false) },
       credentials: this.host.auth.credentials,
@@ -291,11 +308,12 @@ export class GatewayClient {
     const parser = new SseParser();
     for (;;) {
       const { value, done } = await reader.read();
-      if (done) return;
+      // Closed by the server: `false` = no terminating event was seen.
+      if (done) return false;
       for (const ev of parser.push(dec.decode(value, { stream: true }))) {
         if (onEvent(ev)) {
           await reader.cancel();
-          return;
+          return true;
         }
       }
     }

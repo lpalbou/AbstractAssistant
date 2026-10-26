@@ -9,9 +9,11 @@ import { followTurn } from "../gateway/follow";
 import { GatewayClient, resumeWaitCommand, type AttachmentRef } from "../gateway/client";
 import type { AssistantHost } from "../host";
 import { messagesFromHistoryBundle } from "../lib/history";
-import { liveAnswerText } from "../lib/run_events";
+import { liveAnswerText, waitStillMatches } from "../lib/run_events";
 import { buildRunInputData } from "../lib/run_input";
-import { foldSessionRows, promptFromInputData, type SessionRow } from "../lib/session_fold";
+import { runToolsFromDiscovery } from "../lib/tool_policy";
+import { foldSessionRows, STATE_WORDS, type SessionRow } from "../lib/session_fold";
+import { eventTouchesList, loadTitles } from "../lib/titles";
 import { createTurnStore, type TurnStore } from "../lib/turn_store";
 import type { ChatMessage, PendingWait } from "../lib/types";
 import { ChunkPlayer, base64ToBytes, extensionFor, interpretTtsLine, startRecording } from "../lib/voice";
@@ -21,7 +23,6 @@ import { Conversation } from "./Conversation";
 import { SessionList } from "./SessionList";
 
 const SESSION_PAGE_RUNS = 200; // core/gateway_sessions.py SESSION_PAGE_RUNS
-const SESSION_PROMPT_MAX = 40; // core/gateway_sessions.py SESSION_PROMPT_MAX
 
 function mintSessionId(): string {
   // The desktop mints `sess_<uuid hex>` (core/session_index.py); the gateway
@@ -42,9 +43,17 @@ export function Workspace(props: { client: GatewayClient; host: AssistantHost; o
   const [banner, setBanner] = useState<{ tone: "info" | "warn" | "error"; text: string } | null>(null);
   const [turn, setTurn] = useState<TurnStore>(EMPTY_STORE);
   const [speaking, setSpeaking] = useState<string>("");
+  // Below 1024 px the conversation list is a full-screen sheet (CSS); this opens it.
+  const [listOpen, setListOpen] = useState(false);
   const stopFollow = useRef<() => void>(() => {});
   const playerRef = useRef<ChunkPlayer | null>(null);
-  const titleCache = useRef<Record<string, string>>({});
+  const titleCache = useRef(new Map<string, string>());
+  const [titleError, setTitleError] = useState("");
+  const visibleIds = useRef(new Set<string>());
+  // Callbacks from the parent are read through a ref: a new function on a
+  // parent render must not re-run the list fetch or re-open the event stream.
+  const signedOutRef = useRef(props.onSignedOut);
+  signedOutRef.current = props.onSignedOut;
 
   const turnState = useSyncExternalStore(turn.subscribe, turn.getState);
   const turnRef = useRef(turn);
@@ -53,10 +62,10 @@ export function Workspace(props: { client: GatewayClient; host: AssistantHost; o
   const fail = useCallback(
     (err: unknown, prefix = "") => {
       const status = (err as { status?: number })?.status;
-      if (status === 401) props.onSignedOut();
+      if (status === 401) signedOutRef.current();
       setBanner({ tone: "error", text: `${prefix}${err instanceof Error ? err.message : String(err)}` });
     },
-    [props],
+    [],
   );
 
   const refreshSessions = useCallback(async () => {
@@ -64,23 +73,18 @@ export function Workspace(props: { client: GatewayClient; host: AssistantHost; o
       const page = await client.listSessionRuns(SESSION_PAGE_RUNS);
       const folded = foldSessionRows(page);
       setRows(folded.rows);
+      visibleIds.current = new Set(folded.rows.map((r) => r.session_id));
       setTruncated(folded.truncated);
       setListError("");
-      // Opening prompts name the rows (one request each, newest first, cached).
-      const missing = folded.rows.filter((r) => !(r.session_id in titleCache.current)).slice(0, SESSION_PROMPT_MAX);
-      for (const row of missing) {
-        try {
-          titleCache.current[row.session_id] = promptFromInputData(await client.inputData(row.first_run_id));
-        } catch {
-          titleCache.current[row.session_id] = "";
-        }
-      }
-      setTitles({ ...titleCache.current });
+      // Opening prompts name the rows: a few at a time, cached, failures retried next refresh.
+      const load = await loadTitles(folded.rows, titleCache.current, (rid) => client.inputData(rid));
+      setTitleError(load.failed ? `${load.failed} conversation title${load.failed === 1 ? "" : "s"} could not be loaded; they will be asked again.` : "");
+      setTitles(Object.fromEntries(titleCache.current));
     } catch (err) {
       setListError(err instanceof Error ? err.message : String(err));
-      if ((err as { status?: number })?.status === 401) props.onSignedOut();
+      if ((err as { status?: number })?.status === 401) signedOutRef.current();
     }
-  }, [client, props]);
+  }, [client]);
 
   useEffect(() => {
     void refreshSessions();
@@ -99,7 +103,7 @@ export function Workspace(props: { client: GatewayClient; host: AssistantHost; o
         await client.followMeEvents(head, (ev) => {
           const type = String(ev.type || "");
           const data = (ev.data || {}) as Record<string, unknown>;
-          if (type === "run.started" || type === "run.finished") {
+          if ((type === "run.started" || type === "run.finished") && eventTouchesList(data, visibleIds.current)) {
             clearTimeout(timer);
             timer = setTimeout(() => void refreshSessions(), 500);
           }
@@ -196,10 +200,15 @@ export function Workspace(props: { client: GatewayClient; host: AssistantHost; o
       try {
         const refs: AttachmentRef[] = [];
         for (const f of files) refs.push((await client.uploadAttachment(sid, f, f.name, f.type ? { content_type: f.type } : {})).ref);
-        const [bundles, prefs] = await Promise.all([client.executableBundles("abstractassistant.agent.v1"), client.accountPreferences()]);
+        const [bundles, prefs, tools] = await Promise.all([
+          client.executableBundles("abstractassistant.agent.v1"),
+          client.accountPreferences(),
+          client.discoveryTools(),
+        ]);
         const start = selectWorkflow(bundles, prefs);
         const image = refs.find((r) => String(r.content_type || "").startsWith("image/"));
-        const input_data = buildRunInputData({ prompt: text, attachments: refs, primary_image_artifact: image ?? null, stream: true });
+        // Explicit tool lists, as the desktop sends them (ADR 0007 §6).
+        const input_data = buildRunInputData({ prompt: text, attachments: refs, primary_image_artifact: image ?? null, stream: true, ...runToolsFromDiscovery(tools) });
         const { run_id } = await client.startRun(
           start.source === "gateway_default"
             ? { flow_id: "@default", interface: start.interface, session_id: sid, input_data }
@@ -233,11 +242,12 @@ export function Workspace(props: { client: GatewayClient; host: AssistantHost; o
       const store = turnRef.current;
       store.dispatch({ type: "wait_sending", run_id: w.run_id, wait_key: w.wait_key, step_id: w.step_id });
       try {
-        // Re-read the run first, as the iPhone does: another device may have answered.
-        const run = await client.getRun(w.run_id);
-        const waiting = run.waiting as { wait_key?: unknown } | null | undefined;
-        if (String(run.status) !== "waiting" || !waiting || waiting.wait_key !== w.wait_key) {
-          store.dispatch({ type: "wait_closed", run_id: w.run_id, wait_key: w.wait_key, step_id: w.step_id, stale: true, note: "Already answered, or no longer waiting." });
+        if (store.getState().follow === "lost") throw new Error("Live updates stopped: reopen the conversation before answering.");
+        // Re-read the run first, as the iPhone does: another device may have
+        // answered, and a NEWER batch may wait on the same reused key.
+        const check = waitStillMatches(w, await client.getRun(w.run_id));
+        if (!check.ok) {
+          store.dispatch({ type: "wait_closed", run_id: w.run_id, wait_key: w.wait_key, step_id: w.step_id, stale: true, note: check.why });
           return;
         }
         const payload = "approved" in answer ? (answer.approved ? { approved: true } : { approved: false, reason: "Denied by user" }) : { response: answer.response };
@@ -321,22 +331,33 @@ export function Workspace(props: { client: GatewayClient; host: AssistantHost; o
 
   const current = rows.find((r) => r.session_id === sessionId);
   return (
-    <div className="aa-shell">
+    <div className={`aa-shell${listOpen ? " aa-shell--list" : ""}`}>
       <SessionList
         rows={rows}
         titles={titles}
         truncated={truncated}
         error={listError}
+        notice={titleError}
         activeId={sessionId}
-        onOpen={(r) => void openSession(r)}
-        onNew={newChat}
+        onOpen={(r) => {
+          setListOpen(false);
+          void openSession(r);
+        }}
+        onNew={() => {
+          setListOpen(false);
+          newChat();
+        }}
+        onClose={() => setListOpen(false)}
         onRefresh={() => void refreshSessions()}
         onSignOut={props.onSignOut}
       />
       <main className="aa-main">
         <header className="aa-main__header">
+          <button type="button" className="aa-button aa-only-compact" aria-label="Conversations" onClick={() => setListOpen(true)}>
+            Conversations
+          </button>
           <h1 className="aa-main__title">{sessionId ? titles[sessionId] || "Conversation" : "New conversation"}</h1>
-          {current ? <span className={`aa-state aa-state--${current.state}`}>{current.state === "waiting" ? "Needs you" : current.state}</span> : null}
+          {current && STATE_WORDS[current.state] ? <span className={`aa-state aa-state--${current.state}`}>{STATE_WORDS[current.state]}</span> : null}
         </header>
         {banner ? (
           <div className={`aa-banner aa-banner--${banner.tone}`} role={banner.tone === "error" ? "alert" : "status"}>

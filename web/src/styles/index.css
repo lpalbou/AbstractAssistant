@@ -38,6 +38,12 @@
   --reading-max: var(--aa-reading-max);
 }
 
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 html,
 body,
 #root {
@@ -59,21 +65,16 @@ body {
   padding: 0 var(--aa-gutter);
 }
 
+/* Layout (web/design/README.md, "Layouts"): >= 1024 px a sidebar beside the
+ * conversation; below it ONE column, the conversation list behind the
+ * header's Conversations button; < 600 px the phone layout. `minmax(0, 1fr)`:
+ * a plain `1fr` cannot shrink below its content, and one long title pushed
+ * the composer off screen (adversary finding 1). */
 .aa-shell {
   display: grid;
-  grid-template-columns: var(--aa-sidebar-w) 1fr;
+  grid-template-columns: var(--aa-sidebar-w) minmax(0, 1fr);
   height: 100%;
 }
-@media (max-width: 760px) {
-  .aa-shell {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
-  }
-  .aa-sidebar {
-    max-height: 35vh;
-  }
-}
-
 .aa-sidebar {
   display: flex;
   flex-direction: column;
@@ -91,6 +92,10 @@ body {
 }
 .aa-sidebar__bottom {
   margin-top: auto;
+}
+.aa-sidebar__actions {
+  display: flex;
+  gap: var(--aa-space-2);
 }
 .aa-brand {
   font-weight: var(--aa-weight-semibold);
@@ -155,15 +160,19 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
 }
 .aa-main__header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  min-width: 0;
   gap: var(--aa-space-3);
   padding: var(--aa-space-3) var(--aa-gutter);
   border-bottom: 1px solid var(--aa-border);
 }
 .aa-main__title {
+  flex: 1 1 auto;
+  min-width: 0;
   margin: 0;
   font-size: var(--aa-text-lg);
   font-weight: var(--aa-weight-semibold);
@@ -174,6 +183,8 @@ body {
 
 .aa-banner {
   display: flex;
+  align-items: center;
+  overflow-wrap: anywhere;
   justify-content: space-between;
   gap: var(--aa-space-3);
   margin: var(--aa-space-2) var(--aa-gutter) 0;
@@ -207,6 +218,8 @@ body {
   color: var(--aa-text-muted);
 }
 .aa-msg {
+  min-width: 0;
+  overflow-wrap: anywhere;
   padding: var(--aa-space-3) var(--aa-space-4);
   border-radius: var(--aa-radius-lg);
   background: var(--aa-surface);
@@ -298,7 +311,12 @@ body {
 }
 
 .aa-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: var(--aa-tap-min);
+  min-width: var(--aa-tap-min);
+  flex: 0 0 auto;
   padding: 0 var(--aa-space-4);
   border-radius: var(--aa-radius-pill);
   border: 1px solid var(--aa-border-strong);
@@ -333,12 +351,66 @@ body {
   outline: 2px solid var(--aa-focus-ring);
   outline-offset: 2px;
 }
+/* Every target is at least 44 px (--aa-tap-min), text links included. */
 .aa-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--aa-tap-min);
+  min-width: var(--aa-tap-min);
   background: none;
   border: none;
-  padding: 0;
+  padding: 0 var(--aa-space-2);
   color: var(--aa-accent);
   font: inherit;
   cursor: pointer;
   text-decoration: underline;
 }
+
+/* The kit's code-block copy button (panel-chat .pc-md_copy) is 28 px. */
+.aa-msg .pc-md_copy {
+  min-width: var(--aa-tap-min);
+  min-height: var(--aa-tap-min);
+}
+.aa-msg pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.aa-composer__row {
+  min-width: 0;
+}
+.aa-composer__files li,
+.aa-session__meta {
+  flex-wrap: wrap;
+}
+
+/* Breakpoints last: they must win over the base rules above. */
+.aa-only-compact {
+  display: none;
+}
+@media (max-width: 1023px) {
+  .aa-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .aa-sidebar {
+    display: none;
+  }
+  .aa-shell--list .aa-sidebar {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    border-right: none;
+  }
+  .aa-only-compact {
+    display: inline-flex;
+  }
+}
+@media (max-width: 599px) {
+  .aa-main__header,
+  .aa-thread,
+  .aa-composer {
+    padding-inline: var(--aa-space-3);
+  }
+}
+

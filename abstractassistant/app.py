@@ -6133,6 +6133,16 @@ class AssistantPalette(QMainWindow):
         self.attention_banner.setTextInteractionFlags(Qt.LinksAccessibleByMouse)
         self.attention_banner.linkActivated.connect(self._open_attention)
         self.attention_banner.hide()
+        # A hold-to-talk recording whose transcription failed: kept, with
+        # Retry (the same audio) and Discard. Its own line, so a later status
+        # or notice never hides that a recording is still waiting.
+        self.kept_recording_banner = QLabel("")
+        self.kept_recording_banner.setObjectName("keptRecordingBanner")
+        self.kept_recording_banner.setWordWrap(True)
+        self.kept_recording_banner.setTextFormat(Qt.RichText)
+        self.kept_recording_banner.setTextInteractionFlags(Qt.LinksAccessibleByMouse)
+        self.kept_recording_banner.linkActivated.connect(self._on_kept_recording_link)
+        self.kept_recording_banner.hide()
 
         self.history_card = QFrame(central)
         self.history_card.setObjectName("historyCard")
@@ -6158,6 +6168,7 @@ class AssistantPalette(QMainWindow):
         self.chat_status_label.setTextFormat(Qt.PlainText)
         self.chat_status_label.hide()
         history_wrap.addWidget(self.attention_banner)
+        history_wrap.addWidget(self.kept_recording_banner)
         history_wrap.addWidget(self.banner_label)
         history_wrap.addWidget(self.chat_status_label)
         history_wrap.addWidget(self.history_scroll, 1)
@@ -9161,7 +9172,17 @@ class AssistantPalette(QMainWindow):
                 append_user_message=not append_user_now,
             )
         except Exception as exc:
-            self._on_worker_error(str(exc))
+            # No worker, no run: the turn was never sent. Same path as a run
+            # the gateway refused to start — withdraw the shown turn and give
+            # the words and the files back (not "The run failed").
+            self._on_worker_event(
+                {
+                    "type": "run_start_failed",
+                    "error": str(exc) or exc.__class__.__name__,
+                    "prompt": prompt,
+                    "attachments": list(attachments),
+                }
+            )
             return
         self._worker = worker
         worker.event_emitted.connect(self._on_worker_event)
@@ -10485,6 +10506,8 @@ class AssistantPalette(QMainWindow):
 
     def _on_hold_transcription(self, text: str) -> None:
         """What the hold heard: append it to the draft and send, like Return."""
+        # A retried recording that went through is no longer kept.
+        self._refresh_kept_recording()
         words = str(text or "").strip()
         if not words:
             self._set_status("Nothing was heard", tone="info")
@@ -10495,6 +10518,72 @@ class AssistantPalette(QMainWindow):
 
     def _on_hold_transcription_failed(self, message: str) -> None:
         self._set_status(f"Transcription failed: {message}", tone="error")
+        self._refresh_kept_recording(str(message or ""))
+
+    def _refresh_kept_recording(self, reason: str = "") -> None:
+        """Show (or hide) the kept-recording line from the voice manager's truth."""
+        banner = self._state("kept_recording_banner")
+        if banner is None:
+            return
+        manager = getattr(self._state("_controller"), "voice_manager", None)
+        try:
+            kept = bool(manager is not None and manager.has_failed_hold())
+        except Exception:
+            kept = False
+        try:
+            if not kept:
+                banner.clear()
+                banner.hide()
+                return
+            try:
+                seconds = float(manager.failed_hold_seconds())
+            except Exception:
+                seconds = 0.0
+            length = f" ({seconds:.0f} s)" if seconds >= 1 else ""
+            why = f" — {_html.escape(reason)}" if reason else ""
+            banner.setText(
+                f"Not sent. Your recording{length} is kept{why}. "
+                "&nbsp;<a href=\"kept:retry\">Retry</a> &nbsp;·&nbsp; "
+                "<a href=\"kept:discard\">Discard</a>"
+            )
+            banner.show()
+        except RuntimeError:
+            pass
+
+    def _on_kept_recording_link(self, href: str = "") -> None:
+        """Retry sends the SAME recording again; Discard forgets it. Nothing
+        is ever resent without one of these clicks."""
+        manager = getattr(self._state("_controller"), "voice_manager", None)
+        banner = self._state("kept_recording_banner")
+        if manager is None:
+            return
+        target = str(href or "")
+        if target.endswith("discard"):
+            try:
+                manager.discard_failed_hold()
+            except Exception:
+                pass
+            self._refresh_kept_recording()
+            self._set_status("Recording discarded", tone="info")
+            return
+        if target.endswith("retry"):
+            try:
+                started = bool(
+                    manager.retry_failed_hold(
+                        on_transcription=lambda text: self.hold_transcription_received.emit(str(text or "")),
+                        on_error=lambda message: self.hold_transcription_failed.emit(str(message or "")),
+                    )
+                )
+            except Exception as exc:
+                self._set_status(f"Transcription failed: {exc}", tone="error")
+                return
+            if started:
+                if banner is not None:
+                    try:
+                        banner.setText("Sending your recording again…")
+                    except RuntimeError:
+                        pass
+                self._set_status("Transcribing…", tone="busy")
 
     def _show_mic_menu(self, pos) -> None:
         """Right-click on the mic: the hands-free voice conversation."""
@@ -11765,6 +11854,14 @@ class AssistantPalette(QMainWindow):
                 border: 1px solid rgba(251, 146, 60, 0.42);
                 background: rgba(251, 146, 60, 0.14);
                 color: #ffd0a8;
+                font-size: 11px;
+            }
+            QLabel#keptRecordingBanner {
+                border-radius: 11px;
+                padding: 7px 9px;
+                border: 1px solid rgba(236, 195, 96, 0.26);
+                background: rgba(181, 123, 22, 0.12);
+                color: #f7d590;
                 font-size: 11px;
             }
             QLabel#bannerLabel[tone="warn"] {

@@ -26,7 +26,7 @@ svg.i.sm { width: 16px; height: 16px; }
 svg.i.lg { width: 24px; height: 24px; }
 .quiet { font: var(--aa-weight-semibold) var(--aa-text-2xs)/1.2 var(--aa-font-rounded);
   letter-spacing: var(--aa-tracking-label); text-transform: uppercase; color: var(--aa-text-muted); }
-.skip { position: absolute; left: 12px; top: 12px; z-index: 10; padding: 10px 14px; border-radius: 12px;
+.skip { position: absolute; left: 12px; top: 12px; z-index: 10; display: inline-flex; align-items: center; min-height: var(--aa-tap-min); padding: 0 14px; border-radius: 12px;
   background: var(--aa-surface); translate: 0 -300%; }
 .skip:focus { translate: 0 0; box-shadow: var(--aa-shadow-float); }
 
@@ -42,7 +42,7 @@ svg.i.lg { width: 24px; height: 24px; }
 .spaces { display: grid; gap: 2px; }
 .space { display: flex; align-items: center; gap: 12px; min-height: var(--aa-tap-min); padding: 0 12px;
   border-radius: 14px; color: var(--aa-text-muted); font-weight: var(--aa-weight-medium);
-  transition: background var(--aa-dur-quick); }
+  transition: background var(--aa-dur-ui) var(--aa-ease-out), color var(--aa-dur-quick); }
 .space:hover { background: var(--aa-overlay-hover); color: var(--aa-text); }
 .space[aria-current="page"] { background: var(--aa-accent-bg); color: var(--aa-mint-text); }
 .badge { margin-left: auto; min-width: 22px; height: 22px; padding: 0 7px; border-radius: var(--aa-radius-pill);
@@ -71,6 +71,7 @@ svg.i.lg { width: 24px; height: 24px; }
   border: 0; border-radius: 50%; background: transparent; color: var(--aa-text-muted); transition: background var(--aa-dur-quick), color var(--aa-dur-quick); }
 .icon-btn:hover { background: var(--aa-overlay-hover); color: var(--aa-text); }
 
+.main:focus { outline: none; }
 .main { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; }
 .topbar { display: flex; align-items: center; gap: var(--aa-space-2); min-height: 64px;
   padding: calc(var(--aa-space-2) + env(safe-area-inset-top, 0px)) var(--aa-gutter) var(--aa-space-2); }
@@ -87,9 +88,11 @@ svg.i.lg { width: 24px; height: 24px; }
 /* ---------- views (pure CSS tabs: :target, Assistant when nothing is targeted) ---------- */
 .view { display: none; min-height: 0; overflow: auto; }
 .view:focus { outline: none; }  /* a scroller focused by fragment navigation: no ring around the whole page */
-.view:target, .main:not(:has(.view:target)) #assistant { display: block; }
-#assistant { display: none; }
-.main:not(:has(.view:target)) #assistant, #assistant:target { display: flex; flex-direction: column; overflow: hidden; }
+.view:target { display: block; }
+/* Assistant shows by default. Only the rule below needs :has(); a browser without it drops just
+   this rule, so another space then shows UNDER the conversation instead of a blank page. */
+#assistant, #assistant:target { display: flex; flex-direction: column; overflow: hidden; }
+.main:has(.view:target:not(#assistant)) #assistant { display: none; }
 .page { max-width: var(--aa-reading-max); margin: 0 auto; padding: var(--aa-space-4) var(--aa-gutter) var(--aa-space-7); }
 .page-head { display: flex; align-items: center; gap: var(--aa-space-3); margin: var(--aa-space-3) 0 var(--aa-space-5); }
 h1 { margin: 0; font: var(--aa-weight-semibold) var(--aa-text-xl)/1.2 var(--aa-font-rounded); }
@@ -142,13 +145,13 @@ h2 { margin: 0; font: var(--aa-weight-semibold) var(--aa-text-lg)/var(--aa-leadi
 dl.args { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; font-size: var(--aa-text-sm); }
 dl.args dt { color: var(--aa-text-muted); }
 dl.args dd { margin: 0; overflow-wrap: anywhere; }
-details.tech summary { cursor: pointer; color: var(--aa-text-muted); font-size: var(--aa-text-sm); min-height: 32px; display: flex; align-items: center; gap: 6px; }
+details.tech summary { cursor: pointer; color: var(--aa-text-muted); font-size: var(--aa-text-sm); min-height: var(--aa-tap-min); width: fit-content; padding-right: 8px; display: flex; align-items: center; gap: 6px; }
 details.tech pre { margin: 8px 0 0; padding: 12px 14px; border-radius: var(--aa-radius-sm); background: var(--aa-surface-sunken);
   font: var(--aa-text-xs)/1.5 var(--aa-font-mono); overflow-x: auto; color: var(--aa-text); }
 .decide { display: flex; flex-wrap: wrap; gap: 10px; }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: var(--aa-tap-min);
   padding: 0 18px; border-radius: 14px; border: 1px solid var(--aa-control-border); background: var(--aa-surface);
-  font-weight: var(--aa-weight-medium); transition: background var(--aa-dur-quick), transform var(--aa-dur-quick); }
+  font-weight: var(--aa-weight-medium); transition: background var(--aa-dur-quick), transform var(--aa-dur-ui) var(--aa-ease-out); }
 .btn:hover { background: var(--aa-overlay-hover); }
 .btn:active { transform: scale(.98); }
 .btn.primary { background: var(--aa-accent); border-color: var(--aa-accent); color: var(--aa-on-accent); }
@@ -163,17 +166,16 @@ details.tech pre { margin: 8px 0 0; padding: 12px 14px; border-radius: var(--aa-
 .round { width: 48px; height: 48px; flex: none; display: grid; place-items: center; border-radius: 50%;
   border: 1px solid var(--aa-control-border); background: var(--aa-surface); color: var(--aa-lavender-text); }
 .round:hover { background: var(--aa-surface-raised); }
-.field { flex: 1; min-width: 0; display: flex; align-items: flex-end; gap: 8px; padding: 6px 6px 6px 18px;
+.field { flex: 1; min-width: 0; display: flex; align-items: flex-end; gap: 4px; padding: 3px 3px 3px 18px;
   border: 1px solid var(--aa-control-border); border-radius: var(--aa-radius-composer); background: var(--aa-surface); }
-.field textarea { flex: 1; min-height: 34px; max-height: 9.5rem; padding: 7px 0; border: 0; outline: 0; resize: none;
+.field textarea { flex: 1; min-height: var(--aa-tap-min); max-height: 9.5rem; padding: 11px 0; border: 0; outline: 0; resize: none;
   background: transparent; font-size: var(--aa-text-md); line-height: 1.4; }
 .field textarea::placeholder { color: var(--aa-text-muted); opacity: 1; }
 .field:focus-within { outline: 2px solid var(--aa-focus-ring); outline-offset: 2px; }
-.send { width: 36px; height: 36px; flex: none; border-radius: 50%; border: 0; display: grid; place-items: center;
+/* 44px box; the disc is 36px (the phone's), drawn inside the padding */
+.send { width: var(--aa-tap-min); height: var(--aa-tap-min); padding: 4px; background-clip: content-box !important; flex: none; border-radius: 50%; border: 0; display: grid; place-items: center;
   background: var(--aa-accent); color: var(--aa-on-accent); }
 .send:disabled { opacity: .35; cursor: default; }
-.send { position: relative; }
-.send::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; }  /* 44px hit area around a 36px disc */
 .kbd-btn { display: none; }
 .orb-wrap { position: relative; width: var(--aa-orb-hit); height: 80px; flex: none; display: grid; place-items: center; }
 .orb-btn { position: relative; width: var(--aa-orb-size); height: var(--aa-orb-size); padding: 0; border: 0; border-radius: 50%;
@@ -186,12 +188,12 @@ details.tech pre { margin: 8px 0 0; padding: 12px 14px; border-radius: var(--aa-
   font-size: var(--aa-text-xs); color: var(--aa-text-muted); pointer-events: none; }
 .orb-label.amber { color: var(--aa-amber-text); font-weight: var(--aa-weight-medium); }
 .chips { display: flex; gap: 8px; flex-wrap: wrap; max-width: var(--aa-reading-max); margin: 0 auto 6px; }
-.chip { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 6px 4px 4px; border-radius: var(--aa-radius-pill);
+.chip { display: inline-flex; align-items: center; gap: 8px; min-height: var(--aa-tap-min); padding: 0 0 0 8px; border-radius: var(--aa-radius-pill);
   background: var(--aa-surface); border: 1px solid var(--aa-border); font-size: var(--aa-text-sm); }
 .chip .mini { width: 28px; height: 28px; border-radius: 50%; overflow: hidden; display: grid; place-items: center; }
 .chip .mini svg { height: 28px; width: auto; }
-.chip button { width: 28px; height: 28px; border: 0; border-radius: 50%; background: transparent; color: var(--aa-text-muted); display: grid; place-items: center; }
-.latest { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 16px; border-radius: var(--aa-radius-pill);
+.chip button { width: var(--aa-tap-min); height: var(--aa-tap-min); border: 0; border-radius: 50%; background: transparent; color: var(--aa-text-muted); display: grid; place-items: center; }
+.latest { display: inline-flex; align-items: center; gap: 8px; min-height: var(--aa-tap-min); padding: 0 16px; border-radius: var(--aa-radius-pill);
   border: 1px solid var(--aa-border); background: var(--aa-surface-raised); box-shadow: var(--aa-shadow-float);
   color: var(--aa-text); font-size: var(--aa-text-sm); font-weight: var(--aa-weight-medium); }
 
@@ -231,7 +233,7 @@ details.tech pre { margin: 8px 0 0; padding: 12px 14px; border-radius: var(--aa-
 .result { margin: 0; font-size: var(--aa-text-md); line-height: 1.5; }
 .new-result { display: inline-flex; align-items: center; gap: 6px; color: var(--aa-amber-text); font-size: var(--aa-text-xs); font-weight: var(--aa-weight-semibold); }
 .auto-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: var(--aa-text-sm); color: var(--aa-lavender-text); }
-.auto-foot .btn { min-height: 40px; padding: 0 14px; font-size: var(--aa-text-sm); color: var(--aa-text); }
+.auto-foot .btn { min-height: var(--aa-tap-min); padding: 0 14px; font-size: var(--aa-text-sm); color: var(--aa-text); }
 
 /* ---------- specimen ---------- */
 .specimen-note { padding: 12px 16px; border: 1px dashed var(--aa-border-strong); border-radius: var(--aa-radius-md);
@@ -268,6 +270,8 @@ details.tech pre { margin: 8px 0 0; padding: 12px 14px; border-radius: var(--aa-
 }
 @media (max-width: 599.98px) {
   .composer .field { display: none; }
+  .composer.composing .field { display: flex; animation: aa-open var(--aa-dur-composer) var(--aa-ease-spring); transform-origin: left center; }
+  .composer.composing .kbd-btn, .composer.composing .orb-wrap, .composer.composing .grow { display: none; }
   .composer .kbd-btn { display: grid; }
   .composer .grow { flex: 1; }
   .dock { padding-bottom: 0; }
@@ -275,6 +279,7 @@ details.tech pre { margin: 8px 0 0; padding: 12px 14px; border-radius: var(--aa-
   .turn-you { max-width: 88%; }
 }
 @media (min-width: 600px) { .composer .grow { display: none; } }
+@keyframes aa-open { from { opacity: 0; transform: scaleX(.6); } to { opacity: 1; transform: none; } }
 
 /* the conversation bar belongs to the Assistant space */
 .app:has(#inbox:target) .topbar, .app:has(#automations:target) .topbar, .app:has(#states:target) .topbar { display: none; }
@@ -288,11 +293,12 @@ details.tech pre { margin: 8px 0 0; padding: 12px 14px; border-radius: var(--aa-
 .app:has(#inbox:target) [data-space="inbox"],
 .app:has(#automations:target) [data-space="automations"] { background: var(--aa-accent-bg); color: var(--aa-mint-text); }
 
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+/* Reduced motion: no blanket override here. tokens.css zeroes --aa-dur-ui, --aa-dur-composer and
+   --aa-dur-morph and sets --aa-motion-scale to 0; everything that moves reads those. */
 </style>
 </head>
 <body>
-<a class="skip" href="#composer-input">Skip to the message box</a>
+<a class="skip" href="#content">Skip to main content</a>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3c.6 4.6 3.4 7.4 8 8-4.6.6-7.4 3.4-8 8-.6-4.6-3.4-7.4-8-8 4.6-.6 7.4-3.4 8-8z"/></symbol>
@@ -377,7 +383,7 @@ details.tech pre { margin: 8px 0 0; padding: 12px 14px; border-radius: var(--aa-
     </div>
   </aside>
 
-  <div class="main">
+  <div class="main" id="content" tabindex="-1">
     <!-- ======================= top bar ======================= -->
     <header class="topbar">
       <a class="icon-btn only-compact" href="#assistant" aria-label="Conversations"><svg class="i"><use href="#i-stack"/></svg></a>
@@ -660,7 +666,15 @@ send_email {"to": ["claire@example.org"], "subject": "Herbs for the balcony", "b
   };
   addEventListener("hashchange", sync); sync();
   // A conversation opens on its latest message (the reply, or what waits for you).
-  const sc = document.getElementById("thread-scroll"); if (sc) sc.scrollTop = sc.scrollHeight;
+  const sc = document.getElementById("thread-scroll"); sc.scrollTop = sc.scrollHeight;
+  // Skip link: focus the main region without changing the hash (the hash picks the space).
+  document.querySelector(".skip").addEventListener("click", e => { e.preventDefault(); document.getElementById("content").focus(); });
+  // Compact composer: the keyboard button opens the message box and hides the orb; leaving the
+  // composer restores them and keeps the draft. Send is enabled by text.
+  const comp = document.querySelector("#assistant .composer"), ta = document.getElementById("composer-input"), send = comp.querySelector(".send");
+  comp.querySelector(".kbd-btn").addEventListener("click", () => { comp.classList.add("composing"); ta.focus(); });
+  comp.addEventListener("focusout", e => { if (!comp.contains(e.relatedTarget)) comp.classList.remove("composing"); });
+  ta.addEventListener("input", () => { send.disabled = !ta.value.trim(); });
 })();
 
 /* The orb: a port of phone/iphone/Sources/App/Design.swift (OrbContour, OrbFrame) and
@@ -668,10 +682,27 @@ send_email {"to": ["claire@example.org"], "subject": "Herbs for the balcony", "b
    speech) is described in README.md and not drawn here. */
 (() => {
   const TAU = Math.PI * 2, DEG = Math.PI / 180;
-  const MINT = [107, 227, 204], LAV = [173, 166, 255], GROUND = [9, 11, 22], ORANGE = [255, 156, 51];
+  let MINT, LAV, GROUND, ORANGE, tok;
   const rgba = (c, a) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${Math.max(0, Math.min(1, a))})`;
   const clamp = x => Math.max(0, Math.min(1, x));
-  const reduce = matchMedia("(prefers-reduced-motion: reduce)");
+  // Every orb value comes from tokens.css. A missing or malformed token throws (a visible page
+  // error, and the orbs keep their CSS fallback) instead of falling back to a literal.
+  const readTokens = () => {
+    const cs = getComputedStyle(document.documentElement);
+    const raw = n => { const v = cs.getPropertyValue(n).trim(); if (!v) throw new Error(`mockup: tokens.css does not define ${n}`); return v; };
+    const hex = n => { const m = /^#([0-9a-f]{6})$/i.exec(raw(n)); if (!m) throw new Error(`mockup: ${n} must be #RRGGBB, got ${raw(n)}`); return [0, 2, 4].map(i => parseInt(m[1].slice(i, i + 2), 16)); };
+    const num = n => { const v = Number(raw(n)); if (!Number.isFinite(v)) throw new Error(`mockup: ${n} is not a number: ${raw(n)}`); return v; };
+    const ms = n => { const m = /^([\d.]+)(ms|s)$/.exec(raw(n)); if (!m) throw new Error(`mockup: ${n} is not a duration: ${raw(n)}`); return parseFloat(m[1]) * (m[2] === "s" ? 1000 : 1); };
+    tok = {
+      handGlass: num("--aa-orb-hand-glass"), handMin: num("--aa-orb-hand-min-alpha"),
+      fpsIdle: num("--aa-orb-fps-idle"), fpsActive: num("--aa-orb-fps-active"),
+      breath: num("--aa-orb-breath-period"), pulse: num("--aa-orb-pulse-period"),
+      ribbon: num("--aa-orb-ribbon-period"), rim: num("--aa-orb-rim-period"),
+      morph: ms("--aa-dur-morph"), motion: num("--aa-motion-scale"),
+    };
+    MINT = hex("--aa-orb-mint"); LAV = hex("--aa-orb-lavender"); GROUND = hex("--aa-orb-ground"); ORANGE = hex("--aa-orb-hand");
+  };
+  readTokens();
   const bezier = (x1, y1, x2, y2) => t => {
     let s = t;
     for (let i = 0; i < 8; i++) {
@@ -681,9 +712,10 @@ send_email {"to": ["claire@example.org"], "subject": "Herbs for the balcony", "b
     }
     return 3 * (1 - s) ** 2 * s * y1 + 3 * (1 - s) * s * s * y2 + s ** 3;
   };
-  const ease = bezier(0.4, 0, 0.2, 1), MORPH_MS = 650;
+  const ease = bezier(0.4, 0, 0.2, 1);  /* --aa-ease-morph */
   const TARGET = { idle: { p: 0, h: 0 }, listening: { p: 0, h: 0 }, speaking: { p: 0, h: 0 }, working: { p: 1, h: 0 }, approval: { p: 0, h: 1 } };
   const ACTIVE = { listening: 1, speaking: 1, working: 1, approval: 1 };
+  const LEVEL = { listening: 1, speaking: 1 };  /* states whose light follows a sound level */
   const LABEL = { idle: ["Tap to speak", ""], listening: ["Listening. Tap to cancel", "Listening"], working: ["Stop assistant", ""], approval: ["Review tool approval", "Needs you"], speaking: ["Reading aloud. Tap to speak", ""] };
   // Simulated syllable envelope; the product feeds AnalyserNode RMS here.
   const sim = (t, k) => clamp(Math.max(0, Math.sin(t * 6.3 + k)) * (0.55 + 0.45 * Math.sin(t * 1.7 + k)) * (Math.sin(t * 0.8 + k) > -0.35 ? 0.95 : 0.12));
@@ -711,7 +743,7 @@ send_email {"to": ["claire@example.org"], "subject": "Herbs for the balcony", "b
     const ripple = energy * (0.19 * Math.sin(ang * 3 + t * 3 + cord * 1.7) + 0.075 * Math.sin(ang * 7 - t * 3));
     const px = sp(Math.cos(ang), e) * (0.53 + cord * 0.055 + energy * 0.16) * 0.5 * (1 + ripple);
     const py = sp(Math.sin(ang), e) * (0.39 + energy * 0.33 + stop * 0.16) * 0.5 * (1 + ripple);
-    const r = (cord * 34 + t * 9 + energy * (cord - 2) * 28) * DEG;
+    const r = (cord * 34 + t * 360 / tok.ribbon + energy * (cord - 2) * 28) * DEG;
     return [0.5 + px * Math.cos(r) - py * Math.sin(r), 0.5 + px * Math.sin(r) + py * Math.cos(r)];
   };
   const contour = (ctx, cx, cy, w, h, sq, energy = 0, phase = 0, ribbon = false) => {
@@ -725,12 +757,12 @@ send_email {"to": ["claire@example.org"], "subject": "Herbs for the balcony", "b
   };
 
   function frame(o, t) {
-    const { ctx, S, box } = o, dpr = o.dpr, red = reduce.matches;
-    const T = red ? 0 : t, p = o.cur.p, h = o.cur.h, g = 0;
-    const energy = ACTIVE[o.state] && o.state !== "working" && o.state !== "approval" ? sim(t, o.seed) : 0;
-    const me = red ? 0 : energy, pulse = red ? 0 : Math.sin(T * 1.8), breath = red ? 0 : Math.sin(T * 0.85) * 0.018;
-    const weave = Math.min(1, Math.max(g, h) * 8), k = S / 68;
-    const handGlass = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--aa-orb-hand-glass")) || 0.06;
+    const { ctx, S, box } = o, dpr = o.dpr, still = tok.motion === 0;
+    // Reduced motion: geometry and rotation freeze (T = 0, me = 0); the level still drives light.
+    const T = still ? 0 : t * tok.motion, p = o.cur.p, h = o.cur.h, g = 0;
+    const energy = LEVEL[o.state] ? sim(t, o.seed) : 0;
+    const me = still ? 0 : energy, pulse = still ? 0 : Math.sin(T * TAU / tok.pulse), breath = still ? 0 : Math.sin(T * TAU / tok.breath) * 0.018;
+    const weave = Math.min(1, Math.max(g, h) * 8), k = S / 68, handGlass = tok.handGlass;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, box, box);
     ctx.translate(box / 2, box / 2); const sc = (1 - p * 0.04) * (1 + breath + me * 0.08); ctx.scale(sc, sc); ctx.translate(-S / 2, -S / 2);
     // 1. glow
@@ -749,7 +781,7 @@ send_email {"to": ["claire@example.org"], "subject": "Herbs for the balcony", "b
     ctx.fillStyle = rg; ctx.fill(); ctx.restore();
     // 3. five ribbons
     if (weave < 1) for (let i = 0; i < 5; i++) {
-      ctx.save(); ctx.globalAlpha = 1 - weave; ctx.translate(S / 2, S / 2); ctx.rotate((i * 34 + T * 9 + me * (i - 2) * 28) * DEG);
+      ctx.save(); ctx.globalAlpha = 1 - weave; ctx.translate(S / 2, S / 2); ctx.rotate((i * 34 + T * 360 / tok.ribbon + me * (i - 2) * 28) * DEG);
       contour(ctx, 0, 0, S * (0.53 + i * 0.055 + me * 0.16), S * (0.39 + me * 0.33 + p * 0.16), p, me, T * 3 + i * 1.7 + (o.state === "listening" ? me * 3 : 0), true);
       const cg = ctx.createConicGradient(0, 0, 0);
       cg.addColorStop(0, rgba(MINT, 0)); cg.addColorStop(.25, rgba(MINT, .8)); cg.addColorStop(.5, rgba(LAV, 1)); cg.addColorStop(.75, rgba(MINT, .9)); cg.addColorStop(1, rgba(MINT, 0));
@@ -758,7 +790,7 @@ send_email {"to": ["claire@example.org"], "subject": "Herbs for the balcony", "b
     // 4. the weave: the same five cords leave their orbits for the raised hand
     if (weave > 0) {
       ctx.save(); ctx.globalAlpha = weave; ctx.lineCap = "round"; ctx.lineJoin = "round";
-      ctx.shadowColor = rgba([255, 165, 0], h * 0.4); ctx.shadowBlur = 5 * k;
+      ctx.shadowColor = rgba(ORANGE, h * 0.4); ctx.shadowBlur = 5 * k;
       const SEG = 48, SM = 5;
       for (let cord = 0; cord < 5; cord++) {
         const b = cord % 2 ? LAV : MINT, col = [b[0] + (ORANGE[0] - b[0]) * h, b[1] + (ORANGE[1] - b[1]) * h, b[2] + (ORANGE[2] - b[2]) * h];
@@ -770,7 +802,7 @@ send_email {"to": ["claire@example.org"], "subject": "Herbs for the balcony", "b
             const x = (a[0] * (1 - h) + c[0] * h) * S, y = (a[1] * (1 - h) + c[1] * h) * S; j ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
           }
           const flow = 0.5 + 0.5 * Math.sin(T * 5 - (s * 5 + cord) * 0.29);
-          ctx.strokeStyle = rgba(col, 0.625 * (1 - h) + (0.48 + flow * 0.48) * h); ctx.stroke();
+          ctx.strokeStyle = rgba(col, 0.625 * (1 - h) + (tok.handMin + flow * (1 - tok.handMin)) * h); ctx.stroke();
         }
       }
       ctx.restore();
@@ -780,7 +812,7 @@ send_email {"to": ["claire@example.org"], "subject": "Herbs for the balcony", "b
     ctx.strokeStyle = rgba(LAV, 0.28 + energy * 0.42 + p * 0.35); ctx.lineWidth = (0.8 + energy + p * 0.5) * k; ctx.stroke();
     const rim = p * (1 - h) * (1 - g);
     if (rim > 0) {
-      ctx.globalAlpha = rim; const cg = ctx.createConicGradient(T * 28 * DEG, S / 2, S / 2);
+      ctx.globalAlpha = rim; const cg = ctx.createConicGradient(T * 360 / tok.rim * DEG, S / 2, S / 2);
       cg.addColorStop(0, rgba(MINT, .95)); cg.addColorStop(1 / 3, rgba(LAV, .25)); cg.addColorStop(2 / 3, rgba(LAV, 1)); cg.addColorStop(1, rgba(MINT, .95));
       ctx.strokeStyle = cg; ctx.lineWidth = 1.3 * k; ctx.stroke();
     }
@@ -817,17 +849,22 @@ send_email {"to": ["claire@example.org"], "subject": "Herbs for the balcony", "b
     setState(demo, b.dataset.demo);
     const l = document.getElementById("demo-label"); l.textContent = LABEL[b.dataset.demo][1]; l.classList.toggle("amber", b.dataset.demo === "approval");
   }));
-  let redrawAll = true; addEventListener("aa-theme", () => { redrawAll = true; });
+  let redrawAll = true;
+  const refresh = () => { readTokens(); redrawAll = true; };
+  addEventListener("aa-theme", refresh);
+  matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", refresh);
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", refresh);
   const loop = (now) => {
     const t = now / 1000;
     for (const o of orbs) {
       if (!o.btn.offsetParent) continue;
       fit(o); if (!o.S) continue;
-      const to = TARGET[o.state], u = reduce.matches ? 1 : clamp((now - o.start) / MORPH_MS), e = ease(u);
+      const to = TARGET[o.state], u = tok.morph <= 0 ? 1 : clamp((now - o.start) / tok.morph), e = ease(u);
       const morphing = u < 1;
       o.cur = { p: o.from.p + (to.p - o.from.p) * e, h: o.from.h + (to.h - o.from.h) * e };
-      const fps = morphing || ACTIVE[o.state] ? 30 : 12;
-      if (reduce.matches && !redrawAll && o.drawnState === o.state) continue;
+      const fps = morphing || ACTIVE[o.state] ? tok.fpsActive : tok.fpsIdle;
+      // Under reduced motion a still orb is drawn once; one that follows a level keeps redrawing.
+      if (tok.motion === 0 && !LEVEL[o.state] && !morphing && !redrawAll && o.drawnState === o.state) continue;
       if (!redrawAll && now - o.last < 1000 / fps - 2) continue;
       o.last = now; o.drawnState = o.state; frame(o, t);
     }

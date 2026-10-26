@@ -24,7 +24,8 @@ and Windows runs, and the source-run macOS tray, are unaffected.
 The iPhone and watch apps are one Apple product on team `K3R4D6HP2A`: `ai.abstractframework.assistant`
 (iOS), `….watchkitapp`, `….notifications`, app group `group.ai.abstractframework.assistant`, with
 a credential-free CI and a human-approved App Store Connect upload (ADR 0002, ADR 0005). The Mac
-bundle carried, through 0.15.0, the id of another namespace, `ai.abstractcore.abstractassistant`.
+bundles released through 0.14.3 carried the id of another namespace, `ai.abstractcore.abstractassistant`
+(0.15.0, unreleased, is the first built with the new one).
 
 ## Decision
 
@@ -85,9 +86,9 @@ Python process takes for granted. The file keeps only what the bundle needs:
 
 | Entitlement | In | Why | What breaks without it |
 |---|---|---|---|
-| `com.apple.security.cs.allow-unsigned-executable-memory` | yes | The bundle ships `llvmlite`/`numba` (via librosa), whose LLVM JIT maps writable+executable memory without `MAP_JIT`; cffi/pyobjc/ctypes callbacks (sounddevice's audio callback, pynput's event tap) may need writable code pages. Superset of `allow-jit`. | The process is killed (Code Signature Invalid) at the first JIT compile or callback. |
+| `com.apple.security.cs.allow-unsigned-executable-memory` | yes, for now | The bundle ships `llvmlite`/`numba` (pulled in by `unstructured`, an abstractcore media dependency; librosa is optional and absent), whose LLVM JIT writes code into pages it then executes. **Measured (probe C, 2026-10-26):** a PyInstaller app signed with this team's identity that JIT-compiles through llvmlite's MCJIT runs with the entitlement and is SIGKILLed without it (exit 137; kernel: `CODE SIGNING: … rejecting invalid page … signed:0`). Callbacks do NOT need it: cffi, ctypes and pyobjc-block callbacks, Qt, numpy and PortAudio all ran without it (probe B). No run-time path from the app into numba is known (no `numba`/`librosa` import in the app), so the better end state is to exclude numba/llvmlite from the bundle and drop the key (backlog 1055 step 5). | A JIT-compiling code path is killed at its first compile. Nothing else measured breaks. |
 | `com.apple.security.device.audio-input` | yes | Voice conversations and dictation read the microphone (abstractvoice, PortAudio). `NSMicrophoneUsageDescription` is already in the spec's Info.plist. | The hardened runtime denies audio input and macOS never asks: recording returns nothing. |
-| `com.apple.security.cs.disable-library-validation` | no | PyInstaller re-signs every bundled binary with our identity, so library validation passes for the whole bundle. | Only code from outside the bundle signed by another team fails to load. Known case: `python-magic` looks for Homebrew's `libmagic` in `/opt/homebrew/lib`, an optional library that a clean Mac does not have either. Add the key only if a signed build's Console shows "different Team IDs" for a bundled binary. |
+| `com.apple.security.cs.disable-library-validation` | no | **Measured (probe A, 2026-10-26):** a PyInstaller 6.22 app with libpython, the PyQt5 frameworks and a platform plugin, numpy, cffi, pyobjc and sounddevice's PortAudio, signed by PyInstaller with this team's Apple Development identity, has 115 Mach-O files, every one re-signed by team `K3R4D6HP2A` with the hardened runtime and a secure timestamp. It launched with library validation on and every check passed. Third-party wheels' own signatures are replaced, so one team covers the whole bundle. Library validation compares teams, not certificate kinds, so a Developer ID build behaves the same. It is ad-hoc signing that fails: a hardened ad-hoc bundle cannot load its own libpython (adversarial review, "different Team IDs"), which is why the local test needs a real identity. | Only code from outside the bundle, signed by another team, fails to load. Known case: `python-magic` looks for Homebrew's `libmagic` in `/opt/homebrew/lib`, an optional library a clean Mac does not have either (python-magic then raises `ImportError`, as on a clean Mac). |
 | `com.apple.security.cs.allow-dyld-environment-variables` | no | Nothing in the app or PyInstaller's bootloader sets `DYLD_*`. | `DYLD_*` variables are ignored (debugging only). |
 | `com.apple.security.automation.apple-events` | no | `osascript -e "get volume settings"` (output-volume banner) sends no Apple event to another app. | If it were needed: the volume hint disappears (best-effort, already optional). |
 | `com.apple.security.get-task-allow` | never | Debugger attachment. | Notarization refuses it. |
@@ -119,12 +120,27 @@ client (Swift, or the Rust host below) may revisit this.
 
 - `packaging/macos/AbstractAssistant.spec` reads `ABSTRACTASSISTANT_CODESIGN_IDENTITY` (and
   optionally `ABSTRACTASSISTANT_ENTITLEMENTS`). Unset: exactly the old unsigned build. Set:
-  PyInstaller signs every collected binary inside-out with that identity, the hardened runtime, a
-  secure timestamp and the entitlements.
-- `build-macos-app --sign` re-seals the bundle (`codesign --force --deep --options runtime
-  --timestamp --entitlements …`), then `codesign --verify --deep --strict`, `codesign -dv` (checked
-  against `TEAM_ID` when set) and `spctl --assess`. Signed but not notarized, the one accepted
-  answer is "Unnotarized Developer ID".
+  PyInstaller signs **inside-out**, every collected binary first, then the bundle, with that
+  identity, the hardened runtime, a secure timestamp and the entitlements. The spec then forces
+  `PYINSTALLER_STRICT_BUNDLE_CODESIGN_ERROR=1`, because without it PyInstaller only warns when
+  sealing the bundle fails (`PyInstaller/building/osx.py`, BUNDLE), which would let the
+  environment-only path ship a broken seal.
+- **No second signing pass.** An outer `codesign --force --deep` would *replace* every nested
+  signature (`man codesign`: `--deep` is "DEPRECATED for signing as of macOS 13.0 … almost never
+  what you want"), so `build-macos-app` does not reseal. It verifies what PyInstaller made:
+  `codesign --verify --deep --strict` (verification with `--deep` is not deprecated),
+  `codesign -dv` (checked against `TEAM_ID` when set), the entitlements, then **every nested
+  Mach-O** (found by magic number) for the hardened runtime, a secure timestamp and the team. That
+  last check is the notarization requirement, and a bundle with no binaries fails it. One caveat:
+  PyInstaller's own BUNDLE step passes `--deep` when sealing the bundle (`sign_binary(…,
+  deep=True)`), with the same identity, flags and entitlements as its per-binary pass, so the
+  replacement there is like for like. Measured on probe A: 115/115 nested binaries correct.
+- `build-macos-app --sign` (Developer ID only) runs those checks, then `spctl --assess`. Signed
+  but not notarized, the one accepted answer is "Unnotarized Developer ID".
+- `build-macos-app --local-test` accepts an **Apple Development** identity as well (never ad-hoc,
+  never an App Store certificate). It runs the same checks, skips Gatekeeper (saying so) and
+  prints the launch test. It cannot be combined with `--notarize` or `--dmg`. This is how the
+  entitlements are tested on this Mac before any Developer ID build.
 - `--notarize` (signs first) zips with `ditto`, runs `xcrun notarytool submit --wait`, reads the
   JSON verdict (anything but `Accepted` fails, naming the submission for `notarytool log`),
   staples and validates the ticket, then requires Gatekeeper's "Notarized Developer ID".
@@ -132,10 +148,16 @@ client (Swift, or the Rust host below) may revisit this.
   pipeline's App Store Connect key names `ASC_KEY_ID`, `ASC_ISSUER_ID` and `ASC_KEY_P8` (key text,
   written to a private temporary file only for the submission), or `ASC_KEY_PATH`.
 - `--dmg` builds the disk image (signed, notarized and stapled with the flags above);
-  `--dry-run` validates the configuration and prints every command, running none.
+  `--dry-run` validates the configuration and prints every command, running none. With
+  `--notarize --dmg` the app is notarized and stapled *before* the image is built, then the image
+  is notarized and stapled: two submissions, not one. One dmg submission would cover the app's
+  code too, but a ticket cannot be stapled into an image after it is built, so the app inside
+  would carry none and would need Apple's servers the first time it is opened after being copied
+  out. Minutes of notary time buy an app that opens offline.
 - Every step prints the command it runs and stops on the first failure with the tool's output. A
-  configuration that cannot work (no identity, an Apple Development certificate, ad-hoc, a partial
-  API key, a team other than `TEAM_ID`) is refused before PyInstaller starts.
+  configuration that cannot work is refused before PyInstaller starts: no identity, an Apple
+  Development certificate without `--local-test`, ad-hoc, a partial API key, a Developer ID team
+  other than `TEAM_ID`. So is a build environment without `webrtcvad-wheels`.
 
 The operator's checklist is [docs/macos-signing.md](../macos-signing.md); the remaining steps are
 backlog 1055.
@@ -176,9 +198,11 @@ ADR does not depend on the host:
   performed by a human (or a protected CI job, backlog 1055), never on a push.
 - The gateway's Install/Update cards keep managing the pip package; a downloaded signed `.app`
   has no update channel of its own yet (backlog 1055).
-- `--deep` on the outer seal departs from Apple's advice to sign inside-out without it; PyInstaller
-  has already signed inside-out, and the re-seal only guarantees the flags. If notarization logs
-  ever complain about nested code, drop `--deep` and rely on PyInstaller's inside-out pass.
+- Signing is PyInstaller's inside-out pass alone (section 5), with no outer `--deep` reseal, and
+  every nested binary is checked rather than trusted. The first proposal resealed with
+  `codesign --force --deep`, which replaces every nested signature; it was dropped after review.
+- `allow-unsigned-executable-memory` stays only while numba/llvmlite are bundled. Excluding them
+  (no known run-time path) removes the last reason for it.
 
 ## Operator decisions (to accept this ADR)
 

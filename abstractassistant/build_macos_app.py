@@ -24,7 +24,8 @@ from abstractassistant.utils.icon_generator import IconGenerator
 
 APP_NAME = "AbstractAssistant"
 # The same id as packaging/macos/AbstractAssistant.spec (a test keeps them equal): the Mac app
-# in the AbstractAssistant Apple family, ADR 0006. Through 0.15.0: ai.abstractcore.abstractassistant.
+# in the AbstractAssistant Apple family, ADR 0006. Released bundles through 0.14.3 carried
+# ai.abstractcore.abstractassistant; 0.15.0 is the first built with this id.
 BUNDLE_ID = "ai.abstractframework.assistant.mac"
 MIN_MACOS = "10.15"
 
@@ -39,6 +40,9 @@ ASC_ISSUER_ID_ENV = "ASC_ISSUER_ID"
 ASC_KEY_PATH_ENV = "ASC_KEY_PATH"
 ASC_KEY_P8_ENV = "ASC_KEY_P8"
 TEAM_ID_ENV = "TEAM_ID"
+# PyInstaller only WARNS when signing the bundle fails unless this is set (PyInstaller
+# building/osx.py, BUNDLE): with an identity, a broken seal must stop the build.
+STRICT_CODESIGN_ENV = "PYINSTALLER_STRICT_BUNDLE_CODESIGN_ERROR"
 
 
 def _repo_root() -> Path:
@@ -277,8 +281,13 @@ class SigningError(RuntimeError):
     """A signing/notarization configuration or step that cannot go on. Always says why."""
 
 
-# Certificate kinds that cannot pass Gatekeeper outside the Mac App Store.
-_NOT_DEVELOPER_ID = ("Apple Development", "Mac Developer", "Apple Distribution", "3rd Party Mac Developer")
+# Development certificates: they sign code that runs on this team's own Macs (the hardened
+# runtime and library validation behave exactly as with Developer ID), but Gatekeeper and the
+# notary service refuse them. Allowed for --local-test only.
+_DEVELOPMENT = ("Apple Development", "Mac Developer")
+# Mac App Store certificates: never right for this app (ADR 0006 section 2).
+_STORE = ("Apple Distribution", "3rd Party Mac Developer")
+_DEVELOPER_ID_PREFIX = "Developer ID Application:"
 _KEY_ID = re.compile(r"^[A-Z0-9]{10}$")
 _ISSUER_ID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 _TEAM_IN_IDENTITY = re.compile(r"\(([A-Z0-9]{10})\)\s*$")
@@ -309,7 +318,8 @@ class Step:
 
     label: str
     argv: tuple[str, ...]
-    kind: str = "run"  # run | notarize | assess-app | assess-dmg | team
+    kind: str = "run"  # run | notarize | assess-app | assess-dmg | team | nested | note
+    target: str = ""  # the bundle a "nested" check walks
 
     def shell(self) -> str:
         return shlex.join(self.argv)
@@ -319,10 +329,16 @@ def _env_value(env: Mapping[str, str], name: str) -> str:
     return str(env.get(name) or "").strip()
 
 
-def resolve_identity(env: Mapping[str, str], override: str = "") -> str:
-    """The Developer ID Application identity to sign with, or a SigningError saying how to
-    provide one. Refuses ad-hoc and the certificate kinds Gatekeeper rejects, and a team that
-    differs from TEAM_ID when both are known."""
+def resolve_identity(env: Mapping[str, str], override: str = "", *, local_test: bool = False) -> str:
+    """The identity to sign with, or a SigningError saying how to provide one.
+
+    A release needs a Developer ID Application identity. `local_test` also accepts an Apple
+    Development identity: a build to launch on this Mac under the real hardened runtime, never
+    to notarize or ship. Ad-hoc ('-') is refused in both cases: a hardened, ad-hoc PyInstaller
+    bundle cannot load its own libpython (library validation, "different Team IDs"), so it
+    proves nothing. A Developer ID name ends with its team in parentheses, checked against
+    TEAM_ID; a development name ends with the person's id instead, so it is checked on the
+    signed app (TeamIdentifier) rather than here."""
     identity = str(override or "").strip() or _env_value(env, IDENTITY_ENV)
     if not identity:
         raise SigningError(
@@ -331,18 +347,25 @@ def resolve_identity(env: Mapping[str, str], override: str = "") -> str:
         )
     if identity == "-":
         raise SigningError(
-            "ad-hoc signing ('-') cannot pass Gatekeeper or notarization; the unsigned build already is "
-            "ad-hoc signed. For a local hardened-runtime check see docs/macos-signing.md."
+            "ad-hoc signing ('-') cannot pass Gatekeeper or notarization, and a hardened ad-hoc bundle "
+            "cannot even load its own Python library; for a local launch test use an Apple Development "
+            "identity with --local-test (docs/macos-signing.md)"
         )
-    for prefix in _NOT_DEVELOPER_ID:
+    for prefix in _STORE:
         if identity.startswith(prefix):
             raise SigningError(
-                f"{identity!r} is not a Developer ID Application certificate; a direct-download Mac app "
-                "must be signed with one (create it in the Apple Developer portal: docs/macos-signing.md)"
+                f"{identity!r} is a Mac App Store certificate; this app is distributed with Developer ID "
+                "(ADR 0006): use the Developer ID Application identity"
+            )
+    for prefix in _DEVELOPMENT:
+        if identity.startswith(prefix) and not local_test:
+            raise SigningError(
+                f"{identity!r} is a development certificate: Gatekeeper and notarization refuse it. Use the "
+                "Developer ID Application identity, or --local-test to build a signed app to launch on this Mac"
             )
     team = _env_value(env, TEAM_ID_ENV)
     match = _TEAM_IN_IDENTITY.search(identity)
-    if team and match and match.group(1) != team:
+    if team and match and identity.startswith(_DEVELOPER_ID_PREFIX) and match.group(1) != team:
         raise SigningError(f"identity {identity!r} belongs to team {match.group(1)}, but {TEAM_ID_ENV}={team}")
     return identity
 
@@ -383,15 +406,44 @@ def resolve_notary_auth(env: Mapping[str, str], profile_override: str = "") -> N
     return NotaryAuth(key_id=key_id, issuer_id=issuer, key_path=str(Path(key_path).expanduser()) if key_path else "", key_text=key_text)
 
 
-def codesign_app_command(app: Path, identity: str, entitlements: Path) -> tuple[str, ...]:
-    """The outer seal. PyInstaller already signed every binary inside-out with the same
-    identity, hardened runtime and timestamp (the spec reads the identity from the
-    environment); this re-seals the bundle so every nested Mach-O and the app itself carry
-    exactly these flags, which notarization requires."""
-    return (
-        "codesign", "--force", "--deep", "--options", "runtime", "--timestamp",
-        "--entitlements", str(entitlements), "--sign", identity, str(app),
-    )
+_MACH_O_MAGIC = {
+    bytes.fromhex("cffaedfe"), bytes.fromhex("cefaedfe"),  # 64/32-bit, little-endian
+    bytes.fromhex("feedfacf"), bytes.fromhex("feedface"),
+    bytes.fromhex("cafebabe"), bytes.fromhex("bebafeca"),  # universal
+}
+
+
+def mach_o_files(bundle: Path) -> list[Path]:
+    """Every Mach-O file inside the bundle (by magic number; symlinks skipped), sorted."""
+    found = []
+    for path in sorted(Path(bundle).rglob("*")):
+        if path.is_symlink() or not path.is_file():
+            continue
+        try:
+            with path.open("rb") as handle:
+                head = handle.read(4)
+        except OSError:
+            continue
+        if head in _MACH_O_MAGIC:
+            found.append(path)
+    return found
+
+
+def check_nested_signature(output: str, *, team_id: str = "") -> Optional[str]:
+    """What is wrong with one nested binary's signature (`codesign -dv --verbose=2`), or None.
+    Notarization requires the hardened runtime and a secure timestamp on every executable."""
+    text = output or ""
+    flags = re.search(r"flags=0x[0-9a-f]+\(([^)]*)\)", text)
+    if not flags or "runtime" not in flags.group(1).split(","):
+        return "no hardened runtime"
+    if "adhoc" in flags.group(1).split(","):
+        return "ad-hoc signature"
+    if "Timestamp=" not in text:
+        return "no secure timestamp"
+    if team_id and f"TeamIdentifier={team_id}" not in text:
+        found = re.search(r"TeamIdentifier=(\S+)", text)
+        return f"team {found.group(1) if found else 'unknown'}, not {team_id}"
+    return None
 
 
 def plan_release(
@@ -405,21 +457,50 @@ def plan_release(
     notary: Optional[NotaryAuth] = None,
     dmg: bool = False,
     team_id: str = "",
+    local_test: bool = False,
 ) -> list[Step]:
     """The ordered commands after PyInstaller, for the options given. Empty = the unsigned
-    build (nothing runs after PyInstaller, as before). With a disk image and notarization the
-    app is notarized and stapled first, then the image is built from the stapled app, signed,
-    notarized and stapled itself, so both work offline."""
+    build (nothing runs after PyInstaller, as before).
+
+    Signing is inside-out and done by PyInstaller (the spec passes the identity and the
+    entitlements to it): every collected binary is signed first, then the bundle. There is no
+    second `codesign --deep` pass here: it would replace every nested signature (`man codesign`:
+    deprecated for signing since macOS 13). These steps verify instead, including every nested
+    binary's hardened runtime, timestamp and team, which is what notarization checks.
+
+    With a disk image and notarization, the app is notarized and stapled first, then the image
+    is built from the stapled app, signed, notarized and stapled itself: one more submission
+    than strictly needed, so that the app INSIDE the image carries its own ticket and opens
+    offline once copied out (a ticket cannot be stapled into an image after it is built)."""
     if notary is not None and not identity:
         raise SigningError("notarization needs a signed app: --notarize signs first, give it an identity")
+    if local_test and (notary is not None or dmg):
+        raise SigningError("--local-test builds a signed app to launch on this Mac; it cannot be notarized or imaged")
     steps: list[Step] = []
     dmg_path = out_dir / f"{APP_NAME}-{version}.dmg"
     if identity:
         steps += [
-            Step("sign the app (hardened runtime, secure timestamp, entitlements)", codesign_app_command(app, identity, entitlements)),
-            Step("verify the signature", ("codesign", "--verify", "--deep", "--strict", "--verbose=1", str(app))),
+            Step("verify the signature PyInstaller made", ("codesign", "--verify", "--deep", "--strict", "--verbose=1", str(app))),
             Step("show the signature", ("codesign", "--display", "--verbose=4", str(app)), kind="team" if team_id else "run"),
+            Step("show the entitlements", ("codesign", "--display", "--entitlements", "-", str(app))),
+            Step(
+                "check every nested binary: hardened runtime, secure timestamp" + (f", team {team_id}" if team_id else ""),
+                ("codesign", "--display", "--verbose=2", "<each Mach-O file in the app>"),
+                kind="nested", target=str(app),
+            ),
         ]
+    if local_test:
+        executable = app / "Contents" / "MacOS" / APP_NAME
+        steps += [
+            Step("Gatekeeper is not asked: a development identity is not meant to pass it", (), kind="note"),
+            Step(
+                f"launch test (by hand, docs/macos-signing.md): run {executable} from Terminal, then try a voice "
+                "conversation, a spoken reply, the hotkey and an attachment; on a crash read Console for "
+                "CODE SIGNING / Library Validation",
+                (), kind="note",
+            ),
+        ]
+        return steps
     if notary is not None:
         upload_zip = work_dir / f"{APP_NAME}-{version}-notary-upload.zip"
         steps += [
@@ -527,7 +608,26 @@ def _with_key_file(step: Step, auth: Optional[NotaryAuth], key_file: Optional[st
     argv = list(step.argv)
     start = argv.index(placeholder[0])
     argv[start:start + len(placeholder)] = auth.args(key_file)
-    return Step(step.label, tuple(argv), step.kind)
+    return Step(step.label, tuple(argv), step.kind, step.target)
+
+
+def _check_nested(step: Step, *, team_id: str, runner) -> None:
+    files = mach_o_files(Path(step.target))
+    if not files:
+        # An absent input must not read as a pass: a bundle with no binaries is broken.
+        raise SigningError(f"{step.label}: no Mach-O file found in {step.target}")
+    problems = []
+    for path in files:
+        result = runner(["codesign", "--display", "--verbose=2", str(path)], capture_output=True, text=True)
+        output = ((result.stdout or "") + (result.stderr or "")).strip()
+        problem = f"exit {result.returncode}" if result.returncode != 0 else check_nested_signature(output, team_id=team_id)
+        if problem:
+            problems.append(f"{path.relative_to(step.target)}: {problem}")
+    print(f"  {len(files)} binaries checked, {len(problems)} wrong", flush=True)
+    if problems:
+        shown = "\n  ".join(problems[:15])
+        more = f"\n  … and {len(problems) - 15} more" if len(problems) > 15 else ""
+        raise SigningError(f"{step.label}: {len(problems)} of {len(files)} binaries fail:\n  {shown}{more}")
 
 
 def run_plan(
@@ -539,8 +639,14 @@ def run_plan(
     with (contextlib.nullcontext(None) if dry_run else _private_key_file(notary)) as key_file:
         for number, step in enumerate(steps, 1):
             step = _with_key_file(step, notary, key_file)
+            if step.kind == "note":
+                print(f"[{number}/{len(steps)}] {step.label}", flush=True)
+                continue
             print(f"[{number}/{len(steps)}] {step.label}\n  $ {step.shell()}", flush=True)
             if dry_run:
+                continue
+            if step.kind == "nested":
+                _check_nested(step, team_id=team_id, runner=runner)
                 continue
             result = runner(list(step.argv), capture_output=True, text=True)
             output = ((result.stdout or "") + (result.stderr or "")).strip()
@@ -570,12 +676,15 @@ class ReleaseOptions:
     dry_run: bool = False
     identity: str = ""
     notary_profile: str = ""
+    local_test: bool = False
 
 
 def _resolved_release(options: ReleaseOptions, env: Mapping[str, str]) -> tuple[Optional[str], Optional[NotaryAuth]]:
     """Validate the whole configuration before a minute of PyInstaller is spent."""
-    sign = options.sign or options.notarize
-    identity = resolve_identity(env, options.identity) if sign else None
+    if options.local_test and (options.notarize or options.dmg):
+        raise SigningError("--local-test builds a signed app to launch on this Mac; it cannot be notarized or imaged")
+    sign = options.sign or options.notarize or options.local_test
+    identity = resolve_identity(env, options.identity, local_test=options.local_test) if sign else None
     notary = resolve_notary_auth(env, options.notary_profile) if options.notarize else None
     return identity, notary
 
@@ -609,6 +718,7 @@ def _plan_for(root: Path, *, identity, notary, release: ReleaseOptions, env: Map
         notary=notary,
         dmg=release.dmg,
         team_id=_env_value(env, TEAM_ID_ENV),
+        local_test=release.local_test,
     )
 
 
@@ -631,6 +741,7 @@ def _build_locked(root: Path, *, install_to_applications: bool, identity=None, n
         # collected binary inside-out with this identity and the hardened runtime.
         os.environ[IDENTITY_ENV] = identity
         os.environ.setdefault(ENTITLEMENTS_ENV, str(_entitlements_path(root)))
+        os.environ[STRICT_CODESIGN_ENV] = "1"  # the spec sets it too, for the environment-only path
         env = dict(os.environ)
     _ensure_icon_assets(root)
     _sync_shared_themes(root)
@@ -674,6 +785,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         help=f"Sign, then notarize with notarytool and staple (credentials: --notary-profile / {NOTARY_PROFILE_ENV}, "
         f"or {ASC_KEY_ID_ENV} + {ASC_ISSUER_ID_ENV} + {ASC_KEY_PATH_ENV}|{ASC_KEY_P8_ENV})",
     )
+    parser.add_argument(
+        "--local-test",
+        action="store_true",
+        help="Sign with an Apple Development (or Developer ID) identity and the hardened runtime, verify, "
+        "and print the launch test to run on this Mac; never notarized, never for distribution",
+    )
     parser.add_argument("--dmg", action="store_true", help="Also build dist/macos/AbstractAssistant-<version>.dmg (signed and notarized with --sign/--notarize)")
     parser.add_argument("--identity", default="", help=f"codesign identity (overrides {IDENTITY_ENV})")
     parser.add_argument("--notary-profile", default="", help=f"notarytool keychain profile (overrides {NOTARY_PROFILE_ENV})")
@@ -683,14 +800,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("--notarize signs first (as with --sign)")
     release = ReleaseOptions(
         sign=args.sign, notarize=args.notarize, dmg=args.dmg, dry_run=args.dry_run,
-        identity=args.identity, notary_profile=args.notary_profile,
+        identity=args.identity, notary_profile=args.notary_profile, local_test=args.local_test,
     )
     try:
         app_path = build_macos_app(install_to_applications=not args.skip_install, release=release)
     except SigningError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    print(app_path)
+    print(f"dry run: would build {app_path}" if args.dry_run else app_path)
     return 0
 
 
