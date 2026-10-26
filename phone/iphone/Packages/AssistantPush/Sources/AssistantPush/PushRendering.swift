@@ -97,29 +97,59 @@ public enum PushRenderer {
     }
 
     /// The event the push is about: `GET /api/gateway/me/events?after=<s-1>&limit=1`, read with the
-    /// saved sign-in; nil when it cannot be read in time.
-    public static func fetchEvent(seq: Int, signIn: SharedSignIn, session: URLSession, timeout: TimeInterval = 8) async -> [String: Any]? {
+    /// saved sign-in; nil when it cannot be read in time, with the reason.
+    public static func fetchEvent(seq: Int, signIn: SharedSignIn, session: URLSession, timeout: TimeInterval = 8) async -> (event: [String: Any]?, failure: String?) {
         var url = signIn.gateway.appending(path: "api/gateway/me/events")
         url.append(queryItems: [URLQueryItem(name: "after", value: String(seq - 1)), URLQueryItem(name: "limit", value: "1")])
         var request = URLRequest(url: url)
         request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         signIn.authorize(&request, write: false)
-        guard let (data, response) = try? await session.data(for: request),
-              (response as? HTTPURLResponse)?.statusCode == 200,
-              let page = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let events = page["events"] as? [[String: Any]] else { return nil }
-        return events.first { ($0["sequence"] as? NSNumber)?.intValue == seq }
+        let data: Data, response: URLResponse
+        do { (data, response) = try await session.data(for: request) }
+        catch { return (nil, "\(signIn.gateway.host() ?? "gateway"): \(error.localizedDescription)") }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard status == 200 else { return (nil, "\(signIn.gateway.host() ?? "gateway") answered \(status)") }
+        guard let page = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let events = page["events"] as? [[String: Any]] else { return (nil, "the events page could not be read") }
+        guard let event = events.first(where: { ($0["sequence"] as? NSNumber)?.intValue == seq }) else {
+            return (nil, "event \(seq) is not in the page (\(events.count) events)")
+        }
+        return (event, nil)
     }
 
-    /// The whole service-extension step: nil keeps the generic localized text.
+    /// The whole service-extension step: nil keeps the generic localized text. Every way it gives
+    /// up is told to `trace` (the app group's trace, read by the apps' readouts), so a push that
+    /// kept its generic words can be explained afterwards.
     public static func content(for payload: PushPayload, platform: PushPlatform, signIn: SharedSignIn?,
                                session: URLSession, text: @Sendable (String) -> String,
-                               name: @Sendable (String) -> String?) async -> PushRendering? {
-        guard let signIn, signIn.hasCredential, signIn.reg == payload.reg else {
-            return earlier(kind: payload.kind, text: text)
+                               name: @Sendable (String) -> String?,
+                               trace: @Sendable (String) -> Void = { PushTrace.note($0) }) async -> PushRendering? {
+        let what = "\(payload.kind ?? "?") s=\(payload.seq)"
+        guard let signIn, signIn.hasCredential else { trace("\(what): no sign-in to read it with"); return earlier(kind: payload.kind, text: text) }
+        guard signIn.reg == payload.reg else { trace("\(what): for an earlier sign-in"); return earlier(kind: payload.kind, text: text) }
+        let fetched = await fetchEvent(seq: payload.seq, signIn: signIn, session: session)
+        guard let event = fetched.event else { trace("\(what): not read: \(fetched.failure ?? "?")"); return nil }
+        guard let rendering = render(event: event, platform: platform, text: text, name: name) else {
+            trace("\(what): read, not rendered (kind \(event["kind"] ?? "?"))"); return nil
         }
-        guard let event = await fetchEvent(seq: payload.seq, signIn: signIn, session: session) else { return nil }
-        return render(event: event, platform: platform, text: text, name: name)
+        trace("\(what): shown as \"\(rendering.title)\"")
+        return rendering
+    }
+}
+
+/// What the notification service extensions did with each push, the last 12 lines in the app
+/// group's defaults, for the apps' readouts (the watch's `--dump-notify`): the one place to look
+/// when a push kept its generic words.
+public enum PushTrace {
+    public static let key = "push.extension.trace"
+    public static func note(_ line: String) {
+        let d = UserDefaults(suiteName: SharedSignInStore.appGroup) ?? .standard
+        var lines = d.stringArray(forKey: key) ?? []
+        lines.append("\(ISO8601DateFormatter().string(from: Date())) \(line)")
+        d.set(Array(lines.suffix(12)), forKey: key)
+    }
+    public static var lines: [String] {
+        (UserDefaults(suiteName: SharedSignInStore.appGroup) ?? .standard).stringArray(forKey: key) ?? []
     }
 }

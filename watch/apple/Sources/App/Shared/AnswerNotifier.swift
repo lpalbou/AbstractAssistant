@@ -220,6 +220,7 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
         let pending = await center.pendingNotificationRequests()
         lines.append("pending notifications \(pending.map(\.identifier))")
         lines.append("face \(FaceSnapshot.read())")
+        lines.append("push extension \(PushTrace.lines)")
         return lines
     }
 
