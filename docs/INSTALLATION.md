@@ -83,7 +83,8 @@ That produces `dist/macos/AbstractAssistant.app`.
 
 The bundle is **unsigned and un-notarized**. Building it yourself is fine (locally built
 apps carry no quarantine attribute), but a copy you send to someone else will be blocked by
-Gatekeeper ("cannot verify developer" / "damaged") until it is signed and notarized. The app is
+Gatekeeper ("cannot verify developer" / "damaged") until it is signed and notarized: see
+[macos-signing.md](macos-signing.md) (`build-macos-app --sign`, `--notarize`, `--dmg`). The app is
 also menu-bar only (`LSUIElement`), so it deliberately shows no Dock icon — look for the tray icon
 in the top-right menu bar, not the Dock.
 

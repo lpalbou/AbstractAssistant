@@ -7,11 +7,11 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 
 ## Current Counts
 
-- Planned: 9
-- Proposed: 19
+- Planned: 12
+- Proposed: 20
 - Completed: 16
 
-Counts recomputed from disk on 2026-10-26 after adding 1053 (shared Swift client kit) and 1054 (offline capture queue), from the fusion decision of ADR 0004 (topic tracks included).
+Counts recomputed from disk on 2026-10-26 after adding 1053 (shared Swift client kit) and 1054 (offline capture queue), from the fusion decision of ADR 0004 (topic tracks included). Planned +1 the same day for 1056 (Apple lessons for the desktop). Planned +1 for 1055 (sign and notarize the macOS app, ADR 0006). Planned +1 for 1057 (the Assistant on the web, ADR 0007).
 - Deprecated: 0
 - Recurrent: 0
 
@@ -41,6 +41,9 @@ Counts recomputed from disk on 2026-10-26 after adding 1053 (shared Swift client
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
+| [1057](planned/1057_web_assistant.md) | The Assistant on the web | Planned | Scaffold in `web/` (Vite + React + TypeScript on the abstractuic app-server; host interface for the browser now and a Tauri shell later; session fold, run input, turn reducer ported from the desktop with parity tests; 58 tests, build green; read-only live proofs). Next: operator decision on ADR 0007, live send/approval proof, gateway catalog row (G1), npm publish. |
+| [1055](planned/1055_macos_signing_and_notarization.md) | Sign and notarize the macOS app | Planned | Signing, notarization and disk image wired off by default (`build-macos-app --sign/--notarize/--dmg`, bundle id `ai.abstractframework.assistant.mac`, ADR 0006 Proposed); operator: ADR decisions, Developer ID certificate and notary key (docs/macos-signing.md); then a first notarized build and CI. |
+| [1056](planned/1056_apple_lessons_for_the_desktop_assistant.md) | What the iPhone and watch taught us, brought to the desktop assistant | Planned | 20 changes ranked for the Qt desktop on all three platforms, each marked portable or per-platform: a send that fails keeps its words and a failed transcription keeps its recording, "needs you" you can click, edit and resend, voice review, an Inbox, past answers reopening their activity (overview item 0), archive, CI on all three desktops. Apple-only features are out of scope. |
 | [1052](planned/1052_revocable_session_tool_approvals.md) | Revocable session tool approvals | Planned | Orange revoke shield delivered in36, 266 package tests and native revoke pass; minor37 polish blocked by Watch guard. |
 | [1051](planned/1051_chat_message_visibility_and_following.md) | Chat visibility and bottom following | Planned | Normal36 delivered; manual bottom and history-reading checks pass. Repeated voice-following refinement still awaits completed native validation. |
 | [0009](planned/0009_shared_code_and_markdown_rendering.md) | # Planned: Share code and markdown rendering with abstractuic | Planned | Existing rich Markdown client work; retained in counts. |
@@ -55,6 +58,7 @@ Counts recomputed from disk on 2026-10-26 after adding 1053 (shared Swift client
 
 | ID | Item | Status | Promotion criteria |
 |---|---|---|---|
+| [1058](proposed/1058_assistant_in_the_shell.md) | The assistant in the shell: `assistant "find me file X"` | Proposed | `assistant run --prompt` exists; the bare-prompt form, a conversation loop, session choice and `--file` are the gap (operator ask 2026-10-26). Promote once the operator confirms the shape. |
 | [1053](proposed/1053_shared_swift_client_kit_for_apple_clients.md) | Shared Swift between the two Apple apps: one gateway client module, an honest credential file | Proposed | Steps 1-2 shipped 2026-10-26 (protected file, one module name; 24f47c9); step 3 converges files only when a fix touches both; ADR 0004, ADR 0005. |
 | [1054](proposed/watch-apple/1054_offline_capture_queue_on_the_wrist.md) | Offline note queue on the wrist | Proposed | Slice 0 shipped 2026-10-26 (25b849e); the note queue waits for the Notes surface of ADR 0004. |
 | [0001](proposed/0001_gateway_capability_profile_alignment.md) | Gateway capability profile alignment | Proposed | Keep as background design memory while v2 rollout lands. |

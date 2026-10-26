@@ -1,11 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_submodules
 
 
 APP_NAME = "AbstractAssistant"
-BUNDLE_ID = "ai.abstractcore.abstractassistant"
+# The Mac app joins the AbstractAssistant Apple family (iPhone `ai.abstractframework.assistant`,
+# watch `….watchkitapp`): ADR 0006. Through 0.15.0 it was `ai.abstractcore.abstractassistant`.
+# abstractassistant/build_macos_app.py carries the same id (a test keeps them equal).
+BUNDLE_ID = "ai.abstractframework.assistant.mac"
 MIN_MACOS = "10.15"
 
 ROOT = Path(SPECPATH).resolve().parents[1]
@@ -26,6 +30,31 @@ def _version() -> str:
 
 
 VERSION = _version()
+
+
+def _signing_from_env(environ, spec_dir):
+    """(codesign identity, entitlements file) for PyInstaller, from the environment.
+
+    Unset = the unsigned local build, exactly as before (PyInstaller ad-hoc signs it and no
+    entitlements apply). With ABSTRACTASSISTANT_CODESIGN_IDENTITY set (a "Developer ID
+    Application: … (TEAMID)" identity; `build-macos-app --sign` sets it) every collected
+    binary is signed with that identity, the hardened runtime and a secure timestamp, using
+    packaging/macos/entitlements.plist unless ABSTRACTASSISTANT_ENTITLEMENTS names another
+    file. Self-contained (no imports, no globals) so tests can run it on its own.
+    """
+    identity = str(environ.get("ABSTRACTASSISTANT_CODESIGN_IDENTITY") or "").strip() or None
+    if identity is None:
+        # Entitlements only mean something with a signature that carries them.
+        return None, None
+    entitlements = str(environ.get("ABSTRACTASSISTANT_ENTITLEMENTS") or "").strip()
+    return identity, entitlements or str(spec_dir / "entitlements.plist")
+
+
+CODESIGN_IDENTITY, ENTITLEMENTS_FILE = _signing_from_env(os.environ, Path(SPECPATH).resolve())
+if CODESIGN_IDENTITY:
+    if not Path(ENTITLEMENTS_FILE).is_file():
+        raise SystemExit(f"entitlements file not found: {ENTITLEMENTS_FILE}")
+    print(f"codesign: {CODESIGN_IDENTITY!r} with {ENTITLEMENTS_FILE}")
 PATHEX = [str(ROOT)]
 for candidate in (
     ROOT.parent / "abstractruntime" / "src",
@@ -91,8 +120,8 @@ exe = EXE(
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
+    codesign_identity=CODESIGN_IDENTITY,
+    entitlements_file=ENTITLEMENTS_FILE,
 )
 coll = COLLECT(
     exe,

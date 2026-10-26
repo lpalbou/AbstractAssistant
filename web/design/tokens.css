@@ -1,0 +1,274 @@
+/* AbstractAssistant for the web: design tokens.
+ *
+ * CONTRACT (web/design owns this file; web/src imports it):
+ *   - CSS custom properties only, every name prefixed `--aa-`.
+ *   - Selectors: `:root`, `:root[data-theme="dark"]`, `:root:not([data-theme="light"])`
+ *     inside `@media (prefers-color-scheme: dark)`, and `:root` inside
+ *     `@media (prefers-reduced-motion: reduce)`. Nothing else.
+ *   - Light palette on bare `:root`; dark palette twice (system preference unless the
+ *     user forced light, and an explicit `data-theme="dark"`), so a theme toggle wins
+ *     in both directions. The two dark blocks MUST stay identical
+ *     (untracked/apple-web-wave/contrast.py fails when they drift).
+ *
+ * WHERE THE VALUES COME FROM
+ *   Dark = the iPhone app, exactly: phone/iphone/Sources/App/Design.swift:5-13
+ *     ground   Color(red: 0.035, green: 0.045, blue: 0.085)  -> #090B16
+ *     surface  Color(red: 0.075, green: 0.09,  blue: 0.15)   -> #131726
+ *     ink      Color(red: 0.93,  green: 0.95,  blue: 1)      -> #EDF2FF
+ *     secondary Color(red: 0.65, green: 0.70,  blue: 0.80)   -> #A6B2CC
+ *     lavender Color(red: 0.68,  green: 0.65,  blue: 1)      -> #ADA6FF  (tools, icons)
+ *     mint     Color(red: 0.42,  green: 0.89,  blue: 0.80)   -> #6BE3CC  (primary action, success)
+ *     amber    Color(red: 1,     green: 0.77,  blue: 0.43)   -> #FFC46E  (approval, "Needs you")
+ *     stroke   .white.opacity(0.09)
+ *   The raised hand's orange is the weave's target colour,
+ *     phone/iphone/Sources/App/OrbWeave.swift:35-37 (1, 0.61, 0.20) -> #FF9C33.
+ *   Light = derived here (the phone ships dark only): same hues, darkened until text
+ *   clears WCAG 4.5:1 on the light surfaces. Ratios: untracked/apple-web-wave/w4-web-design.md.
+ *
+ * THE ORB IS DARK IN BOTH THEMES. `--aa-orb-*` colours do not change with the theme: the orb
+ * is a lit object (mint/lavender light in a dark glass), not a surface. Only
+ * `--aa-orb-hand-glass` differs (how much glass stays behind the raised hand).
+ *
+ * ABSTRACTUIC MAPPING (if web/src uses @abstractframework/ui-kit components, alias the
+ * kit's tokens to ours AFTER importing ui-kit/theme.css, on the app's root):
+ *   --bg-primary      <- var(--aa-ground)          --bg-secondary   <- var(--aa-surface)
+ *   --bg-tertiary     <- var(--aa-surface-sunken)  --bg-card        <- var(--aa-surface)
+ *   --text-primary    <- var(--aa-text)            --text-secondary <- var(--aa-text-muted)
+ *   --text-muted      <- var(--aa-text-muted)      (kit uses it for placeholders; ours clears 4.5:1)
+ *   --accent          <- var(--aa-accent)          --accent-hover   <- var(--aa-accent-hover)
+ *   --accent-subtle   <- var(--aa-accent-bg)       --accent-border  <- var(--aa-accent-border)
+ *   --success         <- var(--aa-success-text)    --warning        <- var(--aa-amber-text)
+ *   --error           <- var(--aa-danger)          --info           <- var(--aa-lavender-text)
+ *   --ui-border-1     <- var(--aa-border)          --ui-border-2    <- var(--aa-border-strong)
+ *   --ui-overlay-bg   <- var(--aa-overlay-hover)   --ui-shadow-1    <- var(--aa-shadow-card)
+ *   --font-sans       <- var(--aa-font-sans)       --font-mono      <- var(--aa-font-mono)
+ *   --radius-sm/md/lg <- var(--aa-radius-sm/md/lg)
+ *   --space-1..6      <- var(--aa-space-1..6)      (identical values: 4 8 12 16 24 32)
+ *   --tap-min         <- var(--aa-tap-min)         --reading-max    <- var(--aa-reading-max)
+ *   Kit tokens with no Assistant meaning (--entity-*, --syntax-*, --af-row-*) keep the kit's values.
+ *
+ * DESKTOP THEME MAPPING (abstractassistant/ui_themes.py: 11 seeds per palette, shared with
+ * abstractuic's theme.css). A future "match my desktop theme" option fills our tokens from
+ * a palette's seeds: bg -> --aa-ground, bg2 -> --aa-surface, bg3 -> --aa-surface-sunken,
+ * text -> --aa-text, text2 -> --aa-text-muted, accent -> --aa-accent, success ->
+ * --aa-success-text, warning -> --aa-amber-text, error -> --aa-danger, info ->
+ * --aa-lavender-text. Mint, lavender and the hand's orange stay the product's own.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* ---- colour: surfaces ------------------------------------------------- */
+  --aa-ground: #F4F5FA;            /* page */
+  --aa-surface: #FFFFFF;           /* cards, composer, sheets */
+  --aa-surface-raised: #FFFFFF;    /* popovers, menus (lifted by shadow, not colour) */
+  --aa-surface-sunken: #EAECF4;    /* code blocks, insets, tab track */
+  --aa-overlay-hover: rgba(18, 21, 39, 0.05);
+  --aa-overlay-active: rgba(18, 21, 39, 0.09);
+  --aa-scrim: rgba(9, 11, 22, 0.40);
+  --aa-user-bubble: rgba(109, 98, 232, 0.10);   /* lavender wash, like the phone's 0.12 */
+
+  /* ---- colour: text ----------------------------------------------------- */
+  --aa-text: #121527;
+  --aa-text-muted: #4D5670;
+
+  /* ---- colour: lines ---------------------------------------------------- */
+  --aa-border: rgba(18, 21, 39, 0.10);
+  --aa-border-strong: rgba(18, 21, 39, 0.20);
+  --aa-control-border: #7C8299;    /* input/button outlines: 3:1 against surface and ground */
+  --aa-focus-ring: #5548D6;
+
+  /* ---- colour: identity ------------------------------------------------- */
+  --aa-mint: #6BE3CC;              /* decorative: orb light, sparkle, success dots on dark glass */
+  --aa-mint-text: #08705E;         /* mint as text or icon on the theme's surfaces */
+  --aa-lavender: #ADA6FF;          /* decorative: orb light */
+  --aa-lavender-text: #5548D6;     /* tools, list markers, secondary icons */
+  --aa-amber: #FFC46E;             /* decorative: approval wash on dark glass */
+  --aa-amber-text: #8A4F00;        /* "Needs you", "Permission to proceed", the card's hand */
+  --aa-approval: #FF9C33;          /* the raised hand on the orb (always over orb glass) */
+
+  /* ---- colour: actions -------------------------------------------------- */
+  --aa-accent: #0B7A67;            /* primary action fill (Send, Approve, Create automation) */
+  --aa-accent-hover: #096A59;
+  --aa-on-accent: #FFFFFF;
+  --aa-accent-bg: rgba(11, 122, 103, 0.10);
+  --aa-accent-border: rgba(11, 122, 103, 0.35);
+
+  /* ---- colour: status --------------------------------------------------- */
+  --aa-success-text: #08705E;
+  --aa-amber-bg: rgba(138, 79, 0, 0.08);
+  --aa-approval-border: rgba(138, 79, 0, 0.30);
+  --aa-danger: #B42318;
+  --aa-danger-bg: rgba(180, 35, 24, 0.08);
+
+  /* ---- shadows ---------------------------------------------------------- */
+  --aa-shadow-card: 0 1px 2px rgba(18, 21, 39, 0.05), 0 6px 20px rgba(18, 21, 39, 0.06);
+  --aa-shadow-float: 0 2px 6px rgba(18, 21, 39, 0.08), 0 14px 36px rgba(18, 21, 39, 0.12);
+  --aa-shadow-orb: 0 6px 22px rgba(9, 11, 22, 0.28);
+
+  /* ---- the orb (theme-independent: dark glass, lit from inside) ---------- */
+  --aa-orb-ground: #090B16;
+  --aa-orb-mint: #6BE3CC;
+  --aa-orb-lavender: #ADA6FF;
+  --aa-orb-hand: #FF9C33;
+  --aa-orb-size: 68px;                 /* phone VoicePresence size (ChatScreen.swift) */
+  --aa-orb-size-desktop: 64px;
+  --aa-orb-hit: 84px;                  /* touch surface around it (Design.swift:270) */
+  --aa-orb-hand-glass: 0.9;            /* glass kept behind the raised hand: the phone dissolves it
+                                          (0.06, Design.swift:129) because its page is dark; on a
+                                          light page the hand needs the dark disc to stay legible */
+
+  /* ---- typography --------------------------------------------------------- */
+  --aa-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", system-ui,
+    Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif;
+  --aa-font-rounded: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont,
+    "Segoe UI Variable Display", "Segoe UI", system-ui, Roboto, "Noto Sans", Arial, sans-serif;
+  --aa-font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono",
+    "Noto Sans Mono", monospace;
+
+  --aa-text-2xs: 0.6875rem;   /* 11px  quiet uppercase labels (tracking 0.16em) */
+  --aa-text-xs: 0.75rem;      /* 12px  counts beside an answer, captions */
+  --aa-text-sm: 0.875rem;     /* 14px  secondary lines, chips, buttons */
+  --aa-text-md: 1rem;         /* 16px  UI text, composer input (never below 16 on touch: iOS zoom) */
+  --aa-text-body: 1.0625rem;  /* 17px  answers and questions: the phone's body size */
+  --aa-text-lg: 1.25rem;      /* 20px  card titles */
+  --aa-text-xl: 1.5rem;       /* 24px  sheet titles ("Approve these tools?") */
+  --aa-text-2xl: clamp(1.5rem, 1.2rem + 1vw, 1.875rem); /* 24-30px  empty-state greeting */
+
+  --aa-leading-tight: 1.25;
+  --aa-leading-ui: 1.4;
+  --aa-leading-body: 1.6;           /* the phone's 17pt + 5pt line spacing */
+  --aa-tracking-label: 0.16em;      /* QuietLabel: .tracking(2) at 11pt */
+  --aa-weight-regular: 400;
+  --aa-weight-medium: 500;
+  --aa-weight-semibold: 600;
+
+  /* ---- spacing (4px grid; 1-6 equal abstractuic's --space-1..6) ----------- */
+  --aa-space-1: 4px;
+  --aa-space-2: 8px;
+  --aa-space-3: 12px;
+  --aa-space-4: 16px;
+  --aa-space-5: 24px;
+  --aa-space-6: 32px;
+  --aa-space-7: 48px;
+  --aa-space-8: 64px;
+  --aa-gutter: 16px;
+  --aa-reading-max: 46rem;          /* conversation column */
+  --aa-sidebar-w: 17rem;
+  --aa-tap-min: 44px;               /* every target, pointer or touch */
+
+  /* ---- radii (phone: cards 22, suggestions 18, banner 16, code 12, composer 25) -- */
+  --aa-radius-xs: 6px;
+  --aa-radius-sm: 12px;
+  --aa-radius-md: 16px;
+  --aa-radius-lg: 18px;
+  --aa-radius-xl: 22px;
+  --aa-radius-composer: 25px;
+  --aa-radius-pill: 999px;
+
+  /* ---- motion -------------------------------------------------------------- */
+  --aa-ease-morph: cubic-bezier(0.4, 0, 0.2, 1);   /* Design.swift:72 timingCurve(0.4,0,0.2,1) */
+  --aa-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --aa-ease-spring: cubic-bezier(0.32, 0.72, 0, 1); /* composer .spring(duration: 0.35, bounce: 0.05) */
+  --aa-dur-quick: 120ms;            /* hover/press feedback (abstractuic's shared transition) */
+  --aa-dur-ui: 200ms;
+  --aa-dur-composer: 350ms;
+  --aa-dur-morph: 650ms;            /* orb: sphere <-> Stop square <-> hand (morphDuration) */
+  /* Orb clock (OrbFrame/OrbWeave: time-driven, not keyframes). Periods in seconds. */
+  --aa-orb-breath-period: 7.4;      /* sin(t * 0.85): +/-1.8% scale */
+  --aa-orb-pulse-period: 3.5;       /* sin(t * 1.8): working light pulse */
+  --aa-orb-ribbon-period: 40;       /* t * 9 deg/s ribbon rotation */
+  --aa-orb-rim-period: 12.9;        /* t * 28 deg/s rim gradient while working */
+  --aa-orb-fps-idle: 12;
+  --aa-orb-fps-active: 30;
+  --aa-motion-scale: 1;             /* 0 under reduced motion: freeze geometry, keep light */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --aa-ground: #090B16;
+    --aa-surface: #131726;
+    --aa-surface-raised: #1A1F33;
+    --aa-surface-sunken: #0E111D;
+    --aa-overlay-hover: rgba(255, 255, 255, 0.05);
+    --aa-overlay-active: rgba(255, 255, 255, 0.09);
+    --aa-scrim: rgba(3, 4, 10, 0.62);
+    --aa-user-bubble: rgba(173, 166, 255, 0.12);
+    --aa-text: #EDF2FF;
+    --aa-text-muted: #A6B2CC;
+    --aa-border: rgba(255, 255, 255, 0.09);
+    --aa-border-strong: rgba(255, 255, 255, 0.16);
+    --aa-control-border: #5D6680;
+    --aa-focus-ring: #ADA6FF;
+    --aa-mint: #6BE3CC;
+    --aa-mint-text: #6BE3CC;
+    --aa-lavender: #ADA6FF;
+    --aa-lavender-text: #ADA6FF;
+    --aa-amber: #FFC46E;
+    --aa-amber-text: #FFC46E;
+    --aa-approval: #FF9C33;
+    --aa-accent: #6BE3CC;
+    --aa-accent-hover: #8AEAD8;
+    --aa-on-accent: #090B16;
+    --aa-accent-bg: rgba(107, 227, 204, 0.12);
+    --aa-accent-border: rgba(107, 227, 204, 0.35);
+    --aa-success-text: #6BE3CC;
+    --aa-amber-bg: rgba(255, 196, 110, 0.10);
+    --aa-approval-border: rgba(255, 196, 110, 0.30);
+    --aa-danger: #FF8A80;
+    --aa-danger-bg: rgba(255, 138, 128, 0.10);
+    --aa-shadow-card: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 10px 30px rgba(0, 0, 0, 0.35);
+    --aa-shadow-float: 0 14px 40px rgba(0, 0, 0, 0.55);
+    --aa-shadow-orb: 0 0 26px rgba(107, 227, 204, 0.16);
+    --aa-orb-hand-glass: 0.06;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --aa-ground: #090B16;
+  --aa-surface: #131726;
+  --aa-surface-raised: #1A1F33;
+  --aa-surface-sunken: #0E111D;
+  --aa-overlay-hover: rgba(255, 255, 255, 0.05);
+  --aa-overlay-active: rgba(255, 255, 255, 0.09);
+  --aa-scrim: rgba(3, 4, 10, 0.62);
+  --aa-user-bubble: rgba(173, 166, 255, 0.12);
+  --aa-text: #EDF2FF;
+  --aa-text-muted: #A6B2CC;
+  --aa-border: rgba(255, 255, 255, 0.09);
+  --aa-border-strong: rgba(255, 255, 255, 0.16);
+  --aa-control-border: #5D6680;
+  --aa-focus-ring: #ADA6FF;
+  --aa-mint: #6BE3CC;
+  --aa-mint-text: #6BE3CC;
+  --aa-lavender: #ADA6FF;
+  --aa-lavender-text: #ADA6FF;
+  --aa-amber: #FFC46E;
+  --aa-amber-text: #FFC46E;
+  --aa-approval: #FF9C33;
+  --aa-accent: #6BE3CC;
+  --aa-accent-hover: #8AEAD8;
+  --aa-on-accent: #090B16;
+  --aa-accent-bg: rgba(107, 227, 204, 0.12);
+  --aa-accent-border: rgba(107, 227, 204, 0.35);
+  --aa-success-text: #6BE3CC;
+  --aa-amber-bg: rgba(255, 196, 110, 0.10);
+  --aa-approval-border: rgba(255, 196, 110, 0.30);
+  --aa-danger: #FF8A80;
+  --aa-danger-bg: rgba(255, 138, 128, 0.10);
+  --aa-shadow-card: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 10px 30px rgba(0, 0, 0, 0.35);
+  --aa-shadow-float: 0 14px 40px rgba(0, 0, 0, 0.55);
+  --aa-shadow-orb: 0 0 26px rgba(107, 227, 204, 0.16);
+  --aa-orb-hand-glass: 0.06;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --aa-dur-ui: 0ms;
+    --aa-dur-composer: 0ms;
+    --aa-dur-morph: 0ms;
+    --aa-motion-scale: 0;
+  }
+}

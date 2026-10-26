@@ -1,0 +1,344 @@
+/* AbstractAssistant web: the app's styles.
+ *
+ * Design tokens are W4's (web/design/tokens.css, owned by web/design/): this
+ * file only CONSUMES `--aa-*` tokens and never defines a colour of its own.
+ * Kit components (the sign-in modal, Markdown) read the kit's token names,
+ * aliased to ours after the kit's theme, per the mapping in tokens.css.
+ */
+@import "@abstractframework/ui-kit/theme.css";
+@import "@abstractframework/panel-chat/panel_chat.css";
+@import "../../design/tokens.css";
+
+:root {
+  --bg-primary: var(--aa-ground);
+  --bg-secondary: var(--aa-surface);
+  --bg-tertiary: var(--aa-surface-sunken);
+  --bg-card: var(--aa-surface);
+  --text-primary: var(--aa-text);
+  --text-secondary: var(--aa-text-muted);
+  --text-muted: var(--aa-text-muted);
+  --accent: var(--aa-accent);
+  --accent-hover: var(--aa-accent-hover);
+  --accent-subtle: var(--aa-accent-bg);
+  --accent-border: var(--aa-accent-border);
+  --success: var(--aa-success-text);
+  --warning: var(--aa-amber-text);
+  --error: var(--aa-danger);
+  --info: var(--aa-lavender-text);
+  --ui-border-1: var(--aa-border);
+  --ui-border-2: var(--aa-border-strong);
+  --ui-overlay-bg: var(--aa-overlay-hover);
+  --ui-shadow-1: var(--aa-shadow-card);
+  --font-sans: var(--aa-font-sans);
+  --font-mono: var(--aa-font-mono);
+  --radius-sm: var(--aa-radius-sm);
+  --radius-md: var(--aa-radius-md);
+  --radius-lg: var(--aa-radius-lg);
+  --tap-min: var(--aa-tap-min);
+  --reading-max: var(--aa-reading-max);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  background: var(--aa-ground);
+  color: var(--aa-text);
+  font-family: var(--aa-font-sans);
+  font-size: var(--aa-text-body);
+  line-height: var(--aa-leading-body);
+}
+
+.aa-fatal,
+.aa-splash {
+  max-width: var(--aa-reading-max);
+  margin: 15vh auto 0;
+  padding: 0 var(--aa-gutter);
+}
+
+.aa-shell {
+  display: grid;
+  grid-template-columns: var(--aa-sidebar-w) 1fr;
+  height: 100%;
+}
+@media (max-width: 760px) {
+  .aa-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+  .aa-sidebar {
+    max-height: 35vh;
+  }
+}
+
+.aa-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aa-space-2);
+  padding: var(--aa-space-3);
+  background: var(--aa-surface);
+  border-right: 1px solid var(--aa-border);
+  overflow: auto;
+}
+.aa-sidebar__top,
+.aa-sidebar__bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.aa-sidebar__bottom {
+  margin-top: auto;
+}
+.aa-brand {
+  font-weight: var(--aa-weight-semibold);
+  font-size: var(--aa-text-lg);
+}
+.aa-sidebar__error,
+.aa-sidebar__more {
+  font-size: var(--aa-text-sm);
+  color: var(--aa-text-muted);
+}
+.aa-sessions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--aa-space-1);
+}
+.aa-session {
+  width: 100%;
+  min-height: var(--aa-tap-min);
+  text-align: left;
+  padding: var(--aa-space-2) var(--aa-space-3);
+  border: 1px solid transparent;
+  border-radius: var(--aa-radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.aa-session:hover {
+  background: var(--aa-overlay-hover);
+}
+.aa-session--active {
+  background: var(--aa-accent-bg);
+  border-color: var(--aa-accent-border);
+}
+.aa-session__title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.aa-session__meta {
+  display: flex;
+  gap: var(--aa-space-2);
+  font-size: var(--aa-text-xs);
+  color: var(--aa-text-muted);
+}
+
+.aa-state--waiting {
+  color: var(--aa-amber-text);
+}
+.aa-state--running {
+  color: var(--aa-mint-text);
+}
+.aa-state--failed {
+  color: var(--aa-danger);
+}
+
+.aa-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.aa-main__header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--aa-space-3);
+  padding: var(--aa-space-3) var(--aa-gutter);
+  border-bottom: 1px solid var(--aa-border);
+}
+.aa-main__title {
+  margin: 0;
+  font-size: var(--aa-text-lg);
+  font-weight: var(--aa-weight-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aa-banner {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--aa-space-3);
+  margin: var(--aa-space-2) var(--aa-gutter) 0;
+  padding: var(--aa-space-2) var(--aa-space-3);
+  border-radius: var(--aa-radius-md);
+  background: var(--aa-surface-raised);
+  border: 1px solid var(--aa-border);
+}
+.aa-banner--warn {
+  background: var(--aa-amber-bg);
+}
+.aa-banner--error {
+  background: var(--aa-danger-bg);
+}
+
+.aa-thread {
+  flex: 1;
+  overflow: auto;
+  padding: var(--aa-space-4) var(--aa-gutter);
+  display: flex;
+  flex-direction: column;
+  gap: var(--aa-space-3);
+}
+.aa-thread > * {
+  max-width: var(--aa-reading-max);
+  width: 100%;
+  margin-inline: auto;
+}
+.aa-empty,
+.aa-activity {
+  color: var(--aa-text-muted);
+}
+.aa-msg {
+  padding: var(--aa-space-3) var(--aa-space-4);
+  border-radius: var(--aa-radius-lg);
+  background: var(--aa-surface);
+  border: 1px solid var(--aa-border);
+}
+.aa-msg--user {
+  background: var(--aa-user-bubble);
+}
+.aa-msg--notice {
+  background: transparent;
+  color: var(--aa-text-muted);
+}
+.aa-msg--live {
+  border-style: dashed;
+}
+.aa-msg__text {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.aa-msg__files {
+  margin: var(--aa-space-2) 0 0;
+  padding-left: var(--aa-space-4);
+  font-size: var(--aa-text-sm);
+  color: var(--aa-text-muted);
+}
+
+.aa-wait {
+  padding: var(--aa-space-3) var(--aa-space-4);
+  border-radius: var(--aa-radius-lg);
+  background: var(--aa-amber-bg);
+  border: 1px solid var(--aa-approval-border);
+}
+.aa-wait__title {
+  margin: 0 0 var(--aa-space-2);
+  font-size: var(--aa-text-md);
+}
+.aa-wait__tool-name {
+  font-family: var(--aa-font-mono);
+  color: var(--aa-lavender-text);
+}
+.aa-wait__args {
+  margin: var(--aa-space-1) 0 var(--aa-space-2);
+  padding: var(--aa-space-2);
+  overflow: auto;
+  max-height: 14rem;
+  background: var(--aa-surface-sunken);
+  border-radius: var(--aa-radius-sm);
+  font-family: var(--aa-font-mono);
+  font-size: var(--aa-text-sm);
+}
+.aa-wait__note {
+  font-size: var(--aa-text-sm);
+  color: var(--aa-text-muted);
+}
+.aa-wait__actions {
+  display: flex;
+  gap: var(--aa-space-2);
+}
+
+.aa-composer {
+  padding: var(--aa-space-3) var(--aa-gutter) var(--aa-space-4);
+  border-top: 1px solid var(--aa-border);
+}
+.aa-composer__row {
+  display: flex;
+  gap: var(--aa-space-2);
+  align-items: flex-end;
+  max-width: var(--aa-reading-max);
+  margin-inline: auto;
+}
+.aa-composer__input,
+.aa-input {
+  flex: 1;
+  min-height: var(--aa-tap-min);
+  padding: var(--aa-space-2) var(--aa-space-3);
+  border: 1px solid var(--aa-control-border);
+  border-radius: var(--aa-radius-composer);
+  background: var(--aa-surface-sunken);
+  color: inherit;
+  font: inherit;
+  resize: vertical;
+}
+.aa-composer__files,
+.aa-composer__note {
+  max-width: var(--aa-reading-max);
+  margin: 0 auto var(--aa-space-2);
+  font-size: var(--aa-text-sm);
+  color: var(--aa-text-muted);
+}
+
+.aa-button {
+  min-height: var(--aa-tap-min);
+  padding: 0 var(--aa-space-4);
+  border-radius: var(--aa-radius-pill);
+  border: 1px solid var(--aa-border-strong);
+  background: var(--aa-surface-raised);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.aa-button--primary {
+  background: var(--aa-accent);
+  border-color: var(--aa-accent);
+  color: var(--aa-on-accent);
+}
+.aa-button--primary:hover {
+  background: var(--aa-accent-hover);
+}
+.aa-button--icon {
+  min-width: var(--aa-tap-min);
+  padding: 0 var(--aa-space-2);
+}
+.aa-button--recording {
+  border-color: var(--aa-danger);
+  color: var(--aa-danger);
+}
+.aa-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.aa-button:focus-visible,
+.aa-link:focus-visible,
+.aa-session:focus-visible {
+  outline: 2px solid var(--aa-focus-ring);
+  outline-offset: 2px;
+}
+.aa-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--aa-accent);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}

@@ -13,6 +13,26 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   one sign-in for both (the watch takes the iPhone's); Apple push on both apps (registration with the
   gateway and notification service extensions, framework backlog 1049). See the iPhone and watch
   changelogs.
+- **The macOS app can be signed and notarized** (ADR 0006, Proposed). `build-macos-app --sign`
+  signs it with a Developer ID Application identity, the hardened runtime and
+  `packaging/macos/entitlements.plist`, then checks it with `codesign --verify` and `spctl`;
+  `--notarize` sends it to Apple with `notarytool` and staples the ticket; `--dmg` builds a disk
+  image; `--dry-run` prints every command. Without these flags the build is the unsigned one it
+  always was. The operator's checklist is `docs/macos-signing.md`. The Mac app's bundle id is now
+  `ai.abstractframework.assistant.mac`, in the iPhone and watch family (was
+  `ai.abstractcore.abstractassistant`): after the next build, macOS asks once more for the
+  microphone and for Accessibility (the hotkey); settings and chats in `~/.abstractassistant` are
+  unchanged. A build environment without `webrtcvad-wheels` is now refused at once instead of
+  failing minutes into PyInstaller.
+- **The Assistant on the web, first scaffold** (`web/`, ADR 0007 Proposed, backlog 1057): a
+  browser app on the framework's app server (`@abstractframework/assistant`, not published yet;
+  the gateway does not list it yet, so it runs by hand: `web/README.md`). Your conversations from
+  the gateway, a conversation's history, send with attachments, the answer as it is written, tool
+  approvals and questions inside the conversation, stop, read aloud and dictation on the gateway's
+  voice engines. The page keeps no token and no copy of your chats, and never installs a workflow:
+  when the Assistant's workflow is missing it says so. The conversation list and the run input are
+  the desktop's, checked by tests against the desktop's own fixtures; the page reaches the gateway
+  only through a small host interface, so a future desktop shell can reuse it.
 
 ### Changed
 

@@ -1,0 +1,47 @@
+{
+  "name": "@abstractframework/assistant",
+  "version": "0.0.1",
+  "private": true,
+  "description": "AbstractAssistant for the web: the Assistant's conversation surface in a browser, a thin client of AbstractGateway (served by the gateway at /apps/assistant-web/).",
+  "type": "module",
+  "author": "Laurent-Philippe Albou",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lpalbou/abstractassistant.git",
+    "directory": "web"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "bin": {
+    "abstractassistant-web": "bin/cli.js"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md"
+  ],
+  "scripts": {
+    "dev": "vite --port 3008",
+    "build": "tsc && vite build && node scripts/check_relative_urls.mjs --dist",
+    "check:urls": "node scripts/check_relative_urls.mjs",
+    "start": "node ./bin/cli.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@abstractframework/app-server": "0.1.12"
+  },
+  "devDependencies": {
+    "@abstractframework/panel-chat": "0.4.1",
+    "@abstractframework/ui-kit": "0.8.7",
+    "@types/react": "18.3.27",
+    "@types/react-dom": "18.3.7",
+    "@vitejs/plugin-react": "4.7.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "typescript": "5.9.3",
+    "vite": "6.4.3",
+    "vitest": "5.0.4"
+  }
+}

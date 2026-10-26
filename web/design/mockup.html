@@ -1,0 +1,842 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AbstractAssistant web mockup</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+/* Static design mockup. Everything here consumes tokens.css; no literal colours except the
+   balcony illustration and the orb fallback (the orb is theme-independent glass). */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--aa-ground); color: var(--aa-text);
+  font: var(--aa-weight-regular) var(--aa-text-md)/var(--aa-leading-ui) var(--aa-font-sans);
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+}
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+a { color: inherit; text-decoration: none; }
+:focus-visible { outline: 2px solid var(--aa-focus-ring); outline-offset: 2px; border-radius: 10px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+svg.i { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6;
+  stroke-linecap: round; stroke-linejoin: round; }
+svg.i.sm { width: 16px; height: 16px; }
+svg.i.lg { width: 24px; height: 24px; }
+.quiet { font: var(--aa-weight-semibold) var(--aa-text-2xs)/1.2 var(--aa-font-rounded);
+  letter-spacing: var(--aa-tracking-label); text-transform: uppercase; color: var(--aa-text-muted); }
+.skip { position: absolute; left: 12px; top: 12px; z-index: 10; padding: 10px 14px; border-radius: 12px;
+  background: var(--aa-surface); translate: 0 -300%; }
+.skip:focus { translate: 0 0; box-shadow: var(--aa-shadow-float); }
+
+/* ---------- shell ---------- */
+.app { display: grid; grid-template-columns: var(--aa-sidebar-w) minmax(0, 1fr); height: 100dvh; }
+.sidebar { display: flex; flex-direction: column; gap: var(--aa-space-4); min-height: 0;
+  padding: var(--aa-space-5) var(--aa-space-4) var(--aa-space-4); border-right: 1px solid var(--aa-border); }
+.brand { display: flex; align-items: center; gap: 10px; padding: 0 var(--aa-space-2);
+  font: var(--aa-weight-semibold) var(--aa-text-lg)/1 var(--aa-font-rounded); }
+.brand-orb { width: 26px; height: 26px; border-radius: 50%;
+  background: radial-gradient(circle at 32% 28%, rgba(107,227,204,.75), rgba(173,166,255,.45) 50%, #090B16 100%);
+  box-shadow: 0 0 0 1px rgba(173,166,255,.35), 0 0 14px rgba(107,227,204,.25); }
+.spaces { display: grid; gap: 2px; }
+.space { display: flex; align-items: center; gap: 12px; min-height: var(--aa-tap-min); padding: 0 12px;
+  border-radius: 14px; color: var(--aa-text-muted); font-weight: var(--aa-weight-medium);
+  transition: background var(--aa-dur-quick); }
+.space:hover { background: var(--aa-overlay-hover); color: var(--aa-text); }
+.space[aria-current="page"] { background: var(--aa-accent-bg); color: var(--aa-mint-text); }
+.badge { margin-left: auto; min-width: 22px; height: 22px; padding: 0 7px; border-radius: var(--aa-radius-pill);
+  background: var(--aa-amber-text); color: var(--aa-surface); font-size: var(--aa-text-xs);
+  font-weight: var(--aa-weight-semibold); display: inline-grid; place-items: center; }
+.new-conv { display: flex; align-items: center; gap: 10px; min-height: var(--aa-tap-min); padding: 0 14px;
+  border: 1px solid var(--aa-accent-border); border-radius: 14px; background: transparent;
+  color: var(--aa-mint-text); font-weight: var(--aa-weight-medium); }
+.new-conv:hover { background: var(--aa-accent-bg); }
+.history { flex: 1; min-height: 0; overflow: auto; display: grid; align-content: start; gap: 2px; margin: 0 -4px; padding: 0 4px; }
+.history .quiet { padding: 14px 12px 6px; }
+.conv { display: grid; gap: 2px; padding: 10px 12px; border-radius: 14px; }
+.conv:hover { background: var(--aa-overlay-hover); }
+.conv[aria-current="true"] { background: var(--aa-surface); box-shadow: var(--aa-shadow-card); }
+.conv b { font-weight: var(--aa-weight-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conv span { font-size: var(--aa-text-xs); color: var(--aa-text-muted); display: flex; gap: 6px; align-items: center; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--aa-amber-text); }
+.needs { color: var(--aa-amber-text); font-weight: var(--aa-weight-medium); }
+.sidebar-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding-top: var(--aa-space-3); border-top: 1px solid var(--aa-border); }
+.seg { display: inline-flex; padding: 3px; gap: 2px; border-radius: var(--aa-radius-pill); background: var(--aa-surface-sunken); }
+.seg button { min-height: var(--aa-tap-min); min-width: var(--aa-tap-min); justify-content: center; padding: 0 10px; border: 0; border-radius: var(--aa-radius-pill);
+  background: transparent; color: var(--aa-text-muted); font-size: var(--aa-text-sm); display: inline-flex; align-items: center; gap: 6px; }
+.seg button[aria-pressed="true"] { background: var(--aa-surface); color: var(--aa-text); box-shadow: var(--aa-shadow-card); }
+.icon-btn { width: var(--aa-tap-min); height: var(--aa-tap-min); display: inline-grid; place-items: center;
+  border: 0; border-radius: 50%; background: transparent; color: var(--aa-text-muted); transition: background var(--aa-dur-quick), color var(--aa-dur-quick); }
+.icon-btn:hover { background: var(--aa-overlay-hover); color: var(--aa-text); }
+
+.main { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; }
+.topbar { display: flex; align-items: center; gap: var(--aa-space-2); min-height: 64px;
+  padding: calc(var(--aa-space-2) + env(safe-area-inset-top, 0px)) var(--aa-gutter) var(--aa-space-2); }
+.who { display: inline-flex; align-items: center; gap: 8px; min-height: var(--aa-tap-min); padding: 0 12px;
+  border: 0; border-radius: 14px; background: transparent; text-align: left; }
+.who:hover { background: var(--aa-overlay-hover); }
+.who strong { font: var(--aa-weight-semibold) var(--aa-text-md)/1.2 var(--aa-font-rounded); display: flex; align-items: center; gap: 4px; }
+.who small { display: block; color: var(--aa-text-muted); font-size: var(--aa-text-xs); }
+.island { display: inline-flex; padding: 2px; border-radius: var(--aa-radius-pill); background: var(--aa-surface); border: 1px solid var(--aa-border); }
+.tools { color: var(--aa-lavender-text) !important; }
+.spacer { flex: 1; }
+.only-compact { display: none !important; }
+
+/* ---------- views (pure CSS tabs: :target, Assistant when nothing is targeted) ---------- */
+.view { display: none; min-height: 0; overflow: auto; }
+.view:focus { outline: none; }  /* a scroller focused by fragment navigation: no ring around the whole page */
+.view:target, .main:not(:has(.view:target)) #assistant { display: block; }
+#assistant { display: none; }
+.main:not(:has(.view:target)) #assistant, #assistant:target { display: flex; flex-direction: column; overflow: hidden; }
+.page { max-width: var(--aa-reading-max); margin: 0 auto; padding: var(--aa-space-4) var(--aa-gutter) var(--aa-space-7); }
+.page-head { display: flex; align-items: center; gap: var(--aa-space-3); margin: var(--aa-space-3) 0 var(--aa-space-5); }
+h1 { margin: 0; font: var(--aa-weight-semibold) var(--aa-text-xl)/1.2 var(--aa-font-rounded); }
+h2 { margin: 0; font: var(--aa-weight-semibold) var(--aa-text-lg)/var(--aa-leading-tight) var(--aa-font-rounded); }
+
+/* ---------- conversation ---------- */
+.scroll { flex: 1; min-height: 0; overflow: auto; }
+.thread { max-width: var(--aa-reading-max); margin: 0 auto; padding: var(--aa-space-4) var(--aa-gutter) var(--aa-space-6);
+  display: grid; gap: var(--aa-space-6); }
+.turn-you { justify-self: end; max-width: min(85%, 34rem); display: grid; justify-items: end; gap: 8px; }
+.bubble { padding: 14px 17px; border-radius: var(--aa-radius-xl); background: var(--aa-user-bubble);
+  font-size: var(--aa-text-body); line-height: var(--aa-leading-body); }
+.thumb { display: inline-flex; padding: 0; border: 1px solid var(--aa-border); border-radius: var(--aa-radius-sm);
+  overflow: hidden; background: var(--aa-surface-sunken); }
+.thumb svg { display: block; height: 56px; width: auto; }
+.answer { display: grid; gap: 12px; }
+.answer-head { display: flex; align-items: center; gap: 8px; color: var(--aa-mint-text); }
+.prose { font-size: var(--aa-text-body); line-height: var(--aa-leading-body); }
+.prose p { margin: 0 0 12px; }
+.prose p:last-child { margin-bottom: 0; }
+.prose ol { margin: 0 0 12px; padding-left: 1.6em; }
+.prose li { margin: 6px 0; padding-left: 4px; }
+.prose li::marker { color: var(--aa-lavender-text); }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-left: -12px; color: var(--aa-text-muted);
+  font-size: var(--aa-text-sm); }
+.act { display: inline-flex; align-items: center; gap: 6px; min-height: var(--aa-tap-min); min-width: var(--aa-tap-min);
+  justify-content: center; padding: 0 12px; border: 0; border-radius: 12px; background: transparent; color: inherit; }
+.act:hover { background: var(--aa-overlay-hover); color: var(--aa-text); }
+.act.tools-count { color: var(--aa-lavender-text); }
+.act.reading { color: var(--aa-mint-text); background: var(--aa-accent-bg); }
+.reading-note { color: var(--aa-mint-text); font-size: var(--aa-text-xs); margin-left: 4px; }
+
+.card { background: var(--aa-surface); border: 1px solid var(--aa-border); border-radius: var(--aa-radius-xl);
+  padding: 18px; box-shadow: var(--aa-shadow-card); }
+.answered { display: flex; align-items: flex-start; gap: 12px; padding: 12px 16px; border-radius: var(--aa-radius-md);
+  border: 1px solid var(--aa-border); color: var(--aa-text-muted); font-size: var(--aa-text-sm); }
+.answered svg { color: var(--aa-mint-text); margin-top: 1px; }
+.answered strong { color: var(--aa-text); font-weight: var(--aa-weight-medium); }
+
+.approval { border-color: var(--aa-approval-border); background:
+  linear-gradient(var(--aa-amber-bg), var(--aa-amber-bg)), var(--aa-surface); display: grid; gap: 16px; }
+.approval-head { display: flex; gap: 12px; align-items: flex-start; }
+.approval-head svg { color: var(--aa-amber-text); }
+.approval-head h3 { margin: 0; font: var(--aa-weight-semibold) var(--aa-text-lg)/1.3 var(--aa-font-rounded); }
+.approval-head p { margin: 2px 0 0; color: var(--aa-text-muted); font-size: var(--aa-text-sm); }
+.action { display: grid; gap: 10px; padding: 14px 16px; border-radius: var(--aa-radius-md); background: var(--aa-surface); border: 1px solid var(--aa-border); }
+.action-title { display: flex; align-items: center; gap: 10px; font-weight: var(--aa-weight-semibold); }
+.action-title svg { color: var(--aa-lavender-text); }
+.action .quiet { color: var(--aa-amber-text); }
+dl.args { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; font-size: var(--aa-text-sm); }
+dl.args dt { color: var(--aa-text-muted); }
+dl.args dd { margin: 0; overflow-wrap: anywhere; }
+details.tech summary { cursor: pointer; color: var(--aa-text-muted); font-size: var(--aa-text-sm); min-height: 32px; display: flex; align-items: center; gap: 6px; }
+details.tech pre { margin: 8px 0 0; padding: 12px 14px; border-radius: var(--aa-radius-sm); background: var(--aa-surface-sunken);
+  font: var(--aa-text-xs)/1.5 var(--aa-font-mono); overflow-x: auto; color: var(--aa-text); }
+.decide { display: flex; flex-wrap: wrap; gap: 10px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: var(--aa-tap-min);
+  padding: 0 18px; border-radius: 14px; border: 1px solid var(--aa-control-border); background: var(--aa-surface);
+  font-weight: var(--aa-weight-medium); transition: background var(--aa-dur-quick), transform var(--aa-dur-quick); }
+.btn:hover { background: var(--aa-overlay-hover); }
+.btn:active { transform: scale(.98); }
+.btn.primary { background: var(--aa-accent); border-color: var(--aa-accent); color: var(--aa-on-accent); }
+.btn.primary:hover { background: var(--aa-accent-hover); }
+.btn.danger { color: var(--aa-danger); }
+.btn.wide { flex: 1 1 10rem; }
+.fineprint { margin: 0; color: var(--aa-text-muted); font-size: var(--aa-text-sm); }
+
+/* ---------- composer ---------- */
+.dock { padding: var(--aa-space-2) var(--aa-gutter) calc(var(--aa-space-3) + env(safe-area-inset-bottom, 0px)); }
+.composer { max-width: var(--aa-reading-max); margin: 0 auto; display: flex; align-items: center; gap: 12px; min-height: 84px; }
+.round { width: 48px; height: 48px; flex: none; display: grid; place-items: center; border-radius: 50%;
+  border: 1px solid var(--aa-control-border); background: var(--aa-surface); color: var(--aa-lavender-text); }
+.round:hover { background: var(--aa-surface-raised); }
+.field { flex: 1; min-width: 0; display: flex; align-items: flex-end; gap: 8px; padding: 6px 6px 6px 18px;
+  border: 1px solid var(--aa-control-border); border-radius: var(--aa-radius-composer); background: var(--aa-surface); }
+.field textarea { flex: 1; min-height: 34px; max-height: 9.5rem; padding: 7px 0; border: 0; outline: 0; resize: none;
+  background: transparent; font-size: var(--aa-text-md); line-height: 1.4; }
+.field textarea::placeholder { color: var(--aa-text-muted); opacity: 1; }
+.field:focus-within { outline: 2px solid var(--aa-focus-ring); outline-offset: 2px; }
+.send { width: 36px; height: 36px; flex: none; border-radius: 50%; border: 0; display: grid; place-items: center;
+  background: var(--aa-accent); color: var(--aa-on-accent); }
+.send:disabled { opacity: .35; cursor: default; }
+.send { position: relative; }
+.send::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; }  /* 44px hit area around a 36px disc */
+.kbd-btn { display: none; }
+.orb-wrap { position: relative; width: var(--aa-orb-hit); height: 80px; flex: none; display: grid; place-items: center; }
+.orb-btn { position: relative; width: var(--aa-orb-size); height: var(--aa-orb-size); padding: 0; border: 0; border-radius: 50%;
+  background: radial-gradient(circle at 32% 28%, rgba(107,227,204,.45), rgba(173,166,255,.3) 50%, #090B16 100%);
+  box-shadow: var(--aa-shadow-orb); }
+.orb-btn.live { background: transparent; box-shadow: none; }
+.orb-btn canvas { position: absolute; left: 50%; top: 50%; translate: -50% -50%; pointer-events: none; }
+.orb-btn:focus-visible { outline-offset: 6px; border-radius: 22px; }
+.orb-label { position: absolute; top: -8px; left: 50%; translate: -50% 0; white-space: nowrap;
+  font-size: var(--aa-text-xs); color: var(--aa-text-muted); pointer-events: none; }
+.orb-label.amber { color: var(--aa-amber-text); font-weight: var(--aa-weight-medium); }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; max-width: var(--aa-reading-max); margin: 0 auto 6px; }
+.chip { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 6px 4px 4px; border-radius: var(--aa-radius-pill);
+  background: var(--aa-surface); border: 1px solid var(--aa-border); font-size: var(--aa-text-sm); }
+.chip .mini { width: 28px; height: 28px; border-radius: 50%; overflow: hidden; display: grid; place-items: center; }
+.chip .mini svg { height: 28px; width: auto; }
+.chip button { width: 28px; height: 28px; border: 0; border-radius: 50%; background: transparent; color: var(--aa-text-muted); display: grid; place-items: center; }
+.latest { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 16px; border-radius: var(--aa-radius-pill);
+  border: 1px solid var(--aa-border); background: var(--aa-surface-raised); box-shadow: var(--aa-shadow-float);
+  color: var(--aa-text); font-size: var(--aa-text-sm); font-weight: var(--aa-weight-medium); }
+
+/* ---------- inbox & automations ---------- */
+.stack { display: grid; gap: 14px; }
+.section-label { margin: var(--aa-space-6) 0 var(--aa-space-3); }
+.section-label.amber { color: var(--aa-amber-text); }
+.wait-kind { display: flex; align-items: center; gap: 8px; color: var(--aa-amber-text); font-weight: var(--aa-weight-medium); font-size: var(--aa-text-sm); }
+.wait-kind .from { margin-left: auto; color: var(--aa-text-muted); font-weight: var(--aa-weight-regular); }
+.question { margin: 12px 0 16px; font: var(--aa-weight-semibold) var(--aa-text-lg)/1.35 var(--aa-font-rounded); }
+.choices { display: grid; gap: 10px; }
+.choice { justify-content: flex-start; text-align: left; padding: 10px 16px; min-height: 52px; }
+.choice small { display: block; color: var(--aa-text-muted); font-weight: var(--aa-weight-regular); font-size: var(--aa-text-sm); }
+.answer-field { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.answer-field input { flex: 1 1 14rem; min-height: var(--aa-tap-min); padding: 0 14px; border-radius: 14px;
+  border: 1px solid var(--aa-control-border); background: var(--aa-surface); font-size: var(--aa-text-md); }
+.answer-field input::placeholder { color: var(--aa-text-muted); opacity: 1; }
+.row-link { display: flex; align-items: center; gap: 14px; }
+.row-link > div { flex: 1; min-width: 0; }
+.row-link .title { font-weight: var(--aa-weight-semibold); font-size: var(--aa-text-md); }
+.row-link .sub { color: var(--aa-text-muted); font-size: var(--aa-text-sm); }
+.activity { display: grid; }
+.activity a { display: flex; gap: 14px; align-items: flex-start; padding: 14px 4px; border-bottom: 1px solid var(--aa-border); }
+.activity a:last-child { border-bottom: 0; }
+.activity .ok { color: var(--aa-mint-text); }
+.activity .wait { color: var(--aa-amber-text); }
+.activity .bad { color: var(--aa-danger); }
+.activity b { display: block; font-weight: var(--aa-weight-medium); }
+.activity span { color: var(--aa-text-muted); font-size: var(--aa-text-sm); }
+.activity .chev { margin-left: auto; color: var(--aa-text-muted); align-self: center; }
+.auto { display: grid; gap: 10px; }
+.auto-top { display: flex; align-items: center; gap: 10px; color: var(--aa-lavender-text); }
+.status { margin-left: auto; font: var(--aa-weight-semibold) var(--aa-text-2xs)/1 var(--aa-font-rounded); letter-spacing: var(--aa-tracking-label); text-transform: uppercase; }
+.status.active { color: var(--aa-success-text); }
+.status.paused { color: var(--aa-text-muted); }
+.trigger { color: var(--aa-text-muted); font-size: var(--aa-text-sm); display: flex; align-items: center; gap: 8px; }
+.result { margin: 0; font-size: var(--aa-text-md); line-height: 1.5; }
+.new-result { display: inline-flex; align-items: center; gap: 6px; color: var(--aa-amber-text); font-size: var(--aa-text-xs); font-weight: var(--aa-weight-semibold); }
+.auto-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: var(--aa-text-sm); color: var(--aa-lavender-text); }
+.auto-foot .btn { min-height: 40px; padding: 0 14px; font-size: var(--aa-text-sm); color: var(--aa-text); }
+
+/* ---------- specimen ---------- */
+.specimen-note { padding: 12px 16px; border: 1px dashed var(--aa-border-strong); border-radius: var(--aa-radius-md);
+  color: var(--aa-text-muted); font-size: var(--aa-text-sm); margin-bottom: var(--aa-space-5); }
+.spec-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 21rem), 1fr)); }
+.spec { display: grid; gap: 10px; align-content: start; }
+.spec h3 { margin: 0; font: var(--aa-weight-semibold) var(--aa-text-md)/1.3 var(--aa-font-rounded); }
+.spec p { margin: 0; color: var(--aa-text-muted); font-size: var(--aa-text-sm); }
+.spec code { font: var(--aa-text-xs) var(--aa-font-mono); background: var(--aa-surface-sunken); padding: 1px 5px; border-radius: 5px; color: var(--aa-text); }
+.phone-composer { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: var(--aa-radius-lg); background: var(--aa-ground); border: 1px solid var(--aa-border); }
+.phone-composer .grow { flex: 1; }
+.demo { display: grid; justify-items: center; gap: 18px; padding: 28px 16px; }
+.demo .orb-wrap { width: 220px; height: 210px; }
+.demo .orb-btn { width: 160px; height: 160px; }
+.demo .seg { flex-wrap: wrap; justify-content: center; border-radius: 24px; }
+.demo .seg button { white-space: nowrap; }
+
+/* ---------- compact (phones, narrow windows) ---------- */
+.tabbar { display: none; }
+@media (max-width: 1023.98px) {
+  .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  .sidebar, .only-wide { display: none !important; }
+  .only-compact { display: inline-grid !important; }
+  .topbar { justify-content: space-between; }
+  .topbar .who { margin: 0 auto; text-align: center; }
+  .topbar .who small { text-align: center; }
+  .tabbar { display: flex; justify-content: center; padding: 6px var(--aa-gutter) calc(8px + env(safe-area-inset-bottom, 0px)); }
+  .tabs { display: flex; gap: 4px; padding: 5px; border-radius: 32px; background: var(--aa-surface); border: 1px solid var(--aa-border);
+    box-shadow: var(--aa-shadow-float); width: min(100%, 26rem); }
+  .tab { position: relative; flex: 1; display: grid; justify-items: center; gap: 2px; padding: 7px 4px 6px; border-radius: 26px;
+    color: var(--aa-text-muted); font-size: var(--aa-text-xs); font-weight: var(--aa-weight-medium); min-height: 52px; }
+  .tab[aria-current="page"] { background: var(--aa-accent-bg); color: var(--aa-mint-text); }
+  .tab .badge { position: absolute; top: 2px; left: calc(50% + 6px); margin: 0; min-width: 20px; height: 20px; font-size: 11px; padding: 0 6px; }
+}
+@media (max-width: 599.98px) {
+  .composer .field { display: none; }
+  .composer .kbd-btn { display: grid; }
+  .composer .grow { flex: 1; }
+  .dock { padding-bottom: 0; }
+  .thread { gap: var(--aa-space-5); }
+  .turn-you { max-width: 88%; }
+}
+@media (min-width: 600px) { .composer .grow { display: none; } }
+
+/* the conversation bar belongs to the Assistant space */
+.app:has(#inbox:target) .topbar, .app:has(#automations:target) .topbar, .app:has(#states:target) .topbar { display: none; }
+.app:has(#inbox:target) .main, .app:has(#automations:target) .main, .app:has(#states:target) .main { grid-template-rows: minmax(0, 1fr); }
+.page { padding-top: calc(var(--aa-space-4) + env(safe-area-inset-top, 0px)); }
+
+/* current-space highlight: the tab or rail item of the targeted view */
+.app:has(#inbox:target) [data-space="assistant"],
+.app:has(#automations:target) [data-space="assistant"],
+.app:has(#states:target) [data-space="assistant"] { background: transparent; color: var(--aa-text-muted); }
+.app:has(#inbox:target) [data-space="inbox"],
+.app:has(#automations:target) [data-space="automations"] { background: var(--aa-accent-bg); color: var(--aa-mint-text); }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<a class="skip" href="#composer-input">Skip to the message box</a>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3c.6 4.6 3.4 7.4 8 8-4.6.6-7.4 3.4-8 8-.6-4.6-3.4-7.4-8-8 4.6-.6 7.4-3.4 8-8z"/></symbol>
+  <symbol id="i-tray" viewBox="0 0 24 24"><path d="M4 13l2.5-7h11L20 13v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M4 13h4.5l1 2h5l1-2H20"/></symbol>
+  <symbol id="i-auto" viewBox="0 0 24 24"><path d="M3.8 12.5a8.3 8.3 0 1 0 2.4-6.4"/><path d="M3.5 3.5v4h4"/><path d="M12 7.8V12l3 2"/></symbol>
+  <symbol id="i-stack" viewBox="0 0 24 24"><rect x="4.5" y="9" width="15" height="10.5" rx="2.5"/><path d="M6.5 6h11M8.5 3.5h7"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><path d="M18.8 10.3L21.1 10.5L21.1 13.5L18.8 13.7L18.0 15.6L19.5 17.4L17.4 19.5L15.6 18.0L13.7 18.8L13.5 21.1L10.5 21.1L10.3 18.8L8.4 18.0L6.6 19.5L4.5 17.4L6.0 15.6L5.2 13.7L2.9 13.5L2.9 10.5L5.2 10.3L6.0 8.4L4.5 6.6L6.6 4.5L8.4 6.0L10.3 5.2L10.5 2.9L13.5 2.9L13.7 5.2L15.6 6.0L17.4 4.5L19.5 6.6L18.0 8.4Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 3.5v11M8 7.5l4-4 4 4"/><path d="M7 10.5H6a1.5 1.5 0 0 0-1.5 1.5v7A1.5 1.5 0 0 0 6 20.5h12a1.5 1.5 0 0 0 1.5-1.5v-7a1.5 1.5 0 0 0-1.5-1.5h-1"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7A1.5 1.5 0 0 1 5 5.5h4l2 2h8A1.5 1.5 0 0 1 20.5 9v8.5A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z"/></symbol>
+  <symbol id="i-tools" viewBox="0 0 24 24"><path d="M14.6 6.2a1 1 0 0 0 0 1.4l1.8 1.8a1 1 0 0 0 1.4 0l3.4-3.4a5.6 5.6 0 0 1-7.5 7.5l-6.6 6.6a2.1 2.1 0 0 1-3-3l6.6-6.6a5.6 5.6 0 0 1 7.5-7.5z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-kbd" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M7 10h.01M10 10h.01M13 10h.01M16 10h.01M8 14h8"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5V6.5a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2"/></symbol>
+  <symbol id="i-speaker" viewBox="0 0 24 24"><path d="M4 9.5h3l4.5-4v13L7 14.5H4z"/><path d="M15 9a4 4 0 0 1 0 6M17.5 6.5a7.5 7.5 0 0 1 0 11"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9 6.5v11M15 6.5v11" stroke-width="2.4"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/></symbol>
+  <symbol id="i-cycles" viewBox="0 0 24 24"><path d="M4.5 11.5a7.5 7.5 0 0 1 13-4.6l1.5 1.6"/><path d="M19 4.5v4h-4"/><path d="M19.5 12.5a7.5 7.5 0 0 1-13 4.6L5 15.5"/><path d="M5 19.5v-4h4"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.3 2.5 3.4 5.3 3.4 8.5s-1.1 6-3.4 8.5c-2.3-2.5-3.4-5.3-3.4-8.5s1.1-6 3.4-8.5z"/></symbol>
+  <symbol id="i-hand" viewBox="0 0 24 24"><path d="M10.1 21.6L9.2 20.1L8.2 18.6L7.0 17.1L5.8 15.7L4.7 14.3L4.1 13.2L4.1 12.6L4.3 12.1L4.8 11.7L5.4 11.6L5.9 11.9L6.7 12.7L7.7 13.9L8.2 12.5L8.2 8.4L8.4 5.9L8.6 5.1L9.0 4.7L9.5 4.7L10.0 4.9L10.4 5.3L10.6 7.0L10.6 10.0L10.7 11.5L11.0 11.7L11.2 9.6L11.3 5.3L11.5 2.8L11.7 2.2L12.1 1.9L12.6 1.9L13.1 2.1L13.5 2.6L13.7 4.9L13.7 8.9L13.8 11.0L14.1 11.2L14.3 9.6L14.4 6.3L14.6 4.4L14.9 3.7L15.3 3.4L15.8 3.4L16.2 3.7L16.6 4.2L16.8 6.4L16.8 10.3L16.9 12.3L17.2 12.5L17.4 11.4L17.5 9.0L17.7 7.5L18.0 6.9L18.4 6.6L18.9 6.7L19.3 7.1L19.7 7.6L19.9 9.9L19.9 13.9L19.8 16.6L19.5 17.9L19.0 19.0L18.0 20.1L17.5 21.0L17.2 21.9L15.4 22.4L12.2 22.4Z"/></symbol>
+  <symbol id="i-ask" viewBox="0 0 24 24"><path d="M5 4.5h14A1.5 1.5 0 0 1 20.5 6v9a1.5 1.5 0 0 1-1.5 1.5h-7l-4.5 3.5v-3.5H5A1.5 1.5 0 0 1 3.5 15V6A1.5 1.5 0 0 1 5 4.5z"/><path d="M10 9a2 2 0 1 1 2.8 1.8c-.5.3-.8.7-.8 1.2M12 14h.01"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+  <symbol id="i-out" viewBox="0 0 24 24"><path d="M7 17L17 7M9 7h8v8"/></symbol>
+  <symbol id="i-arrowdown" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="4" y="5.5" width="16" height="14.5" rx="2.5"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M4.5 7l7.5 6 7.5-6"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.8"/><path d="M12 2.8v2M12 19.2v2M2.8 12h2M19.2 12h2M5.5 5.5l1.4 1.4M17.1 17.1l1.4 1.4M5.5 18.5l1.4-1.4M17.1 6.9l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M19.5 14.5A7.8 7.8 0 0 1 9.5 4.5a7.8 7.8 0 1 0 10 10z"/></symbol>
+  <symbol id="i-system" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="11.5" rx="2"/><path d="M9 20h6M12 16.5V20"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><path d="M6 12h.01M12 12h.01M18 12h.01" stroke-width="3"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10-6.5z"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+  <symbol id="i-inbox-in" viewBox="0 0 24 24"><path d="M4 13l2.5-7h11L20 13v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M4 13h4.5l1 2h5l1-2H20M12 3v6M9.5 6.5L12 9l2.5-2.5"/></symbol>
+  <symbol id="i-hand-tap" viewBox="0 0 24 24"><path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V10m0-1.5a1.5 1.5 0 0 1 3 0V11m0-1a1.5 1.5 0 0 1 3 0v4.5a6 6 0 0 1-6 6h-.6a5 5 0 0 1-3.9-1.9L4.6 15.4a1.5 1.5 0 0 1 2.3-1.9L9 15.5"/></symbol>
+</svg>
+
+<!-- The balcony photo, as a small illustration (an attachment thumbnail keeps its aspect). -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="balcony" viewBox="0 0 160 100">
+    <defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9cc8ef"/><stop offset="1" stop-color="#f5d9b0"/></linearGradient></defs>
+    <rect width="160" height="100" fill="url(#sky)"/>
+    <circle cx="128" cy="22" r="11" fill="#ffe6a6"/>
+    <rect x="0" y="62" width="160" height="38" fill="#c9a98a"/>
+    <g stroke="#3b4150" stroke-width="2.2"><path d="M0 50h160"/><path d="M12 50v26M30 50v26M48 50v26M66 50v26M84 50v26M102 50v26M120 50v26M138 50v26M156 50v26"/></g>
+    <path d="M22 78h22l-3 16H25z" fill="#b5653c"/><path d="M68 76h26l-3 18H71z" fill="#c4744a"/><path d="M118 79h20l-3 15h-14z" fill="#a95c37"/>
+    <g fill="#4f8a4b"><ellipse cx="33" cy="72" rx="12" ry="8"/><ellipse cx="81" cy="66" rx="15" ry="12"/><ellipse cx="128" cy="73" rx="10" ry="7"/></g>
+    <g fill="#6aa65a"><ellipse cx="27" cy="69" rx="5" ry="4"/><ellipse cx="88" cy="60" rx="7" ry="6"/><ellipse cx="74" cy="63" rx="5" ry="5"/><ellipse cx="132" cy="70" rx="4" ry="3"/></g>
+  </symbol>
+</svg>
+
+<div class="app">
+  <!-- ======================= sidebar (wide) ======================= -->
+  <aside class="sidebar" aria-label="Spaces and conversations">
+    <div class="brand"><span class="brand-orb" aria-hidden="true"></span>AbstractAssistant</div>
+    <nav class="spaces" aria-label="Spaces">
+      <a class="space" href="#assistant" data-space="assistant" aria-current="page"><svg class="i"><use href="#i-sparkle"/></svg>Assistant</a>
+      <a class="space" href="#inbox" data-space="inbox"><svg class="i"><use href="#i-tray"/></svg>Inbox<span class="badge" aria-label="2 waiting for you">2</span></a>
+      <a class="space" href="#automations" data-space="automations"><svg class="i"><use href="#i-auto"/></svg>Automations<span class="badge" aria-label="1 new result">1</span></a>
+    </nav>
+    <button class="new-conv" type="button"><svg class="i"><use href="#i-plus"/></svg>New conversation</button>
+    <nav class="history" aria-label="Conversations">
+      <div class="quiet">Today</div>
+      <a class="conv" href="#assistant" aria-current="true"><b>Herbs for the balcony</b><span><i class="dot" aria-hidden="true"></i><span class="needs">Needs you</span> · 3 exchanges</span></a>
+      <a class="conv" href="#assistant"><b>A weekend in Lyon</b><span>5 exchanges · 2 h ago</span></a>
+      <div class="quiet">Yesterday</div>
+      <a class="conv" href="#assistant"><b>Reply to the landlord about the boiler</b><span>2 exchanges · 1 tool</span></a>
+      <div class="quiet">Earlier</div>
+      <a class="conv" href="#assistant"><b>Gift ideas for Claire</b><span>4 exchanges · 12 Oct</span></a>
+      <a class="conv" href="#assistant"><b>Fix the dripping bathroom tap</b><span>6 exchanges · 3 Oct</span></a>
+      <a class="conv" href="#states"><b>Design specimen: orb states</b><span>Not part of the product</span></a>
+    </nav>
+    <div class="sidebar-foot">
+      <button class="icon-btn" type="button" aria-label="Settings"><svg class="i"><use href="#i-gear"/></svg></button>
+      <div class="seg" role="group" aria-label="Appearance">
+        <button type="button" data-theme-choice="system" aria-label="Match the system"><svg class="i sm"><use href="#i-system"/></svg></button>
+        <button type="button" data-theme-choice="light" aria-label="Light"><svg class="i sm"><use href="#i-sun"/></svg></button>
+        <button type="button" data-theme-choice="dark" aria-label="Dark"><svg class="i sm"><use href="#i-moon"/></svg></button>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <!-- ======================= top bar ======================= -->
+    <header class="topbar">
+      <a class="icon-btn only-compact" href="#assistant" aria-label="Conversations"><svg class="i"><use href="#i-stack"/></svg></a>
+      <button class="who" type="button" aria-haspopup="dialog" aria-label="Choose who answers. Assistant">
+        <span><strong>Assistant <svg class="i sm"><use href="#i-down"/></svg></strong><small>Herbs for the balcony</small></span>
+      </button>
+      <span class="spacer only-wide"></span>
+      <div class="island only-wide" role="group" aria-label="Conversation">
+        <button class="icon-btn" type="button" aria-label="Share conversation"><svg class="i"><use href="#i-share"/></svg></button>
+        <button class="icon-btn" type="button" aria-label="Conversation files"><svg class="i"><use href="#i-folder"/></svg></button>
+        <button class="icon-btn tools" type="button" aria-label="Tools"><svg class="i"><use href="#i-tools"/></svg></button>
+      </div>
+      <button class="icon-btn only-compact" type="button" aria-label="More: share, files, tools, settings"><svg class="i"><use href="#i-more"/></svg></button>
+    </header>
+
+    <!-- ======================= ASSISTANT ======================= -->
+    <section id="assistant" class="view" aria-label="Assistant">
+      <div class="scroll" id="thread-scroll">
+        <div class="thread" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions">
+
+          <!-- turn 1 -->
+          <div class="turn-you">
+            <button class="thumb" type="button" aria-label="Open balcony.jpg"><svg viewBox="0 0 160 100" role="img" aria-label="Photo of a balcony with three pots"><use href="#balcony"/></svg></button>
+            <div class="bubble">Here’s my balcony. Which herbs would actually grow there? It gets sun until about 2&nbsp;pm.</div>
+          </div>
+          <article class="answer" aria-label="Assistant’s answer">
+            <div class="answer-head"><svg class="i sm"><use href="#i-sparkle"/></svg><span class="quiet">Assistant</span></div>
+            <div class="prose">
+              <p>Morning sun and a sheltered corner is a good start. From the photo, the railing side gets about five hours of direct light, which suits most Mediterranean herbs.</p>
+              <ol>
+                <li><strong>Thyme and oregano</strong> like the dry heat near the railing.</li>
+                <li><strong>Chives</strong> are happy in the half shade by the door.</li>
+                <li><strong>Mint</strong> grows well too; give it its own pot, because it spreads.</li>
+              </ol>
+              <p>Basil is worth a try after May, in the sunniest spot. Water in the morning and let the soil dry between waterings.</p>
+            </div>
+            <div class="actions" role="group" aria-label="Answer actions">
+              <button class="act" type="button" aria-label="Copy answer"><svg class="i"><use href="#i-copy"/></svg></button>
+              <button class="act" type="button" aria-label="Read answer aloud"><svg class="i"><use href="#i-speaker"/></svg></button>
+              <button class="act" type="button" aria-label="2 cycles. View cycles"><svg class="i"><use href="#i-cycles"/></svg>2</button>
+              <button class="act tools-count" type="button" aria-label="3 tool calls. View tools"><svg class="i"><use href="#i-tools"/></svg>3</button>
+              <button class="act" type="button" aria-label="1 web search. View sources"><svg class="i"><use href="#i-globe"/></svg>1</button>
+            </div>
+          </article>
+
+          <!-- turn 2 -->
+          <div class="turn-you"><div class="bubble">Which of those can I still sow in November?</div></div>
+          <article class="answer" aria-label="Assistant’s answer">
+            <div class="answer-head"><svg class="i sm"><use href="#i-sparkle"/></svg><span class="quiet">Assistant</span></div>
+            <div class="prose"><p>Only chives, and only indoors on a bright windowsill. Thyme, oregano and mint are easier bought as small plants in spring, and basil needs warmth, so wait until May.</p></div>
+            <div class="actions" role="group" aria-label="Answer actions">
+              <button class="act" type="button" aria-label="Copy answer"><svg class="i"><use href="#i-copy"/></svg></button>
+              <button class="act reading" type="button" aria-label="Pause or resume reading"><svg class="i"><use href="#i-pause"/></svg></button>
+              <button class="act" type="button" aria-label="Stop reading"><svg class="i"><use href="#i-stop"/></svg></button>
+              <span class="reading-note">Reading aloud</span>
+              <button class="act" type="button" aria-label="1 cycle. View cycles"><svg class="i"><use href="#i-cycles"/></svg>1</button>
+            </div>
+          </article>
+
+          <!-- turn 3 -->
+          <div class="turn-you"><div class="bubble">Put a reminder in my calendar to buy the plants on Saturday morning, and send the list to Claire.</div></div>
+          <article class="answer" aria-label="Assistant is waiting for you">
+            <div class="answer-head"><svg class="i sm"><use href="#i-sparkle"/></svg><span class="quiet">Assistant</span></div>
+            <div class="answered">
+              <svg class="i sm"><use href="#i-check"/></svg>
+              <div>A question for you: <strong>Which Claire should I send it to?</strong><br>You answered <strong>Claire Martin</strong>.</div>
+            </div>
+
+            <div class="card approval" role="region" aria-labelledby="appr-title">
+              <div class="approval-head">
+                <svg class="i lg"><use href="#i-hand"/></svg>
+                <div><h3 id="appr-title">Approval needed</h3><p>The assistant wants to do 2 things for you. Nothing happens until you decide.</p></div>
+              </div>
+              <div class="action">
+                <span class="quiet">Action 1</span>
+                <div class="action-title"><svg class="i"><use href="#i-cal"/></svg>Add a calendar event</div>
+                <dl class="args"><dt>Title</dt><dd>Buy herb plants</dd><dt>When</dt><dd>Saturday 1 November, 9:00 – 10:00</dd><dt>Calendar</dt><dd>Personal</dd></dl>
+              </div>
+              <div class="action">
+                <span class="quiet">Action 2</span>
+                <div class="action-title"><svg class="i"><use href="#i-mail"/></svg>Send an email</div>
+                <dl class="args"><dt>To</dt><dd>Claire Martin · claire@example.org</dd><dt>Subject</dt><dd>Herbs for the balcony</dd><dt>Message</dt><dd>Hi Claire, here’s the list we talked about: thyme, oregano, chives and mint, in their own pots. Basil after May. Shall we go to the market together on Saturday?</dd></dl>
+              </div>
+              <details class="tech">
+                <summary><svg class="i sm"><use href="#i-right"/></svg>Technical details</summary>
+<pre>calendar_create_event {"title": "Buy herb plants", "start": "2026-11-01T09:00", "end": "2026-11-01T10:00", "calendar": "personal"}
+send_email {"to": ["claire@example.org"], "subject": "Herbs for the balcony", "body": "Hi Claire, …"}</pre>
+              </details>
+              <div class="decide">
+                <button class="btn primary wide" type="button"><svg class="i"><use href="#i-check"/></svg>Approve</button>
+                <button class="btn wide" type="button">Approve all</button>
+                <button class="btn danger wide" type="button">Deny</button>
+              </div>
+              <p class="fineprint">Approve allows this request. Approve all also allows enabled tools in this conversation without asking again. You can change this in Tools.</p>
+            </div>
+          </article>
+        </div>
+      </div>
+
+      <div class="dock">
+        <form class="composer" aria-label="Message" onsubmit="return false">
+          <button class="round" type="button" aria-label="Add attachment"><svg class="i lg"><use href="#i-plus"/></svg></button>
+          <button class="round kbd-btn" type="button" aria-label="Type a message"><svg class="i lg"><use href="#i-kbd"/></svg></button>
+          <div class="field">
+            <label class="sr" for="composer-input">Message</label>
+            <textarea id="composer-input" rows="1" placeholder="Message the Assistant"></textarea>
+            <button class="send" type="submit" disabled aria-label="Send message"><svg class="i"><use href="#i-up"/></svg></button>
+          </div>
+          <span class="grow"></span>
+          <div class="orb-wrap">
+            <span class="orb-label amber" aria-hidden="true">Needs you</span>
+            <button class="orb-btn" type="button" data-orb="approval" aria-label="Review tool approval" aria-describedby="orb-hint"></button>
+            <span class="sr" id="orb-hint">Opens Approve, Deny and Approve all for this request.</span>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- ======================= INBOX ======================= -->
+    <section id="inbox" class="view" aria-label="Inbox">
+      <div class="page">
+        <div class="page-head"><h1>Inbox</h1></div>
+        <h2 class="quiet section-label amber" style="margin-top:0">Needs you · 2</h2>
+        <div class="stack">
+          <article class="card" aria-labelledby="q1">
+            <div class="wait-kind"><svg class="i"><use href="#i-ask"/></svg>A question for you<span class="from">Morning digest · 07:31</span></div>
+            <p class="question" id="q1">Two forecasts disagree about Saturday morning. Which one should I use for your plans?</p>
+            <div class="choices" role="group" aria-labelledby="q1">
+              <button class="btn choice" type="button"><span>Météo-France<small>Rain from 11:00</small></span></button>
+              <button class="btn choice" type="button"><span>The one you usually check<small>Dry until 15:00</small></span></button>
+            </div>
+            <div class="answer-field">
+              <label class="sr" for="ans">Or type an answer</label>
+              <input id="ans" placeholder="Or type an answer">
+              <button class="btn primary" type="button">Send answer</button>
+            </div>
+          </article>
+          <a class="card row-link" href="#assistant" aria-label="Permission to proceed: add a calendar event and send an email. Herbs for the balcony">
+            <div>
+              <div class="wait-kind"><svg class="i"><use href="#i-hand"/></svg>Permission to proceed</div>
+              <div class="title" style="margin-top:10px">Add a calendar event, send an email</div>
+              <div class="sub">Herbs for the balcony · 2 actions</div>
+            </div>
+            <svg class="i" style="color:var(--aa-amber-text)"><use href="#i-out"/></svg>
+          </a>
+        </div>
+        <h2 class="quiet section-label">Recent activity</h2>
+        <nav class="activity" aria-label="Recent activity">
+          <a href="#automations"><svg class="i ok"><use href="#i-check"/></svg><div><b>Morning digest</b><span>Done · 07:31</span></div><svg class="i sm chev"><use href="#i-right"/></svg></a>
+          <a href="#assistant"><svg class="i wait"><use href="#i-hand"/></svg><div><b>Herbs for the balcony</b><span>Waiting for you</span></div><svg class="i sm chev"><use href="#i-right"/></svg></a>
+          <a href="#automations"><svg class="i bad"><use href="#i-x"/></svg><div><b>Invoices to file</b><span>Failed · The mailbox could not be reached. It will try again at 10:00.</span></div><svg class="i sm chev"><use href="#i-right"/></svg></a>
+          <a href="#assistant"><svg class="i ok"><use href="#i-check"/></svg><div><b>Reply to the landlord about the boiler</b><span>Done · Yesterday</span></div><svg class="i sm chev"><use href="#i-right"/></svg></a>
+        </nav>
+      </div>
+    </section>
+
+    <!-- ======================= AUTOMATIONS ======================= -->
+    <section id="automations" class="view" aria-label="Automations">
+      <div class="page">
+        <div class="page-head"><h1>Automations</h1><span class="spacer"></span><button class="btn primary" type="button"><svg class="i"><use href="#i-plus"/></svg>New automation</button></div>
+        <div class="stack">
+          <article class="card auto" aria-labelledby="a1">
+            <div class="auto-top"><svg class="i"><use href="#i-clock"/></svg><span class="new-result"><span class="dot" aria-hidden="true"></span>New result</span><span class="status active">Active</span></div>
+            <h2 id="a1">Morning digest</h2>
+            <div class="trigger">Every day at 07:30 (Europe/Paris)</div>
+            <p class="result">Three things today: rain from 11:00, Claire’s birthday on Sunday, and the herb plants on Saturday.</p>
+            <div class="auto-foot"><span>Next in 23 hours</span><span class="spacer"></span><button class="btn" type="button"><svg class="i sm"><use href="#i-play"/></svg>Run now</button><button class="btn" type="button">Pause</button></div>
+          </article>
+          <article class="card auto" aria-labelledby="a2">
+            <div class="auto-top"><svg class="i"><use href="#i-inbox-in"/></svg><span class="status active">Active</span></div>
+            <h2 id="a2">Invoices to file</h2>
+            <div class="trigger">When mail arrives in you@example.org</div>
+            <p class="result">Filed 2 invoices in Documents › Bills › 2026: electricity (€64.20) and mobile (€19.99).</p>
+            <div class="auto-foot"><span>Last run 08:12</span><span class="spacer"></span><button class="btn" type="button"><svg class="i sm"><use href="#i-play"/></svg>Run now</button><button class="btn" type="button">Pause</button></div>
+          </article>
+          <article class="card auto" aria-labelledby="a3">
+            <div class="auto-top"><svg class="i"><use href="#i-hand-tap"/></svg><span class="status paused">Paused</span></div>
+            <h2 id="a3">Balcony watering check</h2>
+            <div class="trigger">By hand</div>
+            <p class="result" style="color:var(--aa-text-muted)">No runs yet. Run it now, or resume it.</p>
+            <div class="auto-foot"><span class="spacer"></span><button class="btn" type="button"><svg class="i sm"><use href="#i-play"/></svg>Run now</button><button class="btn" type="button">Resume</button></div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= SPECIMEN (design only) ======================= -->
+    <section id="states" class="view" aria-label="Design specimen: orb and composer states">
+      <div class="page" style="max-width:72rem">
+        <div class="page-head"><h1>Orb and composer states</h1></div>
+        <p class="specimen-note">Design specimen, not a screen of the product. Each composer is the phone layout (+, keyboard, orb). Levels are simulated here; in the app they come from the microphone and from read-aloud playback.</p>
+        <div class="card demo">
+          <div class="orb-wrap"><span class="orb-label" id="demo-label" aria-hidden="true"></span><button class="orb-btn" type="button" data-orb="idle" id="demo-orb" aria-label="Tap to speak"></button></div>
+          <div class="seg" role="group" aria-label="Orb state">
+            <button type="button" data-demo="idle" aria-pressed="true">Idle</button>
+            <button type="button" data-demo="listening" aria-pressed="false">Listening</button>
+            <button type="button" data-demo="working" aria-pressed="false">Working</button>
+            <button type="button" data-demo="approval" aria-pressed="false">Needs you</button>
+            <button type="button" data-demo="speaking" aria-pressed="false">Reading aloud</button>
+          </div>
+          <p class="fineprint">Switch states to watch the one contour morph: sphere, lit rounded square with the Stop symbol, raised hand. 650&nbsp;ms, cubic-bezier(0.4, 0, 0.2, 1).</p>
+        </div>
+        <div class="spec-grid" style="margin-top:16px">
+          <div class="spec card">
+            <h3>1 · Idle</h3>
+            <div class="phone-composer"><span class="round" aria-hidden="true"><svg class="i lg"><use href="#i-plus"/></svg></span><span class="round" aria-hidden="true"><svg class="i lg"><use href="#i-kbd"/></svg></span><span class="grow"></span>
+              <div class="orb-wrap"><button class="orb-btn" type="button" data-orb="idle" aria-label="Tap to speak"></button></div></div>
+            <p>Breathes slowly (±1.8%, 7.4&nbsp;s), ribbons turn once every 40&nbsp;s. Label <code>Tap to speak</code>.</p>
+          </div>
+          <div class="spec card">
+            <h3>2 · Listening</h3>
+            <div class="phone-composer"><span class="round" aria-hidden="true"><svg class="i lg"><use href="#i-plus"/></svg></span><span class="round" aria-hidden="true"><svg class="i lg"><use href="#i-kbd"/></svg></span><span class="grow"></span>
+              <div class="orb-wrap"><span class="orb-label" aria-hidden="true">Listening</span><button class="orb-btn" type="button" data-orb="listening" aria-label="Listening. Tap to cancel"></button></div></div>
+            <p>Ribbons swell and twist with the microphone level (WebAudio <code>AnalyserNode</code> RMS). Three seconds of silence prepares the text for review.</p>
+          </div>
+          <div class="spec card">
+            <h3>3 · Review before sending</h3>
+            <div class="phone-composer" style="padding:8px"><span class="round" aria-hidden="true"><svg class="i lg"><use href="#i-plus"/></svg></span>
+              <div class="field" style="display:flex"><textarea rows="2" aria-label="Transcription to review">Remind me to water the basil on Thursday evening</textarea><span class="send" aria-hidden="true"><svg class="i"><use href="#i-up"/></svg></span></div></div>
+            <p>The transcription lands in the message box, below any draft. Nothing is sent until Send, unless <code>Send voice messages automatically</code> is on.</p>
+          </div>
+          <div class="spec card">
+            <h3>4 · Working</h3>
+            <div class="phone-composer"><span class="round" aria-hidden="true"><svg class="i lg"><use href="#i-plus"/></svg></span><span class="round" aria-hidden="true"><svg class="i lg"><use href="#i-kbd"/></svg></span><span class="grow"></span>
+              <div class="orb-wrap"><button class="orb-btn" type="button" data-orb="working" aria-label="Stop assistant"></button></div></div>
+            <p>The sphere becomes a lit rounded square with a mint/lavender Stop symbol; light pulses every 3.5&nbsp;s. Label <code>Stop assistant</code>.</p>
+          </div>
+          <div class="spec card">
+            <h3>5 · Needs you</h3>
+            <div class="phone-composer"><span class="round" aria-hidden="true"><svg class="i lg"><use href="#i-plus"/></svg></span><span class="round" aria-hidden="true"><svg class="i lg"><use href="#i-kbd"/></svg></span><span class="grow"></span>
+              <div class="orb-wrap"><span class="orb-label amber" aria-hidden="true">Needs you</span><button class="orb-btn" type="button" data-orb="approval" aria-label="Review tool approval"></button></div></div>
+            <p>The cords become an orange raised hand. A tap opens Approve, Deny and Approve all; it never approves by itself.</p>
+          </div>
+          <div class="spec card">
+            <h3>6 · Reading aloud</h3>
+            <div class="phone-composer"><span class="round" aria-hidden="true"><svg class="i lg"><use href="#i-plus"/></svg></span><span class="round" aria-hidden="true"><svg class="i lg"><use href="#i-kbd"/></svg></span><span class="grow"></span>
+              <div class="orb-wrap"><button class="orb-btn" type="button" data-orb="speaking" aria-label="Reading aloud. Tap to speak"></button></div></div>
+            <p>Playback level (an <code>AnalyserNode</code> on the audio element) moves the ribbons; the answer’s own speaker shows pause and stop.</p>
+          </div>
+          <div class="spec card">
+            <h3>7 · Attachment waiting to send</h3>
+            <div class="chips" style="margin:0"><span class="chip"><span class="mini"><svg viewBox="0 0 160 100" aria-hidden="true"><use href="#balcony"/></svg></span>balcony.jpg<button type="button" aria-label="Remove balcony.jpg"><svg class="i sm"><use href="#i-x"/></svg></button></span></div>
+            <p>Files you add sit above the composer as small chips until you send or remove them. Sent attachments show as small thumbnails in your message.</p>
+          </div>
+          <div class="spec card">
+            <h3>8 · Latest messages</h3>
+            <div style="display:grid;place-items:center;padding:10px 0"><button class="latest" type="button"><svg class="i sm"><use href="#i-arrowdown"/></svg>Latest messages</button></div>
+            <p>Appears when you scroll up while a reply is arriving; a tap returns to the reply and resumes following it.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ======================= tab bar (compact) ======================= -->
+  <nav class="tabbar" aria-label="Spaces">
+    <div class="tabs">
+      <a class="tab" href="#assistant" data-space="assistant" aria-current="page"><svg class="i lg"><use href="#i-sparkle"/></svg>Assistant</a>
+      <a class="tab" href="#inbox" data-space="inbox"><svg class="i lg"><use href="#i-tray"/></svg>Inbox<span class="badge" aria-label="2 waiting for you">2</span></a>
+      <a class="tab" href="#automations" data-space="automations"><svg class="i lg"><use href="#i-auto"/></svg>Automations<span class="badge" aria-label="1 new result">1</span></a>
+    </div>
+  </nav>
+</div>
+
+<script>
+/* Theme: ?theme=light|dark (for screenshots) or the sidebar control. "system" removes data-theme. */
+(() => {
+  const root = document.documentElement;
+  const apply = (choice) => {
+    if (choice === "light" || choice === "dark") root.dataset.theme = choice; else delete root.dataset.theme;
+    document.querySelectorAll("[data-theme-choice]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.themeChoice === (choice || "system"))));
+    window.dispatchEvent(new Event("aa-theme"));
+  };
+  apply(new URLSearchParams(location.search).get("theme") || "system");
+  document.addEventListener("click", e => { const b = e.target.closest("[data-theme-choice]"); if (b) apply(b.dataset.themeChoice); });
+  // aria-current follows the targeted space (the CSS does the highlight without script).
+  const sync = () => {
+    const v = (location.hash || "#assistant").slice(1);
+    document.querySelectorAll("[data-space]").forEach(a => { if (a.dataset.space === v) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
+  };
+  addEventListener("hashchange", sync); sync();
+  // A conversation opens on its latest message (the reply, or what waits for you).
+  const sc = document.getElementById("thread-scroll"); if (sc) sc.scrollTop = sc.scrollHeight;
+})();
+
+/* The orb: a port of phone/iphone/Sources/App/Design.swift (OrbContour, OrbFrame) and
+   OrbWeave.swift (the raised hand). Same constants; the geodesic (Transcribing / Preparing
+   speech) is described in README.md and not drawn here. */
+(() => {
+  const TAU = Math.PI * 2, DEG = Math.PI / 180;
+  const MINT = [107, 227, 204], LAV = [173, 166, 255], GROUND = [9, 11, 22], ORANGE = [255, 156, 51];
+  const rgba = (c, a) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${Math.max(0, Math.min(1, a))})`;
+  const clamp = x => Math.max(0, Math.min(1, x));
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)");
+  const bezier = (x1, y1, x2, y2) => t => {
+    let s = t;
+    for (let i = 0; i < 8; i++) {
+      const x = 3 * (1 - s) ** 2 * s * x1 + 3 * (1 - s) * s * s * x2 + s ** 3 - t;
+      const dx = 3 * (1 - s) ** 2 * x1 + 6 * (1 - s) * s * (x2 - x1) + 3 * s * s * (1 - x2);
+      if (Math.abs(dx) < 1e-6) break; s = clamp(s - x / dx);
+    }
+    return 3 * (1 - s) ** 2 * s * y1 + 3 * (1 - s) * s * s * y2 + s ** 3;
+  };
+  const ease = bezier(0.4, 0, 0.2, 1), MORPH_MS = 650;
+  const TARGET = { idle: { p: 0, h: 0 }, listening: { p: 0, h: 0 }, speaking: { p: 0, h: 0 }, working: { p: 1, h: 0 }, approval: { p: 0, h: 1 } };
+  const ACTIVE = { listening: 1, speaking: 1, working: 1, approval: 1 };
+  const LABEL = { idle: ["Tap to speak", ""], listening: ["Listening. Tap to cancel", "Listening"], working: ["Stop assistant", ""], approval: ["Review tool approval", "Needs you"], speaking: ["Reading aloud. Tap to speak", ""] };
+  // Simulated syllable envelope; the product feeds AnalyserNode RMS here.
+  const sim = (t, k) => clamp(Math.max(0, Math.sin(t * 6.3 + k)) * (0.55 + 0.45 * Math.sin(t * 1.7 + k)) * (Math.sin(t * 0.8 + k) > -0.35 ? 0.95 : 0.12));
+
+  const HAND = (() => {
+    let p = [[.38,.90],[.31,.78],[.22,.67],[.13,.56],[.13,.51],[.17,.48],[.21,.50],[.29,.60],[.29,.28],[.31,.22],[.35,.22],[.38,.25],[.38,.48],[.40,.49],[.41,.16],[.43,.11],[.47,.11],[.50,.15],[.50,.46],[.52,.47],[.53,.22],[.55,.17],[.59,.17],[.62,.21],[.62,.51],[.64,.52],[.65,.34],[.67,.29],[.71,.30],[.74,.34],[.74,.65],[.72,.75],[.65,.83],[.63,.90]];
+    for (let n = 0; n < 2; n++) p = p.flatMap((a, i) => { const b = p[(i + 1) % p.length]; return [[a[0] * .75 + b[0] * .25, a[1] * .75 + b[1] * .25], [a[0] * .25 + b[0] * .75, a[1] * .25 + b[1] * .75]]; });
+    const d = [0]; p.forEach((a, i) => { const b = p[(i + 1) % p.length]; d.push(d[d.length - 1] + Math.hypot(b[0] - a[0], b[1] - a[1])); });
+    const out = [];
+    for (let i = 0; i < 240; i++) {
+      const dist = d[d.length - 1] * i / 240; let seg = d.findIndex(x => x > dist); seg = Math.max(0, (seg < 0 ? p.length : seg) - 1);
+      const a = p[seg], b = p[(seg + 1) % p.length], part = (dist - d[seg]) / Math.max(1e-6, d[seg + 1] - d[seg]);
+      out.push([a[0] + (b[0] - a[0]) * part, a[1] + (b[1] - a[1]) * part]);
+    }
+    return out;
+  })();
+  const handPoint = (f, cord, t) => {
+    const pos = (f % 1) * HAND.length, i = Math.floor(pos), part = pos - i, a = HAND[i], b = HAND[(i + 1) % HAND.length];
+    const scale = 0.94 + cord * 0.025, wave = Math.sin(f * Math.PI * 8 + t * 3.8 + cord) * 0.003;
+    return [0.5 + (a[0] + (b[0] - a[0]) * part - 0.435) * scale + wave, 0.5 + (a[1] + (b[1] - a[1]) * part - 0.5) * scale + wave * 0.6];
+  };
+  const sp = (v, e) => (v < 0 ? -1 : 1) * Math.pow(Math.abs(v), e);
+  const orbit = (f, cord, stop, energy, t) => {
+    const ang = f * TAU, e = 2 / (2 + 5 * stop);
+    const ripple = energy * (0.19 * Math.sin(ang * 3 + t * 3 + cord * 1.7) + 0.075 * Math.sin(ang * 7 - t * 3));
+    const px = sp(Math.cos(ang), e) * (0.53 + cord * 0.055 + energy * 0.16) * 0.5 * (1 + ripple);
+    const py = sp(Math.sin(ang), e) * (0.39 + energy * 0.33 + stop * 0.16) * 0.5 * (1 + ripple);
+    const r = (cord * 34 + t * 9 + energy * (cord - 2) * 28) * DEG;
+    return [0.5 + px * Math.cos(r) - py * Math.sin(r), 0.5 + px * Math.sin(r) + py * Math.cos(r)];
+  };
+  const contour = (ctx, cx, cy, w, h, sq, energy = 0, phase = 0, ribbon = false) => {
+    const e = 2 / (2 + 5 * sq); ctx.beginPath();
+    for (let s = 0; s <= 120; s++) {
+      const a = s / 120 * TAU, ripple = ribbon ? energy * (0.19 * Math.sin(3 * a + phase) + 0.075 * Math.sin(7 * a - phase)) : 0, r = 0.5 * (1 + ripple);
+      const x = cx + w * r * sp(Math.cos(a), e), y = cy + h * r * sp(Math.sin(a), e);
+      s ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+    ctx.closePath();
+  };
+
+  function frame(o, t) {
+    const { ctx, S, box } = o, dpr = o.dpr, red = reduce.matches;
+    const T = red ? 0 : t, p = o.cur.p, h = o.cur.h, g = 0;
+    const energy = ACTIVE[o.state] && o.state !== "working" && o.state !== "approval" ? sim(t, o.seed) : 0;
+    const me = red ? 0 : energy, pulse = red ? 0 : Math.sin(T * 1.8), breath = red ? 0 : Math.sin(T * 0.85) * 0.018;
+    const weave = Math.min(1, Math.max(g, h) * 8), k = S / 68;
+    const handGlass = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--aa-orb-hand-glass")) || 0.06;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, box, box);
+    ctx.translate(box / 2, box / 2); const sc = (1 - p * 0.04) * (1 + breath + me * 0.08); ctx.scale(sc, sc); ctx.translate(-S / 2, -S / 2);
+    // 1. glow
+    if (h < 1) {
+      ctx.save(); ctx.globalAlpha = 1 - h; const pad = S * (0.04 + energy * 0.09);
+      contour(ctx, S / 2, S / 2, S + 2 * pad, S + 2 * pad, p);
+      ctx.fillStyle = rgba(MINT, 0.10 + energy * 0.32 + p * (0.10 + pulse * 0.035));
+      if ("filter" in ctx) ctx.filter = `blur(${S * 0.14}px)`; else { ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = S * 0.28; }
+      ctx.fill(); ctx.restore();
+    }
+    // 2. glass: an opaque dark body (the orb is dark in both themes), lit from the top left
+    ctx.save(); contour(ctx, S / 2, S / 2, S, S, p); ctx.globalAlpha = 1 - h * (1 - handGlass);
+    ctx.fillStyle = rgba(GROUND, 1); ctx.fill();
+    const rg = ctx.createRadialGradient(S * .32, S * .28, 1, S * .32, S * .28, S * .8);
+    rg.addColorStop(0, rgba(MINT, 0.30 + energy * 0.35 + p * 0.16)); rg.addColorStop(0.5, rgba(LAV, 0.28 + p * 0.16)); rg.addColorStop(1, rgba(GROUND, 1));
+    ctx.fillStyle = rg; ctx.fill(); ctx.restore();
+    // 3. five ribbons
+    if (weave < 1) for (let i = 0; i < 5; i++) {
+      ctx.save(); ctx.globalAlpha = 1 - weave; ctx.translate(S / 2, S / 2); ctx.rotate((i * 34 + T * 9 + me * (i - 2) * 28) * DEG);
+      contour(ctx, 0, 0, S * (0.53 + i * 0.055 + me * 0.16), S * (0.39 + me * 0.33 + p * 0.16), p, me, T * 3 + i * 1.7 + (o.state === "listening" ? me * 3 : 0), true);
+      const cg = ctx.createConicGradient(0, 0, 0);
+      cg.addColorStop(0, rgba(MINT, 0)); cg.addColorStop(.25, rgba(MINT, .8)); cg.addColorStop(.5, rgba(LAV, 1)); cg.addColorStop(.75, rgba(MINT, .9)); cg.addColorStop(1, rgba(MINT, 0));
+      ctx.strokeStyle = cg; ctx.lineWidth = ((i === 2 ? 1.4 : 0.75) + energy * 1.9 + p * 0.3) * k; ctx.stroke(); ctx.restore();
+    }
+    // 4. the weave: the same five cords leave their orbits for the raised hand
+    if (weave > 0) {
+      ctx.save(); ctx.globalAlpha = weave; ctx.lineCap = "round"; ctx.lineJoin = "round";
+      ctx.shadowColor = rgba([255, 165, 0], h * 0.4); ctx.shadowBlur = 5 * k;
+      const SEG = 48, SM = 5;
+      for (let cord = 0; cord < 5; cord++) {
+        const b = cord % 2 ? LAV : MINT, col = [b[0] + (ORANGE[0] - b[0]) * h, b[1] + (ORANGE[1] - b[1]) * h, b[2] + (ORANGE[2] - b[2]) * h];
+        ctx.lineWidth = Math.max(0.65, S / 88) * (1.0 + h * 0.3) * Math.max(1, k * 0.6);
+        for (let s = 0; s < SEG; s++) {
+          ctx.beginPath();
+          for (let j = 0; j <= SM; j++) {
+            const f = (s + j / SM) / SEG, a = orbit(f, cord, p, me, T), c = handPoint(f, cord, T);
+            const x = (a[0] * (1 - h) + c[0] * h) * S, y = (a[1] * (1 - h) + c[1] * h) * S; j ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+          }
+          const flow = 0.5 + 0.5 * Math.sin(T * 5 - (s * 5 + cord) * 0.29);
+          ctx.strokeStyle = rgba(col, 0.625 * (1 - h) + (0.48 + flow * 0.48) * h); ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+    // 5. outline and 6. the working rim
+    ctx.save(); contour(ctx, S / 2, S / 2, S, S, p); ctx.globalAlpha = 1 - h;
+    ctx.strokeStyle = rgba(LAV, 0.28 + energy * 0.42 + p * 0.35); ctx.lineWidth = (0.8 + energy + p * 0.5) * k; ctx.stroke();
+    const rim = p * (1 - h) * (1 - g);
+    if (rim > 0) {
+      ctx.globalAlpha = rim; const cg = ctx.createConicGradient(T * 28 * DEG, S / 2, S / 2);
+      cg.addColorStop(0, rgba(MINT, .95)); cg.addColorStop(1 / 3, rgba(LAV, .25)); cg.addColorStop(2 / 3, rgba(LAV, 1)); cg.addColorStop(1, rgba(MINT, .95));
+      ctx.strokeStyle = cg; ctx.lineWidth = 1.3 * k; ctx.stroke();
+    }
+    ctx.restore();
+    // 7. the Stop symbol on a dark inset
+    if (rim > 0) {
+      ctx.save(); ctx.globalAlpha = rim; ctx.translate(S / 2, S / 2); const s2 = 0.65 + p * 0.35; ctx.scale(s2, s2);
+      const a = S * 0.46; ctx.beginPath(); ctx.roundRect(-a / 2, -a / 2, a, a, S * 0.12);
+      ctx.fillStyle = rgba(GROUND, 0.9); ctx.fill(); ctx.strokeStyle = rgba(MINT, 0.28); ctx.lineWidth = k; ctx.stroke();
+      const b = S * 0.25, lg = ctx.createLinearGradient(-b / 2, -b / 2, b / 2, b / 2); lg.addColorStop(0, rgba(MINT, 1)); lg.addColorStop(1, rgba(LAV, 1));
+      ctx.beginPath(); ctx.roundRect(-b / 2, -b / 2, b, b, S * 0.045); ctx.fillStyle = lg; ctx.fill(); ctx.restore();
+    }
+  }
+
+  const orbs = [...document.querySelectorAll("[data-orb]")].map((btn, i) => {
+    const c = document.createElement("canvas"); c.setAttribute("aria-hidden", "true");
+    btn.appendChild(c); btn.classList.add("live");
+    const st = btn.dataset.orb;
+    return { btn, c, ctx: c.getContext("2d"), S: 0, seed: i * 1.3, state: st, cur: { ...TARGET[st] }, from: { ...TARGET[st] }, start: 0, last: -1e9 };
+  });
+  // Size each canvas from its button the first time it is laid out (views start hidden).
+  const fit = (o) => {
+    const S = o.btn.getBoundingClientRect().width; if (!S || S === o.S) return;
+    o.S = S; o.box = Math.round(S * 1.7); o.dpr = Math.min(3, devicePixelRatio || 1);
+    o.c.width = o.c.height = o.box * o.dpr; o.c.style.width = o.c.style.height = o.box + "px"; o.last = -1e9; o.drawnState = null;
+  };
+  const setState = (o, st) => {
+    o.from = { ...o.cur }; o.state = st; o.start = performance.now(); o.btn.dataset.orb = st;
+    o.btn.setAttribute("aria-label", LABEL[st][0]);
+  };
+  const demo = orbs.find(o => o.btn.id === "demo-orb");
+  document.querySelectorAll("[data-demo]").forEach(b => b.addEventListener("click", () => {
+    document.querySelectorAll("[data-demo]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+    setState(demo, b.dataset.demo);
+    const l = document.getElementById("demo-label"); l.textContent = LABEL[b.dataset.demo][1]; l.classList.toggle("amber", b.dataset.demo === "approval");
+  }));
+  let redrawAll = true; addEventListener("aa-theme", () => { redrawAll = true; });
+  const loop = (now) => {
+    const t = now / 1000;
+    for (const o of orbs) {
+      if (!o.btn.offsetParent) continue;
+      fit(o); if (!o.S) continue;
+      const to = TARGET[o.state], u = reduce.matches ? 1 : clamp((now - o.start) / MORPH_MS), e = ease(u);
+      const morphing = u < 1;
+      o.cur = { p: o.from.p + (to.p - o.from.p) * e, h: o.from.h + (to.h - o.from.h) * e };
+      const fps = morphing || ACTIVE[o.state] ? 30 : 12;
+      if (reduce.matches && !redrawAll && o.drawnState === o.state) continue;
+      if (!redrawAll && now - o.last < 1000 / fps - 2) continue;
+      o.last = now; o.drawnState = o.state; frame(o, t);
+    }
+    redrawAll = false;
+    requestAnimationFrame(loop);
+  };
+  document.addEventListener("visibilitychange", () => { redrawAll = true; });
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

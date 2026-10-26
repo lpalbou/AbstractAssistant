@@ -1,0 +1,474 @@
+[
+  {
+    "args": {
+      "prompt": "hello"
+    },
+    "expected": {
+      "_runtime": {},
+      "context": {
+        "messages": [],
+        "task": "hello"
+      },
+      "has_primary_image_context": false,
+      "max_iterations": 50,
+      "prompt": "hello",
+      "use_context": false,
+      "use_session_history": true
+    },
+    "name": "bare prompt"
+  },
+  {
+    "args": {
+      "prompt": "hi",
+      "system": "be brief",
+      "use_session_history": false
+    },
+    "expected": {
+      "_runtime": {},
+      "context": {
+        "messages": [],
+        "task": "hi"
+      },
+      "has_primary_image_context": false,
+      "max_iterations": 50,
+      "prompt": "hi",
+      "system": "be brief",
+      "use_context": false,
+      "use_session_history": false
+    },
+    "name": "system and session history off"
+  },
+  {
+    "args": {
+      "base_url": "http://localhost:1234/v1",
+      "model": "m",
+      "prompt": "hi",
+      "provider": "lmstudio"
+    },
+    "expected": {
+      "_runtime": {
+        "base_url": "http://localhost:1234/v1",
+        "model": "m",
+        "provider": "lmstudio"
+      },
+      "base_url": "http://localhost:1234/v1",
+      "context": {
+        "messages": [],
+        "task": "hi"
+      },
+      "has_primary_image_context": false,
+      "max_iterations": 50,
+      "model": "m",
+      "prompt": "hi",
+      "provider": "lmstudio",
+      "use_context": false,
+      "use_session_history": true
+    },
+    "name": "override rides both channels"
+  },
+  {
+    "args": {
+      "prompt": "hi",
+      "provider": "lmstudio"
+    },
+    "expected": {
+      "_runtime": {},
+      "context": {
+        "messages": [],
+        "task": "hi"
+      },
+      "has_primary_image_context": false,
+      "max_iterations": 50,
+      "prompt": "hi",
+      "use_context": false,
+      "use_session_history": true
+    },
+    "name": "half pin dropped (provider only)"
+  },
+  {
+    "args": {
+      "model": "m",
+      "prompt": "hi"
+    },
+    "expected": {
+      "_runtime": {},
+      "context": {
+        "messages": [],
+        "task": "hi"
+      },
+      "has_primary_image_context": false,
+      "max_iterations": 50,
+      "prompt": "hi",
+      "use_context": false,
+      "use_session_history": true
+    },
+    "name": "half pin dropped (model only)"
+  },
+  {
+    "args": {
+      "base_url": "http://x",
+      "prompt": "hi"
+    },
+    "expected": {
+      "_runtime": {},
+      "context": {
+        "messages": [],
+        "task": "hi"
+      },
+      "has_primary_image_context": false,
+      "max_iterations": 50,
+      "prompt": "hi",
+      "use_context": false,
+      "use_session_history": true
+    },
+    "name": "base_url alone dropped"
+  },
+  {
+    "args": {
+      "messages": [
+        {
+          "content": "old",
+          "role": "user"
+        }
+      ],
+      "prompt": "hi"
+    },
+    "expected": {
+      "_runtime": {},
+      "context": {
+        "messages": [],
+        "task": "hi"
+      },
+      "has_primary_image_context": false,
+      "max_iterations": 50,
+      "prompt": "hi",
+      "use_context": false,
+      "use_session_history": true
+    },
+    "name": "local messages ignored without use_context"
+  },
+  {
+    "args": {
+      "messages": [
+        {
+          "content": "old",
+          "role": "user"
+        },
+        {
+          "content": "x",
+          "role": "tool"
+        },
+        {
+          "content": "  ",
+          "role": "assistant"
+        },
+        {
+          "content": "answer",
+          "role": "assistant"
+        }
+      ],
+      "prompt": "hi",
+      "use_context": true
+    },
+    "expected": {
+      "_runtime": {},
+      "context": {
+        "messages": [
+          {
+            "content": "old",
+            "role": "user"
+          },
+          {
+            "content": "answer",
+            "role": "assistant"
+          }
+        ],
+        "task": "hi"
+      },
+      "has_primary_image_context": false,
+      "max_iterations": 50,
+      "prompt": "hi",
+      "use_context": true,
+      "use_session_history": true
+    },
+    "name": "messages with use_context"
+  },
+  {
+    "args": {
+      "attachments": [
+        {
+          "$artifact": "a1",
+          "content_type": "image/png",
+          "filename": "shot.png",
+          "run_id": "session_memory_s1"
+        },
+        {
+          "$artifact": "a2",
+          "content_type": "application/pdf",
+          "filename": "cv.pdf",
+          "run_id": "session_memory_s1"
+        },
+        {
+          "filename": "no-ref"
+        }
+      ],
+      "primary_image_artifact": {
+        "$artifact": "a1",
+        "content_type": "image/png",
+        "filename": "shot.png",
+        "run_id": "session_memory_s1"
+      },
+      "prompt": "look"
+    },
+    "expected": {
+      "_runtime": {},
+      "attachments": [
+        {
+          "$artifact": "a1",
+          "content_type": "image/png",
+          "filename": "shot.png",
+          "run_id": "session_memory_s1"
+        },
+        {
+          "$artifact": "a2",
+          "content_type": "application/pdf",
+          "filename": "cv.pdf",
+          "run_id": "session_memory_s1"
+        }
+      ],
+      "context": {
+        "attachments": [
+          {
+            "$artifact": "a1",
+            "content_type": "image/png",
+            "filename": "shot.png",
+            "run_id": "session_memory_s1"
+          },
+          {
+            "$artifact": "a2",
+            "content_type": "application/pdf",
+            "filename": "cv.pdf",
+            "run_id": "session_memory_s1"
+          }
+        ],
+        "media": [
+          {
+            "$artifact": "a1",
+            "content_type": "image/png",
+            "filename": "shot.png",
+            "run_id": "session_memory_s1"
+          },
+          {
+            "$artifact": "a2",
+            "content_type": "application/pdf",
+            "filename": "cv.pdf",
+            "run_id": "session_memory_s1"
+          }
+        ],
+        "messages": [],
+        "primary_image_artifact": {
+          "$artifact": "a1",
+          "content_type": "image/png",
+          "filename": "shot.png",
+          "run_id": "session_memory_s1"
+        },
+        "task": "look"
+      },
+      "has_primary_image_context": true,
+      "max_iterations": 50,
+      "primary_image_artifact": {
+        "$artifact": "a1",
+        "content_type": "image/png",
+        "filename": "shot.png",
+        "run_id": "session_memory_s1"
+      },
+      "prompt": "look",
+      "use_context": false,
+      "use_session_history": true
+    },
+    "name": "attachments and primary image"
+  },
+  {
+    "args": {
+      "primary_image_artifact": {
+        "filename": "x"
+      },
+      "prompt": "look"
+    },
+    "expected": {
+      "_runtime": {},
+      "context": {
+        "messages": [],
+        "task": "look"
+      },
+      "has_primary_image_context": false,
+      "max_iterations": 50,
+      "prompt": "look",
+      "use_context": false,
+      "use_session_history": true
+    },
+    "name": "primary image without ref ignored"
+  },
+  {
+    "args": {
+      "prompt": "hi",
+      "stream": true,
+      "thinking": " High ",
+      "workspace_root": " /tmp/w "
+    },
+    "expected": {
+      "_runtime": {
+        "stream": true,
+        "thinking": "high"
+      },
+      "context": {
+        "messages": [],
+        "task": "hi"
+      },
+      "has_primary_image_context": false,
+      "max_iterations": 50,
+      "prompt": "hi",
+      "use_context": false,
+      "use_session_history": true,
+      "workspace_root": "/tmp/w"
+    },
+    "name": "thinking stream workspace"
+  },
+  {
+    "args": {
+      "prompt": "hi",
+      "stream": false
+    },
+    "expected": {
+      "_runtime": {
+        "stream": false
+      },
+      "context": {
+        "messages": [],
+        "task": "hi"
+      },
+      "has_primary_image_context": false,
+      "max_iterations": 50,
+      "prompt": "hi",
+      "use_context": false,
+      "use_session_history": true
+    },
+    "name": "stream false"
+  },
+  {
+    "args": {
+      "allowed_tools": [
+        " web_search ",
+        "",
+        "fetch_url"
+      ],
+      "max_iterations": 0,
+      "prompt": "hi",
+      "seed": 7,
+      "temperature": 0.2
+    },
+    "expected": {
+      "_runtime": {
+        "allowed_tools": [
+          "web_search",
+          "fetch_url"
+        ],
+        "seed": 7,
+        "temperature": 0.2
+      },
+      "context": {
+        "messages": [],
+        "task": "hi"
+      },
+      "has_primary_image_context": false,
+      "max_iterations": 1,
+      "prompt": "hi",
+      "seed": 7,
+      "temperature": 0.2,
+      "tools": [
+        "web_search",
+        "fetch_url"
+      ],
+      "use_context": false,
+      "use_session_history": true
+    },
+    "name": "tools temperature seed iterations"
+  },
+  {
+    "args": {
+      "allowed_tools": [],
+      "prompt": "hi"
+    },
+    "expected": {
+      "_runtime": {
+        "allowed_tools": []
+      },
+      "context": {
+        "messages": [],
+        "task": "hi"
+      },
+      "has_primary_image_context": false,
+      "max_iterations": 50,
+      "prompt": "hi",
+      "tools": [],
+      "use_context": false,
+      "use_session_history": true
+    },
+    "name": "empty allowed tools"
+  },
+  {
+    "args": {
+      "prompt": "hi",
+      "tool_policy": {
+        "auto_approve_tools": "read_file, list_files",
+        "requireApproval": [
+          "execute_command"
+        ]
+      }
+    },
+    "expected": {
+      "_runtime": {
+        "tool_policy": {
+          "auto_approve_tools": [
+            "read_file",
+            "list_files"
+          ],
+          "require_approval_tools": [
+            "execute_command"
+          ]
+        }
+      },
+      "context": {
+        "messages": [],
+        "task": "hi"
+      },
+      "has_primary_image_context": false,
+      "max_iterations": 50,
+      "prompt": "hi",
+      "use_context": false,
+      "use_session_history": true
+    },
+    "name": "tool policy lists"
+  },
+  {
+    "args": {
+      "prompt": "hi",
+      "tool_policy": {
+        "auto_approve_tools": []
+      }
+    },
+    "expected": {
+      "_runtime": {},
+      "context": {
+        "messages": [],
+        "task": "hi"
+      },
+      "has_primary_image_context": false,
+      "max_iterations": 50,
+      "prompt": "hi",
+      "use_context": false,
+      "use_session_history": true
+    },
+    "name": "tool policy empty"
+  }
+]

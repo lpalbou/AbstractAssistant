@@ -98,3 +98,7 @@ CLAUDE.md
 /AGENTS.md
 abstractcode-export-*.md
 .venv/
+
+# The web Assistant (web/, ADR 0007): npm dependencies and the build stay out of git.
+web/node_modules/
+web/dist/

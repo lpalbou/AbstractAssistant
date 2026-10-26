@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for the Developer ID build of AbstractAssistant.app
+  (ADR 0006, docs/macos-signing.md). Used only when the build is signed with a real
+  identity (build-macos-app sign or ABSTRACTASSISTANT_CODESIGN_IDENTITY); the default
+  unsigned local build does not read this file.
+
+  Kept to what the bundle needs; each key below says what breaks without it. Deliberately
+  absent: com.apple.security.app-sandbox (not a Mac App Store build, ADR 0006),
+  com.apple.security.get-task-allow (notarization refuses it),
+  com.apple.security.cs.disable-library-validation (every binary in the bundle is signed by
+  our team; the only outside library is the optional Homebrew libmagic that python-magic
+  looks for), com.apple.security.cs.allow-dyld-environment-variables (nothing sets DYLD_*),
+  com.apple.security.automation.apple-events (osascript's "get volume settings" sends no
+  Apple event to another app).
+-->
+<plist version="1.0">
+<dict>
+	<!-- llvmlite (numba, via librosa) JIT-compiles into writable+executable memory without
+	     MAP_JIT, and cffi/pyobjc/ctypes callbacks (sounddevice's audio callback, pynput's
+	     event tap) may need writable code pages. Without it: the process is killed
+	     (Code Signature Invalid) at the first JIT or callback. Superset of allow-jit. -->
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+	<!-- Microphone for voice conversations and dictation (abstractvoice / PortAudio).
+	     Without it the hardened runtime denies audio input and macOS never asks. -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
+</plist>
