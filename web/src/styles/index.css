@@ -1,15 +1,22 @@
 /* AbstractAssistant web: the app's styles.
  *
- * Design tokens are W4's (web/design/tokens.css, owned by web/design/): this
- * file only CONSUMES `--aa-*` tokens and never defines a colour of its own.
- * Kit components (the sign-in modal, Markdown) read the kit's token names,
- * aliased to ours after the kit's theme, per the mapping in tokens.css.
+ * Design tokens are W4's (web/design/tokens.css, owned by web/design/). The shell, the chat,
+ * the approval panel and the dialogs are the kit's (ADR 0001), so this file styles only the
+ * little the app still owns (the conversation list, the splash, a few notes) and reads the
+ * kit's colour tokens for it: a theme the person picks in Appearance reaches every pixel.
+ *
+ * The Assistant's own palette is the default look: under the kit's two generic themes
+ * ("Dark (Abstract)" and "Light", the appearance default by system preference) the kit's
+ * tokens are aliased to ours, per the mapping in tokens.css, and the app sets
+ * `data-theme="dark"|"light"` from the chosen theme's group so tokens.css picks its palette.
+ * A named kit theme (Nord, Dracula, ...) keeps the kit's palette.
  */
 @import "@abstractframework/ui-kit/theme.css";
 @import "@abstractframework/panel-chat/panel_chat.css";
 @import "../../design/tokens.css";
 
-:root {
+:root.theme-dark,
+:root.theme-light {
   --bg-primary: var(--aa-ground);
   --bg-secondary: var(--aa-surface);
   --bg-tertiary: var(--aa-surface-sunken);
@@ -51,9 +58,9 @@ body,
 }
 body {
   margin: 0;
-  background: var(--aa-ground);
-  color: var(--aa-text);
-  font-family: var(--aa-font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
   font-size: var(--aa-text-body);
   line-height: var(--aa-leading-body);
 }
@@ -65,46 +72,30 @@ body {
   padding: 0 var(--aa-gutter);
 }
 
-/* Layout (web/design/README.md, "Layouts"): >= 1024 px a sidebar beside the
- * conversation; below it ONE column, the conversation list behind the
- * header's Conversations button; < 600 px the phone layout. `minmax(0, 1fr)`:
- * a plain `1fr` cannot shrink below its content, and one long title pushed
- * the composer off screen (adversary finding 1). */
-.aa-shell {
-  display: grid;
-  grid-template-columns: var(--aa-sidebar-w) minmax(0, 1fr);
-  height: 100%;
-}
+/* The conversations (AfAppShell nav: docked from 1024 px, a drawer below). */
 .aa-sidebar {
   display: flex;
   flex-direction: column;
   gap: var(--aa-space-2);
   padding: var(--aa-space-3);
-  background: var(--aa-surface);
-  border-right: 1px solid var(--aa-border);
+  height: 100%;
   overflow: auto;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--ui-border-1);
 }
-.aa-sidebar__top,
-.aa-sidebar__bottom {
+.aa-sidebar__top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-.aa-sidebar__bottom {
-  margin-top: auto;
-}
-.aa-sidebar__actions {
-  display: flex;
   gap: var(--aa-space-2);
 }
-.aa-brand {
+.aa-sidebar__heading {
   font-weight: var(--aa-weight-semibold);
-  font-size: var(--aa-text-lg);
 }
 .aa-sidebar__error,
 .aa-sidebar__more {
   font-size: var(--aa-text-sm);
-  color: var(--aa-text-muted);
+  color: var(--text-secondary);
 }
 .aa-sessions {
   list-style: none;
@@ -127,11 +118,11 @@ body {
   cursor: pointer;
 }
 .aa-session:hover {
-  background: var(--aa-overlay-hover);
+  background: var(--ui-overlay-bg);
 }
 .aa-session--active {
-  background: var(--aa-accent-bg);
-  border-color: var(--aa-accent-border);
+  background: var(--accent-subtle);
+  border-color: var(--accent-border);
 }
 .aa-session__title {
   display: block;
@@ -141,37 +132,36 @@ body {
 }
 .aa-session__meta {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--aa-space-2);
   font-size: var(--aa-text-xs);
-  color: var(--aa-text-muted);
+  color: var(--text-secondary);
 }
 
 .aa-state--waiting {
-  color: var(--aa-amber-text);
+  color: var(--warning);
 }
 .aa-state--running {
-  color: var(--aa-mint-text);
+  color: var(--success);
 }
 .aa-state--failed {
-  color: var(--aa-danger);
+  color: var(--error);
 }
 
-.aa-main {
-  display: flex;
-  flex-direction: column;
+/* The conversation: the kit's WorkflowChat fills the shell's main area. */
+.aa-chat {
+  height: 100%;
   min-height: 0;
-  min-width: 0;
 }
-.aa-main__header {
+.aa-chat__header {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   min-width: 0;
   gap: var(--aa-space-3);
-  padding: var(--aa-space-3) var(--aa-gutter);
-  border-bottom: 1px solid var(--aa-border);
 }
-.aa-main__title {
-  flex: 1 1 auto;
+.aa-chat__title {
+  flex: 1 1 12rem;
   min-width: 0;
   margin: 0;
   font-size: var(--aa-text-lg);
@@ -180,134 +170,26 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.aa-banner {
-  display: flex;
-  align-items: center;
-  overflow-wrap: anywhere;
-  justify-content: space-between;
-  gap: var(--aa-space-3);
-  margin: var(--aa-space-2) var(--aa-gutter) 0;
-  padding: var(--aa-space-2) var(--aa-space-3);
-  border-radius: var(--aa-radius-md);
-  background: var(--aa-surface-raised);
-  border: 1px solid var(--aa-border);
+.aa-chat__status {
+  font-size: var(--aa-text-sm);
+  color: var(--text-secondary);
 }
-.aa-banner--warn {
-  background: var(--aa-amber-bg);
-}
-.aa-banner--error {
-  background: var(--aa-danger-bg);
-}
-
-.aa-thread {
-  flex: 1;
-  overflow: auto;
-  padding: var(--aa-space-4) var(--aa-gutter);
+.aa-chat__notes {
   display: flex;
   flex-direction: column;
-  gap: var(--aa-space-3);
+  gap: var(--aa-space-1);
 }
-.aa-thread > * {
-  max-width: var(--aa-reading-max);
-  width: 100%;
-  margin-inline: auto;
-}
-.aa-empty,
-.aa-activity {
-  color: var(--aa-text-muted);
-}
-.aa-msg {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  padding: var(--aa-space-3) var(--aa-space-4);
-  border-radius: var(--aa-radius-lg);
-  background: var(--aa-surface);
-  border: 1px solid var(--aa-border);
-}
-.aa-msg--user {
-  background: var(--aa-user-bubble);
-}
-.aa-msg--notice {
-  background: transparent;
-  color: var(--aa-text-muted);
-}
-.aa-msg--live {
-  border-style: dashed;
-}
-.aa-msg__text {
+.aa-note {
   margin: 0;
-  white-space: pre-wrap;
-}
-.aa-msg__files {
-  margin: var(--aa-space-2) 0 0;
-  padding-left: var(--aa-space-4);
+  overflow-wrap: anywhere;
   font-size: var(--aa-text-sm);
-  color: var(--aa-text-muted);
+  color: var(--text-secondary);
 }
-
-.aa-wait {
-  padding: var(--aa-space-3) var(--aa-space-4);
-  border-radius: var(--aa-radius-lg);
-  background: var(--aa-amber-bg);
-  border: 1px solid var(--aa-approval-border);
+.aa-note--error {
+  color: var(--error);
 }
-.aa-wait__title {
-  margin: 0 0 var(--aa-space-2);
-  font-size: var(--aa-text-md);
-}
-.aa-wait__tool-name {
-  font-family: var(--aa-font-mono);
-  color: var(--aa-lavender-text);
-}
-.aa-wait__args {
-  margin: var(--aa-space-1) 0 var(--aa-space-2);
-  padding: var(--aa-space-2);
-  overflow: auto;
-  max-height: 14rem;
-  background: var(--aa-surface-sunken);
-  border-radius: var(--aa-radius-sm);
-  font-family: var(--aa-font-mono);
-  font-size: var(--aa-text-sm);
-}
-.aa-wait__note {
-  font-size: var(--aa-text-sm);
-  color: var(--aa-text-muted);
-}
-.aa-wait__actions {
-  display: flex;
-  gap: var(--aa-space-2);
-}
-
-.aa-composer {
-  padding: var(--aa-space-3) var(--aa-gutter) var(--aa-space-4);
-  border-top: 1px solid var(--aa-border);
-}
-.aa-composer__row {
-  display: flex;
-  gap: var(--aa-space-2);
-  align-items: flex-end;
-  max-width: var(--aa-reading-max);
-  margin-inline: auto;
-}
-.aa-composer__input,
-.aa-input {
-  flex: 1;
-  min-height: var(--aa-tap-min);
-  padding: var(--aa-space-2) var(--aa-space-3);
-  border: 1px solid var(--aa-control-border);
-  border-radius: var(--aa-radius-composer);
-  background: var(--aa-surface-sunken);
-  color: inherit;
-  font: inherit;
-  resize: vertical;
-}
-.aa-composer__files,
-.aa-composer__note {
-  max-width: var(--aa-reading-max);
-  margin: 0 auto var(--aa-space-2);
-  font-size: var(--aa-text-sm);
-  color: var(--aa-text-muted);
+.aa-empty {
+  color: var(--text-secondary);
 }
 
 .aa-button {
@@ -319,36 +201,23 @@ body {
   flex: 0 0 auto;
   padding: 0 var(--aa-space-4);
   border-radius: var(--aa-radius-pill);
-  border: 1px solid var(--aa-border-strong);
-  background: var(--aa-surface-raised);
+  border: 1px solid var(--ui-border-2);
+  background: var(--bg-tertiary);
   color: inherit;
   font: inherit;
   cursor: pointer;
 }
+/* Contrast holds in every kit theme: text on a tint of the accent, as the kit's own buttons. */
 .aa-button--primary {
-  background: var(--aa-accent);
-  border-color: var(--aa-accent);
-  color: var(--aa-on-accent);
-}
-.aa-button--primary:hover {
-  background: var(--aa-accent-hover);
-}
-.aa-button--icon {
-  min-width: var(--aa-tap-min);
-  padding: 0 var(--aa-space-2);
-}
-.aa-button--recording {
-  border-color: var(--aa-danger);
-  color: var(--aa-danger);
-}
-.aa-button:disabled {
-  opacity: 0.55;
-  cursor: default;
+  background: var(--accent-subtle);
+  border-color: var(--accent-border);
+  color: var(--text-primary);
+  font-weight: var(--aa-weight-semibold);
 }
 .aa-button:focus-visible,
 .aa-link:focus-visible,
 .aa-session:focus-visible {
-  outline: 2px solid var(--aa-focus-ring);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 /* Every target is at least 44 px (--aa-tap-min), text links included. */
@@ -361,56 +230,8 @@ body {
   background: none;
   border: none;
   padding: 0 var(--aa-space-2);
-  color: var(--aa-accent);
+  color: var(--accent);
   font: inherit;
   cursor: pointer;
   text-decoration: underline;
 }
-
-/* The kit's code-block copy button (panel-chat .pc-md_copy) is 28 px. */
-.aa-msg .pc-md_copy {
-  min-width: var(--aa-tap-min);
-  min-height: var(--aa-tap-min);
-}
-.aa-msg pre {
-  max-width: 100%;
-  overflow-x: auto;
-}
-.aa-composer__row {
-  min-width: 0;
-}
-.aa-composer__files li,
-.aa-session__meta {
-  flex-wrap: wrap;
-}
-
-/* Breakpoints last: they must win over the base rules above. */
-.aa-only-compact {
-  display: none;
-}
-@media (max-width: 1023px) {
-  .aa-shell {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .aa-sidebar {
-    display: none;
-  }
-  .aa-shell--list .aa-sidebar {
-    display: flex;
-    position: fixed;
-    inset: 0;
-    z-index: 10;
-    border-right: none;
-  }
-  .aa-only-compact {
-    display: inline-flex;
-  }
-}
-@media (max-width: 599px) {
-  .aa-main__header,
-  .aa-thread,
-  .aa-composer {
-    padding-inline: var(--aa-space-3);
-  }
-}
-

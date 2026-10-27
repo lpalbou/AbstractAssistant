@@ -43,6 +43,12 @@ function answer(path) {
   let m = /^api\/gateway\/runs\/([^/?]+)\/input_data/.exec(path);
   if (m) return json({ input_data: { prompt: titles[m[1]] || "" } });
   if (/^api\/gateway\/runs\/[^/?]+\/history_bundle/.test(path)) return json(bundle);
+  if (/^api\/gateway\/runs\/[^/?]+\/ledger\/stream/.test(path)) return { status: 200, contentType: "text/event-stream", body: "" };
+  if (/^api\/gateway\/runs\/[^/?]+\/ledger/.test(path)) return json({ items: [], next_after: 0 });
+  m = /^api\/gateway\/runs\/([^/?]+)$/.exec(path);
+  if (m) return json({ run_id: m[1], status: "completed", session_id: "s1" });
+  if (path.startsWith("api/gateway/discovery/tools")) return json({ items: [] });
+  if (path.startsWith("api/gateway/discovery/capabilities")) return json({ capabilities: {} });
   if (path.startsWith("api/gateway/me/events/stream")) return { status: 200, contentType: "text/event-stream", body: "" };
   if (path.startsWith("api/gateway/me/events")) return json({ events: [], head: 0, next_after: 0, more: false });
   return json({ detail: `fake gateway: no route for ${path}` }, 404);
@@ -56,7 +62,11 @@ const failures = [];
 try {
   for (const [w, h] of [[420, 700], [760, 700], [1024, 768], [1280, 900]]) {
     for (const scheme of ["light", "dark"]) {
-      const ctx = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: scheme });
+      // Below 1024 px: a touch device (coarse pointer), where every target must reach 44 px.
+      // From 1024 px: a mouse; the kit sizes its own controls for a fine pointer there, and
+      // the 44 px rule covers the app's own controls (.aa-*).
+      const touch = w < 1024;
+      const ctx = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: scheme, hasTouch: touch, isMobile: touch });
       await ctx.route("**/api/**", (route) => {
         const u = new URL(route.request().url());
         return route.fulfill(answer(u.pathname.slice(1) + u.search));
@@ -66,12 +76,12 @@ try {
       page.on("pageerror", (e) => errors.push(String(e)));
       await page.goto(base);
       if (w < 1024) {
-        await page.getByRole("button", { name: "Conversations" }).click();
+        await page.getByRole("button", { name: "Open Conversations" }).click();
         await page.locator(".aa-session").first().waitFor();
         if (shots) await page.screenshot({ path: join(shots, `list-${w}x${h}-${scheme}.png`) });
       }
       await page.locator(".aa-session").first().click();
-      await page.locator(".aa-msg--user").first().waitFor();
+      await page.locator(".pc-chat-item--user").first().waitFor();
       await page.waitForTimeout(150);
       const m = await page.evaluate(() => {
         const vw = window.innerWidth;
@@ -80,17 +90,19 @@ try {
           const st = getComputedStyle(e);
           return r.width > 0 && r.height > 0 && st.visibility !== "hidden" && st.display !== "none";
         };
+        const coarse = matchMedia("(pointer: coarse)").matches;
         const boxes = [...document.querySelectorAll("button, a[href]")].filter(visible).map((b) => {
           const r = b.getBoundingClientRect();
-          return { t: (b.getAttribute("aria-label") || b.textContent || "").trim().slice(0, 24), w: Math.round(r.width), h: Math.round(r.height), left: Math.round(r.left), right: Math.round(r.right) };
+          const own = Boolean(b.closest("[class*='aa-']")) && !b.closest("[class*='pc-'], [class*='af-']");
+          return { t: (b.getAttribute("aria-label") || b.textContent || "").trim().slice(0, 24), w: Math.round(r.width), h: Math.round(r.height), left: Math.round(r.left), right: Math.round(r.right), sized: coarse || own };
         });
         // Blocks of the conversation must sit inside the viewport too: a
         // scrolling container (the thread) can hide an overflow from the page.
-        const blocks = [...document.querySelectorAll(".aa-main__header, .aa-banner, .aa-msg, .aa-wait, .aa-composer__row, .aa-sidebar")]
+        const blocks = [...document.querySelectorAll(".aa-chat__header, .aa-chat__notes, .pc-chat-item, .pc-workflow-interaction, .pc-composer, .aa-sidebar")]
           .filter(visible)
           .map((e) => ({ t: e.className.split(" ")[0], ...(({ left, right }) => ({ left: Math.round(left), right: Math.round(right) }))(e.getBoundingClientRect()) }))
           .filter((b) => b.right > vw + 0.5 || b.left < -0.5);
-        const thread = document.querySelector(".aa-thread");
+        const thread = document.querySelector(".pc-chat-thread");
         return {
           blocks,
           threadOverflow: thread ? thread.scrollWidth - thread.clientWidth : 0,
@@ -98,10 +110,12 @@ try {
           scrollWidth: document.documentElement.scrollWidth,
           clientWidth: document.documentElement.clientWidth,
           offscreen: boxes.filter((b) => b.right > vw + 0.5 || b.left < -0.5),
-          small: boxes.filter((b) => b.w < 44 || b.h < 44),
+          small: boxes.filter((b) => b.sized && (b.w < 44 || b.h < 44)),
+          coarse,
         };
       });
       const tag = `${w}x${h}-${scheme}`;
+      if (touch && !m.coarse) failures.push(`${tag}: the touch emulation did not give a coarse pointer`);
       if (m.scrollWidth > m.clientWidth) failures.push(`${tag}: the page scrolls sideways (scrollWidth ${m.scrollWidth} > clientWidth ${m.clientWidth})`);
       for (const b of m.blocks) failures.push(`${tag}: ${b.t} is outside the viewport (${b.left}..${b.right})`);
       if (m.threadOverflow > 0) failures.push(`${tag}: the conversation scrolls sideways by ${m.threadOverflow} px`);
