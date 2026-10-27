@@ -5,6 +5,27 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
 
+### Added
+
+- **Your voices, the engine's and the shared ones (AbstractGateway 0.16.0 voice library).**
+  Settings → Voice & reading → Voice lists the speaking voices in three groups: **Your voices**
+  (the ones you cloned or designed), **Engine voices** and **Shared voices** (the gateway's
+  built-in voices and the ones its administrator shares), each with its language. **Voices that
+  speak…** keeps the voices of one language when the gateway offers several (a voice with no
+  language restriction always stays), and the chosen voice shows its description.
+- **Create a voice on the iPhone.** **Create a voice** (in Voice & reading and at the end of the
+  voice list) makes one **from a description** (words, a name and a language; the gateway designs it
+  with Qwen3-TTS, the first one can take a minute) or **from a recording**: record 5 to 20 seconds
+  with the microphone, or choose a WAV, FLAC, OGG, MP3, M4A or WEBM file, with an optional
+  transcript, a name and the language (**Detect from the recording** by default). The request runs
+  with its progress shown and the app stays usable. The new voice becomes your assistant's voice
+  when it speaks on the engine your assistant uses; otherwise the screen says which engine it was
+  made on and where to choose it. When the assistant's voice is on a cloning engine (qwen3-tts,
+  omnivoice, f5_tts, chroma, audiodit), the recording is cloned with that engine.
+- **Rename and delete your voices.** Swipe left on one of Your voices to rename or delete it.
+  Shared voices are read-only; a gateway that refuses (one shared voice store: an administrator's
+  act; a read-only voice) says why in its own words.
+
 ### Changed
 
 - **The sign-in lives in the Keychain, shared through the app group.** A Keychain item of the

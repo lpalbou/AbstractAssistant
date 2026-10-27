@@ -7,6 +7,14 @@ iPhone app); the Python package's history is in
 
 ## [Unreleased]
 
+### Added
+
+- **Voices in groups, with their language (AbstractGateway 0.16.0 voice library).** Settings → Voice
+  lists **Your voices** (cloned or designed on the iPhone or the desktop), **Engine voices** and
+  **Shared voices** (the gateway's built-in voices and the ones its administrator shares), each with
+  its language, and **Voices that speak** keeps one language's voices when the gateway offers
+  several. Voices are created on the iPhone or the desktop; the watch says so.
+
 ### Fixed
 
 - **Signing out signs you out, and the watch signs in on its own.** After a sign-out the watch came
