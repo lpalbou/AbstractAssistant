@@ -847,7 +847,7 @@ public actor MockGatewayClient: GatewayClient {
     }
 
     public func designVoice(description: String, name: String?, language: String?) async throws -> CreatedVoice {
-        try await Task.sleep(for: .milliseconds(1_200))   // a design takes a while on a real gateway
+        try await Task.sleep(for: .seconds(3))   // a design takes a while on a real gateway (a minute on first use)
         voiceSerial += 1
         let created = CreatedVoice(voiceID: "designed-\(voiceSerial)", name: name ?? "Designed voice", engine: "qwen3-tts", language: language)
         ownVoices = (ownVoices ?? []) + [VoiceEntry(choice: VoiceChoice(provider: "qwen3-tts", model: "Qwen3-TTS-12Hz-1.7B-Base", voice: created.voiceID, label: created.name ?? created.voiceID),

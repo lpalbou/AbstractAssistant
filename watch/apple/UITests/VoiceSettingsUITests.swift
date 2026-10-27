@@ -21,17 +21,50 @@ final class VoiceSettingsUITests: XCTestCase {
                 .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)),
                        withVelocity: .slow, thenHoldForDuration: 0.2)
         }
-        for _ in 0..<10 where !(f2.exists && f2.isHittable) { nudge() }
+        for _ in 0..<14 where !(f2.exists && f2.isHittable) { nudge() }
         XCTAssertTrue(f2.exists, app.debugDescription)
         f2.tap()
         XCTAssertTrue(f2.isSelected, "the chosen voice is marked")
         let small = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "small")).firstMatch
-        for _ in 0..<12 where !(small.exists && small.isHittable) { nudge() }
+        for _ in 0..<20 where !(small.exists && small.isHittable) { nudge() }
         small.tap()
         XCTAssertTrue(small.isSelected, "the chosen model is marked")
         // Kept: Settings shows the voice, and the page reopens with both choices.
         app.buttons["Back"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["F2"].waitForExistence(timeout: 5), "Settings does not show the chosen voice:\n\(app.debugDescription)")
+    }
+
+    /// The voice library on the watch (sample data): voices in groups (yours, the engine's, the
+    /// shared ones) with their language, the "Voices that speak" filter, and where voices are made.
+    func testVoicesComeInGroupsWithTheirLanguage() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--screen", "voice"]
+        app.launch()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Gateway default")).firstMatch.waitForExistence(timeout: 15),
+                      app.debugDescription)
+        func nudge() {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)),
+                       withVelocity: .slow, thenHoldForDuration: 0.2)
+        }
+        XCTAssertTrue(app.descendants(matching: .any)["voices.language"].exists, "no language filter:\n\(app.debugDescription)")
+        func header(_ title: String) -> XCUIElement { app.staticTexts.matching(NSPredicate(format: "label ==[c] %@", title)).firstMatch }
+        func reach(_ element: XCUIElement, _ tries: Int) -> Bool { for _ in 0..<tries where !element.exists { nudge() }; return element.exists }
+        // In order down the page: your voices, the engine's, the shared ones.
+        XCTAssertTrue(reach(header("Your voices"), 4), "no Your voices header:\n\(app.debugDescription)")
+        let mine = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "My narrator")).firstMatch
+        XCTAssertTrue(reach(mine, 4) && mine.label.contains("English"), "your voice with its language:\n\(app.debugDescription)")
+        XCTAssertTrue(reach(header("Engine voices"), 6), "no Engine voices header:\n\(app.debugDescription)")
+        XCTAssertTrue(reach(header("Shared voices"), 12), "no Shared voices header:\n\(app.debugDescription)")
+        let camille = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Camille")).firstMatch
+        XCTAssertTrue(reach(camille, 4) && camille.label.contains("French"), app.debugDescription)
+        let elsewhere = app.staticTexts["voices.createElsewhere"]
+        for _ in 0..<6 where !elsewhere.exists { nudge() }
+        XCTAssertTrue(elsewhere.exists, "the watch says where voices are made:\n\(app.debugDescription)")
+        XCTAssertEqual(elsewhere.label, "Create voices on the iPhone or the desktop.")
+        if let dir = ProcessInfo.processInfo.environment["SHOTS_DIR"] {
+            try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent("v2-groups.png"))
+        }
     }
 
     /// Against a real gateway (GW_URL + GW_TOKEN): choosing a voice shows a spinner on its row while
