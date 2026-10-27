@@ -77,6 +77,13 @@ jobs:
     needs: [contracts, watch_checks]
     runs-on: xcode-27
     timeout-minutes: 60
+    env:
+      # The phone app carries explicit entitlements (2026-10-22), so a Release archive must be signed;
+      # the archive and candidate steps run only when the signing material is available to this job:
+      # the distribution certificate (repository secret APPLE_DISTRIBUTION_P12_BASE64) AND the App Store
+      # Connect key that creates the provisioning profiles (ASC_KEY_P8, an `app-store` environment
+      # secret, so never visible here: pushes and PRs test only). Without it, tests and builds still run.
+      SIGNING_MATERIAL: ${{ secrets.APPLE_DISTRIBUTION_P12_BASE64 != '' && secrets.ASC_KEY_P8 != '' }}
     outputs:
       version: ${{ steps.version.outputs.version }}
       build: ${{ steps.version.outputs.build }}
@@ -100,12 +107,14 @@ jobs:
         working-directory: ${{ env.PROJECT_DIR }}
         run: xcodegen generate --spec project.yml
       - name: Check archive signing requirements
+        if: env.SIGNING_MATERIAL == 'true'
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           xcodebuild -project AbstractAssistant.xcodeproj -scheme AbstractAssistantPhone \
             -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO -showBuildSettings -json > "$RUNNER_TEMP/settings.json"
           python3 scripts/release.py settings "$RUNNER_TEMP/settings.json"
       - name: Archive Release candidate without Apple credentials
+        if: env.SIGNING_MATERIAL == 'true'
         working-directory: ${{ env.PROJECT_DIR }}
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -120,12 +129,34 @@ jobs:
             --version "$VERSION" --build "$BUILD_NUMBER"
       - name: Create isolated iPhone simulator
         run: |
-          runtime=$(xcrun simctl list runtimes available -j | python3 -c '
-          import json,sys
-          rows=[r for r in json.load(sys.stdin)["runtimes"] if ".iOS-" in r["identifier"] and int(r["version"].split(".")[0]) >= 26]
-          if not rows: raise SystemExit("No available iOS26+ runtime")
-          print(max(rows,key=lambda r: tuple(map(int,r["version"].split("."))))["identifier"])')
-          simulator=$(xcrun simctl create "Assistant CI $GITHUB_RUN_ID" com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro "$runtime")
+          # The UI tests assume a compact iPhone (a bottom tab bar, navigation-bar menus). The runner's iOS
+          # 27.1 runtime offers only "iPhone Duo", whose regular-width layout has no tab bar, and that
+          # runtime's build number (24A94425) is unparseable by xcodebuild (invalidDigitCount), which then
+          # builds every simulator architecture. So: the newest iOS 26+ runtime offering "iPhone 17 Pro"
+          # (in practice the newest iOS 26.x); else the newest runtime's newest regular iPhone (never a
+          # Duo/Fold-class device while another exists); the choice and the alternatives are printed.
+          read -r runtime devtype < <(xcrun simctl list runtimes available -j | python3 -c '
+          import json, re, sys
+          rows = [r for r in json.load(sys.stdin)["runtimes"] if ".iOS-" in r["identifier"] and int(r["version"].split(".")[0]) >= 26]
+          if not rows: raise SystemExit("No available iOS 26+ runtime")
+          version = lambda r: tuple(map(int, r["version"].split(".")))
+          phones = lambda r: [d for d in r.get("supportedDeviceTypes", []) if d.get("productFamily") == "iPhone"]
+          for r in sorted(rows, key=version, reverse=True):
+              print("available:", r["identifier"], [d["name"] for d in phones(r)][:6], file=sys.stderr)
+          def gen(d):
+              m = re.fullmatch(r"iPhone (\d+)( Pro)?", d["name"])
+              return (1 if m else 0, int(m.group(1)) if m else 0, 1 if m and m.group(2) else 0)
+          preferred = [r for r in rows if any(d["name"] == "iPhone 17 Pro" for d in phones(r))]
+          if preferred:
+              rt = max(preferred, key=version); pick = next(d for d in phones(rt) if d["name"] == "iPhone 17 Pro")
+          else:
+              usable = [r for r in rows if phones(r)]
+              if not usable: raise SystemExit("No iOS 26+ runtime supports an iPhone device type")
+              rt = max(usable, key=version); pick = max(phones(rt), key=gen)
+          print("chosen:", rt["identifier"], pick["name"], file=sys.stderr)
+          print(rt["identifier"], pick["identifier"])')
+          echo "runtime=$runtime device=$devtype"
+          simulator=$(xcrun simctl create "Assistant CI $GITHUB_RUN_ID" "$devtype" "$runtime")
           echo "IPHONE_CI_SIMULATOR=$simulator" >> "$GITHUB_ENV"
           xcrun simctl boot "$simulator"
           xcrun simctl bootstatus "$simulator" -b
@@ -152,9 +183,10 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/PhoneTests" -resultBundlePath "$RUNNER_TEMP/iPhoneTests.xcresult" \
             -jobs 1 -parallel-testing-enabled NO -collect-test-diagnostics never \
             "${selectors[@]}" -skip-testing:AbstractAssistantPhoneTests/LiveGatewayMediaTests \
-            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- -quiet
+            ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- -quiet
           echo "NATIVE_SUITE=$suite" >> "$GITHUB_ENV"
       - name: Package the tested combined candidate
+        if: env.SIGNING_MATERIAL == 'true'
         working-directory: ${{ env.PROJECT_DIR }}
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -164,6 +196,7 @@ jobs:
             --output "$RUNNER_TEMP/iphone-candidate" --sha "$GITHUB_SHA" \
             --version "$VERSION" --build "$BUILD_NUMBER" --test-suite "$NATIVE_SUITE"
       - name: Candidate summary
+        if: env.SIGNING_MATERIAL == 'true'
         run: |
           {
             echo '## AbstractAssistant iPhone + Watch release candidate'
@@ -175,7 +208,8 @@ jobs:
             echo 'Pushes and PRs do not upload. A manual upload request waits for human app-store approval.'
             echo 'Upload makes the build available for TestFlight after Apple processing. Store submission/release remain manual.'
           } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - if: env.SIGNING_MATERIAL == 'true'
+        uses: actions/upload-artifact@v4
         with:
           name: iphone-candidate-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/iphone-candidate/

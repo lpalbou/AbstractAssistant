@@ -80,7 +80,9 @@ private final class MediaWireStub: URLProtocol, @unchecked Sendable {
         #expect(input.prompt == "Describe this")
         #expect(input.attachments.map(\.id) == ["session_memory_history:upload"])
         #expect(input.attachments.first?.filename == "Image-upload.png")
-        #expect(MediaWireStub.requests.first?.url?.path == "/api/gateway/runs/turn/input_data")
+        // Containment, not `.first`: the previous test cancels a download whose URL loading can still record
+        // its request after that test returned (seen once on CI), so the static list may carry one stray entry.
+        #expect(MediaWireStub.requests.contains { $0.url?.path == "/api/gateway/runs/turn/input_data" })
     }
 
 }
