@@ -1377,24 +1377,39 @@ public struct TranscriptionChoice: Hashable, Sendable, Identifiable, Codable {
 /// What the gateway offers for voice, and its own defaults (`gateway_defaults`).
 public struct VoiceCatalog: Sendable, Equatable {
     public var voices: [VoiceChoice]
+    /// The same voices with whose they are, their language and description (the voice library).
+    public var entries: [VoiceEntry]
     public var transcription: [TranscriptionChoice]
     /// The gateway's defaults, as words: "supertonic-3", "faster-whisper base".
     public var defaultVoice: String?
     public var defaultTranscription: String?
+    /// The engine the gateway speaks with by default (`gateway_defaults.tts.provider`).
+    public var defaultVoiceProvider: String?
     public init(voices: [VoiceChoice], transcription: [TranscriptionChoice], defaultVoice: String?, defaultTranscription: String?) {
-        self.voices = voices; self.transcription = transcription; self.defaultVoice = defaultVoice; self.defaultTranscription = defaultTranscription
+        self.init(entries: voices.map { VoiceEntry(choice: $0) }, transcription: transcription, defaultVoice: defaultVoice, defaultTranscription: defaultTranscription)
+    }
+    public init(entries: [VoiceEntry], transcription: [TranscriptionChoice], defaultVoice: String?, defaultTranscription: String?, defaultVoiceProvider: String? = nil) {
+        self.entries = entries; self.voices = entries.map(\.choice); self.transcription = transcription
+        self.defaultVoice = defaultVoice; self.defaultTranscription = defaultTranscription; self.defaultVoiceProvider = defaultVoiceProvider
     }
 
-    /// From the two listings: voices from `items[].params {provider, model, voice}`; transcription
-    /// models from `models_by_provider` (the providers that can transcribe, not every name listed).
+    /// The catalog entry of a stored choice (nil: no longer offered).
+    public func entry(for choice: VoiceChoice?) -> VoiceEntry? {
+        guard let choice else { return nil }
+        return entries.first { $0.choice == choice } ?? entries.first { $0.id == choice.id }
+    }
+
+    /// From the two listings: voices from `items[].params {provider, model, voice}`, and the person's
+    /// own and shared cloned voices by their `voice_id` on their engine (see `VoiceLibrary.entry`);
+    /// transcription models from `models_by_provider` (the providers that can transcribe, not every
+    /// name listed).
     public static func parse(voices v: JSONValue, transcription t: JSONValue) -> VoiceCatalog {
-        var voices: [VoiceChoice] = []
+        var entries: [VoiceEntry] = []
         if case .array(let items)? = v["items"] {
             for i in items {
-                guard let p = i["params"], let provider = p["provider"]?.stringValue, let model = p["model"]?.stringValue,
-                      let voice = p["voice"]?.stringValue else { continue }
-                voices.append(VoiceChoice(provider: provider, model: model, voice: voice,
-                                          label: i["label"]?.stringValue ?? voice, gender: i["tags"]?["gender"]?.stringValue))
+                guard let entry = VoiceLibrary.entry(i, modelsByProvider: v["tts_models_by_provider"]),
+                      !entries.contains(where: { $0.id == entry.id }) else { continue }
+                entries.append(entry)
             }
         }
         var transcription: [TranscriptionChoice] = []
@@ -1408,8 +1423,9 @@ public struct VoiceCatalog: Sendable, Equatable {
         let d = v["gateway_defaults"]
         let tts = [d?["tts"]?["model"]?.stringValue, d?["tts"]?["voice"]?.stringValue].compactMap { $0 }.joined(separator: " ")
         let stt = [d?["stt"]?["provider"]?.stringValue, d?["stt"]?["model"]?.stringValue].compactMap { $0 }.joined(separator: " ")
-        return VoiceCatalog(voices: voices, transcription: transcription,
-                            defaultVoice: tts.isEmpty ? nil : tts, defaultTranscription: stt.isEmpty ? nil : stt)
+        return VoiceCatalog(entries: entries, transcription: transcription,
+                            defaultVoice: tts.isEmpty ? nil : tts, defaultTranscription: stt.isEmpty ? nil : stt,
+                            defaultVoiceProvider: d?["tts"]?["provider"]?.stringValue)
     }
 }
 

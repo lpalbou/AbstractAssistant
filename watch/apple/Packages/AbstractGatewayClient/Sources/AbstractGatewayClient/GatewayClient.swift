@@ -161,6 +161,13 @@ public protocol GatewayClient: Sendable {
     func transcribe(wav: Data, sessionId: String, model: TranscriptionChoice?) async throws -> String
     /// `GET /voice/voices` + `GET /audio/transcriptions/models`: the voices and transcription models offered.
     func voiceCatalog() async throws -> VoiceCatalog
+    /// The voice library (AbstractGateway 0.16.0): `POST /voice/design`, `POST /voice/clones` (multipart),
+    /// `PATCH` and `DELETE /voice/clones/{id}`. A refusal throws the gateway's sentence (403: one shared
+    /// store, an administrator's act; 422: a shared voice is read-only; 501: the engine is missing).
+    func designVoice(description: String, name: String?, language: String?) async throws -> CreatedVoice
+    func cloneVoice(_ upload: VoiceCloneUpload) async throws -> CreatedVoice
+    func renameVoice(id: String, name: String) async throws
+    func deleteVoice(id: String) async throws
     /// `GET /accounts/me/preferences`, and `PUT` of the Assistant's workflow in it.
     func accountPreferences() async throws -> JSONValue
     func setAssistantWorkflow(_ value: String?) async throws -> JSONValue
@@ -277,6 +284,28 @@ public actor LiveGatewayClient: GatewayClient {
         guard (200..<300).contains(http.statusCode) else {
             throw GatewayError.http(status: http.statusCode, body: String(decoding: data, as: UTF8.self))
         }
+        return data
+    }
+
+    /// A voice library write (sent once): JSON `body`, or `raw` bytes with their `contentType`
+    /// (multipart). Creating a voice loads an engine on first use, so the deadline is long.
+    func voiceLibraryRequest(_ method: String, _ path: String, body: (any Encodable)? = nil, raw: Data? = nil,
+                             contentType: String? = nil, timeout: TimeInterval = 300) async throws -> Data {
+        if lockedOut { throw GatewayError.unauthorized }
+        var req = URLRequest(url: baseURL.appending(path: path))
+        req.httpMethod = method
+        req.timeoutInterval = timeout
+        credential.apply(to: &req, write: true)
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let raw {
+            req.setValue(contentType, forHTTPHeaderField: "Content-Type"); req.httpBody = raw
+        } else if let body {
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type"); req.httpBody = try JSONEncoder().encode(body)
+        }
+        let (data, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse else { throw GatewayError.invalidResponse }
+        if http.statusCode == 401 { lockedOut = true; throw GatewayError.unauthorized }
+        guard (200..<300).contains(http.statusCode) else { throw GatewayError.http(status: http.statusCode, body: String(decoding: data, as: UTF8.self)) }
         return data
     }
 

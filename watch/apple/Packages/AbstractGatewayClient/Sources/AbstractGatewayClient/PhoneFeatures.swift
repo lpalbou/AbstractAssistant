@@ -85,6 +85,10 @@ public extension GatewayClient {
     }
 
     func voiceCatalog() async throws -> VoiceCatalog { throw PhoneAttachmentError.unsupported }
+    func designVoice(description: String, name: String?, language: String?) async throws -> CreatedVoice { throw PhoneAttachmentError.unsupported }
+    func cloneVoice(_ upload: VoiceCloneUpload) async throws -> CreatedVoice { throw PhoneAttachmentError.unsupported }
+    func renameVoice(id: String, name: String) async throws { throw PhoneAttachmentError.unsupported }
+    func deleteVoice(id: String) async throws { throw PhoneAttachmentError.unsupported }
     func accountPreferences() async throws -> JSONValue { throw PhoneAttachmentError.unsupported }
     func setAssistantWorkflow(_ value: String?) async throws -> JSONValue { throw PhoneAttachmentError.unsupported }
     func startRun(prompt: String, sessionId: String?, attachments: [JSONValue]) async throws -> String {

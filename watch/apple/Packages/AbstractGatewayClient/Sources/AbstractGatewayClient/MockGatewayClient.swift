@@ -808,15 +808,74 @@ public actor MockGatewayClient: GatewayClient {
 
     public func voiceCatalog() async throws -> VoiceCatalog {
         guard world == .watch else {
-            return VoiceCatalog(voices: [VoiceChoice(provider: "supertonic", model: "supertonic-3", voice: "F2", label: "Supertonic · F2"), VoiceChoice(provider: "supertonic", model: "supertonic-3", voice: "M1", label: "Supertonic · M1")],
+            return VoiceCatalog(entries: libraryVoices(),
                                 transcription: [TranscriptionChoice(provider: "faster-whisper", model: "base"), TranscriptionChoice(provider: "faster-whisper", model: "large-v3-turbo")],
-                                defaultVoice: "Supertonic · F2", defaultTranscription: "faster-whisper · base")
+                                defaultVoice: "Supertonic · F2", defaultTranscription: "faster-whisper · base", defaultVoiceProvider: "supertonic")
         }
         try await Task.sleep(for: .seconds(4))   // like a slow gateway over a watch's radio
-        return VoiceCatalog(voices: ["M1", "M2", "F1", "F2"].map { VoiceChoice(provider: "supertonic", model: "supertonic-3", voice: $0, label: "Supertonic \($0)",
-                                                                        gender: $0.hasPrefix("F") ? "female" : "male") },
+        return VoiceCatalog(entries: libraryVoices(),
                      transcription: ["tiny", "base", "small", "large-v3"].map { TranscriptionChoice(provider: "faster-whisper", model: $0) },
-                     defaultVoice: "supertonic-3", defaultTranscription: "faster-whisper base")
+                     defaultVoice: "supertonic-3", defaultTranscription: "faster-whisper base", defaultVoiceProvider: "supertonic")
+    }
+
+    // MARK: Voice library (sample: the engine's voices, one of the person's own, two shared)
+
+    private var ownVoices: [VoiceEntry]? = nil
+    private var voiceSerial = 0
+
+    private func libraryVoices() -> [VoiceEntry] {
+        if ownVoices == nil {
+            ownVoices = [VoiceEntry(choice: VoiceChoice(provider: "qwen3-tts", model: "Qwen3-TTS-12Hz-1.7B-Base", voice: "my-narrator", label: "My narrator"),
+                                    group: .yours, language: "en", summary: "Calm, warm and slow: for long answers.")]
+        }
+        let engine: [VoiceEntry] = world == .watch
+            ? ["M1", "M2", "F1", "F2"].map { VoiceEntry(choice: VoiceChoice(provider: "supertonic", model: "supertonic-3", voice: $0, label: "Supertonic \($0)",
+                                                                          gender: $0.hasPrefix("F") ? "female" : "male"), group: .engine, language: "en") }
+            : [VoiceEntry(choice: VoiceChoice(provider: "supertonic", model: "supertonic-3", voice: "F2", label: "Supertonic · F2"), group: .engine, language: "en"),
+               VoiceEntry(choice: VoiceChoice(provider: "supertonic", model: "supertonic-3", voice: "M1", label: "Supertonic · M1"), group: .engine, language: "en")]
+        let shared = [
+            VoiceEntry(choice: VoiceChoice(provider: "qwen3-tts", model: "Qwen3-TTS-12Hz-1.7B-Base", voice: "fr-female-camille", label: "Camille", gender: "female"),
+                       group: .shared, language: "fr", summary: "A bright adult female voice, Parisian French."),
+            VoiceEntry(choice: VoiceChoice(provider: "qwen3-tts", model: "Qwen3-TTS-12Hz-1.7B-Base", voice: "de-male-jonas", label: "Jonas", gender: "male"),
+                       group: .shared, language: "de", summary: "A low, steady adult male voice."),
+        ]
+        return (ownVoices ?? []) + engine + shared
+    }
+
+    private static func refusal(_ status: Int, _ sentence: String) -> GatewayError {
+        .http(status: status, body: "{\"detail\":\"\(sentence)\"}")
+    }
+
+    public func designVoice(description: String, name: String?, language: String?) async throws -> CreatedVoice {
+        try await Task.sleep(for: .milliseconds(1_200))   // a design takes a while on a real gateway
+        voiceSerial += 1
+        let created = CreatedVoice(voiceID: "designed-\(voiceSerial)", name: name ?? "Designed voice", engine: "qwen3-tts", language: language)
+        ownVoices = (ownVoices ?? []) + [VoiceEntry(choice: VoiceChoice(provider: "qwen3-tts", model: "Qwen3-TTS-12Hz-1.7B-Base", voice: created.voiceID, label: created.name ?? created.voiceID),
+                                                    group: .yours, language: language, summary: description)]
+        return created
+    }
+
+    public func cloneVoice(_ upload: VoiceCloneUpload) async throws -> CreatedVoice {
+        guard !upload.audio.isEmpty else { throw Self.refusal(422, "The reference recording is empty.") }
+        try await Task.sleep(for: .milliseconds(800))
+        voiceSerial += 1
+        let engine = upload.provider ?? "omnivoice"
+        let created = CreatedVoice(voiceID: "cloned-\(voiceSerial)", name: upload.name ?? "My voice", engine: engine, language: upload.language ?? "en")
+        ownVoices = (ownVoices ?? []) + [VoiceEntry(choice: VoiceChoice(provider: engine, model: "", voice: created.voiceID, label: created.name ?? created.voiceID),
+                                                    group: .yours, language: created.language)]
+        return created
+    }
+
+    public func renameVoice(id: String, name: String) async throws {
+        _ = libraryVoices()
+        guard let i = ownVoices?.firstIndex(where: { $0.voiceID == id }) else { throw Self.refusal(422, "Built-in and shared voices are read-only.") }
+        ownVoices?[i].choice.label = name
+    }
+
+    public func deleteVoice(id: String) async throws {
+        _ = libraryVoices()
+        guard let i = ownVoices?.firstIndex(where: { $0.voiceID == id }) else { throw Self.refusal(422, "Built-in and shared voices are read-only.") }
+        ownVoices?.remove(at: i)
     }
 
     public func transcribe(wav: Data, sessionId: String) async throws -> String { try await transcribe(wav: wav, sessionId: sessionId, model: nil) }
