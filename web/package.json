@@ -34,8 +34,8 @@
     "@abstractframework/app-server": "0.1.12"
   },
   "devDependencies": {
-    "@abstractframework/panel-chat": "0.4.1",
-    "@abstractframework/ui-kit": "0.8.7",
+    "@abstractframework/panel-chat": "file:../../kit-packs/abstractframework-panel-chat-0.4.1-b6db5fe.tgz",
+    "@abstractframework/ui-kit": "file:../../kit-packs/abstractframework-ui-kit-0.8.9-b6db5fe-cssfix.tgz",
     "@types/react": "18.3.27",
     "@types/react-dom": "18.3.7",
     "@vitejs/plugin-react": "4.7.0",
