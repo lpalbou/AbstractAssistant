@@ -352,3 +352,17 @@ def test_a_cancelled_creation_still_releases_the_dialog(monkeypatch: pytest.Monk
     dlg = _voice_route_dialog(monkeypatch, {})
     dlg.route_editor._open_create_voice()
     assert _FakeCreateDialog.instances[0].deleted
+
+
+def test_a_created_voice_that_is_not_listed_leaves_the_route_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Found in review: switching to the new voice's engine and saving its first model overwrote the
+    person's route even when the voice could not be selected. Now nothing is saved and the route
+    goes back to what it was."""
+    dlg = _voice_route_dialog(monkeypatch, {"voice_id": "v-missing", "name": "Mine", "engine": "piper"})
+    before = dict(dlg._stub.overrides.get("output.voice") or {})
+    provider_before, model_before = dlg.provider_combo.currentData(), dlg.model_combo.currentData()
+    monkeypatch.setattr(dlg.route_editor._controller, "voice_choices", lambda **kw: [])
+    dlg.route_editor._open_create_voice()
+    assert dict(dlg._stub.overrides.get("output.voice") or {}) == before
+    assert dlg.provider_combo.currentData() == provider_before and dlg.model_combo.currentData() == model_before
+    assert dlg.voice_combo.currentData() != "v-missing"

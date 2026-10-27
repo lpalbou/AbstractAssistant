@@ -713,6 +713,12 @@ class RouteOverrideEditor(QWidget):
             dialog.deleteLater()
         engine = str(created.get("engine") or "").strip()
         name = str(created.get("name") or created.get("voice_id") or "").strip()
+        # What the route was before: restored, unsaved, when the new voice cannot be selected.
+        previous = (
+            provider,
+            str(self.model_combo.currentData() or "").strip(),
+            str(self.voice_combo.currentData() or "").strip(),
+        )
         if engine and engine != provider:
             if self.provider_combo.findData(engine) < 0:
                 QMessageBox.information(
@@ -729,10 +735,30 @@ class RouteOverrideEditor(QWidget):
             finally:
                 self.provider_combo.blockSignals(False)
             self._refresh_models_for_provider()
-        self._select_created_voice(str(created.get("voice_id") or ""), name)
+        self._select_created_voice(str(created.get("voice_id") or ""), name, previous=previous)
 
-    def _select_created_voice(self, voice_id: str, name: str) -> None:
-        """Select a just-created voice on the current provider and save the route with it."""
+    def _restore_route_combos(self, previous: tuple) -> None:
+        provider, model, voice = previous
+        self.provider_combo.blockSignals(True)
+        try:
+            if provider and self.provider_combo.findData(provider) < 0:
+                self.provider_combo.addItem(provider, provider)
+            self._set_combo_value(self.provider_combo, provider)
+        finally:
+            self.provider_combo.blockSignals(False)
+        self._refresh_models_for_provider()
+        if model and self.model_combo.findData(model) < 0:
+            self.model_combo.addItem(model, model)
+        self._set_combo_value(self.model_combo, model)
+        self._refresh_voice_choices()
+        if voice and self.voice_combo.findData(voice) < 0:
+            self.voice_combo.addItem(f"{voice} (saved)", voice)
+        self._set_combo_value(self.voice_combo, voice)
+
+    def _select_created_voice(self, voice_id: str, name: str, *, previous: Optional[tuple] = None) -> None:
+        """Select a just-created voice on the current provider and save the route with it. When the
+        voice is not listed (another model, a listing failure), nothing is saved: the route goes
+        back to what it was and the person is told where the voice is."""
         if not str(self.model_combo.currentData() or "").strip() and self.model_combo.count() > 1:
             # Voices are listed per model: take the engine's first model rather than none.
             self.model_combo.blockSignals(True)
@@ -742,15 +768,22 @@ class RouteOverrideEditor(QWidget):
                 self.model_combo.blockSignals(False)
         self._refresh_voice_choices()
         idx = self.voice_combo.findData(voice_id)
-        if idx >= 0:
-            self.voice_combo.blockSignals(True)
-            try:
-                self.voice_combo.setCurrentIndex(idx)
-            finally:
-                self.voice_combo.blockSignals(False)
-        self._apply_selection()
         if idx < 0:
-            self._feedback(f"Voice created: {name}. It is not in this model's voice list yet; reopen the Voice list to look again.", tone="warning")
+            engine = str(self.provider_combo.currentData() or "").strip()
+            if previous is not None:
+                self._restore_route_combos(previous)
+            self._feedback(
+                f"Voice created: {name} (on {engine}), but it is not in {engine}'s voice list here, so your route is "
+                "unchanged. Reopen the Voice list to look again, or pick it from a route on that engine.",
+                tone="warning",
+            )
+            return
+        self.voice_combo.blockSignals(True)
+        try:
+            self.voice_combo.setCurrentIndex(idx)
+        finally:
+            self.voice_combo.blockSignals(False)
+        self._apply_selection()
 
     def _refresh_voice_choices(self) -> None:
         row = self._active_row()
