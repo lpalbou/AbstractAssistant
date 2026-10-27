@@ -1472,9 +1472,11 @@ class AssistantController:
         """Create a voice from a description on the gateway (the person's own with user accounts on)."""
         return self.gateway_service.design_voice(description=description, name=name, language=language)
 
-    def clone_voice(self, *, file_path: str, name=None, language=None, reference_text=None):
-        """Create a voice from a recording on the gateway."""
-        return self.gateway_service.clone_voice(file_path=file_path, name=name, language=language, reference_text=reference_text)
+    def clone_voice(self, *, file_path: str, name=None, language=None, reference_text=None, provider=None):
+        """Create a voice from a recording on the gateway (`provider`: the cloning engine, none = the gateway's)."""
+        return self.gateway_service.clone_voice(
+            file_path=file_path, name=name, language=language, reference_text=reference_text, provider=provider
+        )
 
     def supports_tts(self) -> bool:
         return bool(self.voice_manager.supports_tts())

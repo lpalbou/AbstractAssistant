@@ -1560,7 +1560,8 @@ the stream. Whether the gateway offers live replies is read from
 - Voice library (AbstractGateway 0.16.0): `/api/gateway/voice/languages`, `/api/gateway/voice/clones`
   (list with `language`; create from a recording, multipart), `/api/gateway/voice/clones/{voice_id}` (rename,
   delete), `/api/gateway/voice/design` (a voice from a description): the desktop's **Create a voice** dialog and the
-  grouped Voice list (your voices, engine voices, built-in)
+  grouped Voice list (your voices, engine voices, shared voices); `voice/clones` is sent the route's provider
+  when it is a cloning engine, and no `language` when the recording's language is left to detection
 - Speech execution: run-scoped `voice/tts`, `voice/tts/stream` and `audio/transcribe` routes;
   attachments: `/api/gateway/attachments/upload`
 - Artifacts: `/api/gateway/runs/{run_id}/artifacts`, artifact metadata and content download
@@ -3114,12 +3115,18 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 ### Added
 
 - **Create a voice** (desktop, AbstractGateway 0.16.0): Settings → the speech route's **Create…** next to Voice opens
-  **Create a voice**, from a description (Qwen3-TTS voice design on the gateway) or from a recording file, with a name
-  and a language. With user accounts on, the voice is yours (your voice store on the gateway); on a gateway with one
-  shared store, only an administrator may create voices and the gateway's sentence says so. A voice created for the
-  selected engine is selected at once.
+  **Create a voice**, from a description (Qwen3-TTS voice design on the gateway, with a language) or from a recording
+  file (its language **Detect from the recording** by default: the gateway identifies it; or chosen), with a name.
+  When the route's provider is a cloning engine (qwen3-tts, omnivoice, f5_tts, chroma, audiodit), the recording is
+  cloned with it; otherwise with the gateway's default cloning engine. With user accounts on, the voice is yours (your
+  voice store on the gateway); on a gateway with one shared store, only an administrator may create voices and the
+  gateway's sentence says so. The new voice is selected at once and the route saved with it: on its own engine, the
+  route switching to that engine (and its first model) when the Provider list offers it; when it does not, a message
+  names the engine the voice was created on. Cancel cancels: a result that arrives after it is dropped.
 - **Voices grouped by whose they are**: the speech route's Voice list puts your voices first, then the engine's voices,
-  then the built-in library, each with its native language ("Camille · French (built-in)").
+  then the shared voices (the built-in voices and the ones the administrator shares), each with its native language
+  ("Camille · French (shared)"). A cloned voice is recognised on the record the gateway's catalog really sends (its
+  `kind`, which stays `clone` where the catalog merge sets `voice_kind: "voice"`).
 - Gateway client: `voice_languages`, `voice_clones(language=)`, `voice_design`, `voice_clone_create`,
   `voice_clone_update`, `voice_clone_delete`, and `language` on `voice_voices`.
 
@@ -10060,9 +10067,11 @@ class AssistantController:
         """Create a voice from a description on the gateway (the person's own with user accounts on)."""
         return self.gateway_service.design_voice(description=description, name=name, language=language)
 
-    def clone_voice(self, *, file_path: str, name=None, language=None, reference_text=None):
-        """Create a voice from a recording on the gateway."""
-        return self.gateway_service.clone_voice(file_path=file_path, name=name, language=language, reference_text=reference_text)
+    def clone_voice(self, *, file_path: str, name=None, language=None, reference_text=None, provider=None):
+        """Create a voice from a recording on the gateway (`provider`: the cloning engine, none = the gateway's)."""
+        return self.gateway_service.clone_voice(
+            file_path=file_path, name=name, language=language, reference_text=reference_text, provider=provider
+        )
 
     def supports_tts(self) -> bool:
         return bool(self.voice_manager.supports_tts())
@@ -20975,7 +20984,7 @@ def workflow_version_suffix(bundle_id: str, version: str, *, named_built_in: boo
     return f" @{text}" if text else ""
 
 
-_VOICE_GROUP_ORDER = ["Your voices", "Engine voices", "Built-in voices"]
+_VOICE_GROUP_ORDER = ["Your voices", "Engine voices", "Shared voices"]
 _LANGUAGE_NAMES = {
     "en": "English", "fr": "French", "de": "German", "es": "Spanish", "it": "Italian", "pt": "Portuguese",
     "ru": "Russian", "zh": "Chinese", "ja": "Japanese", "ko": "Korean", "nl": "Dutch",
@@ -20984,25 +20993,30 @@ _LANGUAGE_NAMES = {
 
 def voice_group(record: Dict[str, Any]) -> str:
     """Whose voice a catalog record is (AbstractGateway 0.16.0): the account's own, the engine's,
-    or the shared built-in library (`tags.builtin`, `params.meta.scope == "library"`)."""
+    or the shared library — the built-in voices and the voices the administrator shares
+    (`tags.builtin`, `params.meta.scope == "library"`).
+
+    A clone is recognised by the record's own ``kind`` first: the gateway's catalog merge sets
+    ``voice_kind: "voice"`` on a clone the engine also lists among its voices (the AbstractVoice
+    plugin lists every clone in both), while ``kind`` stays ``"clone"``."""
     tags = record.get("tags") if isinstance(record.get("tags"), dict) else {}
     meta = ((record.get("params") or {}).get("meta") or {}) if isinstance(record.get("params"), dict) else {}
     if tags.get("builtin"):
-        return "Built-in voices"
-    if str(record.get("voice_kind") or record.get("kind") or "") == "clone":
-        return "Built-in voices" if meta.get("scope") == "library" else "Your voices"
+        return "Shared voices"
+    if str(record.get("kind") or record.get("voice_kind") or "") == "clone":
+        return "Shared voices" if meta.get("scope") == "library" else "Your voices"
     return "Engine voices"
 
 
 def _voice_choice(choice: ChoiceItem) -> ChoiceItem:
     """A voice choice labelled with its native language and grouped (Your voices / Engine voices /
-    Built-in voices), so a person finds their own voices first."""
+    Shared voices), so a person finds their own voices first."""
     record = choice.meta
     group = voice_group(record)
     language = str(record.get("language") or (record.get("tags") or {}).get("language_code") or "").strip().lower()
     label = choice.label + (f" · {_LANGUAGE_NAMES.get(language, language)}" if language else "")
     if group != "Engine voices":
-        label = f"{label}  ({'yours' if group == 'Your voices' else 'built-in'})"
+        label = f"{label}  ({'yours' if group == 'Your voices' else 'shared'})"
     return ChoiceItem(id=choice.id, label=label, meta={**record, "voice_group": group, "voice_language": language})
 
 
@@ -21334,10 +21348,19 @@ class AssistantGatewayService:
         return self._gateway.voice_design(description=description, name=name, language=language)
 
     def clone_voice(
-        self, *, file_path: str, name: Optional[str] = None, language: Optional[str] = None, reference_text: Optional[str] = None
+        self,
+        *,
+        file_path: str,
+        name: Optional[str] = None,
+        language: Optional[str] = None,
+        reference_text: Optional[str] = None,
+        provider: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """A voice from a recording on the gateway (`POST /voice/clones`)."""
-        return self._gateway.voice_clone_create(file_path=file_path, name=name, language=language, reference_text=reference_text)
+        """A voice from a recording on the gateway (`POST /voice/clones`); `provider` = the cloning
+        engine (none = the gateway's default), `language` none = identified by the gateway."""
+        return self._gateway.voice_clone_create(
+            file_path=file_path, name=name, language=language, reference_text=reference_text, provider=provider
+        )
 
     def _catalog_workflows(self) -> tuple[List[WorkflowOption], str]:
         """The workflows this app can run for the signed-in person, as the

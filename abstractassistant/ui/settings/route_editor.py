@@ -41,6 +41,7 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
@@ -698,22 +699,58 @@ class RouteOverrideEditor(QWidget):
         self._apply_selection()
 
     def _open_create_voice(self) -> None:
+        """Create a voice, then use it: on its own engine (the route switches to that engine when
+        this list offers it), or say plainly where it is when the list does not."""
         from .create_voice_dialog import CreateVoiceDialog
 
-        dialog = CreateVoiceDialog(self._controller, self)
-        if dialog.exec_() != CreateVoiceDialog.Accepted or not dialog.result_voice:
-            return
-        created = dialog.result_voice
         provider = str(self.provider_combo.currentData() or "").strip()
-        engine = created.get("engine") or ""
-        if engine and provider and engine != provider:
-            # The new voice belongs to its engine: say where to find it instead of selecting it on another one.
-            self.voice_combo.setToolTip(f"Voice created: {created['name']} ({engine}). Choose the {engine} provider to use it.")
-            return
+        dialog = CreateVoiceDialog(self._controller, self, provider=provider)
+        try:
+            if dialog.exec_() != CreateVoiceDialog.Accepted or not dialog.result_voice:
+                return
+            created = dict(dialog.result_voice)
+        finally:
+            dialog.deleteLater()
+        engine = str(created.get("engine") or "").strip()
+        name = str(created.get("name") or created.get("voice_id") or "").strip()
+        if engine and engine != provider:
+            if self.provider_combo.findData(engine) < 0:
+                QMessageBox.information(
+                    self,
+                    "Voice created",
+                    f"The voice “{name}” was created on the {engine} engine, which this route's Provider list "
+                    f"does not offer here. Use it from a route whose provider is {engine}.",
+                )
+                return
+            # The voice speaks on its engine: the route becomes that engine.
+            self.provider_combo.blockSignals(True)
+            try:
+                self._set_combo_value(self.provider_combo, engine)
+            finally:
+                self.provider_combo.blockSignals(False)
+            self._refresh_models_for_provider()
+        self._select_created_voice(str(created.get("voice_id") or ""), name)
+
+    def _select_created_voice(self, voice_id: str, name: str) -> None:
+        """Select a just-created voice on the current provider and save the route with it."""
+        if not str(self.model_combo.currentData() or "").strip() and self.model_combo.count() > 1:
+            # Voices are listed per model: take the engine's first model rather than none.
+            self.model_combo.blockSignals(True)
+            try:
+                self.model_combo.setCurrentIndex(1)
+            finally:
+                self.model_combo.blockSignals(False)
         self._refresh_voice_choices()
-        idx = self.voice_combo.findData(created["voice_id"])
+        idx = self.voice_combo.findData(voice_id)
         if idx >= 0:
-            self.voice_combo.setCurrentIndex(idx)
+            self.voice_combo.blockSignals(True)
+            try:
+                self.voice_combo.setCurrentIndex(idx)
+            finally:
+                self.voice_combo.blockSignals(False)
+        self._apply_selection()
+        if idx < 0:
+            self._feedback(f"Voice created: {name}. It is not in this model's voice list yet; reopen the Voice list to look again.", tone="warning")
 
     def _refresh_voice_choices(self) -> None:
         row = self._active_row()

@@ -8,12 +8,18 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 ### Added
 
 - **Create a voice** (desktop, AbstractGateway 0.16.0): Settings → the speech route's **Create…** next to Voice opens
-  **Create a voice**, from a description (Qwen3-TTS voice design on the gateway) or from a recording file, with a name
-  and a language. With user accounts on, the voice is yours (your voice store on the gateway); on a gateway with one
-  shared store, only an administrator may create voices and the gateway's sentence says so. A voice created for the
-  selected engine is selected at once.
+  **Create a voice**, from a description (Qwen3-TTS voice design on the gateway, with a language) or from a recording
+  file (its language **Detect from the recording** by default: the gateway identifies it; or chosen), with a name.
+  When the route's provider is a cloning engine (qwen3-tts, omnivoice, f5_tts, chroma, audiodit), the recording is
+  cloned with it; otherwise with the gateway's default cloning engine. With user accounts on, the voice is yours (your
+  voice store on the gateway); on a gateway with one shared store, only an administrator may create voices and the
+  gateway's sentence says so. The new voice is selected at once and the route saved with it: on its own engine, the
+  route switching to that engine (and its first model) when the Provider list offers it; when it does not, a message
+  names the engine the voice was created on. Cancel cancels: a result that arrives after it is dropped.
 - **Voices grouped by whose they are**: the speech route's Voice list puts your voices first, then the engine's voices,
-  then the built-in library, each with its native language ("Camille · French (built-in)").
+  then the shared voices (the built-in voices and the ones the administrator shares), each with its native language
+  ("Camille · French (shared)"). A cloned voice is recognised on the record the gateway's catalog really sends (its
+  `kind`, which stays `clone` where the catalog merge sets `voice_kind: "voice"`).
 - Gateway client: `voice_languages`, `voice_clones(language=)`, `voice_design`, `voice_clone_create`,
   `voice_clone_update`, `voice_clone_delete`, and `language` on `voice_voices`.
 

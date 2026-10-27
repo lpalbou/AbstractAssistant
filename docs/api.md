@@ -223,7 +223,8 @@ the stream. Whether the gateway offers live replies is read from
 - Voice library (AbstractGateway 0.16.0): `/api/gateway/voice/languages`, `/api/gateway/voice/clones`
   (list with `language`; create from a recording, multipart), `/api/gateway/voice/clones/{voice_id}` (rename,
   delete), `/api/gateway/voice/design` (a voice from a description): the desktop's **Create a voice** dialog and the
-  grouped Voice list (your voices, engine voices, built-in)
+  grouped Voice list (your voices, engine voices, shared voices); `voice/clones` is sent the route's provider
+  when it is a cloning engine, and no `language` when the recording's language is left to detection
 - Speech execution: run-scoped `voice/tts`, `voice/tts/stream` and `audio/transcribe` routes;
   attachments: `/api/gateway/attachments/upload`
 - Artifacts: `/api/gateway/runs/{run_id}/artifacts`, artifact metadata and content download
