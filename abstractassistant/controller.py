@@ -1468,6 +1468,14 @@ class AssistantController:
     def voice_choices(self, *, provider: str, model: str, base_url: str = ""):
         return self.gateway_service.voice_choices(provider=provider, model=model, base_url=base_url)
 
+    def design_voice(self, *, description: str, name=None, language=None):
+        """Create a voice from a description on the gateway (the person's own with user accounts on)."""
+        return self.gateway_service.design_voice(description=description, name=name, language=language)
+
+    def clone_voice(self, *, file_path: str, name=None, language=None, reference_text=None):
+        """Create a voice from a recording on the gateway."""
+        return self.gateway_service.clone_voice(file_path=file_path, name=name, language=language, reference_text=reference_text)
+
     def supports_tts(self) -> bool:
         return bool(self.voice_manager.supports_tts())
 

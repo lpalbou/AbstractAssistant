@@ -42,6 +42,7 @@ from PyQt5.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPlainTextEdit,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -231,7 +232,15 @@ class RouteOverrideEditor(QWidget):
         form.addWidget(self.voice_label, 2, 0)
         self.voice_combo = QComboBox()
         self.voice_combo.currentIndexChanged.connect(self._on_voice_combo_changed)
-        form.addWidget(self.voice_combo, 2, 1)
+        voice_row = QHBoxLayout()
+        voice_row.setContentsMargins(0, 0, 0, 0)
+        voice_row.addWidget(self.voice_combo, 1)
+        # Create a voice (from a description or a recording) through the gateway's voice library.
+        self.create_voice_button = QPushButton("Create…")
+        self.create_voice_button.setToolTip("Create a voice from a description or a recording")
+        self.create_voice_button.clicked.connect(self._open_create_voice)
+        voice_row.addWidget(self.create_voice_button)
+        form.addLayout(voice_row, 2, 1)
 
         # Reasoning belongs to the model that reasons. It is a property of the
         # chat model, like its provider and its name — not of the page, and not
@@ -477,6 +486,7 @@ class RouteOverrideEditor(QWidget):
         self.base_url_edit.setEnabled(enabled)
         self.options_edit.setEnabled(enabled)
         self.voice_combo.setEnabled(enabled)
+        self.create_voice_button.setEnabled(enabled)
         self.resolution_combo.setEnabled(enabled)
         self.reasoning_combo.setEnabled(enabled)
         self.speculation_combo.setEnabled(enabled)
@@ -686,6 +696,24 @@ class RouteOverrideEditor(QWidget):
             self._set_combo_value(self.model_combo, current_model)
         # The base URL rides the override, so a new one is part of the choice.
         self._apply_selection()
+
+    def _open_create_voice(self) -> None:
+        from .create_voice_dialog import CreateVoiceDialog
+
+        dialog = CreateVoiceDialog(self._controller, self)
+        if dialog.exec_() != CreateVoiceDialog.Accepted or not dialog.result_voice:
+            return
+        created = dialog.result_voice
+        provider = str(self.provider_combo.currentData() or "").strip()
+        engine = created.get("engine") or ""
+        if engine and provider and engine != provider:
+            # The new voice belongs to its engine: say where to find it instead of selecting it on another one.
+            self.voice_combo.setToolTip(f"Voice created: {created['name']} ({engine}). Choose the {engine} provider to use it.")
+            return
+        self._refresh_voice_choices()
+        idx = self.voice_combo.findData(created["voice_id"])
+        if idx >= 0:
+            self.voice_combo.setCurrentIndex(idx)
 
     def _refresh_voice_choices(self) -> None:
         row = self._active_row()
@@ -924,6 +952,7 @@ class RouteOverrideEditor(QWidget):
         is_voice = row.key == "output.voice"
         self.voice_label.setVisible(is_voice)
         self.voice_combo.setVisible(is_voice)
+        self.create_voice_button.setVisible(is_voice)
         if is_voice:
             self._refresh_voice_choices()
 

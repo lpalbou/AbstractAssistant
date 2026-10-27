@@ -8,10 +8,10 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 ## Current Counts
 
 - Planned: 12
-- Proposed: 20
+- Proposed: 21
 - Completed: 16
 
-Counts recomputed from disk on 2026-10-26 after adding 1053 (shared Swift client kit) and 1054 (offline capture queue), from the fusion decision of ADR 0004 (topic tracks included). Planned +1 the same day for 1056 (Apple lessons for the desktop). Planned +1 for 1055 (sign and notarize the macOS app, ADR 0006). Planned +1 for 1057 (the Assistant on the web, ADR 0007).
+Counts recomputed from disk on 2026-10-26 after adding 1053 (shared Swift client kit) and 1054 (offline capture queue), from the fusion decision of ADR 0004 (topic tracks included). Planned +1 the same day for 1056 (Apple lessons for the desktop). Planned +1 for 1055 (sign and notarize the macOS app, ADR 0006). Planned +1 for 1057 (the Assistant on the web, ADR 0007). Proposed +1 for 1059 (alert levels; recounted from disk 2026-10-26: planned 12, proposed 21, completed 16).
 - Deprecated: 0
 - Recurrent: 0
 
@@ -58,6 +58,7 @@ Counts recomputed from disk on 2026-10-26 after adding 1053 (shared Swift client
 
 | ID | Item | Status | Promotion criteria |
 |---|---|---|---|
+| [1059](proposed/1059_alert_levels_honoured_and_chosen_per_alert.md) | Alert levels: the apps honour the gateway's (results and "Notify me" arrive silent today), and an alert can choose its own | Proposed | Promote step 1 (apps render the gateway's `active` instead of `passive`) when the operator asks; step 2 (a level per alert) needs the gateway and flow seats. |
 | [1058](proposed/1058_assistant_in_the_shell.md) | The assistant in the shell: `assistant "find me file X"` | Proposed | `assistant run --prompt` exists; the bare-prompt form, a conversation loop, session choice and `--file` are the gap (operator ask 2026-10-26). Promote once the operator confirms the shape. |
 | [1053](proposed/1053_shared_swift_client_kit_for_apple_clients.md) | Shared Swift between the two Apple apps: one gateway client module, an honest credential file | Proposed | Steps 1-2 shipped 2026-10-26 (protected file, one module name; 24f47c9); step 3 converges files only when a fix touches both; ADR 0004, ADR 0005. |
 | [1054](proposed/watch-apple/1054_offline_capture_queue_on_the_wrist.md) | Offline note queue on the wrist | Proposed | Slice 0 shipped 2026-10-26 (25b849e); the note queue waits for the Notes surface of ADR 0004. |

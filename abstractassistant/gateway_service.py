@@ -246,6 +246,37 @@ def workflow_version_suffix(bundle_id: str, version: str, *, named_built_in: boo
     return f" @{text}" if text else ""
 
 
+_VOICE_GROUP_ORDER = ["Your voices", "Engine voices", "Built-in voices"]
+_LANGUAGE_NAMES = {
+    "en": "English", "fr": "French", "de": "German", "es": "Spanish", "it": "Italian", "pt": "Portuguese",
+    "ru": "Russian", "zh": "Chinese", "ja": "Japanese", "ko": "Korean", "nl": "Dutch",
+}
+
+
+def voice_group(record: Dict[str, Any]) -> str:
+    """Whose voice a catalog record is (AbstractGateway 0.16.0): the account's own, the engine's,
+    or the shared built-in library (`tags.builtin`, `params.meta.scope == "library"`)."""
+    tags = record.get("tags") if isinstance(record.get("tags"), dict) else {}
+    meta = ((record.get("params") or {}).get("meta") or {}) if isinstance(record.get("params"), dict) else {}
+    if tags.get("builtin"):
+        return "Built-in voices"
+    if str(record.get("voice_kind") or record.get("kind") or "") == "clone":
+        return "Built-in voices" if meta.get("scope") == "library" else "Your voices"
+    return "Engine voices"
+
+
+def _voice_choice(choice: ChoiceItem) -> ChoiceItem:
+    """A voice choice labelled with its native language and grouped (Your voices / Engine voices /
+    Built-in voices), so a person finds their own voices first."""
+    record = choice.meta
+    group = voice_group(record)
+    language = str(record.get("language") or (record.get("tags") or {}).get("language_code") or "").strip().lower()
+    label = choice.label + (f" · {_LANGUAGE_NAMES.get(language, language)}" if language else "")
+    if group != "Engine voices":
+        label = f"{label}  ({'yours' if group == 'Your voices' else 'built-in'})"
+    return ChoiceItem(id=choice.id, label=label, meta={**record, "voice_group": group, "voice_language": language})
+
+
 def _choice(value: Any, *, fallback_id: str = "", fallback_label: str = "") -> Optional[ChoiceItem]:
     if isinstance(value, str):
         text = value.strip()
@@ -565,8 +596,19 @@ class AssistantGatewayService:
             for item in value:
                 choice = _choice(item)
                 if choice is not None:
-                    items.append(choice)
-        return _dedupe(items)
+                    items.append(_voice_choice(choice))
+        ordered = sorted(_dedupe(items), key=lambda c: _VOICE_GROUP_ORDER.index(c.meta.get("voice_group", "Engine voices")))
+        return ordered
+
+    def design_voice(self, *, description: str, name: Optional[str] = None, language: Optional[str] = None) -> Dict[str, Any]:
+        """A voice from a written description on the gateway (`POST /voice/design`)."""
+        return self._gateway.voice_design(description=description, name=name, language=language)
+
+    def clone_voice(
+        self, *, file_path: str, name: Optional[str] = None, language: Optional[str] = None, reference_text: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """A voice from a recording on the gateway (`POST /voice/clones`)."""
+        return self._gateway.voice_clone_create(file_path=file_path, name=name, language=language, reference_text=reference_text)
 
     def _catalog_workflows(self) -> tuple[List[WorkflowOption], str]:
         """The workflows this app can run for the signed-in person, as the
