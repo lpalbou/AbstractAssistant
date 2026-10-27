@@ -127,19 +127,31 @@ jobs:
             --version "$VERSION" --build "$BUILD_NUMBER"
       - name: Create isolated iPhone simulator
         run: |
-          # The newest available iOS 26+ runtime, and a device type THAT RUNTIME supports (the runner's
-          # runtime list changes with Xcode; a fixed "iPhone 17 Pro" failed with "Incompatible device").
+          # The UI tests assume a compact iPhone (a bottom tab bar, navigation-bar menus). The runner's iOS
+          # 27.1 runtime offers only "iPhone Duo", whose regular-width layout has no tab bar, and that
+          # runtime's build number (24A94425) is unparseable by xcodebuild (invalidDigitCount), which then
+          # builds every simulator architecture. So: the newest iOS 26+ runtime offering "iPhone 17 Pro"
+          # (in practice the newest iOS 26.x); else the newest runtime's newest regular iPhone (never a
+          # Duo/Fold-class device while another exists); the choice and the alternatives are printed.
           read -r runtime devtype < <(xcrun simctl list runtimes available -j | python3 -c '
-          import json,sys
-          rows=[r for r in json.load(sys.stdin)["runtimes"] if ".iOS-" in r["identifier"] and int(r["version"].split(".")[0]) >= 26]
-          if not rows: raise SystemExit("No available iOS26+ runtime")
-          rt=max(rows,key=lambda r: tuple(map(int,r["version"].split("."))))
-          phones=[d for d in rt.get("supportedDeviceTypes",[]) if d.get("productFamily")=="iPhone"]
-          if not phones: raise SystemExit("The runtime %s supports no iPhone device type" % rt["identifier"])
-          import re
+          import json, re, sys
+          rows = [r for r in json.load(sys.stdin)["runtimes"] if ".iOS-" in r["identifier"] and int(r["version"].split(".")[0]) >= 26]
+          if not rows: raise SystemExit("No available iOS 26+ runtime")
+          version = lambda r: tuple(map(int, r["version"].split(".")))
+          phones = lambda r: [d for d in r.get("supportedDeviceTypes", []) if d.get("productFamily") == "iPhone"]
+          for r in sorted(rows, key=version, reverse=True):
+              print("available:", r["identifier"], [d["name"] for d in phones(r)][:6], file=sys.stderr)
           def gen(d):
-              m=re.search(r"iPhone (\d+)( Pro)?", d["name"]); return (int(m.group(1)) if m else 0, 1 if m and m.group(2) else 0)
-          pick=next((d for d in phones if d["name"]=="iPhone 17 Pro"), None) or max(phones,key=gen)
+              m = re.fullmatch(r"iPhone (\d+)( Pro)?", d["name"])
+              return (1 if m else 0, int(m.group(1)) if m else 0, 1 if m and m.group(2) else 0)
+          preferred = [r for r in rows if any(d["name"] == "iPhone 17 Pro" for d in phones(r))]
+          if preferred:
+              rt = max(preferred, key=version); pick = next(d for d in phones(rt) if d["name"] == "iPhone 17 Pro")
+          else:
+              usable = [r for r in rows if phones(r)]
+              if not usable: raise SystemExit("No iOS 26+ runtime supports an iPhone device type")
+              rt = max(usable, key=version); pick = max(phones(rt), key=gen)
+          print("chosen:", rt["identifier"], pick["name"], file=sys.stderr)
           print(rt["identifier"], pick["identifier"])')
           echo "runtime=$runtime device=$devtype"
           simulator=$(xcrun simctl create "Assistant CI $GITHUB_RUN_ID" "$devtype" "$runtime")
@@ -169,7 +181,7 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/PhoneTests" -resultBundlePath "$RUNNER_TEMP/iPhoneTests.xcresult" \
             -jobs 1 -parallel-testing-enabled NO -collect-test-diagnostics never \
             "${selectors[@]}" -skip-testing:AbstractAssistantPhoneTests/LiveGatewayMediaTests \
-            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- -quiet
+            ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- -quiet
           echo "NATIVE_SUITE=$suite" >> "$GITHUB_ENV"
       - name: Package the tested combined candidate
         if: env.SIGNING_MATERIAL == 'true'
