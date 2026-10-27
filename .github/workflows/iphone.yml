@@ -77,6 +77,11 @@ jobs:
     needs: [contracts, watch_checks]
     runs-on: xcode-27
     timeout-minutes: 60
+    env:
+      # The phone app carries explicit entitlements (2026-10-22), so a Release archive must be signed;
+      # the archive and candidate steps run only when the distribution signing material is configured
+      # (repository secret APPLE_DISTRIBUTION_P12_BASE64). Without it, tests and builds still run.
+      SIGNING_MATERIAL: ${{ secrets.APPLE_DISTRIBUTION_P12_BASE64 != '' }}
     outputs:
       version: ${{ steps.version.outputs.version }}
       build: ${{ steps.version.outputs.build }}
@@ -100,12 +105,14 @@ jobs:
         working-directory: ${{ env.PROJECT_DIR }}
         run: xcodegen generate --spec project.yml
       - name: Check archive signing requirements
+        if: env.SIGNING_MATERIAL == 'true'
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           xcodebuild -project AbstractAssistant.xcodeproj -scheme AbstractAssistantPhone \
             -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO -showBuildSettings -json > "$RUNNER_TEMP/settings.json"
           python3 scripts/release.py settings "$RUNNER_TEMP/settings.json"
       - name: Archive Release candidate without Apple credentials
+        if: env.SIGNING_MATERIAL == 'true'
         working-directory: ${{ env.PROJECT_DIR }}
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -155,6 +162,7 @@ jobs:
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- -quiet
           echo "NATIVE_SUITE=$suite" >> "$GITHUB_ENV"
       - name: Package the tested combined candidate
+        if: env.SIGNING_MATERIAL == 'true'
         working-directory: ${{ env.PROJECT_DIR }}
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -164,6 +172,7 @@ jobs:
             --output "$RUNNER_TEMP/iphone-candidate" --sha "$GITHUB_SHA" \
             --version "$VERSION" --build "$BUILD_NUMBER" --test-suite "$NATIVE_SUITE"
       - name: Candidate summary
+        if: env.SIGNING_MATERIAL == 'true'
         run: |
           {
             echo '## AbstractAssistant iPhone + Watch release candidate'
