@@ -66,6 +66,21 @@ export function toolsetsFromDiscovery(payload: unknown): Map<string, string> {
   return out;
 }
 
+/**
+ * What the ended turn says when the transcript cannot: a failure's reason, or no written reply.
+ * (Kit gap: the controller adds no line for a root run that ended failed or without an answer.)
+ * A stop is the kit's own Stop state ("Stopped"), not repeated here.
+ */
+export function turnOutcome(runId: string, status: string, run: Record<string, unknown> | null, messages: ReadonlyArray<{ id?: string; role: string }>): string {
+  if (!runId || !TERMINAL.has(status) || status === "cancelled") return "";
+  if (status === "failed") {
+    const why = typeof run?.error === "string" ? run.error.trim() : "";
+    return why ? `The run failed: ${why}` : "The run failed (the gateway gave no reason).";
+  }
+  const answered = messages.some((m) => m.role === "assistant" && (m.id === `final:${runId}` || String(m.id || "").startsWith(`answer:${runId}:`)));
+  return answered ? "" : "The run ended without a written reply.";
+}
+
 /** Whether a `me/events` `attention.seen` names the wait shown here. */
 export function seenMatches(seen: AttentionSeen | null, wait: { runId: string; waitKey: string; stepId?: string } | null): boolean {
   if (!seen || !wait) return false;
@@ -263,6 +278,7 @@ export function Workspace(props: {
     [snapshot.messages],
   );
   const listWords = props.listState ? STATE_WORDS[props.listState] : "";
+  const outcome = turnOutcome(props.runId, snapshot.status, snapshot.run, snapshot.messages);
 
   return (
     <WorkflowChat
@@ -286,8 +302,9 @@ export function Workspace(props: {
       }
       toolbar={{ onNewSession: props.onNewChat, copyTranscript: true, exportTranscript: { filename: "conversation.md", heading: props.title } }}
       footer={
-        snapshot.error || notice || props.eventsNotice || answeredElsewhere || (interaction && deferred === pendingKey) ? (
+        snapshot.error || outcome || notice || props.eventsNotice || answeredElsewhere || (interaction && deferred === pendingKey) ? (
           <div className="aa-chat__notes">
+            {outcome ? <p className={`aa-note${snapshot.status === "failed" ? " aa-note--error" : ""}`} role="status">{outcome}</p> : null}
             {snapshot.error ? <p className="aa-note aa-note--error" role="alert">{snapshot.error}</p> : null}
             {notice ? (
               <p className="aa-note" role="status">

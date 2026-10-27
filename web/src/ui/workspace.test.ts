@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { themeGroup } from "../lib/theme";
-import { seenMatches, toolsetsFromDiscovery } from "./Workspace";
+import { seenMatches, toolsetsFromDiscovery, turnOutcome } from "./Workspace";
 
 describe("the approval panel's inputs", () => {
   it("toolsets are the served ones; a row without one gets none (never guessed)", () => {
@@ -28,5 +28,19 @@ describe("appearance", () => {
     expect(themeGroup("catppuccin-latte")).toBe("light");
     expect(themeGroup("nord")).toBe("dark");
     expect(themeGroup("no-such-theme")).toBe("dark");
+  });
+});
+
+describe("an ended turn says what happened when the transcript cannot", () => {
+  it("a failure gives its reason; no reply is said; an answered or stopped turn says nothing", () => {
+    expect(turnOutcome("r", "failed", { error: "provider down" }, [])).toBe("The run failed: provider down");
+    expect(turnOutcome("r", "failed", {}, [])).toMatch(/no reason/);
+    expect(turnOutcome("r", "completed", {}, [])).toBe("The run ended without a written reply.");
+    expect(turnOutcome("r", "completed", {}, [{ id: "final:r", role: "assistant" }])).toBe("");
+    expect(turnOutcome("r", "completed", {}, [{ id: "answer:r:3", role: "assistant" }])).toBe("");
+    expect(turnOutcome("r", "completed", {}, [{ id: "final:other", role: "assistant" }])).toMatch(/without a written reply/);
+    expect(turnOutcome("r", "cancelled", {}, [])).toBe("");
+    expect(turnOutcome("r", "running", {}, [])).toBe("");
+    expect(turnOutcome("", "completed", {}, [])).toBe("");
   });
 });
