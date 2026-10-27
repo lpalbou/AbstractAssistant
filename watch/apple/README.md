@@ -6,9 +6,9 @@ Version 0.16.0 · watchOS 26 or later · the companion of the [AbstractAssistant
 app](../../phone/iphone/README.md), and independent (it also works with no iPhone nearby) ·
 pre-release through TestFlight. See [CHANGELOG.md](CHANGELOG.md) for what changed.
 
-**One product.** AbstractAssistant is one app for iPhone and Apple Watch: the watch app ships
-inside the iPhone app. Sign in on the iPhone and the watch takes the same sign-in; with no paired
-iPhone, sign in on the watch itself as before.
+**One product, two independent devices.** AbstractAssistant is one app for iPhone and Apple
+Watch: the watch app ships inside the iPhone app. Each signs in on its own, possibly to another
+gateway or account, and the watch works without the iPhone app.
 
 The watch app is a thin client of AbstractGateway, like the desktop assistant: the gateway owns
 workflows, runs, tools, policy, speech and search, and the watch keeps only your sign-in, your
@@ -97,8 +97,10 @@ your **user or email**:
   30 days.
 
 Sign out (Settings, or Settings → Connection) asks whether to **keep your sign-in**: a kept sign-in
-shows on the sign-in page as "Sign in as <user>" for its gateway, and one tap signs you in again.
-"Sign out and forget" removes it, and so does the gateway refusing it.
+shows on the sign-in page as "Sign in as <user>" for its gateway only, and one tap signs you in
+again. The gateway chooser lists every gateway you signed into or kept an account on (with how
+many accounts) and AbstractFramework's own. "Sign out and forget" removes the account, and so does
+the gateway refusing it. Once signed out, the watch stays signed out until you sign in on it.
 
 Give the watch its own gateway account with the `user` role; do not put an admin token on a watch.
 
@@ -128,12 +130,17 @@ curl https://<host>.<tailnet>.ts.net/api/health
   approvals, questions, published alerts and automation results arrive through Apple push once
   your gateway has a push forwarder (the app registers itself at sign-in; nothing to set up);
   until then watchOS decides when background checks run, about every 15 minutes.
+- An automation's result or failure, and a flow's "Notify me", arrive quietly in Notification
+  Center (no sound); approvals and questions alert.
+- When an iPhone is signed in to the same account, the gateway pushes the iPhone and Apple forwards
+  the alert to your wrist (iPhone locked, watch worn). Away from that iPhone, the watch shows it
+  when the app next opens or checks.
 - Known issue: on a development build, a push can arrive with its generic words ("Approval
   needed", "Open the Assistant to answer") when the notification extension did not replace them;
   the item itself is in the app. A Debug build's `--dump-notify` readout shows why
   ([BUILD.md](BUILD.md#the-notifier-readout)).
 - Your sign-in is kept in the watch's Keychain (shared with its notification extension and the
-  complication). The sign-ins you keep at Sign out ("Keep my sign-in") are a second Keychain item.
+  complication). The accounts you keep at Sign out ("Keep my sign-in") are a second Keychain item, filed by gateway.
 - Tools allowed with Approve all are approved by the watch when it sees their approvals (on the orb
   page, or in its regular check while the app is open); with the app closed, they ask. Approve all
   covers the run's own conversation, or its automation, by that one's own tools.

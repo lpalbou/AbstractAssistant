@@ -5,7 +5,7 @@ import Foundation
 /// iPhone's counterpart of the watch's `--gateway URL --token TOKEN`.
 /// `xcrun devicectl device process launch … ai.abstractframework.assistant --gateway URL --token TOKEN [--user ID]`
 /// signs in exactly as the account-token path does (verified with GET /api/gateway/me, sealed,
-/// handed to the watch, registered for push); `--forget-gateway` clears the saved sign-in.
+/// registered for push); `--forget-gateway` clears the saved sign-in.
 public enum LaunchSignIn: Equatable, Sendable {
     case signIn(gateway: URL, token: String, user: String?)
     case forget
