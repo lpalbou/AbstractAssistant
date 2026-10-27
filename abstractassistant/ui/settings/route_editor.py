@@ -41,7 +41,9 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPlainTextEdit,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -231,7 +233,15 @@ class RouteOverrideEditor(QWidget):
         form.addWidget(self.voice_label, 2, 0)
         self.voice_combo = QComboBox()
         self.voice_combo.currentIndexChanged.connect(self._on_voice_combo_changed)
-        form.addWidget(self.voice_combo, 2, 1)
+        voice_row = QHBoxLayout()
+        voice_row.setContentsMargins(0, 0, 0, 0)
+        voice_row.addWidget(self.voice_combo, 1)
+        # Create a voice (from a description or a recording) through the gateway's voice library.
+        self.create_voice_button = QPushButton("Create…")
+        self.create_voice_button.setToolTip("Create a voice from a description or a recording")
+        self.create_voice_button.clicked.connect(self._open_create_voice)
+        voice_row.addWidget(self.create_voice_button)
+        form.addLayout(voice_row, 2, 1)
 
         # Reasoning belongs to the model that reasons. It is a property of the
         # chat model, like its provider and its name — not of the page, and not
@@ -477,6 +487,7 @@ class RouteOverrideEditor(QWidget):
         self.base_url_edit.setEnabled(enabled)
         self.options_edit.setEnabled(enabled)
         self.voice_combo.setEnabled(enabled)
+        self.create_voice_button.setEnabled(enabled)
         self.resolution_combo.setEnabled(enabled)
         self.reasoning_combo.setEnabled(enabled)
         self.speculation_combo.setEnabled(enabled)
@@ -686,6 +697,60 @@ class RouteOverrideEditor(QWidget):
             self._set_combo_value(self.model_combo, current_model)
         # The base URL rides the override, so a new one is part of the choice.
         self._apply_selection()
+
+    def _open_create_voice(self) -> None:
+        """Create a voice, then use it: on its own engine (the route switches to that engine when
+        this list offers it), or say plainly where it is when the list does not."""
+        from .create_voice_dialog import CreateVoiceDialog
+
+        provider = str(self.provider_combo.currentData() or "").strip()
+        dialog = CreateVoiceDialog(self._controller, self, provider=provider)
+        try:
+            if dialog.exec_() != CreateVoiceDialog.Accepted or not dialog.result_voice:
+                return
+            created = dict(dialog.result_voice)
+        finally:
+            dialog.deleteLater()
+        engine = str(created.get("engine") or "").strip()
+        name = str(created.get("name") or created.get("voice_id") or "").strip()
+        if engine and engine != provider:
+            if self.provider_combo.findData(engine) < 0:
+                QMessageBox.information(
+                    self,
+                    "Voice created",
+                    f"The voice “{name}” was created on the {engine} engine, which this route's Provider list "
+                    f"does not offer here. Use it from a route whose provider is {engine}.",
+                )
+                return
+            # The voice speaks on its engine: the route becomes that engine.
+            self.provider_combo.blockSignals(True)
+            try:
+                self._set_combo_value(self.provider_combo, engine)
+            finally:
+                self.provider_combo.blockSignals(False)
+            self._refresh_models_for_provider()
+        self._select_created_voice(str(created.get("voice_id") or ""), name)
+
+    def _select_created_voice(self, voice_id: str, name: str) -> None:
+        """Select a just-created voice on the current provider and save the route with it."""
+        if not str(self.model_combo.currentData() or "").strip() and self.model_combo.count() > 1:
+            # Voices are listed per model: take the engine's first model rather than none.
+            self.model_combo.blockSignals(True)
+            try:
+                self.model_combo.setCurrentIndex(1)
+            finally:
+                self.model_combo.blockSignals(False)
+        self._refresh_voice_choices()
+        idx = self.voice_combo.findData(voice_id)
+        if idx >= 0:
+            self.voice_combo.blockSignals(True)
+            try:
+                self.voice_combo.setCurrentIndex(idx)
+            finally:
+                self.voice_combo.blockSignals(False)
+        self._apply_selection()
+        if idx < 0:
+            self._feedback(f"Voice created: {name}. It is not in this model's voice list yet; reopen the Voice list to look again.", tone="warning")
 
     def _refresh_voice_choices(self) -> None:
         row = self._active_row()
@@ -924,6 +989,7 @@ class RouteOverrideEditor(QWidget):
         is_voice = row.key == "output.voice"
         self.voice_label.setVisible(is_voice)
         self.voice_combo.setVisible(is_voice)
+        self.create_voice_button.setVisible(is_voice)
         if is_voice:
             self._refresh_voice_choices()
 

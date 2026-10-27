@@ -99,8 +99,10 @@ kept per bundle id and code requirement.
 
 ### 4. No shared sign-in with the iPhone and watch
 
-The iPhone and watch share their sign-in as a Keychain item in the access group
-`group.ai.abstractframework.assistant` (ADR 0005, as of 2026-10-26). The Mac app does not join it:
+The iPhone and watch apps each keep their sign-in as a Keychain item in the access group
+`group.ai.abstractframework.assistant`, shared with that device's notification extension (and the
+watch's complication), never between devices (ADR 0005, amended 2026-10-26). The Mac app does not
+join it:
 
 - the Mac app is a Python package, and the framework's rule for its Python packages is no OS
   keychain, the same credential store on Linux, Windows and macOS (the operator's ruling recorded

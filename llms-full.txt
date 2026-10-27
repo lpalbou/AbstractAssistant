@@ -85,7 +85,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/voice.md](docs/voice.md): spoken replies, dictation, the hands-free conversation loop and its failure handling
 - [docs/automations.md](docs/automations.md): configurable growing-context budgets and result email; scheduled tasks on the gateway as the Assistant shows them: the Sessions | Automations tabs, New automation and Schedule this conversation (Gateway default first; When = Repeat / Daily / Weekly / Monthly / Once at / email, the gateway's schedule-preview sentence and the account time-zone line; stop after / stop at), served schedule and next run, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications from your event stream (the attention line, the menu-bar badge, one notification per item on a Mac), the capability gate, limits
 
-- [phone/iphone/README.md](phone/iphone/README.md): AbstractAssistant for iPhone (0.16.0), the container of the watch app (one product; one Keychain sign-in shared through the app group with the watch, the extensions and the complication; Apple push with notification service extensions, [phone/iphone/BUILD.md](phone/iphone/BUILD.md) lists the five targets and bundle ids), native iPhone assistant, scoped tools and automations, notifications and tab badges from your event stream, generated images and voice attached to restored messages; [phone/iphone/CHANGELOG.md](phone/iphone/CHANGELOG.md) records native release history; [phone/iphone/docs/architecture.md](phone/iphone/docs/architecture.md) covers authenticated artifact previews and session restoration; [phone/iphone/BUILD.md](phone/iphone/BUILD.md) covers isolated builds; [phone/iphone/docs/distribution.md](phone/iphone/docs/distribution.md) explains combined iPhone + independent Watch delivery in one Store listing, credential-free CI, human-approved uploads and TestFlight-to-Store promotion
+- [phone/iphone/README.md](phone/iphone/README.md): AbstractAssistant for iPhone (0.16.0), the container of the watch app (one product, two independent devices: each signs in on its own, the sign-in a Keychain item shared with that device's notification extension; Apple push with notification service extensions, [phone/iphone/BUILD.md](phone/iphone/BUILD.md) lists the five targets and bundle ids), native iPhone assistant, scoped tools and automations, notifications and tab badges from your event stream, generated images and voice attached to restored messages; [phone/iphone/CHANGELOG.md](phone/iphone/CHANGELOG.md) records native release history; [phone/iphone/docs/architecture.md](phone/iphone/docs/architecture.md) covers authenticated artifact previews and session restoration; [phone/iphone/BUILD.md](phone/iphone/BUILD.md) covers isolated builds; [phone/iphone/docs/distribution.md](phone/iphone/docs/distribution.md) explains combined iPhone + independent Watch delivery in one Store listing, credential-free CI, human-approved uploads and TestFlight-to-Store promotion
 
 - [phone/iphone/docs/troubleshooting.md](phone/iphone/docs/troubleshooting.md): dated automation runs, failure explanations, provider versus phone authentication, notifications and Apple push (the push forwarder, generic words on development builds), installed version/build and Apple-managed updates
 - [docs/macos-signing.md](docs/macos-signing.md): signing and notarizing the macOS app bundle (`build-macos-app --sign`, `--notarize`, `--dmg`, `--local-test`)
@@ -94,10 +94,10 @@ Repository: https://github.com/lpalbou/abstractassistant
 ## Design Records
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records
 - [docs/adr/0001_gateway_native_assistant_v2.md](docs/adr/0001_gateway_native_assistant_v2.md): the gateway-native boundary
-- [docs/adr/0005_one_apple_project.md](docs/adr/0005_one_apple_project.md): one product and one project for iPhone and Apple Watch, the bundle ids, the shared sign-in and push package
+- [docs/adr/0005_one_apple_project.md](docs/adr/0005_one_apple_project.md): one product and one project for iPhone and Apple Watch, the bundle ids, the push package; amended: no sign-in passes between the devices
 - [docs/adr/0004_notes_inside_the_assistant_abstractnote_stays_a_service.md](docs/adr/0004_notes_inside_the_assistant_abstractnote_stays_a_service.md): notes inside the Apple apps, AbstractNote stays a gateway service
 - [docs/backlog/overview.md](docs/backlog/overview.md): planned and proposed work
-- [watch/apple/README.md](watch/apple/README.md): AbstractAssistant for Apple Watch (0.16.0, pre-release through TestFlight), the independent companion of the iPhone app (one product, one project `phone/iphone/project.yml`, one sign-in, Apple push), a watchOS 26+ client of the same gateway: voice Ask around the orb with the work shown live (steps under the orb, pulses), tools and workflow per conversation, images and recordings in answers, approvals (Approve all for the run's own conversation or automation), sessions with search and archive, automations, notifications from your event stream, your avatar on the watch face (the Assistant complication); [watch/apple/docs/README.md](watch/apple/docs/README.md) indexes its pages; [watch/apple/docs/architecture.md](watch/apple/docs/architecture.md) maps each screen to its gateway call; [watch/apple/BUILD.md](watch/apple/BUILD.md) builds and tests it (and the `--dump-notify` notifier readout); [watch/apple/CHANGELOG.md](watch/apple/CHANGELOG.md) is its release history
+- [watch/apple/README.md](watch/apple/README.md): AbstractAssistant for Apple Watch (0.16.0, pre-release through TestFlight), the independent companion of the iPhone app (one product, one project `phone/iphone/project.yml`, its own sign-in with kept accounts per gateway, Apple push), a watchOS 26+ client of the same gateway: voice Ask around the orb with the work shown live (steps under the orb, pulses), tools and workflow per conversation, images and recordings in answers, approvals (Approve all for the run's own conversation or automation), sessions with search and archive, automations, notifications from your event stream, your avatar on the watch face (the Assistant complication); [watch/apple/docs/README.md](watch/apple/docs/README.md) indexes its pages; [watch/apple/docs/architecture.md](watch/apple/docs/architecture.md) maps each screen to its gateway call; [watch/apple/BUILD.md](watch/apple/BUILD.md) builds and tests it (and the `--dump-notify` notifier readout); [watch/apple/CHANGELOG.md](watch/apple/CHANGELOG.md) is its release history
 
 ## Contributing
 - [CONTRIBUTING.md](CONTRIBUTING.md): development setup, tests, style
@@ -158,8 +158,8 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 - Per-answer statistics (tokens, tools, files, duration, model) with clickable detail views.
 - Multi-attachment composer with an image gallery, drag and drop, and artifact previews.
 - In your pocket and on your wrist: **AbstractAssistant for iPhone and Apple Watch** is one app
-  (0.16.0, pre-release through TestFlight): the iPhone app carries the watch app, one sign-in
-  serves both, and notifications reach you while the app is closed (Apple push, once your gateway
+  (0.16.0, pre-release through TestFlight): the iPhone app carries the watch app, each signs in
+  on its own and works without the other, and notifications reach you while the app is closed (Apple push, once your gateway
   has a push forwarder). The iPhone has the same conversations, tools and automations, with tab badges for
   what needs you ([phone/iphone/README.md](phone/iphone/README.md)); the watch talks to the same
   gateway by voice around the orb, answers approvals and questions, continues your sessions and runs
@@ -297,7 +297,7 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 
 ## iPhone, Apple Watch and the web
 
-- [../phone/iphone/README.md](../phone/iphone/README.md) — AbstractAssistant for iPhone (0.16.0, carries the watch app; one Keychain sign-in shared with the watch and the extensions; Apple push): conversations, scoped tools, automations, notifications and tab badges from your event stream, restorable image previews and voice playback; [architecture](../phone/iphone/docs/architecture.md), [release history](../phone/iphone/CHANGELOG.md), [troubleshooting, notifications and app updates](../phone/iphone/docs/troubleshooting.md), [testing/distribution](../phone/iphone/docs/distribution.md) and [build guide](../phone/iphone/BUILD.md) (the five targets, `scripts/deploy-phone.sh`)
+- [../phone/iphone/README.md](../phone/iphone/README.md) — AbstractAssistant for iPhone (0.16.0, carries the watch app; each device signs in on its own, the sign-in a Keychain item shared with that device's notification extension; Apple push): conversations, scoped tools, automations, notifications and tab badges from your event stream, restorable image previews and voice playback; [architecture](../phone/iphone/docs/architecture.md), [release history](../phone/iphone/CHANGELOG.md), [troubleshooting, notifications and app updates](../phone/iphone/docs/troubleshooting.md), [testing/distribution](../phone/iphone/docs/distribution.md) and [build guide](../phone/iphone/BUILD.md) (the five targets, `scripts/deploy-phone.sh`)
 - [../watch/apple/README.md](../watch/apple/README.md) — AbstractAssistant for Apple Watch (0.16.0, the iPhone app's independent companion, pre-release through TestFlight): voice around the orb with the work shown live, tools and workflow per conversation, images and recordings in answers, approvals, sessions with search and archive, automations, notifications from your event stream and Apple push, your avatar on the watch face; [build guide](../watch/apple/BUILD.md) (with the `--dump-notify` readout); its pages are indexed in [../watch/apple/docs/README.md](../watch/apple/docs/README.md)
 - [../web/README.md](../web/README.md) — the Assistant on the web: a scaffold on the framework's app server, run by hand against a gateway, not a release
 
@@ -1557,6 +1557,11 @@ the stream. Whether the gateway offers live replies is read from
   `/api/gateway/voice/defaults` (the default engines Settings → Voice shows),
   `/api/gateway/vision/provider_models`, `/api/gateway/vision/adapters`,
   `/api/gateway/audio/music/providers`, `/api/gateway/audio/music/models`
+- Voice library (AbstractGateway 0.16.0): `/api/gateway/voice/languages`, `/api/gateway/voice/clones`
+  (list with `language`; create from a recording, multipart), `/api/gateway/voice/clones/{voice_id}` (rename,
+  delete), `/api/gateway/voice/design` (a voice from a description): the desktop's **Create a voice** dialog and the
+  grouped Voice list (your voices, engine voices, shared voices); `voice/clones` is sent the route's provider
+  when it is a cloning engine, and no `language` when the recording's language is left to detection
 - Speech execution: run-scoped `voice/tts`, `voice/tts/stream` and `audio/transcribe` routes;
   attachments: `/api/gateway/attachments/upload`
 - Artifacts: `/api/gateway/runs/{run_id}/artifacts`, artifact metadata and content download
@@ -3109,10 +3114,30 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Added
 
+- **Create a voice** (desktop, AbstractGateway 0.16.0): Settings → the speech route's **Create…** next to Voice opens
+  **Create a voice**, from a description (Qwen3-TTS voice design on the gateway, with a language) or from a recording
+  file (its language **Detect from the recording** by default: the gateway identifies it; or chosen), with a name.
+  When the route's provider is a cloning engine (qwen3-tts, omnivoice, f5_tts, chroma, audiodit), the recording is
+  cloned with it; otherwise with the gateway's default cloning engine. With user accounts on, the voice is yours (your
+  voice store on the gateway); on a gateway with one shared store, only an administrator may create voices and the
+  gateway's sentence says so. The new voice is selected at once and the route saved with it: on its own engine, the
+  route switching to that engine (and its first model) when the Provider list offers it; when it does not, a message
+  names the engine the voice was created on. Cancel cancels: a result that arrives after it is dropped.
+- **Voices grouped by whose they are**: the speech route's Voice list puts your voices first, then the engine's voices,
+  then the shared voices (the built-in voices and the ones the administrator shares), each with its native language
+  ("Camille · French (shared)"). A cloned voice is recognised on the record the gateway's catalog really sends (its
+  `kind`, which stays `clone` where the catalog merge sets `voice_kind: "voice"`).
+- Gateway client: `voice_languages`, `voice_clones(language=)`, `voice_design`, `voice_clone_create`,
+  `voice_clone_update`, `voice_clone_delete`, and `language` on `voice_voices`.
+
+## [0.15.0] - 2026-10-26
+
+### Added
+
 - **AbstractAssistant for iPhone and Apple Watch is one product (0.16.0).** The iPhone app
   (`ai.abstractframework.assistant`) carries the watch app as its companion
   (`ai.abstractframework.assistant.watchkitapp`), built from one project (`phone/iphone/project.yml`);
-  one sign-in for both (the watch takes the iPhone's); Apple push on both apps (registration with the
+  each signs in on its own, and neither needs the other to work; Apple push on both apps (registration with the
   gateway and notification service extensions, framework backlog 1049). See the iPhone and watch
   changelogs.
 - **The macOS app can be signed and notarized** (ADR 0006, Proposed). `build-macos-app --sign` signs
@@ -3138,30 +3163,6 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   questions in the conversation, read aloud and dictation. The page keeps no token and no copy of
   your chats, and never installs a workflow. Tests run in CI, including a layout check at 420 to
   1280 px.
-
-### Changed
-
-- An automation says what starts it in words: "When mail arrives in you@example.org", "When Python
-  news has a new item", "When Orders is called", "By hand", or the schedule's sentence (the gateway's
-  `trigger_text` when it serves one); an automation that runs when something happens shows no next
-  run. Runs are called runs everywhere: "Discuss this run (your own copy; the automation's files stay
-  read-only)", "This run failed.", "This run is waiting for your answer.", "A run is in progress."
-
-### Fixed
-
-- A message sent with attachments while the gateway could not be reached was reported as "The run
-  failed", stayed in the conversation as if sent, and lost its text and attachments. It now says
-  "Not sent — <reason>", leaves the conversation, and puts the text and the attachments back in the
-  composer. The same applies when the run could not even be prepared (backlog 1056, bug 1).
-- When a hold-to-talk transcription fails, the recording is kept: a line under the conversation says
-  "Not sent. Your recording is kept", with **Retry** (sends the same recording again) and **Discard**.
-  Nothing is sent without your click. The kept recording lives in memory until the app quits
-  (backlog 1056, bug 2).
-
-## [0.15.0] - 2026-10-25
-
-### Added
-
 - The desktop app follows your event stream on the gateway (`/me/events`, then the live
   `/me/events/stream`, resuming with `Last-Event-ID` after a sleep or a network change). A line above
   the transcript says what waits for you across every conversation and automation ("A conversation
@@ -3175,11 +3176,27 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Changed
 
+- An automation says what starts it in words: "When mail arrives in you@example.org", "When Python
+  news has a new item", "When Orders is called", "By hand", or the schedule's sentence (the gateway's
+  `trigger_text` when it serves one); an automation that runs when something happens shows no next
+  run. Runs are called runs everywhere: "Discuss this run (your own copy; the automation's files stay
+  read-only)", "This run failed.", "This run is waiting for your answer.", "A run is in progress."
 - The automation list is refreshed by the event stream (within a second of a trigger, a result or a
   run) instead of the 60-second / 5-minute full-page polls; a 5-minute check still catches an
   automation created or renamed elsewhere. A gateway without the stream keeps the polls.
 
 - Unified iPhone + independent Watch Store delivery through the existing AbstractAssistant listing, with one human-approved archive and preserved developer identities.
+
+### Fixed
+
+- A message sent with attachments while the gateway could not be reached was reported as "The run
+  failed", stayed in the conversation as if sent, and lost its text and attachments. It now says
+  "Not sent — <reason>", leaves the conversation, and puts the text and the attachments back in the
+  composer. The same applies when the run could not even be prepared (backlog 1056, bug 1).
+- When a hold-to-talk transcription fails, the recording is kept: a line under the conversation says
+  "Not sent. Your recording is kept", with **Retry** (sends the same recording again) and **Discard**.
+  Nothing is sent without your click. The kept recording lives in memory until the app quits
+  (backlog 1056, bug 2).
 
 ### iPhone
 
@@ -4246,7 +4263,20 @@ do not appear.
 automatic reading of new replies, the gateway’s
 speaking voices and its transcription models. Voice choices stay on this iPhone, scoped
 to your account and gateway. **Gateway default** sends no override; entities retain their
-own speaking voice. Tap a voice to select and hear it automatically. Speed choices
+own speaking voice. Tap a voice to select and hear it automatically. The voices come in
+three groups, each voice with its language: **Your voices** (cloned or designed by you),
+**Engine voices** and **Shared voices** (the gateway's built-in voices and the ones its
+administrator shares); **Voices that speak…** keeps one language's voices, and the chosen
+voice shows its description. Swipe left on one of your voices to rename or delete it.
+
+**Create a voice** (Voice & reading, or the end of the voice list) makes one **from a
+description** (words, a name, a language) or **from a recording**: 5 to 20 seconds recorded
+with the microphone, or a WAV, FLAC, OGG, MP3, M4A or WEBM file, with an optional transcript,
+a name and its language (**Detect from the recording** by default). The gateway does the work
+(a first design can take a minute) while the app stays usable. The new voice becomes your
+assistant's voice when it speaks on your assistant's engine; otherwise the screen says where it
+is. On a gateway with one shared voice store only an administrator creates voices, and the
+gateway's refusal is shown as it says it. Speed choices
 **1×, 1.15×, 1.3× and 1.5×** also play a sample and apply to all read-aloud playback.
 Restored history is never read automatically.
 
@@ -4392,7 +4422,7 @@ Enter your own gateway’s address. There is no preselected public server.
   enabled on your gateway, with a mailbox connected for your account.
 
 Your sign-in is kept in this iPhone's Keychain (shared with its notification
-extension and handed to your Apple Watch), outside iCloud sync and ordinary preferences. HTTPS is required outside the local network. Local HTTP
+extension only; your Apple Watch signs in on its own), outside iCloud sync and ordinary preferences. HTTPS is required outside the local network. Local HTTP
 addresses are accepted for development. A phone’s `localhost` is the phone itself; use
 your Mac’s LAN address to reach a gateway running there.
 
@@ -4529,14 +4559,34 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
 
+### Added
+
+- **Your voices, the engine's and the shared ones (AbstractGateway 0.16.0 voice library).**
+  Settings → Voice & reading → Voice lists the speaking voices in three groups: **Your voices**
+  (the ones you cloned or designed), **Engine voices** and **Shared voices** (the gateway's
+  built-in voices and the ones its administrator shares), each with its language. **Voices that
+  speak…** keeps the voices of one language when the gateway offers several (a voice with no
+  language restriction always stays), and the chosen voice shows its description.
+- **Create a voice on the iPhone.** **Create a voice** (in Voice & reading and at the end of the
+  voice list) makes one **from a description** (words, a name and a language; the gateway designs it
+  with Qwen3-TTS, the first one can take a minute) or **from a recording**: record 5 to 20 seconds
+  with the microphone, or choose a WAV, FLAC, OGG, MP3, M4A or WEBM file, with an optional
+  transcript, a name and the language (**Detect from the recording** by default). The request runs
+  with its progress shown and the app stays usable. The new voice becomes your assistant's voice
+  when it speaks on the engine your assistant uses; otherwise the screen says which engine it was
+  made on and where to choose it. When the assistant's voice is on a cloning engine (qwen3-tts,
+  omnivoice, f5_tts, chroma, audiodit), the recording is cloned with that engine.
+- **Rename and delete your voices.** Swipe left on one of Your voices to rename or delete it.
+  Shared voices are read-only; a gateway that refuses (one shared voice store: an administrator's
+  act; a read-only voice) says why in its own words.
+
 ### Changed
 
 - **The sign-in lives in the Keychain, shared through the app group.** A Keychain item of the
   app's service, readable after the first unlock (the notification extension reads it while the
   device is locked), bound to this device, never in a backup, never synced; the app group doubles
   as the access group so the extension (and, on the watch, the complication) read the same item.
-  Until now it was a file in the app group sealed with a key kept beside it, which protected
-  nothing; that file (and the plain one of the interim builds) is moved into the Keychain at its
+  A sign-in kept by an earlier build (a file in the app group) moves into the Keychain at its
   first read, so nobody signs in again. The watch's kept sign-ins moved from UserDefaults into a
   second Keychain item (backlog 1053).
 - **A paused reading shows a speaker, not a play triangle.** The message's read-aloud button is a
@@ -4910,6 +4960,22 @@ player generations suppress obsolete completions. Speed is one of 1, 1.15, 1.3 o
 stored per gateway/account and applied locally through AVAudioPlayer.enableRate/rate before
 playback. It applies to Assistant and entity speech while entity voice overrides remain
 entity-owned. Invalid persisted speeds restore to 1. No speed is sent to TTS providers.
+
+The voice list follows the gateway's voice library (AbstractGateway 0.16.0). `VoiceCatalog.parse`
+(AbstractGatewayClient, shared with the watch) turns `GET /voice/voices` `items[]` into
+`VoiceEntry` values: the `VoiceChoice` that is stored and sent with speech, its group, language,
+listed languages and description. The group follows the desktop and web rule: a record is a clone
+by its `kind` before `voice_kind` (the gateway's catalog merge sends clones as `voice_kind:
+"voice"`); `tags.builtin` or `params.meta.scope == "library"` is shared, any other clone is the
+person's own. A clone is spoken by its `voice_id` on its engine, with the engine's first listed
+model. `VoiceLibrary.grouped` filters by language (an unrestricted voice always passes; the chosen
+voice always stays). Creation goes through `designVoice` (`POST /voice/design`) and `cloneVoice`
+(multipart `POST /voice/clones`: `file`, then `name`, `language`, `reference_text`, `provider`
+when given), rename and delete through `PATCH`/`DELETE /voice/clones/{id}`; a refusal surfaces as
+the gateway's `detail` sentence. AssistantKit's `VoiceDesignForm`/`VoiceRecordingForm` build the
+requests (5 to 20 s recordings, accepted formats, language detected unless chosen, the selected
+cloning engine sent), and `VoiceCreationOutcome` decides whether the new voice is selected (same
+engine as the assistant's voice, or the gateway default's) or reported as made elsewhere.
 
 The labelled responder chooser sits below the chat toolbar. Its bounded width lets long names
 truncate while retaining their full accessible value. Who answers lists Assistant and searchable
@@ -5547,6 +5613,11 @@ comes to the front, and through Apple push while it is closed. Check, in order:
 - Your gateway offers the event stream. An older gateway keeps the Inbox and Automations lists up
   to date, without notifications.
 - A Focus can hold "Approval needed" back unless AbstractAssistant is allowed in that Focus.
+- An automation's result or failure, and a flow's "Notify me", arrive quietly: they go to
+  Notification Center without a banner or sound. Approvals and questions alert.
+- When an iPhone is signed in to the same account, the gateway pushes the iPhone, and the watch
+  shows the alert through Apple's forwarding (iPhone locked, watch on your wrist). A watch away
+  from that iPhone shows it when its app next opens or checks.
 
 ## A notification shows only "Approval needed" or "Tap to read it"
 
@@ -5782,9 +5853,9 @@ Version 0.16.0 · watchOS 26 or later · the companion of the [AbstractAssistant
 app](../../phone/iphone/README.md), and independent (it also works with no iPhone nearby) ·
 pre-release through TestFlight. See [CHANGELOG.md](CHANGELOG.md) for what changed.
 
-**One product.** AbstractAssistant is one app for iPhone and Apple Watch: the watch app ships
-inside the iPhone app. Sign in on the iPhone and the watch takes the same sign-in; with no paired
-iPhone, sign in on the watch itself as before.
+**One product, two independent devices.** AbstractAssistant is one app for iPhone and Apple
+Watch: the watch app ships inside the iPhone app. Each signs in on its own, possibly to another
+gateway or account, and the watch works without the iPhone app.
 
 The watch app is a thin client of AbstractGateway, like the desktop assistant: the gateway owns
 workflows, runs, tools, policy, speech and search, and the watch keeps only your sign-in, your
@@ -5859,7 +5930,9 @@ its complications in one tint shows the orb's light in that tint (its picture as
 style keeps its shape and texture there); faces such as Infograph and Modular Duo keep its colours.
 
 **Make it yours.** Settings has Connection (the gateway and account you use), Tools (the defaults
-for new conversations), Voice (the speaking voice, its speed and the transcription model), Read
+for new conversations), Voice (the speaking voice, its speed and the transcription model; the voices in
+groups, Your voices, Engine voices and Shared voices, each with its language and a "Voices that speak"
+filter; voices are created on the iPhone or the desktop), Read
 aloud, Orb style (thirty-four styles in six families: Orbs, Forms, Cosmos, Nature, Faces and Machines, each previewed live through listening, thinking, working and speaking) and About.
 
 ## Sign in
@@ -5873,8 +5946,10 @@ your **user or email**:
   30 days.
 
 Sign out (Settings, or Settings → Connection) asks whether to **keep your sign-in**: a kept sign-in
-shows on the sign-in page as "Sign in as <user>" for its gateway, and one tap signs you in again.
-"Sign out and forget" removes it, and so does the gateway refusing it.
+shows on the sign-in page as "Sign in as <user>" for its gateway only, and one tap signs you in
+again. The gateway chooser lists every gateway you signed into or kept an account on (with how
+many accounts) and AbstractFramework's own. "Sign out and forget" removes the account, and so does
+the gateway refusing it. Once signed out, the watch stays signed out until you sign in on it.
 
 Give the watch its own gateway account with the `user` role; do not put an admin token on a watch.
 
@@ -5904,12 +5979,17 @@ curl https://<host>.<tailnet>.ts.net/api/health
   approvals, questions, published alerts and automation results arrive through Apple push once
   your gateway has a push forwarder (the app registers itself at sign-in; nothing to set up);
   until then watchOS decides when background checks run, about every 15 minutes.
+- An automation's result or failure, and a flow's "Notify me", arrive quietly in Notification
+  Center (no sound); approvals and questions alert.
+- When an iPhone is signed in to the same account, the gateway pushes the iPhone and Apple forwards
+  the alert to your wrist (iPhone locked, watch worn). Away from that iPhone, the watch shows it
+  when the app next opens or checks.
 - Known issue: on a development build, a push can arrive with its generic words ("Approval
   needed", "Open the Assistant to answer") when the notification extension did not replace them;
   the item itself is in the app. A Debug build's `--dump-notify` readout shows why
   ([BUILD.md](BUILD.md#the-notifier-readout)).
 - Your sign-in is kept in the watch's Keychain (shared with its notification extension and the
-  complication). The sign-ins you keep at Sign out ("Keep my sign-in") are a second Keychain item.
+  complication). The accounts you keep at Sign out ("Keep my sign-in") are a second Keychain item, filed by gateway.
 - Tools allowed with Approve all are approved by the watch when it sees their approvals (on the orb
   page, or in its regular check while the app is open); with the app closed, they ask. Approve all
   covers the run's own conversation, or its automation, by that one's own tools.
@@ -5945,25 +6025,26 @@ iPhone app); the Python package's history is in
 
 ## [Unreleased]
 
+### Added
+
+- **Voices in groups, with their language (AbstractGateway 0.16.0 voice library).** Settings → Voice
+  lists **Your voices** (cloned or designed on the iPhone or the desktop), **Engine voices** and
+  **Shared voices** (the gateway's built-in voices and the ones its administrator shares), each with
+  its language, and **Voices that speak** keeps one language's voices when the gateway offers
+  several. Voices are created on the iPhone or the desktop; the watch says so.
+
 ### Fixed
 
-- **Signing out signs you out, and the watch signs in on its own.** After a sign-out the watch came
-  back signed in at its next launch: it took the iPhone's sign-in, which WatchConnectivity hands
-  over again at every launch. The watch and the iPhone are independent devices: neither hands its
-  sign-in to the other any more, and neither needs the other's app. Sign out also checks the
-  credential is really gone from the Keychain and says so if it is not, and "Sign out and forget"
-  forgets the account name too.
-- **"Keep my sign-in" keeps it where you can find it.** Kept accounts are filed under their
-  gateway (gateway → accounts, one Keychain item): the sign-in page offers an account on its own
-  gateway only, and the gateway chooser lists every gateway signed into or with a kept account
-  (with how many), plus AbstractFramework's always. A gateway the watch had been signed into by the
-  iPhone or a launch argument used to be missing from the chooser, and with it its kept accounts.
-  A kept sign-in that cannot be written says so. Earlier builds' kept sign-ins and gateways move in
-  at the first read.
-- **The Digital Crown scrolls Home again after Settings.** Closing Settings left the crown with
-  nothing to scroll until a finger touched Home: Settings was drawn beside the navigation stack and
-  took the crown's focus with it. It is now drawn over Home inside the stack, and Home is disabled
-  while Settings is in, so the crown returns to Home on its own when Settings goes.
+- **A sign-out stands.** Once signed out, the watch stays signed out across launches until you
+  sign in on it. The watch and the iPhone sign in independently: neither passes its sign-in to the
+  other, and neither needs the other's app. Sign out confirms the credential is gone from the
+  Keychain (and says so if it is not); "Sign out and forget" also forgets the account name.
+- **Kept accounts belong to their gateway.** "Keep my sign-in" files the account under its gateway:
+  the sign-in page offers it on that gateway only, and the gateway chooser lists every gateway you
+  signed into or kept an account on (with how many), plus AbstractFramework's. A sign-in that cannot
+  be kept says so. Kept sign-ins and gateways from earlier builds carry over.
+- **The Digital Crown scrolls Home right after Settings closes**, with no need to touch the screen
+  first.
 
 ### Changed
 
@@ -5971,7 +6052,6 @@ iPhone app); the Python package's history is in
   4, 6, 8 and 12 hours, day, 2 days and week, when editing an automation and when creating one. An
   interval written in seconds reads as minutes ("Every 60s" is "Every minute"). The gateway still
   refuses less than a minute for an automation that reads a mailbox or a feed, and says so.
-
 - **A question that could not be sent keeps its recording.** When the upload or the transcription
   fails, the orb says "Not sent." with Retry and Discard under it; the recording
   waits in its own file through leaving the page and relaunching, and nothing sends it on its own.
@@ -5982,8 +6062,7 @@ iPhone app); the Python package's history is in
   app's service, readable after the first unlock (the notification extension reads it while the
   device is locked), bound to this device, never in a backup, never synced; the app group doubles
   as the access group so the extension (and, on the watch, the complication) read the same item.
-  Until now it was a file in the app group sealed with a key kept beside it, which protected
-  nothing; that file (and the plain one of the interim builds) is moved into the Keychain at its
+  A sign-in kept by an earlier build (a file in the app group) moves into the Keychain at its
   first read, so nobody signs in again. The watch's kept sign-ins moved from UserDefaults into a
   second Keychain item (backlog 1053).
 - **The hold on the orb is shorter and its ring smaller.** A hold toggles in about a second
@@ -6623,6 +6702,7 @@ sequenceDiagram
 | Ask an entity | `GET /api/gateway/entities`, `POST /api/gateway/entities/{name}/chat/open`, `POST .../chat/{id}/turn`; the entity row's `appearance` gives its orb |
 | Voice in | `POST /api/gateway/attachments/upload` (multipart, `session_id`), `POST /api/gateway/runs/{session owner}/audio/transcribe` |
 | Voice out | `POST /api/gateway/runs/{id}/voice/tts/stream` (an entity: `POST /api/gateway/entities/{name}/voice/tts/stream`); the whole text in one request (the gateway speaks it in whole sentences); playback starts once 1.5 s of speech is queued and plays at the speed chosen on the watch |
+| Voices | `GET /api/gateway/voice/voices` and `GET /api/gateway/audio/transcriptions/models`; voices grouped Your voices / Engine voices / Shared voices with their language (`VoiceCatalog.parse`, `VoiceLibrary`, shared with the iPhone) and a "Voices that speak" filter; no creation on the watch (the iPhone and the desktop create voices) |
 | Tools | `GET /api/gateway/discovery/tools` (group `toolset`, `description`, `risk_tier`, `enabled`, `approval_default`); each run sends the tools on Auto or Ask as `tools` and `_runtime.allowed_tools`, and `_runtime.tool_policy {auto_approve_tools, require_approval_tools}`; choices are kept on the watch (defaults, then each conversation's changes) |
 | Workflow | `GET /api/gateway/bundles?executable_for=abstractcode.agent.v1` and `…=abstractassistant.agent.v1` (newest version per bundle); a chosen one starts as `bundle_id`, `bundle_version`, `flow_id`, `interface`, `registry_scope`; none chosen: `flow_id: "@default"` of `abstractcode.agent.v1`; kept on the watch per conversation (defaults in Settings → Tools) |
 | New answers | a conversation is new when its newest turn ended after the watch started counting and is not the turn last seen there (kept on the watch, `sessions.seen`); automations: the gateway's `attention.unseen_count` |
@@ -10044,6 +10124,16 @@ class AssistantController:
     def voice_choices(self, *, provider: str, model: str, base_url: str = ""):
         return self.gateway_service.voice_choices(provider=provider, model=model, base_url=base_url)
 
+    def design_voice(self, *, description: str, name=None, language=None):
+        """Create a voice from a description on the gateway (the person's own with user accounts on)."""
+        return self.gateway_service.design_voice(description=description, name=name, language=language)
+
+    def clone_voice(self, *, file_path: str, name=None, language=None, reference_text=None, provider=None):
+        """Create a voice from a recording on the gateway (`provider`: the cloning engine, none = the gateway's)."""
+        return self.gateway_service.clone_voice(
+            file_path=file_path, name=name, language=language, reference_text=reference_text, provider=provider
+        )
+
     def supports_tts(self) -> bool:
         return bool(self.voice_manager.supports_tts())
 
@@ -11005,6 +11095,7 @@ import uuid
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import quote, urlencode
 import urllib.error
+import urllib.parse
 import urllib.request
 import urllib.response
 import warnings
@@ -11974,12 +12065,16 @@ class GatewayClient:
         compact: bool = False,
         providers_only: bool = False,
         base_url: Optional[str] = None,
+        language: Optional[str] = None,
     ) -> Dict[str, Any]:
         query: Dict[str, Any] = {}
         if provider:
             query["provider"] = str(provider)
         if model:
             query["model"] = str(model)
+        if language:
+            # AbstractGateway 0.16.0: the voices that speak it, native speakers first.
+            query["language"] = str(language)
         if compact:
             query["compact"] = "true"
         if providers_only:
@@ -11991,6 +12086,76 @@ class GatewayClient:
             url=self._url("/api/gateway/voice/voices", query=query or None),
             label="voice_voices failed",
         )
+
+    # -- The voice library (AbstractGateway 0.16.0, routes/voice_library.py) ------------------
+
+    def voice_languages(self, *, kind: Optional[str] = None, provider: Optional[str] = None) -> Dict[str, Any]:
+        """``GET /voice/languages``: ``{languages: {kind: {provider: {languages, open, declared}}}}``."""
+        query = {k: v for k, v in (("kind", kind), ("provider", provider)) if v}
+        return self._request_json(method="GET", url=self._url("/api/gateway/voice/languages", query=query or None), label="voice_languages failed")
+
+    def voice_clones(self, *, provider: Optional[str] = None, language: Optional[str] = None) -> Dict[str, Any]:
+        """``GET /voice/clones``: ``{voices: [...], count}`` — the account's own voices and the
+        library's (``params.meta.scope``: ``personal`` | ``library``; built-in: ``tags.builtin``)."""
+        query = {k: v for k, v in (("provider", provider), ("language", language)) if v}
+        return self._request_json(method="GET", url=self._url("/api/gateway/voice/clones", query=query or None), label="voice_clones failed")
+
+    def voice_design(
+        self, *, description: str, name: Optional[str] = None, language: Optional[str] = None, text: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """``POST /voice/design``: a voice from a written description; answers its stored record."""
+        body: Dict[str, Any] = {"description": str(description)}
+        for key, value in (("name", name), ("language", language), ("text", text)):
+            if value:
+                body[key] = str(value)
+        # Rendering a reference and cloning it takes seconds to a minute on first use.
+        return self._request_json(method="POST", url=self._url("/api/gateway/voice/design"), body=body, timeout_s=600.0, label="voice_design failed")
+
+    def voice_clone_create(
+        self,
+        *,
+        file_path: str,
+        name: Optional[str] = None,
+        language: Optional[str] = None,
+        reference_text: Optional[str] = None,
+        provider: Optional[str] = None,
+        timeout_s: float = 600.0,
+    ) -> Dict[str, Any]:
+        """``POST /voice/clones`` (multipart): a voice from a recording; answers its stored record."""
+        p = str(file_path or "").strip()
+        if not p:
+            raise ValueError("voice_clone_create: file_path is required")
+        with open(p, "rb") as f:
+            data = f.read()
+        filename = os.path.basename(p) or "reference.wav"
+        ctype = mimetypes.guess_type(filename)[0] or "audio/wav"
+        fields = {k: str(v) for k, v in (("name", name), ("language", language), ("reference_text", reference_text), ("provider", provider)) if v}
+        body, content_type_header = _encode_multipart(fields=fields, files=[("file", filename, ctype, data)])
+        headers = self._headers(mutating=True, extra={"Content-Type": content_type_header})
+        req = urllib.request.Request(self._url("/api/gateway/voice/clones"), data=body, method="POST", headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=float(timeout_s)) as resp:
+                text = _decode_bytes(resp.read() or b"", label="voice_clone_create")
+                return _parse_json(text, label="voice_clone_create")
+        except urllib.error.HTTPError as e:
+            body_text = _read_error(e, label="voice_clone_create failed")
+            raise GatewayHttpError(
+                f"voice_clone_create failed: {body_text}",
+                status=int(getattr(e, "code", 0) or 0),
+                retry_after_s=_retry_after_s(dict(e.headers)),
+                body_text=body_text,
+            )
+
+    def voice_clone_update(self, voice_id: str, *, name: Optional[str] = None, reference_text: Optional[str] = None) -> Dict[str, Any]:
+        """``PATCH /voice/clones/{id}``: rename and/or replace the transcript (own voices only)."""
+        vid = urllib.parse.quote(str(voice_id or "").strip(), safe="")
+        body = {k: str(v) for k, v in (("name", name), ("reference_text", reference_text)) if v is not None}
+        return self._request_json(method="PATCH", url=self._url(f"/api/gateway/voice/clones/{vid}"), body=body, label="voice_clone_update failed")
+
+    def voice_clone_delete(self, voice_id: str) -> Dict[str, Any]:
+        """``DELETE /voice/clones/{id}``: delete one of the account's own voices."""
+        vid = urllib.parse.quote(str(voice_id or "").strip(), safe="")
+        return self._request_json(method="DELETE", url=self._url(f"/api/gateway/voice/clones/{vid}"), label="voice_clone_delete failed")
 
     def voice_defaults(self) -> Dict[str, Any]:
         """``GET /voice/defaults`` (round 6): the gateway's effective voice
@@ -20880,6 +21045,42 @@ def workflow_version_suffix(bundle_id: str, version: str, *, named_built_in: boo
     return f" @{text}" if text else ""
 
 
+_VOICE_GROUP_ORDER = ["Your voices", "Engine voices", "Shared voices"]
+_LANGUAGE_NAMES = {
+    "en": "English", "fr": "French", "de": "German", "es": "Spanish", "it": "Italian", "pt": "Portuguese",
+    "ru": "Russian", "zh": "Chinese", "ja": "Japanese", "ko": "Korean", "nl": "Dutch",
+}
+
+
+def voice_group(record: Dict[str, Any]) -> str:
+    """Whose voice a catalog record is (AbstractGateway 0.16.0): the account's own, the engine's,
+    or the shared library — the built-in voices and the voices the administrator shares
+    (`tags.builtin`, `params.meta.scope == "library"`).
+
+    A clone is recognised by the record's own ``kind`` first: the gateway's catalog merge sets
+    ``voice_kind: "voice"`` on a clone the engine also lists among its voices (the AbstractVoice
+    plugin lists every clone in both), while ``kind`` stays ``"clone"``."""
+    tags = record.get("tags") if isinstance(record.get("tags"), dict) else {}
+    meta = ((record.get("params") or {}).get("meta") or {}) if isinstance(record.get("params"), dict) else {}
+    if tags.get("builtin"):
+        return "Shared voices"
+    if str(record.get("kind") or record.get("voice_kind") or "") == "clone":
+        return "Shared voices" if meta.get("scope") == "library" else "Your voices"
+    return "Engine voices"
+
+
+def _voice_choice(choice: ChoiceItem) -> ChoiceItem:
+    """A voice choice labelled with its native language and grouped (Your voices / Engine voices /
+    Shared voices), so a person finds their own voices first."""
+    record = choice.meta
+    group = voice_group(record)
+    language = str(record.get("language") or (record.get("tags") or {}).get("language_code") or "").strip().lower()
+    label = choice.label + (f" · {_LANGUAGE_NAMES.get(language, language)}" if language else "")
+    if group != "Engine voices":
+        label = f"{label}  ({'yours' if group == 'Your voices' else 'shared'})"
+    return ChoiceItem(id=choice.id, label=label, meta={**record, "voice_group": group, "voice_language": language})
+
+
 def _choice(value: Any, *, fallback_id: str = "", fallback_label: str = "") -> Optional[ChoiceItem]:
     if isinstance(value, str):
         text = value.strip()
@@ -21199,8 +21400,28 @@ class AssistantGatewayService:
             for item in value:
                 choice = _choice(item)
                 if choice is not None:
-                    items.append(choice)
-        return _dedupe(items)
+                    items.append(_voice_choice(choice))
+        ordered = sorted(_dedupe(items), key=lambda c: _VOICE_GROUP_ORDER.index(c.meta.get("voice_group", "Engine voices")))
+        return ordered
+
+    def design_voice(self, *, description: str, name: Optional[str] = None, language: Optional[str] = None) -> Dict[str, Any]:
+        """A voice from a written description on the gateway (`POST /voice/design`)."""
+        return self._gateway.voice_design(description=description, name=name, language=language)
+
+    def clone_voice(
+        self,
+        *,
+        file_path: str,
+        name: Optional[str] = None,
+        language: Optional[str] = None,
+        reference_text: Optional[str] = None,
+        provider: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """A voice from a recording on the gateway (`POST /voice/clones`); `provider` = the cloning
+        engine (none = the gateway's default), `language` none = identified by the gateway."""
+        return self._gateway.voice_clone_create(
+            file_path=file_path, name=name, language=language, reference_text=reference_text, provider=provider
+        )
 
     def _catalog_workflows(self) -> tuple[List[WorkflowOption], str]:
         """The workflows this app can run for the signed-in person, as the

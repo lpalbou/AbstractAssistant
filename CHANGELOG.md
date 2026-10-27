@@ -7,10 +7,30 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Added
 
+- **Create a voice** (desktop, AbstractGateway 0.16.0): Settings → the speech route's **Create…** next to Voice opens
+  **Create a voice**, from a description (Qwen3-TTS voice design on the gateway, with a language) or from a recording
+  file (its language **Detect from the recording** by default: the gateway identifies it; or chosen), with a name.
+  When the route's provider is a cloning engine (qwen3-tts, omnivoice, f5_tts, chroma, audiodit), the recording is
+  cloned with it; otherwise with the gateway's default cloning engine. With user accounts on, the voice is yours (your
+  voice store on the gateway); on a gateway with one shared store, only an administrator may create voices and the
+  gateway's sentence says so. The new voice is selected at once and the route saved with it: on its own engine, the
+  route switching to that engine (and its first model) when the Provider list offers it; when it does not, a message
+  names the engine the voice was created on. Cancel cancels: a result that arrives after it is dropped.
+- **Voices grouped by whose they are**: the speech route's Voice list puts your voices first, then the engine's voices,
+  then the shared voices (the built-in voices and the ones the administrator shares), each with its native language
+  ("Camille · French (shared)"). A cloned voice is recognised on the record the gateway's catalog really sends (its
+  `kind`, which stays `clone` where the catalog merge sets `voice_kind: "voice"`).
+- Gateway client: `voice_languages`, `voice_clones(language=)`, `voice_design`, `voice_clone_create`,
+  `voice_clone_update`, `voice_clone_delete`, and `language` on `voice_voices`.
+
+## [0.15.0] - 2026-10-26
+
+### Added
+
 - **AbstractAssistant for iPhone and Apple Watch is one product (0.16.0).** The iPhone app
   (`ai.abstractframework.assistant`) carries the watch app as its companion
   (`ai.abstractframework.assistant.watchkitapp`), built from one project (`phone/iphone/project.yml`);
-  one sign-in for both (the watch takes the iPhone's); Apple push on both apps (registration with the
+  each signs in on its own, and neither needs the other to work; Apple push on both apps (registration with the
   gateway and notification service extensions, framework backlog 1049). See the iPhone and watch
   changelogs.
 - **The macOS app can be signed and notarized** (ADR 0006, Proposed). `build-macos-app --sign` signs
@@ -36,30 +56,6 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   questions in the conversation, read aloud and dictation. The page keeps no token and no copy of
   your chats, and never installs a workflow. Tests run in CI, including a layout check at 420 to
   1280 px.
-
-### Changed
-
-- An automation says what starts it in words: "When mail arrives in you@example.org", "When Python
-  news has a new item", "When Orders is called", "By hand", or the schedule's sentence (the gateway's
-  `trigger_text` when it serves one); an automation that runs when something happens shows no next
-  run. Runs are called runs everywhere: "Discuss this run (your own copy; the automation's files stay
-  read-only)", "This run failed.", "This run is waiting for your answer.", "A run is in progress."
-
-### Fixed
-
-- A message sent with attachments while the gateway could not be reached was reported as "The run
-  failed", stayed in the conversation as if sent, and lost its text and attachments. It now says
-  "Not sent — <reason>", leaves the conversation, and puts the text and the attachments back in the
-  composer. The same applies when the run could not even be prepared (backlog 1056, bug 1).
-- When a hold-to-talk transcription fails, the recording is kept: a line under the conversation says
-  "Not sent. Your recording is kept", with **Retry** (sends the same recording again) and **Discard**.
-  Nothing is sent without your click. The kept recording lives in memory until the app quits
-  (backlog 1056, bug 2).
-
-## [0.15.0] - 2026-10-25
-
-### Added
-
 - The desktop app follows your event stream on the gateway (`/me/events`, then the live
   `/me/events/stream`, resuming with `Last-Event-ID` after a sleep or a network change). A line above
   the transcript says what waits for you across every conversation and automation ("A conversation
@@ -73,11 +69,27 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Changed
 
+- An automation says what starts it in words: "When mail arrives in you@example.org", "When Python
+  news has a new item", "When Orders is called", "By hand", or the schedule's sentence (the gateway's
+  `trigger_text` when it serves one); an automation that runs when something happens shows no next
+  run. Runs are called runs everywhere: "Discuss this run (your own copy; the automation's files stay
+  read-only)", "This run failed.", "This run is waiting for your answer.", "A run is in progress."
 - The automation list is refreshed by the event stream (within a second of a trigger, a result or a
   run) instead of the 60-second / 5-minute full-page polls; a 5-minute check still catches an
   automation created or renamed elsewhere. A gateway without the stream keeps the polls.
 
 - Unified iPhone + independent Watch Store delivery through the existing AbstractAssistant listing, with one human-approved archive and preserved developer identities.
+
+### Fixed
+
+- A message sent with attachments while the gateway could not be reached was reported as "The run
+  failed", stayed in the conversation as if sent, and lost its text and attachments. It now says
+  "Not sent — <reason>", leaves the conversation, and puts the text and the attachments back in the
+  composer. The same applies when the run could not even be prepared (backlog 1056, bug 1).
+- When a hold-to-talk transcription fails, the recording is kept: a line under the conversation says
+  "Not sent. Your recording is kept", with **Retry** (sends the same recording again) and **Discard**.
+  Nothing is sent without your click. The kept recording lives in memory until the app quits
+  (backlog 1056, bug 2).
 
 ### iPhone
 

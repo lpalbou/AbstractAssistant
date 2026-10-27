@@ -18,6 +18,7 @@ import uuid
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import quote, urlencode
 import urllib.error
+import urllib.parse
 import urllib.request
 import urllib.response
 import warnings
@@ -987,12 +988,16 @@ class GatewayClient:
         compact: bool = False,
         providers_only: bool = False,
         base_url: Optional[str] = None,
+        language: Optional[str] = None,
     ) -> Dict[str, Any]:
         query: Dict[str, Any] = {}
         if provider:
             query["provider"] = str(provider)
         if model:
             query["model"] = str(model)
+        if language:
+            # AbstractGateway 0.16.0: the voices that speak it, native speakers first.
+            query["language"] = str(language)
         if compact:
             query["compact"] = "true"
         if providers_only:
@@ -1004,6 +1009,76 @@ class GatewayClient:
             url=self._url("/api/gateway/voice/voices", query=query or None),
             label="voice_voices failed",
         )
+
+    # -- The voice library (AbstractGateway 0.16.0, routes/voice_library.py) ------------------
+
+    def voice_languages(self, *, kind: Optional[str] = None, provider: Optional[str] = None) -> Dict[str, Any]:
+        """``GET /voice/languages``: ``{languages: {kind: {provider: {languages, open, declared}}}}``."""
+        query = {k: v for k, v in (("kind", kind), ("provider", provider)) if v}
+        return self._request_json(method="GET", url=self._url("/api/gateway/voice/languages", query=query or None), label="voice_languages failed")
+
+    def voice_clones(self, *, provider: Optional[str] = None, language: Optional[str] = None) -> Dict[str, Any]:
+        """``GET /voice/clones``: ``{voices: [...], count}`` — the account's own voices and the
+        library's (``params.meta.scope``: ``personal`` | ``library``; built-in: ``tags.builtin``)."""
+        query = {k: v for k, v in (("provider", provider), ("language", language)) if v}
+        return self._request_json(method="GET", url=self._url("/api/gateway/voice/clones", query=query or None), label="voice_clones failed")
+
+    def voice_design(
+        self, *, description: str, name: Optional[str] = None, language: Optional[str] = None, text: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """``POST /voice/design``: a voice from a written description; answers its stored record."""
+        body: Dict[str, Any] = {"description": str(description)}
+        for key, value in (("name", name), ("language", language), ("text", text)):
+            if value:
+                body[key] = str(value)
+        # Rendering a reference and cloning it takes seconds to a minute on first use.
+        return self._request_json(method="POST", url=self._url("/api/gateway/voice/design"), body=body, timeout_s=600.0, label="voice_design failed")
+
+    def voice_clone_create(
+        self,
+        *,
+        file_path: str,
+        name: Optional[str] = None,
+        language: Optional[str] = None,
+        reference_text: Optional[str] = None,
+        provider: Optional[str] = None,
+        timeout_s: float = 600.0,
+    ) -> Dict[str, Any]:
+        """``POST /voice/clones`` (multipart): a voice from a recording; answers its stored record."""
+        p = str(file_path or "").strip()
+        if not p:
+            raise ValueError("voice_clone_create: file_path is required")
+        with open(p, "rb") as f:
+            data = f.read()
+        filename = os.path.basename(p) or "reference.wav"
+        ctype = mimetypes.guess_type(filename)[0] or "audio/wav"
+        fields = {k: str(v) for k, v in (("name", name), ("language", language), ("reference_text", reference_text), ("provider", provider)) if v}
+        body, content_type_header = _encode_multipart(fields=fields, files=[("file", filename, ctype, data)])
+        headers = self._headers(mutating=True, extra={"Content-Type": content_type_header})
+        req = urllib.request.Request(self._url("/api/gateway/voice/clones"), data=body, method="POST", headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=float(timeout_s)) as resp:
+                text = _decode_bytes(resp.read() or b"", label="voice_clone_create")
+                return _parse_json(text, label="voice_clone_create")
+        except urllib.error.HTTPError as e:
+            body_text = _read_error(e, label="voice_clone_create failed")
+            raise GatewayHttpError(
+                f"voice_clone_create failed: {body_text}",
+                status=int(getattr(e, "code", 0) or 0),
+                retry_after_s=_retry_after_s(dict(e.headers)),
+                body_text=body_text,
+            )
+
+    def voice_clone_update(self, voice_id: str, *, name: Optional[str] = None, reference_text: Optional[str] = None) -> Dict[str, Any]:
+        """``PATCH /voice/clones/{id}``: rename and/or replace the transcript (own voices only)."""
+        vid = urllib.parse.quote(str(voice_id or "").strip(), safe="")
+        body = {k: str(v) for k, v in (("name", name), ("reference_text", reference_text)) if v is not None}
+        return self._request_json(method="PATCH", url=self._url(f"/api/gateway/voice/clones/{vid}"), body=body, label="voice_clone_update failed")
+
+    def voice_clone_delete(self, voice_id: str) -> Dict[str, Any]:
+        """``DELETE /voice/clones/{id}``: delete one of the account's own voices."""
+        vid = urllib.parse.quote(str(voice_id or "").strip(), safe="")
+        return self._request_json(method="DELETE", url=self._url(f"/api/gateway/voice/clones/{vid}"), label="voice_clone_delete failed")
 
     def voice_defaults(self) -> Dict[str, Any]:
         """``GET /voice/defaults`` (round 6): the gateway's effective voice
