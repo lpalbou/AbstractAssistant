@@ -24,7 +24,10 @@ import {
   planRunTools,
   sessionToolPolicyCapability,
   streamTtsJsonl,
+  gatewayVoiceOptions,
   useGatewayVoice,
+  voiceSttRequest,
+  voiceTtsRequest,
   withRunTools,
   type VoiceCaptureMode,
   type VoiceClientPreferences,
@@ -83,8 +86,12 @@ export function Workspace(props: {
   seen: AttentionSeen | null;
   /** Why updates from other devices are off ("" = on). */
   eventsNotice: string;
+  /** The person's voice preferences (Settings → Voice; `useVoicePreferences`). */
   voicePrefs: VoiceClientPreferences;
+  /** The microphone button's mode (the preference, else this app's default: tap to talk). */
   captureMode: VoiceCaptureMode;
+  /** Send what was said at once (`auto_send`), else the transcript joins the draft for review. */
+  autoSend: boolean;
   onStarted: (runId: string, sessionId: string) => void;
   onNewChat: () => void;
   onTurnEnded: () => void;
@@ -184,11 +191,10 @@ export function Workspace(props: {
   // ---- voice: read aloud and dictation, on the gateway's engines ----------------------
   const runIdRef = useRef(props.runId);
   runIdRef.current = props.runId;
+  const voicePrefs = useRef(props.voicePrefs);
+  voicePrefs.current = props.voicePrefs;
   const voice = useGatewayVoice({
-    output_device_id: props.voicePrefs.output_device || "",
-    input_device_id: props.voicePrefs.input_device || "",
-    ...(typeof props.voicePrefs.input_gain === "number" ? { input_gain: props.voicePrefs.input_gain } : {}),
-    ...(typeof props.voicePrefs.reply_volume === "number" ? { volume: props.voicePrefs.reply_volume } : {}),
+    ...gatewayVoiceOptions(props.voicePrefs),
     capture_mode: props.captureMode,
     tts_stream: host.capabilities.audioPlayback.available
       ? async function* (text, signal) {
@@ -197,7 +203,8 @@ export function Workspace(props: {
           yield* streamTtsJsonl({
             path: host.gatewayUrl(`runs/${encodeURIComponent(run)}/voice/tts/stream`),
             headers: host.auth.headers(true),
-            body: { text },
+            // The person's speech override (empty = the gateway default voice).
+            body: { text, ...voiceTtsRequest(voicePrefs.current) },
             ...(signal ? { signal } : {}),
           });
         }
@@ -208,7 +215,8 @@ export function Workspace(props: {
           const type = (mime || "audio/webm").split(";")[0];
           const ext = type.includes("mp4") ? "m4a" : type.includes("ogg") ? "ogg" : "webm";
           const up = await client.uploadAttachment(sid, blob, `ask.${ext}`, { content_type: type, source_path: `voice/dictation/${crypto.randomUUID()}.${ext}` });
-          return client.transcribe(up.ownerRunId || `session_memory_${sid}`, String(up.ref.$artifact));
+          const route = Object.fromEntries(Object.entries(voiceSttRequest(voicePrefs.current)).filter(([, v]) => typeof v === "string" && v)) as Record<string, string>;
+          return client.transcribe(up.ownerRunId || `session_memory_${sid}`, String(up.ref.$artifact), route);
         }
       : undefined,
     on_error: (message) => setNotice(message),
@@ -312,8 +320,13 @@ export function Workspace(props: {
           voice={voice}
           mode={props.captureMode}
           unavailableReason={host.capabilities.microphone.available ? null : host.capabilities.microphone.reason}
-          // Review before sending (the iPhone's default, backlog 1048): the transcript joins the draft.
-          onTranscript={(said) => setDraft((prev) => (prev.trim() ? `${prev.trim()}\n${said}` : said))}
+          // Review before sending (the iPhone's default, backlog 1048): the transcript joins the
+          // draft, unless the person chose "Send what you say automatically".
+          onTranscript={(said) => {
+            const next = draft.trim() ? `${draft.trim()}\n${said}` : said;
+            setDraft(next);
+            if (props.autoSend && !busy) void send(next).catch((err) => setNotice(`Not sent: ${err instanceof Error ? err.message : String(err)}`));
+          }}
         />
       }
       messageProps={{

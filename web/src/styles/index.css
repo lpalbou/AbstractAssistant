@@ -235,3 +235,15 @@ body {
   cursor: pointer;
   text-decoration: underline;
 }
+
+/* Settings (a drawer panel): the kit's voice section. */
+.aa-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aa-space-3);
+}
+.aa-settings__heading {
+  margin: 0;
+  font-size: var(--aa-text-md);
+  font-weight: var(--aa-weight-semibold);
+}

@@ -248,44 +248,30 @@ export class GatewayClient {
     return { ref: ref as AttachmentRef, ownerRunId: String((isObject(out) && out.run_id) || ref.run_id || "") };
   }
 
-  /** Gateway STT on an uploaded recording (phone GatewayClient.swift transcribe). */
-  async transcribe(ownerRunId: string, artifactId: string): Promise<string> {
+  /** Gateway STT on an uploaded recording (phone GatewayClient.swift transcribe); `route` = the
+   * person's transcription override (ui-kit `voiceSttRequest`), empty = the gateway default. */
+  async transcribe(ownerRunId: string, artifactId: string, route: Record<string, string> = {}): Promise<string> {
     const out = await this.request(
       "POST",
       `runs/${encodeURIComponent(ownerRunId)}/audio/transcribe`,
-      { audio_artifact: { $artifact: artifactId } },
+      { audio_artifact: { $artifact: artifactId }, ...route },
       "Dictation failed",
     );
     if (typeof out.text !== "string") throw new Error("Dictation: the gateway returned no text.");
     return out.text.trim();
   }
 
-  /** `POST runs/{id}/voice/tts/stream`: JSON Lines, one object per line. */
-  async *speechStream(runId: string, text: string, signal?: AbortSignal): AsyncGenerator<Json> {
-    const resp = await fetch(this.host.gatewayUrl(`runs/${encodeURIComponent(runId)}/voice/tts/stream`), {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...this.host.auth.headers(true) },
-      credentials: this.host.auth.credentials,
-      body: JSON.stringify({ text }),
-      signal,
-    });
-    if (!resp.ok) throw await errorFrom(resp, "Read aloud failed");
-    if (!resp.body) throw new Error("Read aloud: the gateway sent no stream.");
-    const reader = resp.body.getReader();
-    const dec = new TextDecoder();
-    let buf = "";
-    for (;;) {
-      const { value, done } = await reader.read();
-      buf += dec.decode(value || new Uint8Array(), { stream: !done });
-      let nl: number;
-      while ((nl = buf.indexOf("\n")) >= 0) {
-        const line = buf.slice(0, nl).trim();
-        buf = buf.slice(nl + 1);
-        if (line) yield JSON.parse(line) as Json;
-      }
-      if (done) break;
-    }
-    if (buf.trim()) yield JSON.parse(buf.trim()) as Json;
+  /** `GET voice/voices?compact=true[&provider&model]`: the engines, models and voices (AfVoiceSection). */
+  voiceCatalog(provider?: string, model?: string) {
+    const q = new URLSearchParams({ compact: "true" });
+    if (provider) q.set("provider", provider);
+    if (model) q.set("model", model);
+    return this.request("GET", `voice/voices?${q.toString()}`, undefined, "Voices");
+  }
+
+  /** `GET voice/defaults`: the gateway's default voice routes ("Gateway default · …"). */
+  voiceDefaults() {
+    return this.request("GET", "voice/defaults", undefined, "Voice defaults");
   }
 
   /**

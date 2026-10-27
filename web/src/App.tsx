@@ -10,6 +10,10 @@ import {
   appIdentity,
   useAppearanceSettings,
   useGatewayConnection,
+  useVoiceDefaults,
+  useVoicePreferences,
+  voiceCaptureMode,
+  type VoiceDefaults,
   type AfAppShellTopBar,
   type AfDrawerSystemProps,
   type GatewayConnection,
@@ -21,6 +25,7 @@ import { GatewayClient } from "./gateway/client";
 import { themeGroup } from "./lib/theme";
 import type { AssistantHost } from "./host";
 import { SessionList } from "./ui/SessionList";
+import { CAPTURE_DEFAULTS, SettingsPanel } from "./ui/SettingsPanel";
 import { useConversations, type AttentionSeen } from "./ui/useConversations";
 import { Workspace } from "./ui/Workspace";
 
@@ -51,7 +56,10 @@ function Splash(props: { conn: GatewayConnection }) {
   );
 }
 
+const VOICE_KEY = "abstractassistant.voice";
+
 function ConnectedApp(props: { client: GatewayClient; host: AssistantHost; conn: GatewayConnection; topBar: AfAppShellTopBar; drawers: Drawers }) {
+  const [voicePrefs] = useVoicePreferences(VOICE_KEY);
   const { client, conn } = props;
   const [selected, setSelected] = useState<{ sessionId: string; runId: string }>({ sessionId: "", runId: "" });
   const [seen, setSeen] = useState<AttentionSeen | null>(null);
@@ -98,8 +106,9 @@ function ConnectedApp(props: { client: GatewayClient; host: AssistantHost; conn:
         {...(row ? { listState: row.state } : {})}
         seen={seen}
         eventsNotice={conversations.eventsError}
-        voicePrefs={{}}
-        captureMode="toggle"
+        voicePrefs={voicePrefs}
+        captureMode={voicePrefs.capture_mode ? voiceCaptureMode(voicePrefs.capture_mode) : CAPTURE_DEFAULTS.capture_mode}
+        autoSend={typeof voicePrefs.auto_send === "boolean" ? voicePrefs.auto_send : CAPTURE_DEFAULTS.auto_send}
         onStarted={(runId, sessionId) => {
           setSelected({ sessionId, runId });
           void conversations.refresh();
@@ -124,6 +133,8 @@ function BrowserApp({ host }: { host: AssistantHost }) {
   }, [appearance.theme]);
   const [panel, setPanel] = useState<string | null>(null);
   const identity = useMemo(() => appIdentity("abstractassistant", APP_VERSION), []);
+  const [voicePrefs, setVoicePrefs] = useVoicePreferences(VOICE_KEY);
+  const voiceDefaults = useVoiceDefaults(conn.connected ? () => client.voiceDefaults() as Promise<VoiceDefaults> : null, client);
   const panels = useMemo(
     () => [
       // The gateway's docs corpus has no "assistant" id yet (backlog 0036): the drawer is wired
@@ -132,8 +143,19 @@ function BrowserApp({ host }: { host: AssistantHost }) {
         connected: conn.connected,
         placeholder: "Ask about AbstractAssistant (from the gateway's Assistant docs, docs/corpus?app=assistant)",
       }),
+      ...(conn.connected
+        ? [
+            {
+              id: "settings",
+              label: "Settings",
+              icon: "settings" as const,
+              mode: "rail" as const,
+              content: <SettingsPanel client={client} prefs={voicePrefs} onPrefsChange={setVoicePrefs} defaults={voiceDefaults.value} />,
+            },
+          ]
+        : []),
     ],
-    [client, conn.connected],
+    [client, conn.connected, voicePrefs, setVoicePrefs, voiceDefaults.value],
   );
   const topBar: AfAppShellTopBar = {
     brand: { name: "Assistant" },

@@ -49,6 +49,8 @@ function answer(path) {
   if (m) return json({ run_id: m[1], status: "completed", session_id: "s1" });
   if (path.startsWith("api/gateway/discovery/tools")) return json({ items: [] });
   if (path.startsWith("api/gateway/discovery/capabilities")) return json({ capabilities: {} });
+  if (path.startsWith("api/gateway/voice/defaults")) return json({ tts: { configured: true, provider: "piper", model: "en_US-amy" }, stt: { configured: true, provider: "faster-whisper", model: "large-v3" }, source: "gateway" });
+  if (path.startsWith("api/gateway/voice/voices")) return json({ items: [] });
   if (path.startsWith("api/gateway/me/events/stream")) return { status: 200, contentType: "text/event-stream", body: "" };
   if (path.startsWith("api/gateway/me/events")) return json({ events: [], head: 0, next_after: 0, more: false });
   return json({ detail: `fake gateway: no route for ${path}` }, 404);
@@ -126,6 +128,18 @@ try {
       for (const b of m.small) failures.push(`${tag}: "${b.t}" is ${b.w}x${b.h}, under 44 px`);
       for (const e of errors) failures.push(`${tag}: page error ${e}`);
       if (shots) await page.screenshot({ path: join(shots, `conversation-${tag}.png`) });
+      // Settings → Voice (a drawer panel): it opens, names the gateway default, and fits.
+      await page.getByRole("tab", { name: "Settings" }).click();
+      await page.getByRole("heading", { name: "Voice" }).waitFor();
+      await page.waitForTimeout(150);
+      const settings = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+        text: document.querySelector(".aa-settings")?.textContent || "",
+      }));
+      if (settings.scrollWidth > settings.clientWidth) failures.push(`${tag}: with Settings open the page scrolls sideways (${settings.scrollWidth} > ${settings.clientWidth})`);
+      if (!/Gateway default · piper \/ en_US-amy/.test(settings.text)) failures.push(`${tag}: Settings → Voice does not name the gateway default`);
+      if (shots) await page.screenshot({ path: join(shots, `settings-${tag}.png`) });
       console.log(`${tag}: scrollWidth ${m.scrollWidth}/${m.clientWidth}, off screen ${m.offscreen.length}, under 44 px ${m.small.length}`);
       await ctx.close();
     }
