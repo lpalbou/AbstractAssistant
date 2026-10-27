@@ -86,14 +86,22 @@ class _Gateway:
         return {"session_id": sid, "policy": self.stored.get(sid)}
 
 
-def _controller(journal: List[Any], *, supported: bool, **gateway_kwargs: Any) -> AssistantController:
+def _controller(
+    journal: List[Any], *, supported: bool, caps_failure: Any = None, **gateway_kwargs: Any
+) -> AssistantController:
     caps_block = {"session_tool_policy": dict(_POLICY_BLOCK)} if supported else {"streaming": {"deltas": True}}
     caps = AssistantCapabilities.from_discovery_response({"capabilities": caps_block})
+
+    def gateway_capabilities(**_: Any) -> AssistantCapabilities:
+        if isinstance(caps_failure, Exception):
+            raise caps_failure
+        if caps_failure:
+            return AssistantCapabilities.unavailable(error=str(caps_failure))
+        return caps
+
     controller = AssistantController.__new__(AssistantController)
     controller._session_auto_approve_all = set()
-    controller.llm_manager = SimpleNamespace(
-        active_session_id="chat-a", gateway_capabilities=lambda **_: caps
-    )
+    controller.llm_manager = SimpleNamespace(active_session_id="chat-a", gateway_capabilities=gateway_capabilities)
     controller.gateway = _Gateway(journal, **gateway_kwargs)
     controller.preferences = SimpleNamespace(tool_preferences={"send_email": "ask", "write_file": "approve"})
     controller.tool_inventory = lambda: {"items": [dict(i) for i in _ITEMS]}  # type: ignore[method-assign]
@@ -276,6 +284,35 @@ def test_sync_mirrors_a_stored_policy_and_its_reset() -> None:
     assert not controller.session_tool_auto_approval_active()
 
 
+@pytest.mark.basic
+def test_a_second_allow_all_never_narrows_the_chats_grant() -> None:
+    journal: List[Any] = []
+    controller = _controller(journal, supported=True)
+    controller.grant_session_tool_auto_approval(max_rank=3)
+    result = controller.grant_session_tool_auto_approval(max_rank=1)
+    assert [entry[2]["approve"]["max_risk_rank"] for entry in journal] == [3, 3]
+    assert result["max_risk_rank"] == 3 == controller.session_trust_rank()
+
+
+@pytest.mark.basic
+@pytest.mark.parametrize("failure", ["timed out", TimeoutError("timed out")])
+def test_unreadable_capabilities_grant_nothing_and_say_why(failure: Any) -> None:
+    journal: List[Any] = []
+    controller = _controller(journal, supported=True, caps_failure=failure)
+    host = _palette(controller, journal)
+
+    _decide(host, "session")
+
+    # The shown call is approved once; no policy write, no local grant.
+    assert journal == [("ANSWER", True, "tool_calls:run-1:agent")]
+    assert controller.session_tool_policy_mode == "unavailable"
+    assert not controller.session_tool_auto_approval_active()
+    assert controller.should_auto_approve_tool_batch([{"name": "read_file"}]) is False
+    assert any(
+        "was not saved" in text and "timed out" in text and tone == "error" for text, tone, _key in host.banners
+    )
+
+
 # --------------------------------------------------------------------------- local fallback
 
 
@@ -292,6 +329,8 @@ def test_without_the_capability_the_local_grant_is_the_reported_fallback(caplog:
     assert controller.session_tool_policy_mode == "local"
     assert controller.session_trust_path() == "local"
     assert "LOCAL fallback" in caplog.text
+    # ...and the person is told too, not only the log.
+    assert any("in this app only" in text and key == "trust" for text, _tone, key in host.banners)
     assert controller.should_auto_approve_tool_batch([{"name": "read_file"}, {"name": "write_file"}]) is True
     assert controller.should_auto_approve_tool_batch([{"name": "send_email"}]) is False
     controller.revoke_session_tool_auto_approval()

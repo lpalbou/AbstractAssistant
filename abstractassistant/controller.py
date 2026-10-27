@@ -231,6 +231,7 @@ class AssistantController:
         # wait is shown and answered here). See session_tool_policy_path().
         self._session_trust_path: Dict[str, str] = {}
         self.session_tool_policy_mode: Optional[str] = None
+        self.session_tool_policy_reason = ""
         # Short-lived caches so the send path and startup don't re-fetch the
         # workflow catalog + tool inventory on the GUI thread every time
         # (each was up to a 30s blocking round trip). Invalidated explicitly on
@@ -1865,37 +1866,44 @@ class AssistantController:
     SESSION_TOOL_POLICY_CLIENT = "abstractassistant-desktop"
 
     def session_tool_policy_path(self) -> str:
-        """Where a NEW chat-wide grant goes: ``"server"`` when the gateway
-        advertises ``capabilities.session_tool_policy.supported`` (the grant is
-        the gateway's session tool policy; covered calls never produce a
-        wait), else ``"local"`` — the explicit fallback for an older gateway
-        (the wait arrives and this app answers it). The resolved path is kept
-        in ``session_tool_policy_mode`` and logged whenever it changes."""
-        reason = ""
-        supported = False
+        """Where a NEW chat-wide grant goes:
+
+        - ``"server"``: the gateway advertises
+          ``capabilities.session_tool_policy.supported`` — the grant is the
+          gateway's session tool policy; covered calls never produce a wait.
+        - ``"local"``: the gateway ANSWERED discovery without the capability
+          (an older gateway, or ``supported`` not true) — the explicit
+          fallback: the wait arrives and this app answers it.
+        - ``"unavailable"``: discovery could not be read (an error or no
+          gateway). Nothing is known, so no grant is made at all (never a
+          silent local grant in place of the server one).
+
+        The resolved path is kept in ``session_tool_policy_mode`` (its reason
+        in ``session_tool_policy_reason``) and logged whenever it changes."""
         try:
             caps = self.llm_manager.gateway_capabilities(stale_ok=True)
-        except Exception as exc:
-            caps = None
-            reason = f"gateway capabilities unavailable ({exc})"
-        if caps is not None and getattr(caps, "error", ""):
-            reason = f"gateway capabilities unavailable ({caps.error})"
-        elif caps is not None:
-            supported = bool(caps.session_tool_policy_supported())
-            if not supported:
-                reason = "the gateway does not advertise session_tool_policy"
-        elif not reason:
-            reason = "no gateway capabilities"
-        path = "server" if supported else "local"
+        except Exception as exc:  # noqa: BLE001 - "unknown", reported as such
+            caps, error = None, f"{type(exc).__name__}: {exc}"
+        else:
+            error = str(getattr(caps, "error", "") or "") if caps is not None else "no gateway"
+        if caps is None or error:
+            path, reason = "unavailable", f"gateway capabilities unavailable ({error or 'no answer'})"
+        elif caps.session_tool_policy_supported():
+            path, reason = "server", ""
+        else:
+            path, reason = "local", "this gateway does not offer a chat tool policy"
         if path != getattr(self, "session_tool_policy_mode", None):
             if path == "server":
                 logger.info("Chat-wide tool approval: gateway session tool policy (server path)")
-            else:
+            elif path == "local":
                 logger.warning(
                     "Chat-wide tool approval: LOCAL fallback (%s) — waits are shown and answered by this app",
                     reason,
                 )
+            else:
+                logger.warning("Chat-wide tool approval: %s — no chat-wide grant can be made", reason)
         self.session_tool_policy_mode = path
+        self.session_tool_policy_reason = reason
         return path
 
     def session_trust_path(self, *, session_id: Optional[str] = None) -> str:
@@ -1966,7 +1974,13 @@ class AssistantController:
             return {"path": "", "session_id": "", "max_risk_rank": 0, "clamped": [], "policy": None}
         wanted = self.TRUST_MAX_RISK_RANK if max_rank is None else int(max_rank)
         wanted = max(1, min(4, wanted))
+        # A grant never narrows: "allow all" on a quieter batch later keeps
+        # the wider rank this chat already has (the gateway's POST merges the
+        # same way), so the body always matches the local mirror.
+        wanted = max(wanted, self.session_trust_rank(session_id=sid))
         path = self.session_tool_policy_path()
+        if path == "unavailable":
+            raise RuntimeError(self.session_tool_policy_reason)
         policy: Optional[Dict[str, Any]] = None
         clamped: List[Dict[str, Any]] = []
         if path == "server":
@@ -1985,7 +1999,14 @@ class AssistantController:
             if clamped:
                 logger.warning("The gateway did not cover %d requested tool selector(s) for %s: %s", len(clamped), sid, clamped)
         self._mirror_session_trust(sid, wanted, path)
-        return {"path": path, "session_id": sid, "max_risk_rank": wanted, "clamped": clamped, "policy": policy}
+        return {
+            "path": path,
+            "reason": self.session_tool_policy_reason,
+            "session_id": sid,
+            "max_risk_rank": wanted,
+            "clamped": clamped,
+            "policy": policy,
+        }
 
     def revoke_session_tool_auto_approval(self, *, session_id: Optional[str] = None) -> None:
         """Remove this chat's temporary grant; keep saved tool defaults intact.

@@ -11273,7 +11273,17 @@ class AssistantPalette(QMainWindow):
             return
         self._clear_banner("trust")
         clamped = result.get("clamped") if isinstance(result, dict) else None
-        if clamped:
+        if isinstance(result, dict) and result.get("path") == "local":
+            # Older gateway: the grant lives in this app only (the fallback).
+            # Say so: covered requests still arrive and are answered here.
+            reason = str(result.get("reason") or "this gateway does not offer a chat tool policy")
+            self._set_banner(
+                f"Allowed in this app only ({reason}): this chat's covered requests are answered here, "
+                "until the app quits.",
+                tone="warn",
+                key="trust",
+            )
+        elif clamped:
             names = ", ".join(
                 f"{str(c.get('name') or '?')} ({str(c.get('reason') or 'not covered').replace('_', ' ')})"
                 for c in clamped

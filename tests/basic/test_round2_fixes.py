@@ -13,6 +13,14 @@ from abstractassistant.gateway.adapter import GatewayEventAdapter
 from abstractassistant.ui.activity import RunActivityModel
 
 
+def _older_gateway_caps(**_kwargs):
+    """Discovery from a gateway WITHOUT the session tool policy: the in-app
+    chat grant is the (explicit) local fallback these tests exercise."""
+    from abstractassistant.gateway.capabilities import AssistantCapabilities
+
+    return AssistantCapabilities.from_discovery_response({"capabilities": {}})
+
+
 class _Voice:
     def __init__(self) -> None:
         self.calls: list[str] = []
@@ -158,7 +166,7 @@ def test_adapter_wait_events_carry_the_waiting_step_id() -> None:
 def _controller(items):
     controller = AssistantController.__new__(AssistantController)
     controller._session_auto_approve_all = set()
-    controller.llm_manager = SimpleNamespace(active_session_id="chat-a")
+    controller.llm_manager = SimpleNamespace(active_session_id="chat-a", gateway_capabilities=_older_gateway_caps)
     controller.tool_inventory = lambda: {"items": list(items)}  # type: ignore[method-assign]
     return controller
 
