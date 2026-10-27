@@ -83,6 +83,7 @@ STEP_KINDS = (
     "offline",
     "error",
     "replay",
+    "policy",
 )
 STEP_STATUSES = ("running", "ok", "failed", "denied", "waiting", "info")
 STEP_TONES = ("thinking", "tool", "attention", "ok", "danger", "info", "paused", "offline")
@@ -315,6 +316,7 @@ class RunActivityModel:
             "error": self._on_error,
             "replay_degraded": self._on_replay_degraded,
             "assistant": self._on_assistant,
+            "tool_policy_decision": self._on_tool_policy_decision,
         }.get(typ)
         if handler is None:
             # run_activity echoes the user's prompt (finding 21); history /
@@ -737,6 +739,34 @@ class RunActivityModel:
             step.tone, step.status = "attention", "waiting"
             step.payload.update(step_payload)
         return [step_id]
+
+    def _on_tool_policy_decision(self, payload: Dict[str, Any]) -> List[str]:
+        """A call the chat's session tool policy allowed or denied: the
+        runtime made NO wait, so this is a closed activity line (never a
+        ``wait_approval`` step)."""
+        from abstractassistant.gateway.events import tool_policy_decision_text
+
+        denied = str(payload.get("decision") or "") == "denied"
+        who = _one_line(payload.get("set_by"))
+        when = _one_line(payload.get("set_at"))
+        detail = " ".join(part for part in (f"set by {who}" if who else "", f"at {when}" if when else "") if part)
+        step = self._append(
+            ActivityStep(
+                step_id=self._next("policy"),
+                kind="policy",
+                title_plain=_clip(tool_policy_decision_text(payload), _TITLE_MAX_CHARS),
+                tone="danger" if denied else "ok",
+                status="denied" if denied else "ok",
+                started_ts=str(payload.get("ts") or ""),
+                ended_ts=str(payload.get("ts") or ""),
+                detail=detail,
+                payload={
+                    "decision": str(payload.get("decision") or ""),
+                    "tools": [dict(t) for t in (payload.get("tools") or []) if isinstance(t, dict)],
+                },
+            )
+        )
+        return [step.step_id]
 
     def _on_ask_user(self, payload: Dict[str, Any]) -> List[str]:
         wait_key = str(payload.get("wait_key") or "").strip()

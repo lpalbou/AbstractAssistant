@@ -6,6 +6,7 @@ import base64
 from dataclasses import dataclass
 from datetime import datetime
 import html as _html
+import logging
 from html.parser import HTMLParser
 import mimetypes
 import math
@@ -183,6 +184,7 @@ from .gateway.live_deltas import (
 from .ui.session_switcher import SessionSwitcher
 from .core.automations import NotificationLedger, discussion_banner, target_from_workflow
 from .core.attention import AttentionModel, attention_banner_text, device_id as attention_device_id
+from .gateway.events import tool_policy_decision_text
 from .gateway.me_events import EventFollower
 from .ui.automations import (
     AUTOMATION_GATEWAY_DEFAULT_TARGET,
@@ -205,6 +207,8 @@ from .ui.dialogs import AskUserDialog
 from .ui.settings import SettingsDialog, ToolSettingsDialog
 from .ui.styles import chat_stylesheet, dialog_stylesheet, scope_stylesheet
 from .ui.voice_strip import VOICE_STRIP_HEIGHT, VoiceStrip
+
+logger = logging.getLogger(__name__)
 
 _HTML_ACTION_FENCE_RE = re.compile(
     r"```(?:html|x-html|xml)[^\n]*\n(.*?)```", flags=re.I | re.S
@@ -9364,6 +9368,13 @@ class AssistantPalette(QMainWindow):
             self._set_history_status(label, tone="busy", badge_tone="tool")
             self._append_run_activity({"kind": "tools", "tools": tools})
             return
+        if typ == "tool_policy_decision":
+            # Allowed/denied by this chat's session tool policy: the runtime
+            # made no wait, so nothing is asked — a status line only.
+            text = tool_policy_decision_text(payload)
+            self._set_history_status(text, tone="busy", badge_tone="tool")
+            self._append_run_activity({"kind": "status", "text": text, "ts": str(payload.get("ts") or "")})
+            return
         if typ == "replay_degraded":
             message = str(payload.get("message") or "Gateway replay is degraded.").strip()
             self._run_busy = False
@@ -10961,7 +10972,18 @@ class AssistantPalette(QMainWindow):
             self._indicator_inventory = inventory if ok else {}
             render(self._indicator_inventory)
 
-        hub.run(controller.tool_inventory, loaded)
+        def load() -> Any:
+            # A chat-wide grant held by the gateway outlives this process:
+            # mirror it so the shield shows it and "Restore defaults" can reset it.
+            sync = getattr(controller, "sync_session_tool_policy", None)
+            if callable(sync):
+                try:
+                    sync()
+                except Exception as exc:  # noqa: BLE001 - the indicator still renders
+                    logger.warning("Could not read this chat's tool policy: %s", exc)
+            return controller.tool_inventory()
+
+        hub.run(load, loaded)
 
     def _on_tools_indicator_clicked(self) -> None:
         if not self._controller.session_tool_auto_approval_active():
@@ -10981,8 +11003,16 @@ class AssistantPalette(QMainWindow):
 
         def decided(result: int) -> None:
             if result == QMessageBox.Yes:
-                self._controller.revoke_session_tool_auto_approval(session_id=sid)
-                self._clear_banner("trust")
+                try:
+                    self._controller.revoke_session_tool_auto_approval(session_id=sid)
+                except Exception as exc:  # noqa: BLE001 - the grant is still in force: say so
+                    self._set_banner(
+                        f"This chat's approval was not reset: {exc}. It is still in force.",
+                        tone="error",
+                        key="trust",
+                    )
+                else:
+                    self._clear_banner("trust")
                 self._refresh_tool_indicator()
             dialog.deleteLater()
 
@@ -11178,35 +11208,83 @@ class AssistantPalette(QMainWindow):
         # user. "defer" returned above on purpose: it stays pending.
         self._clear_user_wait(wait_key)
         approved = decision in {"once", "session"}
-        if decision == "session":
-            rank = int(details.get("trust_rank") or 0) or None
-            self._controller.grant_session_tool_auto_approval(max_rank=rank)
-            self._clear_banner("trust")
-            self._refresh_tool_indicator()
-        worker = self._state("_worker")
-        if worker is not None:
+
+        def send_decision(outcome: str) -> None:
+            worker = self._state("_worker")
+            if worker is not None:
+                try:
+                    if run_id and wait_key:
+                        worker.provide_tool_approval(approved, run_id=run_id, wait_key=wait_key)
+                    else:
+                        worker.provide_tool_approval(approved)
+                except Exception as exc:
+                    self._set_banner(f"Could not send your decision: {exc}", tone="error")
+            else:
+                self._set_banner(
+                    "The run is no longer being followed; reopen the palette to reattach and answer again.",
+                    tone="warn",
+                )
+            if model is not None:
+                model.resolve_wait(wait_key, outcome)
+            if approved:
+                self._set_history_status(f"Approved · {first}", tone="busy", badge_tone="tool")
+            else:
+                self._set_history_status(f"Denied · {first}", tone="busy", badge_tone="thinking")
+            self._resume_voice_after_dialog()
+
+        if decision != "session":
+            send_decision("approved" if approved else "denied")
+            return
+        # "Allow all enabled tools in this chat": the grant is written FIRST
+        # (on a gateway with the session tool policy, that is the server-side
+        # policy, so later covered calls never produce a wait), and only then
+        # is the wait on screen answered, one-off (contract v1 §4: the policy
+        # never answers a wait that already exists).
+        rank = int(details.get("trust_rank") or 0) or None
+        sid = self._active_session_id()
+        controller = self._controller
+
+        def granted(ok: bool, result: Any) -> None:
+            self._report_session_grant(ok, result)
+            send_decision("approved_session" if ok else "approved")
+
+        hub = self._state("_automations")
+        if hub is None:
             try:
-                if run_id and wait_key:
-                    worker.provide_tool_approval(approved, run_id=run_id, wait_key=wait_key)
-                else:
-                    worker.provide_tool_approval(approved)
-            except Exception as exc:
-                self._set_banner(f"Could not send your decision: {exc}", tone="error")
-        else:
+                outcome = (True, controller.grant_session_tool_auto_approval(session_id=sid or None, max_rank=rank))
+            except Exception as exc:  # noqa: BLE001 - reported, the call is still approved once
+                outcome = (False, exc)
+            granted(*outcome)
+            return
+        hub.run(lambda: controller.grant_session_tool_auto_approval(session_id=sid or None, max_rank=rank), granted)
+
+    def _report_session_grant(self, ok: bool, result: Any) -> None:
+        """Say what a chat-wide grant did: a refusal (the shown call is still
+        approved once) or the selectors the gateway clamped (never silent)."""
+        if not ok:
+            logger.warning("Chat-wide tool approval not saved: %s", result)
             self._set_banner(
-                "The run is no longer being followed; reopen the palette to reattach and answer again.",
+                f"“Allow all” for this chat was not saved: {result}. This call was approved once; "
+                "later ones will still ask.",
+                tone="error",
+                key="trust",
+            )
+            self._refresh_tool_indicator()
+            return
+        self._clear_banner("trust")
+        clamped = result.get("clamped") if isinstance(result, dict) else None
+        if clamped:
+            names = ", ".join(
+                f"{str(c.get('name') or '?')} ({str(c.get('reason') or 'not covered').replace('_', ' ')})"
+                for c in clamped
+                if isinstance(c, dict)
+            )
+            self._set_banner(
+                f"This chat's approval does not cover: {names}. Those calls will still ask.",
                 tone="warn",
+                key="trust",
             )
-        if model is not None:
-            model.resolve_wait(
-                wait_key,
-                "approved_session" if decision == "session" else ("approved" if approved else "denied"),
-            )
-        if approved:
-            self._set_history_status(f"Approved · {first}", tone="busy", badge_tone="tool")
-        else:
-            self._set_history_status(f"Denied · {first}", tone="busy", badge_tone="thinking")
-        self._resume_voice_after_dialog()
+        self._refresh_tool_indicator()
 
     def _on_ask_decision(self, dialog: Any, payload: Dict[str, Any]) -> None:
         decision = str(getattr(dialog, "decision", "defer") or "defer")
