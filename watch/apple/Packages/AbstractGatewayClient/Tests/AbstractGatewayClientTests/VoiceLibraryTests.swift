@@ -47,6 +47,9 @@ private let catalogJSON = """
         // A record whose voice_kind says "clone" without a kind is a clone too.
         #expect(VoiceLibrary.group(json(#"{"voice_kind":"clone","params":{"meta":{"scope":"personal"}}}"#)) == .yours)
         #expect(VoiceLibrary.group(json(#"{"voice_kind":"profile"}"#)) == .engine)
+        // A built-in voice is listed from the personal layer (AbstractVoice's layered store stamps
+        // `meta.scope: personal` on it); `tags.builtin` alone makes it shared, never the person's own.
+        #expect(VoiceLibrary.group(json(#"{"kind":"clone","tags":{"builtin":true,"language_code":"fr"},"params":{"meta":{"builtin":true,"scope":"personal"}}}"#)) == .shared)
         #expect(catalog.defaultVoiceProvider == "supertonic")
         #expect(catalog.entry(for: VoiceChoice(provider: "supertonic", model: "supertonic-3", voice: "F2", label: "an old label"))?.voiceID == "F2")
     }
