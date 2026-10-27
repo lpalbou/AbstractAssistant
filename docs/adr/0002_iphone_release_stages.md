@@ -28,6 +28,16 @@ for beta testing.
 5. No default production gateway is embedded. Local developer installs, disposable CI testing,
    TestFlight delivery and public App Store publication remain distinct stages.
 
+### Amendment 2026-10-27: the archive is signed in the protected job
+
+The apps carry explicit entitlements (2026-10-22), so an unsigned Release archive is no longer a
+valid candidate, and signing needs the App Store Connect key that only `app-store` holds. Points 1
+and 2 change: PR, main and manual runs test without Apple credentials and do not archive; a manual
+run on main (signed candidate or upload) archives, signs (Xcode cloud signing with the API key and
+the Apple Distribution certificate), checks and exports the tested commit, with its tested version
+and build number, inside the approved `app-store` job, which uploads when asked. The binary is
+built from the tested commit, not carried over from the test job.
+
 ## Consequences
 
 A push cannot upload or publish an app. TestFlight and App Store share one bundle and candidate,

@@ -9,7 +9,11 @@ on:
   workflow_dispatch:
     inputs:
       upload:
-        description: "Request human approval to upload the combined iPhone + Watch app"
+        description: "Request human approval to sign and upload the combined iPhone + Watch app"
+        type: boolean
+        default: false
+      signed_candidate:
+        description: "Request human approval to sign and export the App Store candidate (.ipa) without uploading"
         type: boolean
         default: false
       full_ui_suite:
@@ -21,8 +25,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: iphone-${{ github.event_name }}-${{ github.ref }}-${{ inputs.upload && github.run_id || 'checks' }}
-  cancel-in-progress: ${{ !(github.event_name == 'workflow_dispatch' && inputs.upload) }}
+  group: iphone-${{ github.event_name }}-${{ github.ref }}-${{ (inputs.upload || inputs.signed_candidate) && github.run_id || 'checks' }}
+  cancel-in-progress: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.upload || inputs.signed_candidate)) }}
 
 env:
   XCODE_MAJOR: "27"
@@ -73,20 +77,18 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/WatchSimulator" CODE_SIGNING_ALLOWED=NO -quiet
 
   build:
-    name: Test and archive combined candidate
+    # Pushes and pull requests stop here: tests only, no Apple credentials, no archive. The phone app
+    # carries explicit entitlements (2026-10-22), so a Release archive must be signed, and signing
+    # needs the App Store Connect key that only the protected `app-store` environment holds: the
+    # signed archive is built by the on-demand `signed` job below.
+    name: Test combined iPhone + Watch app
     needs: [contracts, watch_checks]
     runs-on: xcode-27
     timeout-minutes: 60
-    env:
-      # The phone app carries explicit entitlements (2026-10-22), so a Release archive must be signed;
-      # the archive and candidate steps run only when the signing material is available to this job:
-      # the distribution certificate (repository secret APPLE_DISTRIBUTION_P12_BASE64) AND the App Store
-      # Connect key that creates the provisioning profiles (ASC_KEY_P8, an `app-store` environment
-      # secret, so never visible here: pushes and PRs test only). Without it, tests and builds still run.
-      SIGNING_MATERIAL: ${{ secrets.APPLE_DISTRIBUTION_P12_BASE64 != '' && secrets.ASC_KEY_P8 != '' }}
     outputs:
       version: ${{ steps.version.outputs.version }}
       build: ${{ steps.version.outputs.build }}
+      native_suite: ${{ steps.native.outputs.suite }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -106,27 +108,6 @@ jobs:
       - name: Generate project
         working-directory: ${{ env.PROJECT_DIR }}
         run: xcodegen generate --spec project.yml
-      - name: Check archive signing requirements
-        if: env.SIGNING_MATERIAL == 'true'
-        working-directory: ${{ env.PROJECT_DIR }}
-        run: |
-          xcodebuild -project AbstractAssistant.xcodeproj -scheme AbstractAssistantPhone \
-            -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO -showBuildSettings -json > "$RUNNER_TEMP/settings.json"
-          python3 scripts/release.py settings "$RUNNER_TEMP/settings.json"
-      - name: Archive Release candidate without Apple credentials
-        if: env.SIGNING_MATERIAL == 'true'
-        working-directory: ${{ env.PROJECT_DIR }}
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-          BUILD_NUMBER: ${{ steps.version.outputs.build }}
-        run: |
-          xcodebuild archive -project AbstractAssistant.xcodeproj -scheme AbstractAssistantPhone \
-            -destination 'generic/platform=iOS' -configuration Release -jobs 1 \
-            -derivedDataPath "$RUNNER_TEMP/PhoneArchive" -archivePath "$RUNNER_TEMP/AbstractAssistantPhone.xcarchive" \
-            MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
-            CODE_SIGNING_ALLOWED=NO -quiet
-          python3 scripts/release.py inspect --archive "$RUNNER_TEMP/AbstractAssistantPhone.xcarchive" \
-            --version "$VERSION" --build "$BUILD_NUMBER"
       - name: Create isolated iPhone simulator
         run: |
           # The UI tests assume a compact iPhone (a bottom tab bar, navigation-bar menus). The runner's iOS
@@ -161,6 +142,7 @@ jobs:
           xcrun simctl boot "$simulator"
           xcrun simctl bootstatus "$simulator" -b
       - name: Native tests
+        id: native
         working-directory: ${{ env.PROJECT_DIR }}
         env:
           FULL_UI: ${{ inputs.upload || inputs.full_ui_suite }}
@@ -184,37 +166,7 @@ jobs:
             -jobs 1 -parallel-testing-enabled NO -collect-test-diagnostics never \
             "${selectors[@]}" -skip-testing:AbstractAssistantPhoneTests/LiveGatewayMediaTests \
             ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- -quiet
-          echo "NATIVE_SUITE=$suite" >> "$GITHUB_ENV"
-      - name: Package the tested combined candidate
-        if: env.SIGNING_MATERIAL == 'true'
-        working-directory: ${{ env.PROJECT_DIR }}
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-          BUILD_NUMBER: ${{ steps.version.outputs.build }}
-        run: |
-          python3 scripts/release.py candidate --archive "$RUNNER_TEMP/AbstractAssistantPhone.xcarchive" \
-            --output "$RUNNER_TEMP/iphone-candidate" --sha "$GITHUB_SHA" \
-            --version "$VERSION" --build "$BUILD_NUMBER" --test-suite "$NATIVE_SUITE"
-      - name: Candidate summary
-        if: env.SIGNING_MATERIAL == 'true'
-        run: |
-          {
-            echo '## AbstractAssistant iPhone + Watch release candidate'
-            echo "Commit: \`$GITHUB_SHA\`"
-            echo "Native checks: $NATIVE_SUITE suite; live gateway tests excluded"
-            echo '```json'
-            cat "$RUNNER_TEMP/iphone-candidate/candidate.json"
-            echo '```'
-            echo 'Pushes and PRs do not upload. A manual upload request waits for human app-store approval.'
-            echo 'Upload makes the build available for TestFlight after Apple processing. Store submission/release remain manual.'
-          } >> "$GITHUB_STEP_SUMMARY"
-      - if: env.SIGNING_MATERIAL == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: iphone-candidate-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/iphone-candidate/
-          retention-days: 30
-          if-no-files-found: error
+          echo "suite=$suite" >> "$GITHUB_OUTPUT"
       - name: Preserve native test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -230,18 +182,28 @@ jobs:
             xcrun simctl delete "$IPHONE_CI_SIMULATOR"
           fi
 
-  upload:
-    name: Approve App Store Connect upload
+  signed:
+    # On demand only (Run workflow on main with `upload` or `signed_candidate`), after the required
+    # human `app-store` approval. Signing uses two credential sets: the Apple Distribution
+    # certificate (repository secrets APPLE_DISTRIBUTION_P12_*) and the App Store Connect API key
+    # (`app-store` environment secrets ASC_*), with which Xcode creates or fetches the App Store
+    # provisioning profiles itself (cloud signing; no profile is stored anywhere). It archives the
+    # tested commit with the tested version and build number, then exports and optionally uploads.
+    name: Sign, export and upload the combined candidate
     needs: build
-    if: github.event_name == 'workflow_dispatch' && inputs.upload && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && (inputs.upload || inputs.signed_candidate) && github.ref == 'refs/heads/main'
     runs-on: xcode-27
-    timeout-minutes: 45
+    timeout-minutes: 60
     environment:
       name: app-store
       url: https://appstoreconnect.apple.com/apps
     concurrency:
       group: abstractassistant-app-store-upload
       cancel-in-progress: false
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      BUILD_NUMBER: ${{ needs.build.outputs.build }}
+      NATIVE_SUITE: ${{ needs.build.outputs.native_suite }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -249,25 +211,169 @@ jobs:
           python-version: "3.12"
       - name: Select released Xcode
         run: bash phone/iphone/scripts/select-xcode.sh
-      - uses: actions/download-artifact@v4
+      - name: Install XcodeGen
+        run: command -v xcodegen >/dev/null || brew install xcodegen
+      - name: Generate project
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: xcodegen generate --spec project.yml
+      - name: Install signing material (temporary keychain and API key)
+        env:
+          P12_BASE64: ${{ secrets.APPLE_DISTRIBUTION_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_P12_PASSWORD }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          set +x
+          missing=()
+          for name in P12_BASE64 P12_PASSWORD ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8; do
+            [[ -n "${!name}" ]] || missing+=("$name")
+          done
+          if (( ${#missing[@]} )); then
+            echo "::error::Signing material missing: ${missing[*]} (APPLE_DISTRIBUTION_P12_* are repository secrets, ASC_* are app-store environment secrets)"
+            exit 1
+          fi
+          [[ "$ASC_KEY_ID" =~ ^[A-Z0-9]{10}$ ]] || { echo '::error::Invalid ASC_KEY_ID'; exit 1; }
+          [[ "$ASC_ISSUER_ID" =~ ^[0-9a-fA-F-]{36}$ ]] || { echo '::error::Invalid ASC_ISSUER_ID'; exit 1; }
+          umask 077
+          signing="$RUNNER_TEMP/signing"
+          mkdir -p "$signing"
+          keychain="$signing/ci-signing.keychain-db"
+          # Recorded first, so the always() cleanup finds whatever this step managed to create.
+          echo "SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+          security default-keychain -d user | sed -e 's/^ *"//' -e 's/" *$//' > "$signing/default-keychain"
+          security list-keychains -d user | sed -e 's/^ *"//' -e 's/" *$//' > "$signing/search-list"
+          keychain_password=$(openssl rand -hex 32)
+          echo "::add-mask::$keychain_password"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          printf '%s' "$P12_BASE64" | base64 --decode > "$signing/distribution.p12"
+          security import "$signing/distribution.p12" -k "$keychain" -f pkcs12 -P "$P12_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security >/dev/null
+          rm -f "$signing/distribution.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
+          # This keychain first in the search list, and the default one: a key Xcode creates lands here too.
+          search=()
+          while IFS= read -r line; do [[ -n "$line" ]] && search+=("$line"); done < "$signing/search-list"
+          security list-keychains -d user -s "$keychain" "${search[@]}"
+          security default-keychain -d user -s "$keychain"
+          if ! security find-identity -v -p codesigning "$keychain" | grep -q "\"Apple Distribution: .*($TEAM_ID)\""; then
+            echo "::error::APPLE_DISTRIBUTION_P12_BASE64 holds no valid Apple Distribution identity for team $TEAM_ID"
+            exit 1
+          fi
+          key="$signing/AuthKey.p8"
+          printf '%s\n' "$ASC_KEY_P8" > "$key"
+          chmod 600 "$key"
+          openssl pkey -in "$key" -noout >/dev/null 2>&1 || { echo '::error::ASC_KEY_P8 is not a readable private key'; exit 1; }
+          echo "ASC_KEY_PATH=$key" >> "$GITHUB_ENV"
+      - name: Archive signed Release candidate (cloud signing)
+        working-directory: ${{ env.PROJECT_DIR }}
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set +x
+          xcodebuild archive -project AbstractAssistant.xcodeproj -scheme AbstractAssistantPhone \
+            -destination 'generic/platform=iOS' -configuration Release -jobs 1 \
+            -derivedDataPath "$RUNNER_TEMP/PhoneArchive" -archivePath "$RUNNER_TEMP/AbstractAssistantPhone.xcarchive" \
+            -allowProvisioningUpdates -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM="$TEAM_ID" OTHER_CODE_SIGN_FLAGS="--keychain $SIGNING_KEYCHAIN" \
+            MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" -quiet
+      - name: Inspect the signed archive
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          archive="$RUNNER_TEMP/AbstractAssistantPhone.xcarchive"
+          python3 scripts/release.py inspect --archive "$archive" --version "$VERSION" --build "$BUILD_NUMBER"
+          # Every shipped bundle (iPhone app, its notification extension, Watch app, complication and
+          # Watch notification extension) is signed by the team. Update the count when a target is added.
+          signed=0
+          while IFS= read -r -d '' bundle; do
+            codesign --verify --strict "$bundle"
+            team=$(codesign -dv "$bundle" 2>&1 | sed -n 's/^TeamIdentifier=//p')
+            [[ "$team" == "$TEAM_ID" ]] || { echo "::error::${bundle#"$archive"/} is signed by team '$team', not $TEAM_ID"; exit 1; }
+            signed=$((signed + 1))
+          done < <(find "$archive/Products/Applications" \( -name '*.app' -o -name '*.appex' \) -print0)
+          (( signed == 5 )) || { echo "::error::Expected 5 signed bundles (2 apps, 3 extensions), found $signed"; exit 1; }
+          echo "Signed bundles: $signed, team $TEAM_ID"
+      - name: Package the signed candidate
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          python3 scripts/release.py candidate --archive "$RUNNER_TEMP/AbstractAssistantPhone.xcarchive" \
+            --output "$RUNNER_TEMP/iphone-candidate" --sha "$GITHUB_SHA" \
+            --version "$VERSION" --build "$BUILD_NUMBER" --test-suite "$NATIVE_SUITE"
+      - name: Export the App Store .ipa
+        working-directory: ${{ env.PROJECT_DIR }}
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set +x
+          python3 scripts/release.py export-options "$RUNNER_TEMP/ExportOptions-export.plist" --team "$TEAM_ID" --destination export
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/AbstractAssistantPhone.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions-export.plist" -exportPath "$RUNNER_TEMP/iphone-ipa" \
+            -allowProvisioningUpdates -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          ipas=("$RUNNER_TEMP"/iphone-ipa/*.ipa)
+          [[ ${#ipas[@]} -eq 1 && -f "${ipas[0]}" ]] || { echo '::error::Export produced no single .ipa'; exit 1; }
+          unpacked="$RUNNER_TEMP/ipa-check"
+          ditto -x -k "${ipas[0]}" "$unpacked"
+          authority=$(codesign -dv --verbose=2 "$unpacked"/Payload/*.app 2>&1 | awk '/^Authority=/ && !seen {print substr($0, 11); seen = 1}')
+          [[ "$authority" == "Apple Distribution: "*"($TEAM_ID)" ]] || { echo "::error::The .ipa is signed by '$authority', not Apple Distribution ($TEAM_ID)"; exit 1; }
+          echo "Exported $(basename "${ipas[0]}"), signed by $authority"
+      - uses: actions/upload-artifact@v4
         with:
           name: iphone-candidate-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/iphone-candidate
-      - name: Verify, sign and upload the checked archive
+          path: ${{ runner.temp }}/iphone-candidate/
+          retention-days: 30
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iphone-ipa-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/iphone-ipa/*.ipa
+          retention-days: 30
+          if-no-files-found: error
+      - name: Verify and upload the checked archive to App Store Connect
+        if: inputs.upload
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
         run: bash phone/iphone/scripts/upload-candidate.sh "$RUNNER_TEMP/iphone-candidate"
-      - name: Upload receipt
+      - name: Candidate summary
         env:
-          VERSION: ${{ needs.build.outputs.version }}
-          BUILD_NUMBER: ${{ needs.build.outputs.build }}
+          UPLOADED: ${{ inputs.upload }}
         run: |
           {
-            echo "## Uploaded AbstractAssistant iPhone + Watch $VERSION ($BUILD_NUMBER)"
-            echo "Source: \`$GITHUB_SHA\`"
-            echo 'Apple must process the upload before it appears in TestFlight.'
-            echo 'This does not submit App Review or release the app publicly.'
-            echo 'After beta validation, select this exact build in App Store Connect and choose manual release.'
+            echo "## AbstractAssistant iPhone + Watch $VERSION ($BUILD_NUMBER), signed"
+            echo "Commit: \`$GITHUB_SHA\`"
+            echo "Native checks: $NATIVE_SUITE suite; live gateway tests excluded"
+            echo '```json'
+            cat "$RUNNER_TEMP/iphone-candidate/candidate.json"
+            echo '```'
+            if [[ "$UPLOADED" == true ]]; then
+              echo 'Uploaded: Apple must process the build before it appears in TestFlight.'
+              echo 'This does not submit App Review or release the app publicly.'
+              echo 'After beta validation, select this exact build in App Store Connect and choose manual release.'
+            else
+              echo 'Not uploaded: the signed App Store .ipa is retained as an artifact for 30 days.'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove signing material
+        if: always()
+        run: |
+          set +x
+          signing="$RUNNER_TEMP/signing"
+          if [[ -f "$signing/default-keychain" ]]; then
+            security default-keychain -d user -s "$(cat "$signing/default-keychain")" || true
+          fi
+          if [[ -n "${SIGNING_KEYCHAIN:-}" ]]; then
+            security delete-keychain "$SIGNING_KEYCHAIN" 2>/dev/null || true
+          fi
+          if [[ -f "$signing/search-list" ]]; then
+            search=()
+            while IFS= read -r line; do [[ -n "$line" ]] && search+=("$line"); done < "$signing/search-list"
+            security list-keychains -d user -s "${search[@]}" || true
+          fi
+          rm -rf "$signing" "$RUNNER_TEMP/ipa-check"
