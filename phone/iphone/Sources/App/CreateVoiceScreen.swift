@@ -190,14 +190,19 @@ struct CreateVoiceScreen: View {
                                                                 AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false])
                 guard r.record(forDuration: VoiceRecordingForm.maximumSeconds) else { throw CocoaError(.fileWriteUnknown) }
                 recorder = r; file = url; recording = true; elapsed = 0
-                ticker = Task { [weak self] in
-                    while let self, self.recording {
-                        self.elapsed = r.currentTime > 0 ? r.currentTime : self.elapsed
-                        if !r.isRecording { self.stop(); return }   // stopped by itself at 20 seconds
-                        try? await Task.sleep(for: .milliseconds(200))
-                    }
-                }
+                ticker = tick(r)
             } catch { self.error = "The microphone couldn’t start. You can choose a recording instead."; cancel() }
+        }
+    }
+
+    /// The elapsed time while recording; stops the take when the recorder ends it (20 seconds).
+    private func tick(_ r: AVAudioRecorder) -> Task<Void, Never> {
+        Task { [weak self] in
+            while let self, self.recording {
+                self.elapsed = r.currentTime > 0 ? r.currentTime : self.elapsed
+                if !r.isRecording { self.stop(); return }   // stopped by itself at 20 seconds
+                try? await Task.sleep(for: .milliseconds(200))
+            }
         }
     }
 
