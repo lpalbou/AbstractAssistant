@@ -20,9 +20,12 @@ import {
 import {
   AfVoiceMicButton,
   createSessionToolPolicyClient,
+  normalizeToolCatalog,
+  planRunTools,
   sessionToolPolicyCapability,
   streamTtsJsonl,
   useGatewayVoice,
+  withRunTools,
   type VoiceCaptureMode,
   type VoiceClientPreferences,
 } from "@abstractframework/ui-kit";
@@ -33,7 +36,6 @@ import { createAssistantTransport } from "../gateway/transport";
 import type { AssistantHost } from "../host";
 import { buildRunInputData } from "../lib/run_input";
 import { STATE_WORDS, type SessionState } from "../lib/session_fold";
-import { runToolsFromDiscovery } from "../lib/tool_policy";
 import { selectWorkflow } from "../lib/workflow_selection";
 import type { AttentionSeen } from "./useConversations";
 
@@ -229,8 +231,9 @@ export function Workspace(props: {
       ]);
       const start = selectWorkflow(bundles, prefs);
       const image = refs.find((r) => String(r.content_type || "").startsWith("image/"));
-      // Explicit tool lists, as the desktop sends them (ADR 0007 §6).
-      const input_data = buildRunInputData({ prompt: text, attachments: refs, primary_image_artifact: image ?? null, stream: true, ...runToolsFromDiscovery(tools) });
+      // The tools the gateway offers (the kit's plan, backlog 0033). No layer of the person's
+      // own yet, so approvals follow the gateway's defaults (its grant at run start).
+      const input_data = withRunTools(buildRunInputData({ prompt: text, attachments: refs, primary_image_artifact: image ?? null, stream: true }), planRunTools(normalizeToolCatalog(tools)));
       // Never retried here: a failure keeps the draft and says why; the person resends.
       const { run_id } = await client.startRun(
         start.source === "gateway_default"
