@@ -79,9 +79,11 @@ jobs:
     timeout-minutes: 60
     env:
       # The phone app carries explicit entitlements (2026-10-22), so a Release archive must be signed;
-      # the archive and candidate steps run only when the distribution signing material is configured
-      # (repository secret APPLE_DISTRIBUTION_P12_BASE64). Without it, tests and builds still run.
-      SIGNING_MATERIAL: ${{ secrets.APPLE_DISTRIBUTION_P12_BASE64 != '' }}
+      # the archive and candidate steps run only when the signing material is available to this job:
+      # the distribution certificate (repository secret APPLE_DISTRIBUTION_P12_BASE64) AND the App Store
+      # Connect key that creates the provisioning profiles (ASC_KEY_P8, an `app-store` environment
+      # secret, so never visible here: pushes and PRs test only). Without it, tests and builds still run.
+      SIGNING_MATERIAL: ${{ secrets.APPLE_DISTRIBUTION_P12_BASE64 != '' && secrets.ASC_KEY_P8 != '' }}
     outputs:
       version: ${{ steps.version.outputs.version }}
       build: ${{ steps.version.outputs.build }}
@@ -206,7 +208,8 @@ jobs:
             echo 'Pushes and PRs do not upload. A manual upload request waits for human app-store approval.'
             echo 'Upload makes the build available for TestFlight after Apple processing. Store submission/release remain manual.'
           } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - if: env.SIGNING_MATERIAL == 'true'
+        uses: actions/upload-artifact@v4
         with:
           name: iphone-candidate-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/iphone-candidate/
