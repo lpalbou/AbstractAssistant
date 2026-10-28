@@ -412,7 +412,7 @@ class ToolCallCard(QFrame):
         for label, tone in p.flags:
             chips.addWidget(_chip(label, tone, self))
         if not p.available:
-            chips.addWidget(_chip("Disabled on gateway", "warn", self))
+            chips.addWidget(_chip("Not offered by the gateway", "warn", self))
         self.status_chip: Optional[QLabel] = None
         if result_mode:
             if p.success is True:

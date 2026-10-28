@@ -52,9 +52,10 @@ reaches as far as the batch it was granted on: from a read-only batch it still a
 anything that reaches outside or destroys, and the menu item names the wider scope when you grant
 it on such a batch.
 
-## Why is a tool marked "Disabled on gateway"?
+## Why is a tool marked "Not offered by the gateway"?
 
-The gateway has turned it off. The assistant shows it for transparency and never offers it to a run.
+The gateway has turned it off (its reason follows the colon when it gives one). The assistant shows it,
+Off and read-only, for transparency and never offers it to a run.
 
 ## Which workflow does the assistant use?
 

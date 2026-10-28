@@ -126,9 +126,10 @@ another device disappears as soon as the gateway records it; **Open** checks wit
 the run still waits and says so when it no longer does. If the line stays, check the connection orb:
 while the gateway is unreachable, the stream resumes where it stopped once it is back.
 
-## A tool is "Disabled on gateway"
+## A tool is "Not offered by the gateway"
 
-The gateway has turned that tool off; the assistant cannot enable it. Ask the gateway operator.
+The gateway has turned that tool off (the reason it serves follows the colon); the assistant cannot
+enable it. Ask the gateway operator.
 
 ## The microphone button is disabled
 

@@ -560,7 +560,7 @@ page says where a value comes from. Common first steps:
 - **Appearance**: theme, text size and spacing, the summon shortcut, window size.
 - **Voice**: output device, auto-speak, conversation options (the speech engines are under Models).
 - **Workspace**: **My default workspaces** (your account) and **This chat**, each a list of workspaces with Read & write / Read-only / Refused among those the gateway allows.
-- **Tools & permissions**: per-tool Off / Auto / Ask on top of the gateway's defaults.
+- **Tools & permissions**: per-tool Off / Ask / Auto on top of the gateway's defaults.
 
 The full reference is [settings.md](settings.md).
 
@@ -777,12 +777,12 @@ earlier versions is ignored.
 | Control | Meaning | Stored |
 |---|---|---|
 | Tool mode note | The gateway's tool execution mode (approval, local, passthrough, delegated) | gateway |
-| Categories | One collapsible panel per category the gateway reports for its tools (the `toolset` of each tool in `GET /api/gateway/discovery/tools`: camera, comms, files, web, …), sorted by name: the name, the number of tools, then **All auto** / **All ask**. Every panel starts collapsed, including those holding a choice that differs from the gateway default; a panel you open or close stays that way | gateway |
-| Per-tool Off / Auto / Ask | Off never offers the tool to the model; Auto pre-approves it on this Mac, even where the gateway would ask; Ask prompts every time. The gateway's own default is marked in the tooltip. A choice applies at once; only the tools that differ from the gateway default are stored, and a failed save puts the row back with "Not saved." | this app `tool_preferences` |
+| Categories | One collapsible panel per category the gateway reports for its tools (the `toolset` of each tool in `GET /api/gateway/discovery/tools`: camera, comms, files, web, …), sorted by name: the name, the number of tools, the group's state (**Off**, **Ask**, **Auto**, or **Mixed** when its tools differ) and the same **Off / Ask / Auto** control as each tool. Every panel starts collapsed, including those holding a choice that differs from the gateway default; a panel you open or close stays that way | gateway |
+| Per-tool Off / Ask / Auto | The kit's words (AbstractUIC `TOOL_MODE_LABELS`): Off never offers the tool to the run; Ask asks before each call; Auto runs it without asking, on this Mac even where the gateway would ask. The gateway's own default is marked in the tooltip, and a row set differently shows **Default: Ask** (or Off / Auto). A choice applies at once; only the tools that differ from the gateway default are stored, and a failed save puts the row back with "Not saved." | this app `tool_preferences` |
 | Risk chip and sentence | The gateway's risk tier (reads only, makes changes, reaches outside, destructive) and capability facts (writes, can delete, sends messages, reaches remote services, captures the environment) | gateway |
-| Disabled on gateway | Tools the gateway has turned off; they are never offered to a run | gateway |
+| Not offered by the gateway | A tool the gateway has turned off: shown Off and read-only, with **Not offered by the gateway: <the gateway's reason>** (or **Not offered by the gateway.** when it gives none); never offered to a run; it cannot be changed here, and **Use gateway defaults** clears a choice stored for it earlier | gateway |
 | Command sandbox | On the tools that start processes (`execute_command`, `shell_exec`, `local_helper_start`, `execute_python`): the gateway's state, verbatim — **Sandboxed to this run's workspaces**, or its refused / unsandboxed state — with the gateway's explanation in the tooltip (`sandboxed` / `sandbox` of each tool and `command_sandbox.sentence` in `GET /api/gateway/discovery/tools`). The app never decides it | gateway |
-| All auto / All ask | Pressed-state controls in each panel header: **All auto** is pressed when every tool it may reach is on Auto, **All ask** when every tool of the panel is on Ask, neither when they are mixed; pressing one sets the panel's tools and applies at once. All auto leaves outreach and destructive tools on Ask; set those to Auto one by one. With a filter, only the tools shown are changed | this app |
+| Group Off / Ask / Auto | The control in each panel header ("All <toolset> tools") shows the tools' one state, none when they are mixed; pressing one sets every tool of the panel the gateway offers and applies at once. Group Auto reaches only the tools that read or make changes (risk 2 or lower) and whose destination the assistant does not choose; the panel says so in the kit's words and names the tools that stay ("2 tools here stay as it is: …"); set those to Auto one at a time. With a filter, only the tools shown are changed | this app |
 | Filter tools | Searches every category (names and descriptions); panels with a match open, the others step aside, and the count reads **2 of 8** | — |
 | Use gateway defaults | Restore each tool to the gateway's approval default (applies at once) | this app |
 
@@ -1541,7 +1541,7 @@ default applies:
 | `_runtime.stream` | Stream replies, ALWAYS sent: `true` when the switch is on and the cached `/discovery/capabilities` answer advertises `streaming.deltas: true`, `false` otherwise (the gateway's `streaming.default` never decides for this app) |
 | `workspace_root` | the chat's private workspace, once the gateway gave it on the chat's first run (blank before); which other workspaces the run may use is resolved by the gateway at run start — the chat's subset (`/sessions/{id}/workspaces`) > the account default (`/workspace/policy/me`) > the gateway policy — never sent per run |
 | `image_provider/image_model`, `image_edit_*`, `image_upscale_*`, `video_*`, `image_to_video_*`, `music_*`, `sound_output` | media route overrides |
-| `_runtime.allowed_tools`, `_runtime.tool_policy` | per-tool modes (Off / Auto / Ask) |
+| `_runtime.allowed_tools`, `_runtime.tool_policy` | per-tool modes (Off / Ask / Auto) |
 | `system` | the workflow's base prompt plus an addendum (voice conversation) when one applies |
 
 ## Live reply events
@@ -2205,9 +2205,10 @@ reaches as far as the batch it was granted on: from a read-only batch it still a
 anything that reaches outside or destroys, and the menu item names the wider scope when you grant
 it on such a batch.
 
-## Why is a tool marked "Disabled on gateway"?
+## Why is a tool marked "Not offered by the gateway"?
 
-The gateway has turned it off. The assistant shows it for transparency and never offers it to a run.
+The gateway has turned it off (its reason follows the colon when it gives one). The assistant shows it,
+Off and read-only, for transparency and never offers it to a run.
 
 ## Which workflow does the assistant use?
 
@@ -2473,9 +2474,10 @@ another device disappears as soon as the gateway records it; **Open** checks wit
 the run still waits and says so when it no longer does. If the line stays, check the connection orb:
 while the gateway is unreachable, the stream resumes where it stopped once it is back.
 
-## A tool is "Disabled on gateway"
+## A tool is "Not offered by the gateway"
 
-The gateway has turned that tool off; the assistant cannot enable it. Ask the gateway operator.
+The gateway has turned that tool off (the reason it serves follows the colon); the assistant cannot
+enable it. Ask the gateway operator.
 
 ## The microphone button is disabled
 
@@ -3179,6 +3181,15 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 ## [Unreleased]
 
 ### Changed
+
+- **Settings → Tools speaks the kit's vocabulary** (operator, 2026-10-28; backlog 1077): every tool and every group
+  reads **Off / Ask / Auto** in that order (AbstractUIC `TOOL_MODE_LABELS`); the group head carries the same control
+  ("All <toolset> tools"), showing the tools' one state or **Mixed**, and replaces **All auto** / **All ask**. Group
+  Auto reaches only the tools of risk 2 or lower whose destination the assistant does not choose, and says so in the
+  kit's sentence, naming the tools that stay. A tool the gateway does not offer is Off and read-only with "Not
+  offered by the gateway: <reason>" (the approval sheet's chip says the same, not "Disabled on gateway"); a row set
+  differently from the gateway's default shows "Default: Ask". Rebuilding the list no longer paints the old panels
+  under the new ones.
 
 - **An automation opens as the chat** (operator, 2026-10-28; backlog 1070). Its runs read as the chat's exchanges: a
   compact system line in words ("Scheduled run 1 · Oct 9 at 11:06 PM", "Run now · run 4 · Today at 7:12 AM"), the
@@ -10661,7 +10672,7 @@ class AssistantController:
                     "when_to_use": str(raw.get("when_to_use") or raw.get("whenToUse") or "").strip(),
                     # The gateway's own availability + risk classification. The
                     # assistant displays these; it never re-derives them.
-                    "available": raw.get("enabled") is not False,
+                    "available": raw.get("enabled") is not False and raw.get("available") is not False,
                     "approval_default": str(raw.get("approval_default") or "").strip().lower(),
                     "risk_tier": str(raw.get("risk_tier") or "").strip().lower(),
                     "tier": str(raw.get("tier") or "").strip(),
@@ -10674,9 +10685,21 @@ class AssistantController:
                     "comms_send",
                     "standing_effect",
                     "grantable",
+                    # The model picks where it reaches (a recipient, a URL): group
+                    # Auto leaves it alone (ui-kit tool_plan.ts bulkAutoReaches).
+                    "model_controlled_destination",
                 ):
                     if isinstance(raw.get(flag), bool):
                         item[flag] = bool(raw.get(flag))
+                # Why the gateway does not offer a tool, in its words (gateway
+                # tool_catalog.py `why_disabled`). Its `enable_gate` (an
+                # environment variable's name) is not words for a person (ADR
+                # 0043): without a served reason the row reads "Not offered by
+                # the gateway." (the kit falls back to the gate; raised to the kit).
+                if item["available"] is False:
+                    why = str(raw.get("why_disabled") or "").strip()
+                    if why:
+                        item["why_disabled"] = why
                 if isinstance(raw.get("risk_rank"), int):
                     item["risk_rank"] = int(raw.get("risk_rank"))
                 # Process-spawning tools (R12.1): the gateway's command-sandbox

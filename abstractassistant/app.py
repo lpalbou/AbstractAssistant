@@ -11222,16 +11222,20 @@ class AssistantPalette(QMainWindow):
                 label = "Session approval active — click to restore tool defaults"
             else:
                 items = inventory.get("items", []) if isinstance(inventory, dict) else []
-                modes = {row.get("selected_mode", "ask") for row in items
-                         if isinstance(row, dict) and row.get("available") is not False
-                         and row.get("selected_mode") != "disabled"}
+                on = [row.get("selected_mode", "ask") for row in items
+                      if isinstance(row, dict) and row.get("available") is not False
+                      and row.get("selected_mode") != "disabled"]
+                modes = set(on)
+                auto = sum(1 for mode in on if mode == "approve")
+                # The kit's summary words (tool_mode_editor.tsx): "N tools on, M without asking".
+                summary = f"{len(on)} {'tool' if len(on) == 1 else 'tools'} on, {auto} without asking"
                 if modes == {"ask"}:
-                    icon, color, label = "shield", THEME.positive, "Ask before every enabled tool"
+                    icon, color, label = "shield", THEME.positive, f"Tools & permissions: {summary}"
                 elif modes == {"approve"}:
-                    icon, color, label = "checkmark.seal.fill", "#4f46e5", "Auto-approve enabled tools"
+                    icon, color, label = "checkmark.seal.fill", "#4f46e5", f"Tools & permissions: {summary}"
                 else:
                     icon, color = "shield", THEME.text_muted
-                    label = "Mixed tool defaults" if modes else "Tools & permissions"
+                    label = f"Tools & permissions: {summary}" if modes else "Tools & permissions"
             button.setIcon(_symbol_icon(icon, color=color, size=18))
             button.setToolTip(label)
             button.setAccessibleName(label)

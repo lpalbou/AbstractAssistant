@@ -115,7 +115,7 @@ page says where a value comes from. Common first steps:
 - **Appearance**: theme, text size and spacing, the summon shortcut, window size.
 - **Voice**: output device, auto-speak, conversation options (the speech engines are under Models).
 - **Workspace**: **My default workspaces** (your account) and **This chat**, each a list of workspaces with Read & write / Read-only / Refused among those the gateway allows.
-- **Tools & permissions**: per-tool Off / Auto / Ask on top of the gateway's defaults.
+- **Tools & permissions**: per-tool Off / Ask / Auto on top of the gateway's defaults.
 
 The full reference is [settings.md](settings.md).
 
