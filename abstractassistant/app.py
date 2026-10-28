@@ -9375,6 +9375,30 @@ class AssistantPalette(QMainWindow):
             self._set_history_status(text, tone="busy", badge_tone="tool")
             self._append_run_activity({"kind": "status", "text": text, "ts": str(payload.get("ts") or "")})
             return
+        if typ == "interaction_closed":
+            # The replay view says the approval or question is no longer open (answered on
+            # another client, by the session policy, or the run moved on): close it here too.
+            wait_key = str(payload.get("wait_key") or "").strip()
+            sheet = self._state("_approval_sheet")
+            if sheet is not None and hasattr(sheet, "withdraw"):
+                try:
+                    sheet.withdraw(wait_key)
+                except RuntimeError:
+                    pass
+            dialog = self._state("_ask_dialog")
+            if dialog is not None and str(getattr(dialog, "wait_key", "") or "") == wait_key:
+                try:
+                    dialog.done(0)
+                except RuntimeError:
+                    pass
+                self._ask_dialog = None
+            self._clear_user_wait(wait_key)
+            return
+        if typ == "replay_mode":
+            # The gateway has no replay view (before AbstractGateway 0.17.0): said once, in
+            # the run's status line, never silently.
+            self._set_history_status(str(payload.get("message") or "Legacy run rendering"), tone="info")
+            return
         if typ == "replay_degraded":
             message = str(payload.get("message") or "Gateway replay is degraded.").strip()
             self._run_busy = False
@@ -11395,6 +11419,8 @@ class AssistantPalette(QMainWindow):
             ),
             parent=self,
         )
+        # Which wait this dialog answers: a replay-view `interaction_closed` closes it.
+        dialog.wait_key = str(payload.get("wait_key") or "").strip()
         # Modeless like the approval sheet: the palette stays usable (stop,
         # steer, read) while the question is open; the answer arrives via
         # `finished`. No nested event loop.

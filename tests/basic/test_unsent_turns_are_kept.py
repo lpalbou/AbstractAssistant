@@ -51,7 +51,7 @@ def _png(tmp_path):
 def test_a_refused_attachment_upload_is_a_turn_that_never_started(monkeypatch, tmp_path) -> None:
     import abstractassistant.ui.gateway_worker as module
 
-    monkeypatch.setattr(module, "GatewayRunController", lambda **kw: object())
+    monkeypatch.setattr(module, "follow_run", lambda **kw: (_ for _ in ()).throw(AssertionError("not started")))
     gateway = _RefusingGateway()
     worker = life._worker(gateway)
     worker._attachments = [_png(tmp_path)]
@@ -104,7 +104,7 @@ def test_the_palette_gives_back_the_words_and_files_of_a_refused_send(palette, m
     window, controller = palette
     import abstractassistant.ui.gateway_worker as module
 
-    monkeypatch.setattr(module, "GatewayRunController", lambda **kw: object())
+    monkeypatch.setattr(module, "follow_run", lambda **kw: (_ for _ in ()).throw(AssertionError("not started")))
     shot = _png(tmp_path)
     removed: list = []
     monkeypatch.setattr(controller, "remove_message", lambda mid: removed.append(mid) or True)

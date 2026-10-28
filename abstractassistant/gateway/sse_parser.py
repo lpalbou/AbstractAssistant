@@ -14,6 +14,8 @@ class SseEvent:
 
     event: str
     data: str
+    # The frame's `id:` line (the replay view stream's cursor token); "" when absent.
+    id: str = ""
 
 
 class SseParser:
@@ -23,6 +25,7 @@ class SseParser:
         self._buffer = ""
         self._event_type = ""
         self._data_lines: List[str] = []
+        self._id = ""
 
     def push(self, text: str) -> List[SseEvent]:
         """Push a text chunk into the parser and return any completed events."""
@@ -42,9 +45,10 @@ class SseParser:
                 if self._data_lines or self._event_type:
                     event_type = self._event_type or "message"
                     data = "\n".join(self._data_lines)
-                    events.append(SseEvent(event=event_type, data=data))
+                    events.append(SseEvent(event=event_type, data=data, id=self._id))
                 self._event_type = ""
                 self._data_lines = []
+                self._id = ""
                 continue
 
             if line.startswith(":"):
@@ -58,7 +62,11 @@ class SseParser:
                 self._data_lines.append(line[len("data:") :].lstrip())
                 continue
 
-            if line.startswith("id:") or line.startswith("retry:"):
-                continue  # ignored for now
+            if line.startswith("id:"):
+                self._id = line[len("id:") :].strip()
+                continue
+
+            if line.startswith("retry:"):
+                continue
 
         return events

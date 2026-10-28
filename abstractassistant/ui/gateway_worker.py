@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import os
 import threading
-import time
 import warnings
 from typing import Any, Dict, List, Optional
 
@@ -21,20 +20,25 @@ except Exception:  # pragma: no cover - Qt binding fallback
     except Exception:
         from PyQt6.QtCore import QThread, pyqtSignal
 
-from ..gateway import (
-    GatewayEventAdapter,
-    build_run_input_data,
-)
+from ..gateway import build_run_input_data
 from ..gateway.client import wait_answer_payload, wait_response_command
-from ..gateway.events import extract_wait_from_record
 from ..gateway.history_seed import seed_messages_from_history_bundle
 from ..gateway.live_deltas import ASSISTANT_DELTA
-from ..gateway.run_controller import GatewayRunController
-from ..gateway.run_stats import aggregate_run_stats, observe_record
+from ..gateway.replay_view import (
+    ViewProjector,
+    final_fallback_event,
+    finished_llm_calls,
+    follow_run,
+    stats_from_view,
+)
 
 
 class GatewayWorker(QThread):
-    """Worker thread that drives a gateway-first run (ledger replay + SSE)."""
+    """Worker thread that drives a gateway-first run.
+
+    The run is read as AbstractRuntime's replay view (served by the gateway, or folded here
+    from its ledger on a gateway before 0.17.0) and projected onto the palette's events
+    (`gateway.replay_view`); the reply being written comes from the live text stream."""
 
     event_emitted = pyqtSignal(object)  # dict payloads
     # Fatal: the follower is finished. The palette tears the worker down.
@@ -76,7 +80,6 @@ class GatewayWorker(QThread):
         super().__init__()
         self._llm_manager = llm_manager
         self._gateway = None
-        self._adapter = GatewayEventAdapter()
         self._user_text = str(user_text or "")
         self._attachments = list(attachments or [])
         self._system_prompt_extra = str(system_prompt_extra) if system_prompt_extra else ""
@@ -117,17 +120,11 @@ class GatewayWorker(QThread):
             else None
         )
 
-        self._tool_approval_event = threading.Event()
-        self._tool_approval_decision: Optional[bool] = None
-        self._ask_user_event = threading.Event()
-        self._ask_user_response: Optional[str] = None
         self._pending_tool_approval_wait: Optional[Dict[str, str]] = None
         self._pending_ask_user_wait: Optional[Dict[str, str]] = None
         self._offline = False
         self._root_run_id = ""
-        self._follow_run_id = ""
-        self._final_observed = False
-        self._stats_by_run: Dict[str, Dict[str, Any]] = {}
+        self._view_stats: Optional[Dict[str, Any]] = None
         self._run_activity_by_run: Dict[str, str] = {}
         self._output_artifact_candidates: List[tuple[str, str]] = []
         self._seen_output_artifacts: set[tuple[str, str]] = set()
@@ -148,8 +145,6 @@ class GatewayWorker(QThread):
         request arriving while a dialog is open would overwrite that slot and
         misroute the answer.
         """
-        self._tool_approval_decision = bool(approved)
-        self._tool_approval_event.set()
         rid = str(run_id or "").strip()
         key = str(wait_key or "").strip()
         # Require BOTH kwargs to key by identity; a lone kwarg (XOR) would
@@ -182,8 +177,6 @@ class GatewayWorker(QThread):
         wait_key: Optional[str] = None,
     ) -> None:
         """Answer an ask-user wait (keyed like :meth:`provide_tool_approval`)."""
-        self._ask_user_response = str(response or "")
-        self._ask_user_event.set()
         rid = str(run_id or "").strip()
         key = str(wait_key or "").strip()
         # Require BOTH kwargs to key by identity (see provide_tool_approval).
@@ -282,7 +275,6 @@ class GatewayWorker(QThread):
     def _seed_history_from_gateway(self, *, run_id: str) -> None:
         if self._gateway is None or self._llm_manager is None:
             return
-        bundle = None
         try:
             bundle = self._gateway.get_run_history_bundle(
                 run_id=run_id,
@@ -300,17 +292,6 @@ class GatewayWorker(QThread):
                     artifact_id=aid,
                 ),
             )
-            try:
-                # `call_uid`, not `call_id`: the adapter's replay guard keys on the
-                # unique identity (the model's `call_id` repeats across turns).
-                tool_ids = [
-                    str(m.get("metadata", {}).get("call_uid") or "")
-                    for m in messages
-                    if isinstance(m, dict) and str(m.get("role") or "") == "tool"
-                ]
-                self._adapter.seed_tool_call_ids([cid for cid in tool_ids if cid.strip()])
-            except Exception:
-                pass
             if messages:
                 had_assistant_before = self._session_has_assistant_for_run(run_id)
                 changed = bool(self._llm_manager.replace_gateway_messages(messages, last_run_id=run_id))
@@ -340,195 +321,6 @@ class GatewayWorker(QThread):
                     "run_id": run_id,
                     "message": f"Gateway history replay failed: {e}",
                 }
-            )
-        try:
-            if isinstance(bundle, dict):
-                self._maybe_emit_pending_wait(run_id=run_id, bundle=bundle)
-        except Exception:
-            pass
-
-    def _normalize_wait_dict(self, wait: Dict[str, Any]) -> Dict[str, Any]:
-        out = dict(wait or {})
-        reason = out.get("reason")
-        if hasattr(reason, "value"):
-            try:
-                out["reason"] = str(reason.value or "").strip()
-            except Exception:
-                out["reason"] = str(reason or "").strip()
-        elif reason is not None:
-            out["reason"] = str(reason).strip()
-        return out
-
-    def _all_ledger_wait_occurrences(self, bundle: Dict[str, Any]) -> list:
-        """Every wait occurrence (wait_key, step_id) in the bundle's ledgers,
-        in per-ledger record order (a wait_key repeats across occurrences —
-        one waiting record = one occurrence)."""
-        occurrences: list = []
-        ledgers = bundle.get("ledgers") if isinstance(bundle, dict) else None
-        if not isinstance(ledgers, dict):
-            return occurrences
-        for ledger in ledgers.values():
-            items = ledger.get("items") if isinstance(ledger, dict) else None
-            if not isinstance(items, list):
-                continue
-            for it in items:
-                rec = it.get("record") if isinstance(it, dict) else None
-                if not isinstance(rec, dict):
-                    continue
-                wait = extract_wait_from_record(rec)
-                if isinstance(wait, dict):
-                    key = str(wait.get("wait_key") or "").strip()
-                    if key:
-                        occurrences.append((key, str(rec.get("step_id") or "").strip()))
-        return occurrences
-
-    def _answered_wait_occurrences(self, bundle: Dict[str, Any]) -> list:
-        """Wait occurrences that were ANSWERED, per ledger.
-
-        A resume record carries the `wait_key` it answers, so within one
-        ledger the Nth waiting record for a key is answered by the Nth resume
-        for that key. Anything left over is still pending.
-
-        This replaces asking the run for its "current" wait, which read the
-        ROOT run while the approval the user must answer lives on the AGENT
-        SUBRUN: the root waits on `subworkflow:<child>` and never on
-        `tool_approval:<child>:act:<hash>`, so the pending child approval was
-        seeded as already-handled and its dialog never re-opened. One real run
-        sat parked on that for 16 minutes.
-        """
-        answered: list = []
-        ledgers = bundle.get("ledgers") if isinstance(bundle, dict) else None
-        if not isinstance(ledgers, dict):
-            return answered
-        for ledger in ledgers.values():
-            items = ledger.get("items") if isinstance(ledger, dict) else None
-            if not isinstance(items, list):
-                continue
-            waits: Dict[str, list] = {}
-            resumes: Dict[str, int] = {}
-            for it in items:
-                rec = it.get("record") if isinstance(it, dict) else None
-                if not isinstance(rec, dict):
-                    continue
-                wait = extract_wait_from_record(rec)
-                if isinstance(wait, dict):
-                    key = str(wait.get("wait_key") or "").strip()
-                    if key:
-                        waits.setdefault(key, []).append(str(rec.get("step_id") or "").strip())
-                    continue
-                effect = rec.get("effect") if isinstance(rec.get("effect"), dict) else {}
-                if str(effect.get("type") or "") == "resume":
-                    payload = effect.get("payload") if isinstance(effect.get("payload"), dict) else {}
-                    key = str(payload.get("wait_key") or "").strip()
-                    if key:
-                        resumes[key] = resumes.get(key, 0) + 1
-            for key, steps in waits.items():
-                for step in steps[: resumes.get(key, 0)]:
-                    answered.append((key, step))
-        return answered
-
-    def _suppress_resolved_waits_for_attach(self, run_id: str) -> None:
-        """On reattach, mark the ANSWERED wait occurrences as seen so the
-        full-ledger replay does not re-open dialogs the user already dealt
-        with (answering a stale wait fails its resume and can leave the run
-        tree in a bad state) — and leave every UNANSWERED one alone, so a
-        still-pending approval is raised again.
-
-        Occurrences are (wait_key, step_id) pairs: the runtime reuses stable
-        wait keys for repeated waits from the same node, so a key alone cannot
-        tell an answered wait from its pending successor.
-        """
-        if self._gateway is None:
-            return
-        try:
-            bundle = self._gateway.get_run_history_bundle(
-                run_id=run_id,
-                include_subruns=True,
-                include_session=False,
-                ledger_mode="tail",
-                ledger_max_items=2000,
-            )
-        except Exception:
-            return
-        occurrences = self._answered_wait_occurrences(bundle)
-        if occurrences:
-            self._adapter.seed_handled_wait_occurrences(occurrences)
-
-    def _find_latest_wait_from_ledgers(self, bundle: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        ledgers = bundle.get("ledgers") if isinstance(bundle, dict) else None
-        if not isinstance(ledgers, dict):
-            return None
-        best: Optional[Dict[str, Any]] = None
-        best_ts = ""
-        for rid, ledger in ledgers.items():
-            items = ledger.get("items") if isinstance(ledger, dict) else None
-            if not isinstance(items, list) or not items:
-                continue
-            for it in reversed(items):
-                rec = it.get("record") if isinstance(it, dict) else None
-                if not isinstance(rec, dict):
-                    continue
-                wait = extract_wait_from_record(rec)
-                if not isinstance(wait, dict):
-                    continue
-                ts = str(rec.get("ended_at") or rec.get("started_at") or "")
-                if ts >= best_ts:
-                    best_ts = ts
-                    best = {"run_id": str(rid or "").strip(), "wait": self._normalize_wait_dict(wait)}
-                break
-        return best
-
-    def _find_wait_from_run_summaries(self, *, bundle: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        if self._gateway is None:
-            return None
-        ledgers = bundle.get("ledgers") if isinstance(bundle, dict) else None
-        if not isinstance(ledgers, dict):
-            return None
-        for rid in ledgers.keys():
-            run_id = str(rid or "").strip()
-            if not run_id:
-                continue
-            try:
-                info = self._gateway.get_run(run_id=run_id)
-            except Exception:
-                continue
-            if not isinstance(info, dict):
-                continue
-            status = str(info.get("status") or "").strip().lower()
-            if status != "waiting":
-                continue
-            waiting = info.get("waiting")
-            if isinstance(waiting, dict):
-                return {"run_id": run_id, "wait": self._normalize_wait_dict(waiting)}
-        return None
-
-    def _make_synthetic_wait_record(self, wait: Dict[str, Any]) -> Dict[str, Any]:
-        """Build a synthetic ledger record with the wait at ``result.wait``
-        (the canonical location used by ``StepRecord.finish_waiting``)."""
-        return {"result": {"wait": self._normalize_wait_dict(wait)}}
-
-    def _maybe_emit_pending_wait(self, *, run_id: str, bundle: Dict[str, Any]) -> None:
-        if not isinstance(bundle, dict):
-            return
-        run_info = bundle.get("run") if isinstance(bundle.get("run"), dict) else None
-        status = str(run_info.get("status") or "").strip().lower() if isinstance(run_info, dict) else ""
-        if status != "waiting":
-            return
-        waiting = run_info.get("waiting") if isinstance(run_info, dict) else None
-        if isinstance(waiting, dict):
-            rec = self._make_synthetic_wait_record(waiting)
-            self._handle_events(run_id=run_id, rec=rec)
-            return
-        fallback = self._find_latest_wait_from_ledgers(bundle)
-        if isinstance(fallback, dict) and isinstance(fallback.get("wait"), dict):
-            rec = self._make_synthetic_wait_record(fallback["wait"])
-            self._handle_events(run_id=str(fallback.get("run_id") or run_id), rec=rec)
-            return
-        fallback2 = self._find_wait_from_run_summaries(bundle=bundle)
-        if isinstance(fallback2, dict) and isinstance(fallback2.get("wait"), dict):
-            self._handle_events(
-                run_id=str(fallback2.get("run_id") or run_id),
-                rec=self._make_synthetic_wait_record(fallback2["wait"]),
             )
 
     def _build_run_activity_summary(self, *, run_id: str, fallback_prompt: str = "") -> str:
@@ -613,38 +405,6 @@ class GatewayWorker(QThread):
             return
         self._seen_output_artifacts.add(key)
         self._output_artifact_candidates.append(key)
-
-    def _record_output_artifact_candidates(self, *, run_id: str, rec: Dict[str, Any]) -> None:
-        if not isinstance(rec, dict):
-            return
-
-        def _remember(value: Any, *, candidate_run_id: str) -> None:
-            artifact_id = self._artifact_id_from_value(value)
-            if artifact_id:
-                self._remember_output_artifact(run_id=candidate_run_id, artifact_id=artifact_id)
-
-        result = rec.get("result")
-        if isinstance(result, dict):
-            output = result.get("output")
-            if output is not None:
-                _remember(output, candidate_run_id=run_id)
-                if isinstance(output, dict):
-                    for key in (
-                        "artifact",
-                        "artifact_ref",
-                        "image_artifact",
-                        "video_artifact",
-                        "audio_artifact",
-                        "music_artifact",
-                    ):
-                        _remember(output.get(key), candidate_run_id=run_id)
-
-        effect = rec.get("effect")
-        payload = effect.get("payload") if isinstance(effect, dict) else None
-        resume_payload = payload.get("payload") if isinstance(payload, dict) else None
-        if isinstance(resume_payload, dict):
-            candidate_run_id = str(resume_payload.get("sub_run_id") or run_id).strip() or run_id
-            _remember(resume_payload.get("output"), candidate_run_id=candidate_run_id)
 
     @staticmethod
     def _text_from_output_payload(payload: Any) -> str:
@@ -832,19 +592,14 @@ class GatewayWorker(QThread):
 
         threading.Thread(target=_send, name="abstractassistant-wait-submit", daemon=True).start()
 
-    def _handle_events(self, *, run_id: str, rec: Dict[str, Any]) -> None:
-        self._note_finished_llm_call(rec)
-        self._update_follow_run_id_from_record(run_id=run_id, rec=rec)
-        self._record_output_artifact_candidates(run_id=run_id, rec=rec)
-        self._record_run_stats(run_id=run_id, rec=rec)
-        events = self._adapter.handle_record(rec)
+    def _emit_ui_events(self, *, run_id: str, events: List[Dict[str, Any]]) -> None:
+        """Hand the view's UI events to the palette (assistant and tool messages also go to
+        the transcript). The view already decided which messages belong to the conversation."""
         for ev in events:
             if isinstance(ev, dict) and run_id:
                 ev.setdefault("run_id", run_id)
             typ = ev.get("type") if isinstance(ev, dict) else None
             if typ == "assistant":
-                if not self._is_foreground_run(run_id):
-                    continue
                 history_changed = False
                 try:
                     meta = ev.get("meta") if isinstance(ev.get("meta"), dict) else {}
@@ -855,7 +610,9 @@ class GatewayWorker(QThread):
                         final=bool(ev.get("final")),
                     )
                     ev["content"] = content
-                    if self._should_append_assistant(content, meta=meta):
+                    if ev.get("repeats_shown"):
+                        pass  # the final repeats an answer already in the transcript
+                    elif self._should_append_assistant(content, meta=meta):
                         if bool(ev.get("final")):
                             meta = self._meta_with_run_stats(meta, run_id=run_id)
                             ev["meta"] = meta
@@ -866,12 +623,6 @@ class GatewayWorker(QThread):
                             ts=str(ev.get("ts") or ""),
                         )
                         history_changed = True
-                    # A final answer with content is now in the transcript
-                    # (either appended above or already present as the latest
-                    # assistant message): the live path is authoritative and
-                    # the post-run history reseed must not run.
-                    if bool(ev.get("final")) and str(content or "").strip():
-                        self._final_observed = True
                 except Exception as e:
                     warnings.warn(f"Failed to append assistant message: {e}")
                 ev["history_changed"] = history_changed
@@ -882,7 +633,7 @@ class GatewayWorker(QThread):
                 wait_key = str(ev.get("wait_key") or "").strip()
                 if wait_key:
                     self._pending_tool_approval_wait = {
-                        "run_id": str(run_id or "").strip(),
+                        "run_id": str(ev.get("run_id") or run_id or "").strip(),
                         "wait_key": wait_key,
                     }
                 self.event_emitted.emit(ev)
@@ -892,7 +643,7 @@ class GatewayWorker(QThread):
                 wait_key = str(ev.get("wait_key") or "").strip()
                 if wait_key:
                     self._pending_ask_user_wait = {
-                        "run_id": str(run_id or "").strip(),
+                        "run_id": str(ev.get("run_id") or run_id or "").strip(),
                         "wait_key": wait_key,
                     }
                 self.event_emitted.emit(ev)
@@ -915,18 +666,82 @@ class GatewayWorker(QThread):
 
             self.event_emitted.emit(ev)
 
-    _FINAL_LLM_CALL_STATUSES = frozenset({"completed", "failed", "cancelled"})
+    def _follow_view(self, *, run_id: str, attach: bool) -> str:
+        """Render the run from its replay view until it is done; return its status.
 
-    def _note_finished_llm_call(self, rec: Dict[str, Any]) -> None:
-        """Remember llm_call steps whose durable record has arrived."""
-        effect = rec.get("effect") if isinstance(rec.get("effect"), dict) else {}
-        if str(effect.get("type") or "").strip().lower() != "llm_call":
-            return
-        raw_status = rec.get("status")
-        status = str(getattr(raw_status, "value", raw_status) or "").strip().lower()
-        step_id = str(rec.get("step_id") or "").strip()
-        if step_id and status in self._FINAL_LLM_CALL_STATUSES:
-            self._finished_calls().add(step_id)
+        The view is AbstractRuntime's reconstruction (the gateway's `/view`, or folded here
+        from the ledger on an older gateway, which the status line says). This worker only
+        projects its changes onto the palette (`ViewProjector`). An attach shows the
+        transcript from the session seed and asks only what is still open. The reply being
+        written arrives on the live text stream until its message is committed in the view."""
+        projector = ViewProjector()
+        state: Dict[str, Any] = {"first": True}
+
+        def _on_mode(mode: str) -> None:
+            if mode != "view":
+                self.event_emitted.emit(
+                    {
+                        "type": "replay_mode",
+                        "mode": mode,
+                        "message": "This gateway has no replay view (AbstractGateway before 0.17.0): "
+                        "the app folds the run's ledger with AbstractRuntime's reducer.",
+                    }
+                )
+
+        def _on_view(view: Dict[str, Any]) -> None:
+            if state["first"] and attach:
+                projector.suppress_history(view)
+            state["first"] = False
+            self._view_stats = stats_from_view(view)
+            for art in view.get("artifacts") or []:
+                if "output" in str(art.get("path") or ""):
+                    self._remember_output_artifact(run_id=str(art.get("run_id") or ""), artifact_id=str(art.get("id") or ""))
+            events = projector.project(view)
+            with self._live_lock():
+                # A call the view holds as finished gets no more live text (S-2.2), decided
+                # under the same lock as the delta forwarder, so a late delta never lands
+                # after the message that replaces it.
+                self._finished_calls().update(finished_llm_calls(view))
+                if events:
+                    self._emit_ui_events(run_id=str(view.get("root_run_id") or run_id), events=events)
+
+        fold = follow_run(
+            gateway=self._gateway,
+            run_id=run_id,
+            on_view=_on_view,
+            should_stop=self.isInterruptionRequested,
+            on_offline=self._mark_offline,
+            on_online=self._mark_online,
+            on_live=self._handle_delta,
+            on_mode=_on_mode,
+        )
+        view = fold.view or {}
+        status = str(view.get("status") or "").strip().lower()
+        summary: Dict[str, Any] = {}
+        if (status == "completed" and not projector.final_shown) or (status == "failed" and not projector.error_shown):
+            # The view has neither the run's output fields nor its error: the summary does.
+            try:
+                got = self._gateway.get_run(run_id=run_id)
+                summary = got if isinstance(got, dict) else {}
+            except Exception as exc:  # noqa: BLE001
+                warnings.warn(f"#FALLBACK: could not read the run summary of {run_id}: {exc}")
+        if status == "completed" and not projector.final_shown:
+            # No final message in the view (an output without text): the worker's own recovery
+            # (an output artifact's text, a media notice, an empty-answer notice) decides.
+            self._emit_ui_events(run_id=run_id, events=[final_fallback_event(view, summary.get("output"))])
+        if status == "failed" and not projector.error_shown:
+            reason = str(summary.get("error") or "").strip()
+            self.event_emitted.emit({"type": "error", "error": reason or "The run failed.", "run_id": run_id})
+        if status in {"completed", "failed", "cancelled"}:
+            return status
+        if self.isInterruptionRequested():
+            return "cancelled"
+        # Stopped on a tree that is still open: say what the view says, never "completed".
+        return status or "running"
+
+    def _live_lock(self) -> threading.Lock:
+        # Per instance, created on first use (tests build workers via __new__).
+        return self.__dict__.setdefault("_live_text_lock", threading.Lock())
 
     def _finished_calls(self) -> set:
         # Per instance, created on first use (tests build workers via __new__).
@@ -944,9 +759,10 @@ class GatewayWorker(QThread):
         """
         if not isinstance(ev, dict):
             return
-        if ev.get("type") == ASSISTANT_DELTA and str(ev.get("call_id") or "") in self._finished_calls():
-            return
-        self.event_emitted.emit(ev)
+        with self._live_lock():
+            if ev.get("type") == ASSISTANT_DELTA and str(ev.get("call_id") or "") in self._finished_calls():
+                return
+            self.event_emitted.emit(ev)
 
     def _should_append_assistant(self, content: str, *, meta: Optional[Dict[str, Any]] = None) -> bool:
         text = str(content or "").strip()
@@ -1017,39 +833,6 @@ class GatewayWorker(QThread):
                 return dict(msg)
         return None
 
-    def _is_foreground_run(self, run_id: str) -> bool:
-        """Return True when events should surface to the UI."""
-        rid = str(run_id or "").strip()
-        if not rid:
-            return True
-        root = str(self._root_run_id or "").strip()
-        if not root or rid == root:
-            return True
-        follow = str(self._follow_run_id or "").strip()
-        return bool(follow and rid == follow)
-
-    def _update_follow_run_id_from_record(self, *, run_id: str, rec: Dict[str, Any]) -> None:
-        """Track the foreground subworkflow run when the root waits."""
-        root = str(self._root_run_id or "").strip()
-        if not root or str(run_id or "").strip() != root:
-            return
-        wait = extract_wait_from_record(rec)
-        if not isinstance(wait, dict):
-            return
-        reason = str(wait.get("reason") or "").strip().lower()
-        if reason != "subworkflow":
-            return
-        details = wait.get("details")
-        sub = ""
-        if isinstance(details, dict):
-            sub = str(details.get("sub_run_id") or details.get("subRunId") or "").strip()
-        if not sub:
-            wait_key = str(wait.get("wait_key") or "").strip()
-            if wait_key.startswith("subworkflow:"):
-                sub = str(wait_key.split(":", 1)[1] or "").strip()
-        if sub:
-            self._follow_run_id = sub
-
     def _mark_offline(self, reason: str) -> None:
         if self._offline:
             return
@@ -1109,9 +892,6 @@ class GatewayWorker(QThread):
                 pass
         self.event_emitted.emit({"type": "workspace", "root": root, "source": source, "run_id": run_id})
 
-    def _record_run_stats(self, *, run_id: str, rec: Dict[str, Any]) -> None:
-        observe_record(self._stats_by_run, run_id=run_id, rec=rec)
-
     def _meta_with_run_stats(self, meta: Dict[str, Any], *, run_id: str) -> Dict[str, Any]:
         merged = dict(meta or {})
         rid = str(run_id or "").strip()
@@ -1121,7 +901,7 @@ class GatewayWorker(QThread):
         # execute llm_call/tool_calls effects in sub-runs while the final
         # answer event fires on the root run, so the root bucket alone
         # understates (often to zero) the real token/tool activity.
-        stats = aggregate_run_stats(self._stats_by_run)
+        stats = self.__dict__.get("_view_stats")
         if isinstance(stats, dict):
             merged["_assistant_stats"] = {"run_id": rid, **stats}
         return merged
@@ -1137,27 +917,13 @@ class GatewayWorker(QThread):
             if not session_id:
                 raise RuntimeError("Session id is required for gateway runs")
 
-            controller = GatewayRunController(gateway=self._gateway, debug=self._debug)
-
             run_id = self._attach_run_id
             if run_id:
                 if self._llm_manager:
                     self._llm_manager.set_last_run_id(run_id)
                 self._root_run_id = str(run_id or "")
-                self._follow_run_id = ""
-                # Reattach replays the whole ledger from the start; suppress
-                # already-resolved waits so answered dialogs don't re-open.
-                self._suppress_resolved_waits_for_attach(run_id)
-                status = controller.get_run_status(run_id=run_id)
-                if status in {"completed", "failed", "cancelled"}:
-                    controller.replay_terminal_ledger(
-                        run_id=run_id,
-                        after=0,
-                        on_record=lambda rid, rec: self._handle_events(run_id=rid, rec=rec),
-                    )
-                    self._seed_history_from_gateway(run_id=run_id)
-                    self.event_emitted.emit({"type": "status", "status": status})
-                    return
+                # The transcript of the conversation comes from the session seed; the view
+                # then asks only what is still open (no answered dialog re-opens).
                 self._seed_history_from_gateway(run_id=run_id)
                 self._emit_run_activity(run_id=run_id)
             else:
@@ -1232,33 +998,13 @@ class GatewayWorker(QThread):
                 if self._llm_manager:
                     self._llm_manager.set_last_run_id(run_id)
                 self._root_run_id = str(run_id or "")
-                self._follow_run_id = ""
                 self._emit_run_activity(run_id=run_id, fallback_prompt=self._user_text)
                 self._remember_workspace_root(run_id=run_id, requested=self._workspace_root)
 
             self.event_emitted.emit({"type": "status", "status": "thinking"})
             self._offline = False
 
-            controller.follow_run(
-                root_run_id=run_id,
-                on_record=lambda rid, rec: self._handle_events(run_id=rid, rec=rec),
-                should_stop=self.isInterruptionRequested,
-                on_offline=self._mark_offline,
-                on_online=self._mark_online,
-                on_delta=self._handle_delta,
-            )
-
-            # The live-followed final answer (with its run-tree stats) is
-            # authoritative. Reseeding from the history bundle here would
-            # REPLACE the transcript with the gateway's bundle view — which can
-            # lack the answer entirely (missing session turns force the
-            # recovery path) and rebuilds every message. Reseed only as a gap
-            # filler when no final answer was observed on the stream.
-            if not self._final_observed:
-                self._seed_history_from_gateway(run_id=run_id)
-            final_status = controller.get_run_status(run_id=run_id)
-            if final_status not in {"completed", "failed", "cancelled"}:
-                final_status = "completed"
+            final_status = self._follow_view(run_id=run_id, attach=bool(self._attach_run_id))
             self.event_emitted.emit({"type": "status", "status": final_status})
         except Exception as e:
             if self._debug:

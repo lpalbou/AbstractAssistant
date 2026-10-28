@@ -5,6 +5,52 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-28
+
+Needs `abstractruntime>=0.15.0`. Best with AbstractGateway 0.17.0 (the replay view); an older
+gateway still works, labeled.
+
+### Changed
+
+- **Runs are rendered from the replay view** (backlog 1063; framework root 0993, AbstractRuntime
+  0854 and ADR 0010). On AbstractGateway 0.17.0 the desktop reads `GET /runs/{id}/view` and its
+  stream (`replay_view_v1`) and keeps its copy with AbstractRuntime's `apply_delta`: the run's
+  status, the approval or question wherever it waits in the run tree, replies, tool rows, the
+  chat's tool-policy decisions and the answer's stats all come from that one reconstruction.
+  `assistant run` (CLI) does the same.
+  - An approval or question answered on another client (or by the chat's tool policy) now closes
+    here: the sheet drops that batch, the ask dialog closes. Each question is asked once per
+    occurrence (a node asking again on the same wait key is asked again), and an older approval
+    still open in another delegated run stays on the sheet while a newer one is asked.
+  - Attaching to a run asks only what is still open; a finished run shows its answer from the
+    view even when its ledger has no terminal record.
+  - Time to first render of a finished 3,000-record run: about 65 ms, was about 425 ms.
+  - On a gateway without the view routes (before 0.17.0) the app folds the run's ledger with
+    AbstractRuntime's reducer itself and the status line says so. A gateway whose discovery
+    (`/openapi.json`) fails is reported as an error.
+  - The reply being written still streams live: until the view stream carries it, the app reads
+    the ledger stream's live reply frames beside the view; the committed message replaces it.
+
+### Removed
+
+- The app's own ledger reconstruction: `gateway/adapter.py` (`GatewayEventAdapter`),
+  `gateway/run_controller.py` (`GatewayRunController` and its sub-run stack), the record parsers
+  of `gateway/events.py` (only `tool_policy_decision_text` stays), and the worker's attach
+  bookkeeping (answered-wait counting, pending-wait search in ledgers and run summaries, the
+  synthetic wait record, the foreground sub-run tracking, per-record stats, the unused
+  approval/answer `threading.Event`s). `gateway` no longer exports `GatewayEventAdapter` or the
+  `extract_*` helpers.
+
+### Known differences from 0.15.0 (for AbstractRuntime; recorded in backlog 1063)
+
+- The run-activity card no longer shows each reasoning cycle's intermediate text (the view's
+  `llm` activities carry no output text), and an `abstract.media.image.generated` event is no
+  longer its own "Generated image" message (the reducer does not record emit-event artifacts).
+  Media in the run's final output still shows; an output with no text gets the same notice as
+  before ("Generated image ready.").
+- The view has no run-level error: a failed run's reason is read from `GET /runs/{id}`.
+- The answer's stats have no prompt-cache line (not in the view).
+
 ## [0.15.0] - 2026-10-28
 
 Needs AbstractGateway 0.16.0 for the voice library (Create a voice, grouped voices) and the chat-wide tool policy; on an older gateway the chat-wide grant falls back to the labeled local grant this app answers, and the voice library's requests are refused by the gateway.
