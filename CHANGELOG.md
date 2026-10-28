@@ -5,6 +5,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-28
+
+Needs AbstractGateway 0.16.0 for the voice library (Create a voice, grouped voices) and the chat-wide tool policy; on an older gateway the chat-wide grant falls back to the labeled local grant this app answers, and the voice library's requests are refused by the gateway.
+
 ### Added
 
 - **"Allow all enabled tools in this chat" is kept by the gateway** (session tool policy, contract v1; needs
@@ -34,10 +38,6 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   `kind`, which stays `clone` where the catalog merge sets `voice_kind: "voice"`).
 - Gateway client: `voice_languages`, `voice_clones(language=)`, `voice_design`, `voice_clone_create`,
   `voice_clone_update`, `voice_clone_delete`, and `language` on `voice_voices`.
-
-## [0.15.0] - 2026-10-26
-
-### Added
 
 - **AbstractAssistant for iPhone and Apple Watch is one product (0.16.0).** The iPhone app
   (`ai.abstractframework.assistant`) carries the watch app as its companion
@@ -81,6 +81,7 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Changed
 
+- **The web assistant is composed from the UI kit** (`web/`, still run by hand): shell, chat, approvals, tool plan and voice come from `@abstractframework/ui-kit` 0.9.0 and `@abstractframework/panel-chat` 0.5.0 (AbstractUIC 0.7.0) instead of hand-rolled modules (net about 1,200 lines removed). "Allow for this chat" goes through the gateway's session tool policy when the gateway offers it, and is the labeled local grant ("Allow for this run") otherwise.
 - An automation says what starts it in words: "When mail arrives in you@example.org", "When Python
   news has a new item", "When Orders is called", "By hand", or the schedule's sentence (the gateway's
   `trigger_text` when it serves one); an automation that runs when something happens shows no next

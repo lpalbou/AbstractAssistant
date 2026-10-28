@@ -3,7 +3,7 @@
 > Package: abstractassistant (iPhone and Apple Watch apps); depends on abstractgateway, abstractruntime
 > Type: improvement
 > Created: 2026-10-27
-> Status: Proposed
+> Status: Planned
 > Completed: N/A
 > Priority: P2
 > Labels: approvals, tools, iphone, watch, gateway

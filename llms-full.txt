@@ -158,8 +158,8 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 - Per-answer statistics (tokens, tools, files, duration, model) with clickable detail views.
 - Multi-attachment composer with an image gallery, drag and drop, and artifact previews.
 - In your pocket and on your wrist: **AbstractAssistant for iPhone and Apple Watch** is one app
-  (0.16.0, pre-release through TestFlight): the iPhone app carries the watch app, each signs in
-  on its own and works without the other, and notifications reach you while the app is closed (Apple push, once your gateway
+  (0.16.0, pre-release through TestFlight): the iPhone app carries the watch app, one sign-in
+  serves both, and notifications reach you while the app is closed (Apple push, once your gateway
   has a push forwarder). The iPhone has the same conversations, tools and automations, with tab badges for
   what needs you ([phone/iphone/README.md](phone/iphone/README.md)); the watch talks to the same
   gateway by voice around the orb, answers approvals and questions, continues your sessions and runs
@@ -176,7 +176,9 @@ The `voice` extra adds local microphone capture (dictation and voice conversatio
 install covers text chat, spoken replies and gateway-backed media; STT and TTS run on the gateway
 either way.
 
-Requirements: Python 3.10+, an AbstractGateway you can reach. AbstractCore is installed as a
+Requirements: Python 3.10+, an AbstractGateway you can reach (0.16.0 or later for the voice
+library and the chat-wide tool policy; an older gateway keeps the labeled local grant and refuses
+the voice library's requests). AbstractCore is installed as a
 dependency (its minimum version is set in `pyproject.toml`). macOS is the primary tray target;
 Linux and Windows may work but are not packaged to the same standard.
 
@@ -2664,6 +2666,16 @@ for beta testing.
 5. No default production gateway is embedded. Local developer installs, disposable CI testing,
    TestFlight delivery and public App Store publication remain distinct stages.
 
+### Amendment 2026-10-27: the archive is signed in the protected job
+
+The apps carry explicit entitlements (2026-10-22), so an unsigned Release archive is no longer a
+valid candidate, and signing needs the App Store Connect key that only `app-store` holds. Points 1
+and 2 change: PR, main and manual runs test without Apple credentials and do not archive; a manual
+run on main (signed candidate or upload) archives, signs (Xcode cloud signing with the API key and
+the Apple Distribution certificate), checks and exports the tested commit, with its tested version
+and build number, inside the approved `app-store` job, which uploads when asked. The binary is
+built from the tested commit, not carried over from the test job.
+
 ## Consequences
 
 A push cannot upload or publish an app. TestFlight and App Store share one bundle and candidate,
@@ -3112,8 +3124,24 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-28
+
+Needs AbstractGateway 0.16.0 for the voice library (Create a voice, grouped voices) and the chat-wide tool policy; on an older gateway the chat-wide grant falls back to the labeled local grant this app answers, and the voice library's requests are refused by the gateway.
+
 ### Added
 
+- **"Allow all enabled tools in this chat" is kept by the gateway** (session tool policy, contract v1; needs
+  AbstractGateway/AbstractRuntime with `feat/session-tool-policy`). When the gateway advertises
+  `capabilities.session_tool_policy.supported`, the approval sheet's chat-wide grant is written FIRST as the
+  conversation's policy (`POST /api/gateway/sessions/{id}/tool-policy` with `approve.all` up to the risk rank you saw,
+  your tools set to Ask by name kept asking), and only then is the shown request answered. Later covered calls run
+  with no approval request at all, so the gate no longer flashes; the grant survives a restart (the shield reads it
+  back) and "Restore defaults" resets it on the gateway (`DELETE`). Tools the gateway would not cover are named in a
+  notice; a grant the gateway refuses, or one made while its capabilities cannot be read, is said, nothing is
+  granted, and the shown call is approved once. A second "allow all" never narrows the chat's rank. The activity shows the runtime's
+  `abstract.tool_policy_decision` records as "Allowed by this chat's policy: <tool>" (or "Denied …"), never as a
+  question. On an older gateway the previous in-app grant stays, named as the local fallback in a
+  notice and the log (`AssistantController.session_tool_policy_mode`). Gateway client: `get/put/post/delete_session_tool_policy`.
 - **Create a voice** (desktop, AbstractGateway 0.16.0): Settings → the speech route's **Create…** next to Voice opens
   **Create a voice**, from a description (Qwen3-TTS voice design on the gateway, with a language) or from a recording
   file (its language **Detect from the recording** by default: the gateway identifies it; or chosen), with a name.
@@ -3129,10 +3157,6 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   `kind`, which stays `clone` where the catalog merge sets `voice_kind: "voice"`).
 - Gateway client: `voice_languages`, `voice_clones(language=)`, `voice_design`, `voice_clone_create`,
   `voice_clone_update`, `voice_clone_delete`, and `language` on `voice_voices`.
-
-## [0.15.0] - 2026-10-26
-
-### Added
 
 - **AbstractAssistant for iPhone and Apple Watch is one product (0.16.0).** The iPhone app
   (`ai.abstractframework.assistant`) carries the watch app as its companion
@@ -3176,6 +3200,7 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Changed
 
+- **The web assistant is composed from the UI kit** (`web/`, still run by hand): shell, chat, approvals, tool plan and voice come from `@abstractframework/ui-kit` 0.9.0 and `@abstractframework/panel-chat` 0.5.0 (AbstractUIC 0.7.0) instead of hand-rolled modules (net about 1,200 lines removed). "Allow for this chat" goes through the gateway's session tool policy when the gateway offers it, and is the labeled local grant ("Allow for this run") otherwise.
 - An automation says what starts it in words: "When mail arrives in you@example.org", "When Python
   news has a new item", "When Orders is called", "By hand", or the schedule's sentence (the gateway's
   `trigger_text` when it serves one); an automation that runs when something happens shows no next
@@ -4422,7 +4447,7 @@ Enter your own gateway’s address. There is no preselected public server.
   enabled on your gateway, with a mailbox connected for your account.
 
 Your sign-in is kept in this iPhone's Keychain (shared with its notification
-extension only; your Apple Watch signs in on its own), outside iCloud sync and ordinary preferences. HTTPS is required outside the local network. Local HTTP
+extension and handed to your Apple Watch), outside iCloud sync and ordinary preferences. HTTPS is required outside the local network. Local HTTP
 addresses are accepted for development. A phone’s `localhost` is the phone itself; use
 your Mac’s LAN address to reach a gateway running there.
 
@@ -4586,7 +4611,8 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
   app's service, readable after the first unlock (the notification extension reads it while the
   device is locked), bound to this device, never in a backup, never synced; the app group doubles
   as the access group so the extension (and, on the watch, the complication) read the same item.
-  A sign-in kept by an earlier build (a file in the app group) moves into the Keychain at its
+  Until now it was a file in the app group sealed with a key kept beside it, which protected
+  nothing; that file (and the plain one of the interim builds) is moved into the Keychain at its
   first read, so nobody signs in again. The watch's kept sign-ins moved from UserDefaults into a
   second Keychain item (backlog 1053).
 - **A paused reading shows a speaker, not a play triangle.** The message's read-aloud button is a
@@ -5468,15 +5494,15 @@ Use the existing **AbstractAssistant** app record; no second iPhone listing is n
 
 ```mermaid
 flowchart TD
-    Change[iPhone or Watch source change] --> Build[Both package suites, Watch build and unsigned combined archive]
-    Manual[Manual upload request on main] --> Build
-    Build --> Native[Native tests; full suite for uploads]
-    Native --> Candidate[Checked archive and source manifest]
-    Candidate --> Intent{Manual upload requested?}
-    Intent -->|No| Retain[Retained candidate only]
-    Intent -->|Yes| Human[Required human app-store approval]
-    Human --> Verify[Verify both apps and sign checked archive]
-    Verify --> ASC[Existing AbstractAssistant listing]
+    Change[iPhone or Watch source change] --> Build[Both package suites, Watch build, native tests]
+    Build --> Stop[Pushes and PRs stop here: no credentials, no archive]
+    Manual[Manual run on main: signed candidate or upload] --> Build2[Same checks; full suite for uploads]
+    Build2 --> Human[Required human app-store approval]
+    Human --> Sign[Signed archive of the tested commit: cloud signing]
+    Sign --> Candidate[Checked archive, source manifest, App Store .ipa]
+    Candidate --> Intent{Upload requested?}
+    Intent -->|No| Retain[Retained signed candidate and .ipa]
+    Intent -->|Yes| ASC[Existing AbstractAssistant listing]
     ASC --> Beta[TestFlight testing on iPhone and Watch]
     Beta --> Review[Human submits same build for App Review]
     Review --> Release[Human releases approved App Store version]
@@ -5489,38 +5515,54 @@ Watch companion simulator build, iPhone hosted tests and critical UI journeys. M
 requests always run the full iPhone UI suite. Live gateway tests are excluded; CI does not
 need gateway credentials or generate paid media.
 
-CI generates the one project (`xcodegen generate --spec phone/iphone/project.yml`) and builds
-and archives its iPhone target, which embeds the watch app. Both apps
+CI generates the one project (`xcodegen generate --spec phone/iphone/project.yml`) and tests
+its iPhone target, which embeds the watch app. Pushes and pull requests do not archive: the apps
+carry explicit entitlements, so a Release archive must be signed, and signing needs the App Store
+Connect key that only the protected `app-store` environment holds. A manual run (below) archives
+the tested commit there. Both apps
 receive the marketing version from `phone/iphone/project.yml` and a shared CI build number
 `(workflow run number + 100).run attempt`. The manifest records the source commit, both bundle
 IDs, native test scope and SHA256 digest. Upload rejects missing Watch content, incompatible
 companion settings, mismatched versions, test plugins and altered or unrelated archives.
 
-CI uses released Xcode 27 and its own simulator. Tests are retained for 14 days, candidate
-archives for 30 days. Explicit signing entitlements require an archive-signing configuration;
-unsigned candidates with explicit entitlements are refused.
+CI uses released Xcode 27 and its own simulator. Tests are retained for 14 days, signed
+candidate archives and `.ipa` exports for 30 days.
 
-## Request an App Store Connect upload
+## Request a signed candidate or an App Store Connect upload
 
 1. Open **Actions → Apple app (iPhone + Watch) → Run workflow** on **main**.
-2. Check **Request human approval to upload the combined iPhone + Watch app**.
-3. After both clients pass their checks, inspect the candidate's source, version, build and digest.
-4. Select **Review deployments** and approve **app-store**. Only this protected job receives
-   Apple credentials, verifies the candidate and signs/uploads the same archive.
-5. Wait for Apple processing, then select the processed build and testers/groups in the existing
+2. Check **Request human approval to sign and export the App Store candidate** for a signed
+   `.ipa` only, or **Request human approval to sign and upload** to also upload it (uploads
+   always run the full native UI suite).
+3. After both clients pass their checks, select **Review deployments** and approve **app-store**.
+   Only this protected job (**Sign, export and upload the combined candidate**) receives the
+   App Store Connect key. It installs the Apple Distribution certificate in a temporary keychain,
+   archives the tested commit with the tested version and build number using Xcode cloud signing
+   (`-allowProvisioningUpdates` with the API key: Xcode creates or fetches the App Store
+   provisioning profiles; none is stored in the repository), checks that all five bundles are
+   signed by the team, exports the App Store `.ipa` (checked to be signed by Apple Distribution),
+   uploads when requested, and always deletes the keychain and key files.
+4. Wait for Apple processing, then select the processed build and testers/groups in the existing
    AbstractAssistant **TestFlight** page. External testing may require beta review.
 
 The standalone **Watch developer checks** workflow checks developer builds. Its summary links
 to the combined release entrypoint; it has no signing credentials or separate upload job.
 
 The `app-store` GitHub environment must restrict deployment to **main** and require a human
-reviewer. Retain the existing secrets and developer team (`K3R4D6HP2A`):
+reviewer. Developer team `K3R4D6HP2A`; the signing credentials:
 
-| Environment secret | Value |
-|---|---|
-| `ASC_KEY_ID` | Team App Store Connect API key ID |
-| `ASC_ISSUER_ID` | That API key's issuer ID |
-| `ASC_KEY_P8` | Complete private `.p8` key text |
+| Secret | Where | Value |
+|---|---|---|
+| `APPLE_DISTRIBUTION_P12_BASE64` | repository | Base64 of the "Apple Distribution" certificate with its private key (PKCS12) |
+| `APPLE_DISTRIBUTION_P12_PASSWORD` | repository | That PKCS12's password |
+| `ASC_KEY_ID` | `app-store` environment | Team App Store Connect API key ID |
+| `ASC_ISSUER_ID` | `app-store` environment | That API key's issuer ID |
+| `ASC_KEY_P8` | `app-store` environment | Complete private `.p8` key text |
+
+The signed job names any missing secret and fails; it never falls back to an unsigned archive.
+The bundle IDs it signs: `ai.abstractframework.assistant`, `.notifications`, `.watchkitapp`,
+`.watchkitapp.orbclock` and `.watchkitapp.notifications`, all in app group
+`group.ai.abstractframework.assistant`.
 
 The key needs automatic provisioning/cloud-managed signing permissions. Private key files are
 created only in a private runner-temporary directory and removed after export, including failure.
@@ -5613,11 +5655,6 @@ comes to the front, and through Apple push while it is closed. Check, in order:
 - Your gateway offers the event stream. An older gateway keeps the Inbox and Automations lists up
   to date, without notifications.
 - A Focus can hold "Approval needed" back unless AbstractAssistant is allowed in that Focus.
-- An automation's result or failure, and a flow's "Notify me", arrive quietly: they go to
-  Notification Center without a banner or sound. Approvals and questions alert.
-- When an iPhone is signed in to the same account, the gateway pushes the iPhone, and the watch
-  shows the alert through Apple's forwarding (iPhone locked, watch on your wrist). A watch away
-  from that iPhone shows it when its app next opens or checks.
 
 ## A notification shows only "Approval needed" or "Tap to read it"
 
@@ -5853,9 +5890,9 @@ Version 0.16.0 · watchOS 26 or later · the companion of the [AbstractAssistant
 app](../../phone/iphone/README.md), and independent (it also works with no iPhone nearby) ·
 pre-release through TestFlight. See [CHANGELOG.md](CHANGELOG.md) for what changed.
 
-**One product, two independent devices.** AbstractAssistant is one app for iPhone and Apple
-Watch: the watch app ships inside the iPhone app. Each signs in on its own, possibly to another
-gateway or account, and the watch works without the iPhone app.
+**One product.** AbstractAssistant is one app for iPhone and Apple Watch: the watch app ships
+inside the iPhone app. Sign in on the iPhone and the watch takes the same sign-in; with no paired
+iPhone, sign in on the watch itself as before.
 
 The watch app is a thin client of AbstractGateway, like the desktop assistant: the gateway owns
 workflows, runs, tools, policy, speech and search, and the watch keeps only your sign-in, your
@@ -5946,10 +5983,8 @@ your **user or email**:
   30 days.
 
 Sign out (Settings, or Settings → Connection) asks whether to **keep your sign-in**: a kept sign-in
-shows on the sign-in page as "Sign in as <user>" for its gateway only, and one tap signs you in
-again. The gateway chooser lists every gateway you signed into or kept an account on (with how
-many accounts) and AbstractFramework's own. "Sign out and forget" removes the account, and so does
-the gateway refusing it. Once signed out, the watch stays signed out until you sign in on it.
+shows on the sign-in page as "Sign in as <user>" for its gateway, and one tap signs you in again.
+"Sign out and forget" removes it, and so does the gateway refusing it.
 
 Give the watch its own gateway account with the `user` role; do not put an admin token on a watch.
 
@@ -5979,17 +6014,12 @@ curl https://<host>.<tailnet>.ts.net/api/health
   approvals, questions, published alerts and automation results arrive through Apple push once
   your gateway has a push forwarder (the app registers itself at sign-in; nothing to set up);
   until then watchOS decides when background checks run, about every 15 minutes.
-- An automation's result or failure, and a flow's "Notify me", arrive quietly in Notification
-  Center (no sound); approvals and questions alert.
-- When an iPhone is signed in to the same account, the gateway pushes the iPhone and Apple forwards
-  the alert to your wrist (iPhone locked, watch worn). Away from that iPhone, the watch shows it
-  when the app next opens or checks.
 - Known issue: on a development build, a push can arrive with its generic words ("Approval
   needed", "Open the Assistant to answer") when the notification extension did not replace them;
   the item itself is in the app. A Debug build's `--dump-notify` readout shows why
   ([BUILD.md](BUILD.md#the-notifier-readout)).
 - Your sign-in is kept in the watch's Keychain (shared with its notification extension and the
-  complication). The accounts you keep at Sign out ("Keep my sign-in") are a second Keychain item, filed by gateway.
+  complication). The sign-ins you keep at Sign out ("Keep my sign-in") are a second Keychain item.
 - Tools allowed with Approve all are approved by the watch when it sees their approvals (on the orb
   page, or in its regular check while the app is open); with the app closed, they ask. Approve all
   covers the run's own conversation, or its automation, by that one's own tools.
@@ -6035,16 +6065,23 @@ iPhone app); the Python package's history is in
 
 ### Fixed
 
-- **A sign-out stands.** Once signed out, the watch stays signed out across launches until you
-  sign in on it. The watch and the iPhone sign in independently: neither passes its sign-in to the
-  other, and neither needs the other's app. Sign out confirms the credential is gone from the
-  Keychain (and says so if it is not); "Sign out and forget" also forgets the account name.
-- **Kept accounts belong to their gateway.** "Keep my sign-in" files the account under its gateway:
-  the sign-in page offers it on that gateway only, and the gateway chooser lists every gateway you
-  signed into or kept an account on (with how many), plus AbstractFramework's. A sign-in that cannot
-  be kept says so. Kept sign-ins and gateways from earlier builds carry over.
-- **The Digital Crown scrolls Home right after Settings closes**, with no need to touch the screen
-  first.
+- **Signing out signs you out, and the watch signs in on its own.** After a sign-out the watch came
+  back signed in at its next launch: it took the iPhone's sign-in, which WatchConnectivity hands
+  over again at every launch. The watch and the iPhone are independent devices: neither hands its
+  sign-in to the other any more, and neither needs the other's app. Sign out also checks the
+  credential is really gone from the Keychain and says so if it is not, and "Sign out and forget"
+  forgets the account name too.
+- **"Keep my sign-in" keeps it where you can find it.** Kept accounts are filed under their
+  gateway (gateway → accounts, one Keychain item): the sign-in page offers an account on its own
+  gateway only, and the gateway chooser lists every gateway signed into or with a kept account
+  (with how many), plus AbstractFramework's always. A gateway the watch had been signed into by the
+  iPhone or a launch argument used to be missing from the chooser, and with it its kept accounts.
+  A kept sign-in that cannot be written says so. Earlier builds' kept sign-ins and gateways move in
+  at the first read.
+- **The Digital Crown scrolls Home again after Settings.** Closing Settings left the crown with
+  nothing to scroll until a finger touched Home: Settings was drawn beside the navigation stack and
+  took the crown's focus with it. It is now drawn over Home inside the stack, and Home is disabled
+  while Settings is in, so the crown returns to Home on its own when Settings goes.
 
 ### Changed
 
@@ -6052,6 +6089,7 @@ iPhone app); the Python package's history is in
   4, 6, 8 and 12 hours, day, 2 days and week, when editing an automation and when creating one. An
   interval written in seconds reads as minutes ("Every 60s" is "Every minute"). The gateway still
   refuses less than a minute for an automation that reads a mailbox or a feed, and says so.
+
 - **A question that could not be sent keeps its recording.** When the upload or the transcription
   fails, the orb says "Not sent." with Retry and Discard under it; the recording
   waits in its own file through leaving the page and relaunching, and nothing sends it on its own.
@@ -6062,7 +6100,8 @@ iPhone app); the Python package's history is in
   app's service, readable after the first unlock (the notification extension reads it while the
   device is locked), bound to this device, never in a backup, never synced; the app group doubles
   as the access group so the extension (and, on the watch, the complication) read the same item.
-  A sign-in kept by an earlier build (a file in the app group) moves into the Keychain at its
+  Until now it was a file in the app group sealed with a key kept beside it, which protected
+  nothing; that file (and the plain one of the interim builds) is moved into the Keychain at its
   first read, so nobody signs in again. The watch's kept sign-ins moved from UserDefaults into a
   second Keychain item (backlog 1053).
 - **The hold on the orb is shorter and its ring smaller.** A hold toggles in about a second
@@ -7010,8 +7049,18 @@ docs/                           design, architecture, pairing
 The Assistant's conversation surface in a browser: your conversations, live answers, tool
 approvals and questions in the conversation, attachments, dictation and read aloud. It is a thin
 client of [AbstractGateway](../../abstractgateway/docs/apps.md): the gateway keeps every
-conversation, runs the Assistant's workflow and holds your sign-in; this page keeps nothing
-(no token, no local copy of your chats).
+conversation, runs the Assistant's workflow and holds your sign-in. This page keeps no token and
+no copy of your chats; it keeps your display and voice preferences (appearance, panel widths,
+voice overrides, devices, microphone mode) in this browser.
+
+It is composed from the AbstractFramework UI kit (AbstractUIC `ui-kit` + `panel-chat`, ADR 0001
+there): the app shell and its top-right cluster (docs assistant, appearance, about, who is signed
+in, the connection pill), the chat (`WorkflowChat` + `useWorkflowSession`: thread, live replies,
+Stop, attachment chips, copy/export), the one approval panel (`presentInteraction`: Deny / Allow
+once / Allow for this chat / Decide later; the chat's tool policy is stored on the gateway when it
+offers `session_tool_policy`), the run's tool plan, and voice (Settings → Voice, read aloud,
+Tap/Hold to talk). What stays here: the gateway calls (`src/gateway/`), the conversation list and
+its titles, the workflow choice and the run input (desktop parity ports).
 
 Status: **scaffold** (backlog [1057](../docs/backlog/planned/1057_web_assistant.md),
 [ADR 0007](../docs/adr/0007_web_assistant.md), Proposed). The gateway does not list this app yet,
@@ -7049,13 +7098,16 @@ computer over plain `http://` the microphone button says why it is off.
 ## Tests
 
 ```bash
-npm test                     # vitest: fold, run input and tool-list parity, follower, wait guard, reducer, hosts, voice
+npm test                     # vitest: fold, titles, run input and tool-plan parity, workflow choice, the kit transport, hosts
 npm run check:urls           # no root-absolute same-origin URL in the browser code
 npm run build && npm run test:layout   # headless Chromium at 420/760/1024/1280 px, fake gateway
 ```
 
 `test:layout` needs Playwright's Chromium (`npx playwright install chromium`); add
-`-- --shots <dir>` to `node scripts/check_layout.mjs` to save the screenshots.
+`-- --shots <dir>` to `node scripts/check_layout.mjs` to save the screenshots. Below 1024 px it
+emulates a touch device and every target must reach 44 px; from 1024 px (a mouse) the rule covers
+the app's own controls and the kit sizes its own for a fine pointer. It also opens Settings →
+Voice and checks that it names the gateway default and fits.
 
 The session fold runs on the Python tests' own fixture (`tests/basic/fixtures/gateway_runs/`); the
 run-input and tool-list tests run on cases generated BY the desktop's code (CI regenerates both and
@@ -7072,9 +7124,9 @@ PYTHONPATH=. python -P web/scripts/gen_tool_policy_parity.py   # needs the packa
 |---|---|
 | `bin/server.js`, `bin/cli.js` | The app server: built files, mount under `/apps/assistant-web/`, gateway session proxy |
 | `src/host/` | What the page needs from its host (gateway URLs, authentication, native capabilities); the browser host |
-| `src/gateway/` | Gateway calls, SSE over fetch, the turn follower |
-| `src/lib/` | Pure logic with tests: session fold, workflow choice, run input, turn reducer, history, voice |
-| `src/ui/` | The Assistant space: conversations, conversation, composer |
+| `src/gateway/` | Gateway calls (SSE over fetch, framed by the kit's `sseFrames`) and the kit's `WorkflowTransport` over them |
+| `src/lib/` | Pure logic with tests: session fold, titles, workflow choice, run input, theme group |
+| `src/ui/` | The Assistant space on the kit: the conversation (`WorkflowChat`), the conversation list (the shell's navigation), Settings → Voice |
 | `src/styles/index.css` | App styles on the design tokens of `web/design/tokens.css` |
 | `design/` | Design tokens and mockups (owned separately) |
 
@@ -8881,6 +8933,13 @@ class AssistantController:
         self.voice_manager.set_quality_preset(getattr(self.preferences, "voice_quality", "standard"))
         self.voice_manager.set_output_device(getattr(self.preferences, "audio_output_device", ""))
         self._session_auto_approve_all: set[str] = set()
+        # Which path holds each chat's "allow all" grant: "server" (the
+        # gateway's session tool policy; the runtime never emits those waits)
+        # or "local" (the fallback for a gateway without the capability: the
+        # wait is shown and answered here). See session_tool_policy_path().
+        self._session_trust_path: Dict[str, str] = {}
+        self.session_tool_policy_mode: Optional[str] = None
+        self.session_tool_policy_reason = ""
         # Short-lived caches so the send path and startup don't re-fetch the
         # workflow catalog + tool inventory on the GUI thread every time
         # (each was up to a 30s blocking round trip). Invalidated explicitly on
@@ -10487,7 +10546,12 @@ class AssistantController:
         inventory = self.tool_inventory()
         auto: List[str] = []
         require: List[str] = []
+        # Only a LOCAL grant widens the run-start auto list; a server-held
+        # grant is applied by the runtime at decision time (and is live for
+        # runs already in flight), so the run keeps asking for the rest.
         trust_ceiling = self.session_trust_rank()
+        if trust_ceiling and self.session_trust_path() != "local":
+            trust_ceiling = 0
         for item in inventory.get("items") or []:
             if not isinstance(item, dict):
                 continue
@@ -10506,35 +10570,185 @@ class AssistantController:
             "require_approval_tools": require,
         }
 
+    # Provenance label the gateway records on the session tool policy.
+    SESSION_TOOL_POLICY_CLIENT = "abstractassistant-desktop"
+
+    def session_tool_policy_path(self) -> str:
+        """Where a NEW chat-wide grant goes:
+
+        - ``"server"``: the gateway advertises
+          ``capabilities.session_tool_policy.supported`` — the grant is the
+          gateway's session tool policy; covered calls never produce a wait.
+        - ``"local"``: the gateway ANSWERED discovery without the capability
+          (an older gateway, or ``supported`` not true) — the explicit
+          fallback: the wait arrives and this app answers it.
+        - ``"unavailable"``: discovery could not be read (an error or no
+          gateway). Nothing is known, so no grant is made at all (never a
+          silent local grant in place of the server one).
+
+        The resolved path is kept in ``session_tool_policy_mode`` (its reason
+        in ``session_tool_policy_reason``) and logged whenever it changes."""
+        try:
+            caps = self.llm_manager.gateway_capabilities(stale_ok=True)
+        except Exception as exc:  # noqa: BLE001 - "unknown", reported as such
+            caps, error = None, f"{type(exc).__name__}: {exc}"
+        else:
+            error = str(getattr(caps, "error", "") or "") if caps is not None else "no gateway"
+        if caps is None or error:
+            path, reason = "unavailable", f"gateway capabilities unavailable ({error or 'no answer'})"
+        elif caps.session_tool_policy_supported():
+            path, reason = "server", ""
+        else:
+            path, reason = "local", "this gateway does not offer a chat tool policy"
+        if path != getattr(self, "session_tool_policy_mode", None):
+            if path == "server":
+                logger.info("Chat-wide tool approval: gateway session tool policy (server path)")
+            elif path == "local":
+                logger.warning(
+                    "Chat-wide tool approval: LOCAL fallback (%s) — waits are shown and answered by this app",
+                    reason,
+                )
+            else:
+                logger.warning("Chat-wide tool approval: %s — no chat-wide grant can be made", reason)
+        self.session_tool_policy_mode = path
+        self.session_tool_policy_reason = reason
+        return path
+
+    def session_trust_path(self, *, session_id: Optional[str] = None) -> str:
+        """Which path holds this chat's grant ("server" / "local"), or "" when
+        the chat has none."""
+        sid = str(session_id or self.active_session_id or "").strip()
+        if not self.session_tool_auto_approval_active(session_id=sid):
+            return ""
+        paths = getattr(self, "_session_trust_path", None) or {}
+        return str(paths.get(sid) or "local")
+
+    def _explicit_ask_tools(self) -> List[str]:
+        """Tools the person set to Ask BY NAME (a saved per-tool mode, not the
+        gateway's default): they keep asking under a chat-wide grant."""
+        prefs = getattr(getattr(self, "preferences", None), "tool_preferences", None) or {}
+        return sorted(str(name).strip() for name, mode in dict(prefs).items() if str(name).strip() and str(mode).strip().lower() == "ask")[:512]
+
+    def session_tool_policy_grant_body(self, *, max_rank: int) -> Dict[str, Any]:
+        """The POST body for "allow all enabled tools in this chat" up to the
+        risk rank the person saw (contract v1 §3)."""
+        body: Dict[str, Any] = {
+            "approve": {"all": True, "max_risk_rank": max(1, min(4, int(max_rank)))},
+            "client": self.SESSION_TOOL_POLICY_CLIENT,
+        }
+        ask = self._explicit_ask_tools()
+        if ask:
+            body["ask"] = ask
+        return body
+
+    def _mirror_session_trust(self, sid: str, rank: int, path: str) -> None:
+        self._session_auto_approve_all.add(sid)
+        ranks = getattr(self, "_session_trust_rank", None)
+        if not isinstance(ranks, dict):
+            ranks = {}
+            self._session_trust_rank = ranks
+        ranks[sid] = max(int(ranks.get(sid, 0)), int(rank))
+        paths = getattr(self, "_session_trust_path", None)
+        if not isinstance(paths, dict):
+            paths = {}
+            self._session_trust_path = paths
+        paths[sid] = path
+
+    def _forget_session_trust(self, sid: str) -> None:
+        self._session_auto_approve_all.discard(sid)
+        for attr in ("_session_trust_rank", "_session_trust_path"):
+            table = getattr(self, attr, None)
+            if isinstance(table, dict):
+                table.pop(sid, None)
+
     def grant_session_tool_auto_approval(
         self, *, session_id: Optional[str] = None, max_rank: Optional[int] = None
-    ) -> None:
+    ) -> Dict[str, Any]:
         """Trust this chat's enabled tools up to ``max_rank``.
 
         The ceiling is the loudest risk tier the user actually saw when they
         granted it: approving a batch of file reads never buys blanket trust
         for a later destructive call, but granting it ON a destructive batch
         does — the sheet says so on the item they clicked.
+
+        Server path: POSTs ``{approve: {all, max_risk_rank}, ask, client}`` to
+        the gateway's session tool policy; a refusal RAISES (no silent local
+        grant). Local path (older gateway): the in-memory grant this app
+        answers waits with. Returns ``{path, session_id, max_risk_rank,
+        clamped, policy}`` — ``clamped`` lists what the gateway dropped.
         """
         sid = str(session_id or self.active_session_id or "").strip()
         if not sid:
-            return
-        self._session_auto_approve_all.add(sid)
-        ranks = getattr(self, "_session_trust_rank", None)
-        if not isinstance(ranks, dict):
-            ranks = {}
-            self._session_trust_rank = ranks
+            return {"path": "", "session_id": "", "max_risk_rank": 0, "clamped": [], "policy": None}
         wanted = self.TRUST_MAX_RISK_RANK if max_rank is None else int(max_rank)
         wanted = max(1, min(4, wanted))
-        ranks[sid] = max(int(ranks.get(sid, 0)), wanted)
+        # A grant never narrows: "allow all" on a quieter batch later keeps
+        # the wider rank this chat already has (the gateway's POST merges the
+        # same way), so the body always matches the local mirror.
+        wanted = max(wanted, self.session_trust_rank(session_id=sid))
+        path = self.session_tool_policy_path()
+        if path == "unavailable":
+            raise RuntimeError(self.session_tool_policy_reason)
+        policy: Optional[Dict[str, Any]] = None
+        clamped: List[Dict[str, Any]] = []
+        if path == "server":
+            answer = self.gateway.post_session_tool_policy(sid, self.session_tool_policy_grant_body(max_rank=wanted))
+            policy = answer.get("policy") if isinstance(answer, dict) else None
+            if not isinstance(policy, dict):
+                raise RuntimeError("the gateway did not return the chat's tool policy")
+            clamped = [dict(c) for c in (policy.get("clamped") or []) if isinstance(c, dict)]
+            logger.info(
+                "Chat-wide tool approval saved on the gateway for %s (revision %s, max_risk_rank %s, %d tools)",
+                sid,
+                policy.get("revision"),
+                wanted,
+                len(policy.get("approve") or {}),
+            )
+            if clamped:
+                logger.warning("The gateway did not cover %d requested tool selector(s) for %s: %s", len(clamped), sid, clamped)
+        self._mirror_session_trust(sid, wanted, path)
+        return {
+            "path": path,
+            "reason": self.session_tool_policy_reason,
+            "session_id": sid,
+            "max_risk_rank": wanted,
+            "clamped": clamped,
+            "policy": policy,
+        }
 
     def revoke_session_tool_auto_approval(self, *, session_id: Optional[str] = None) -> None:
-        """Remove this chat's temporary grant; keep saved tool defaults intact."""
+        """Remove this chat's temporary grant; keep saved tool defaults intact.
+        A server-held grant is reset with DELETE first; a refusal raises and
+        the grant stays shown (it is still in force on the gateway)."""
         sid = str(session_id or self.active_session_id or "").strip()
-        self._session_auto_approve_all.discard(sid)
-        ranks = getattr(self, "_session_trust_rank", None)
-        if isinstance(ranks, dict):
-            ranks.pop(sid, None)
+        if sid and self.session_trust_path(session_id=sid) == "server":
+            self.gateway.delete_session_tool_policy(sid)
+            logger.info("Chat-wide tool approval reset on the gateway for %s", sid)
+        self._forget_session_trust(sid)
+
+    def sync_session_tool_policy(self, *, session_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Mirror the gateway's stored policy for this chat into the local
+        grant state, so a grant made before a restart (or by this account in
+        another session of the app) is shown and can be reset. Blocking (one
+        GET): call it off the GUI thread. Returns the stored policy (None when
+        the chat has none, or on the local path)."""
+        sid = str(session_id or self.active_session_id or "").strip()
+        if not sid or self.session_tool_policy_path() != "server":
+            return None
+        answer = self.gateway.get_session_tool_policy(sid)
+        policy = answer.get("policy") if isinstance(answer, dict) else None
+        if isinstance(policy, dict) and policy.get("approve"):
+            request = policy.get("request") if isinstance(policy.get("request"), dict) else {}
+            approve = request.get("approve") if isinstance(request.get("approve"), dict) else {}
+            try:
+                rank = int(approve.get("max_risk_rank") or 4)
+            except Exception:
+                rank = 4
+            self._mirror_session_trust(sid, max(1, min(4, rank)), "server")
+            return policy
+        if self.session_trust_path(session_id=sid) == "server":
+            self._forget_session_trust(sid)
+        return policy if isinstance(policy, dict) else None
 
     def session_tool_auto_approval_active(self, *, session_id: Optional[str] = None) -> bool:
         sid = str(session_id or self.active_session_id or "").strip()
@@ -10554,7 +10768,13 @@ class AssistantController:
         """A per-chat trust grant auto-approves a batch only when every call is
         an enabled tool the grant may cover: a tool set to Auto by name, or one
         at or below the tier the grant was made on. A batch louder than the
-        grant still asks."""
+        grant still asks.
+
+        LOCAL fallback only: when the grant is held by the gateway's session
+        tool policy, the runtime never emits a wait for a covered call, so a
+        wait that does arrive is a genuine question and is shown."""
+        if self.session_trust_path(session_id=session_id) != "local":
+            return False
         ceiling = self.session_trust_rank(session_id=session_id)
         if not ceiling:
             return False
@@ -12369,6 +12589,44 @@ class GatewayClient:
             label="chat workspaces not saved",
         )
 
+    def _session_tool_policy_url(self, session_id: str) -> str:
+        sid = str(session_id or "").strip()
+        if not sid:
+            raise ValueError("session tool policy needs a session id")
+        return self._url(f"/api/gateway/sessions/{urllib.parse.quote(sid, safe='')}/tool-policy")
+
+    def get_session_tool_policy(self, session_id: str) -> Dict[str, Any]:
+        """``GET /sessions/{id}/tool-policy``: ``{session_id, policy}`` (policy
+        null when the chat has none)."""
+        return self._request_json(
+            method="GET", url=self._session_tool_policy_url(session_id), label="chat tool policy failed"
+        )
+
+    def put_session_tool_policy(self, session_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        """``PUT /sessions/{id}/tool-policy``: REPLACE the chat's policy."""
+        return self._request_json(
+            method="PUT",
+            url=self._session_tool_policy_url(session_id),
+            body=dict(body or {}),
+            label="chat tool policy not saved",
+        )
+
+    def post_session_tool_policy(self, session_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        """``POST /sessions/{id}/tool-policy``: MERGE into the chat's policy.
+        The answer is the stored policy, with any ``clamped`` selectors."""
+        return self._request_json(
+            method="POST",
+            url=self._session_tool_policy_url(session_id),
+            body=dict(body or {}),
+            label="chat tool policy not saved",
+        )
+
+    def delete_session_tool_policy(self, session_id: str) -> Dict[str, Any]:
+        """``DELETE /sessions/{id}/tool-policy``: reset (no chat policy)."""
+        return self._request_json(
+            method="DELETE", url=self._session_tool_policy_url(session_id), label="chat tool policy not reset"
+        )
+
     def workspace_effective(self, account: str = "me", session_id: str = "") -> Dict[str, Any]:
         """``GET /workspace/effective/{account}[?session=<id>]``: what applies,
         with each row's cap, ``summary`` and ``gateway_summary``."""
@@ -13796,6 +14054,8 @@ from typing import Any, Dict, List, Optional
 from .events import (
     event_name_from_wait_key,
     extract_emit_event,
+    TOOL_POLICY_DECISION_EVENT,
+    tool_policy_decision_event,
     extract_flow_end_output,
     extract_tool_calls_from_wait,
     extract_wait_from_record,
@@ -14003,6 +14263,12 @@ class GatewayEventAdapter:
                 text = str(parsed.get("text") or "").strip()
                 if text and text.lower() not in {"ready", "completed"}:
                     events.append({"type": "status", "status": text})
+            elif name == TOOL_POLICY_DECISION_EVENT:
+                # Allowed/denied by the chat's session tool policy with NO
+                # wait: an activity line, never an approval prompt.
+                decision = tool_policy_decision_event(payload, ts=record_ts)
+                if decision:
+                    events.append(decision)
             elif name == "abstract.message":
                 text = ""
                 if isinstance(payload, str):
