@@ -158,8 +158,8 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 - Per-answer statistics (tokens, tools, files, duration, model) with clickable detail views.
 - Multi-attachment composer with an image gallery, drag and drop, and artifact previews.
 - In your pocket and on your wrist: **AbstractAssistant for iPhone and Apple Watch** is one app
-  (0.16.0, pre-release through TestFlight): the iPhone app carries the watch app, one sign-in
-  serves both, and notifications reach you while the app is closed (Apple push, once your gateway
+  (0.16.0, pre-release through TestFlight): the iPhone app carries the watch app, each signs in
+  on its own and works without the other, and notifications reach you while the app is closed (Apple push, once your gateway
   has a push forwarder). The iPhone has the same conversations, tools and automations, with tab badges for
   what needs you ([phone/iphone/README.md](phone/iphone/README.md)); the watch talks to the same
   gateway by voice around the orb, answers approvals and questions, continues your sessions and runs
@@ -4447,7 +4447,7 @@ Enter your own gateway’s address. There is no preselected public server.
   enabled on your gateway, with a mailbox connected for your account.
 
 Your sign-in is kept in this iPhone's Keychain (shared with its notification
-extension and handed to your Apple Watch), outside iCloud sync and ordinary preferences. HTTPS is required outside the local network. Local HTTP
+extension only; your Apple Watch signs in on its own), outside iCloud sync and ordinary preferences. HTTPS is required outside the local network. Local HTTP
 addresses are accepted for development. A phone’s `localhost` is the phone itself; use
 your Mac’s LAN address to reach a gateway running there.
 
@@ -4611,8 +4611,7 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
   app's service, readable after the first unlock (the notification extension reads it while the
   device is locked), bound to this device, never in a backup, never synced; the app group doubles
   as the access group so the extension (and, on the watch, the complication) read the same item.
-  Until now it was a file in the app group sealed with a key kept beside it, which protected
-  nothing; that file (and the plain one of the interim builds) is moved into the Keychain at its
+  A sign-in kept by an earlier build (a file in the app group) moves into the Keychain at its
   first read, so nobody signs in again. The watch's kept sign-ins moved from UserDefaults into a
   second Keychain item (backlog 1053).
 - **A paused reading shows a speaker, not a play triangle.** The message's read-aloud button is a
@@ -5655,6 +5654,11 @@ comes to the front, and through Apple push while it is closed. Check, in order:
 - Your gateway offers the event stream. An older gateway keeps the Inbox and Automations lists up
   to date, without notifications.
 - A Focus can hold "Approval needed" back unless AbstractAssistant is allowed in that Focus.
+- An automation's result or failure, and a flow's "Notify me", arrive quietly: they go to
+  Notification Center without a banner or sound. Approvals and questions alert.
+- When an iPhone is signed in to the same account, the gateway pushes the iPhone, and the watch
+  shows the alert through Apple's forwarding (iPhone locked, watch on your wrist). A watch away
+  from that iPhone shows it when its app next opens or checks.
 
 ## A notification shows only "Approval needed" or "Tap to read it"
 
@@ -5890,9 +5894,9 @@ Version 0.16.0 · watchOS 26 or later · the companion of the [AbstractAssistant
 app](../../phone/iphone/README.md), and independent (it also works with no iPhone nearby) ·
 pre-release through TestFlight. See [CHANGELOG.md](CHANGELOG.md) for what changed.
 
-**One product.** AbstractAssistant is one app for iPhone and Apple Watch: the watch app ships
-inside the iPhone app. Sign in on the iPhone and the watch takes the same sign-in; with no paired
-iPhone, sign in on the watch itself as before.
+**One product, two independent devices.** AbstractAssistant is one app for iPhone and Apple
+Watch: the watch app ships inside the iPhone app. Each signs in on its own, possibly to another
+gateway or account, and the watch works without the iPhone app.
 
 The watch app is a thin client of AbstractGateway, like the desktop assistant: the gateway owns
 workflows, runs, tools, policy, speech and search, and the watch keeps only your sign-in, your
@@ -5983,8 +5987,10 @@ your **user or email**:
   30 days.
 
 Sign out (Settings, or Settings → Connection) asks whether to **keep your sign-in**: a kept sign-in
-shows on the sign-in page as "Sign in as <user>" for its gateway, and one tap signs you in again.
-"Sign out and forget" removes it, and so does the gateway refusing it.
+shows on the sign-in page as "Sign in as <user>" for its gateway only, and one tap signs you in
+again. The gateway chooser lists every gateway you signed into or kept an account on (with how
+many accounts) and AbstractFramework's own. "Sign out and forget" removes the account, and so does
+the gateway refusing it. Once signed out, the watch stays signed out until you sign in on it.
 
 Give the watch its own gateway account with the `user` role; do not put an admin token on a watch.
 
@@ -6014,12 +6020,17 @@ curl https://<host>.<tailnet>.ts.net/api/health
   approvals, questions, published alerts and automation results arrive through Apple push once
   your gateway has a push forwarder (the app registers itself at sign-in; nothing to set up);
   until then watchOS decides when background checks run, about every 15 minutes.
+- An automation's result or failure, and a flow's "Notify me", arrive quietly in Notification
+  Center (no sound); approvals and questions alert.
+- When an iPhone is signed in to the same account, the gateway pushes the iPhone and Apple forwards
+  the alert to your wrist (iPhone locked, watch worn). Away from that iPhone, the watch shows it
+  when the app next opens or checks.
 - Known issue: on a development build, a push can arrive with its generic words ("Approval
   needed", "Open the Assistant to answer") when the notification extension did not replace them;
   the item itself is in the app. A Debug build's `--dump-notify` readout shows why
   ([BUILD.md](BUILD.md#the-notifier-readout)).
 - Your sign-in is kept in the watch's Keychain (shared with its notification extension and the
-  complication). The sign-ins you keep at Sign out ("Keep my sign-in") are a second Keychain item.
+  complication). The accounts you keep at Sign out ("Keep my sign-in") are a second Keychain item, filed by gateway.
 - Tools allowed with Approve all are approved by the watch when it sees their approvals (on the orb
   page, or in its regular check while the app is open); with the app closed, they ask. Approve all
   covers the run's own conversation, or its automation, by that one's own tools.
@@ -6065,23 +6076,16 @@ iPhone app); the Python package's history is in
 
 ### Fixed
 
-- **Signing out signs you out, and the watch signs in on its own.** After a sign-out the watch came
-  back signed in at its next launch: it took the iPhone's sign-in, which WatchConnectivity hands
-  over again at every launch. The watch and the iPhone are independent devices: neither hands its
-  sign-in to the other any more, and neither needs the other's app. Sign out also checks the
-  credential is really gone from the Keychain and says so if it is not, and "Sign out and forget"
-  forgets the account name too.
-- **"Keep my sign-in" keeps it where you can find it.** Kept accounts are filed under their
-  gateway (gateway → accounts, one Keychain item): the sign-in page offers an account on its own
-  gateway only, and the gateway chooser lists every gateway signed into or with a kept account
-  (with how many), plus AbstractFramework's always. A gateway the watch had been signed into by the
-  iPhone or a launch argument used to be missing from the chooser, and with it its kept accounts.
-  A kept sign-in that cannot be written says so. Earlier builds' kept sign-ins and gateways move in
-  at the first read.
-- **The Digital Crown scrolls Home again after Settings.** Closing Settings left the crown with
-  nothing to scroll until a finger touched Home: Settings was drawn beside the navigation stack and
-  took the crown's focus with it. It is now drawn over Home inside the stack, and Home is disabled
-  while Settings is in, so the crown returns to Home on its own when Settings goes.
+- **A sign-out stands.** Once signed out, the watch stays signed out across launches until you
+  sign in on it. The watch and the iPhone sign in independently: neither passes its sign-in to the
+  other, and neither needs the other's app. Sign out confirms the credential is gone from the
+  Keychain (and says so if it is not); "Sign out and forget" also forgets the account name.
+- **Kept accounts belong to their gateway.** "Keep my sign-in" files the account under its gateway:
+  the sign-in page offers it on that gateway only, and the gateway chooser lists every gateway you
+  signed into or kept an account on (with how many), plus AbstractFramework's. A sign-in that cannot
+  be kept says so. Kept sign-ins and gateways from earlier builds carry over.
+- **The Digital Crown scrolls Home right after Settings closes**, with no need to touch the screen
+  first.
 
 ### Changed
 
@@ -6089,7 +6093,6 @@ iPhone app); the Python package's history is in
   4, 6, 8 and 12 hours, day, 2 days and week, when editing an automation and when creating one. An
   interval written in seconds reads as minutes ("Every 60s" is "Every minute"). The gateway still
   refuses less than a minute for an automation that reads a mailbox or a feed, and says so.
-
 - **A question that could not be sent keeps its recording.** When the upload or the transcription
   fails, the orb says "Not sent." with Retry and Discard under it; the recording
   waits in its own file through leaving the page and relaunching, and nothing sends it on its own.
@@ -6100,8 +6103,7 @@ iPhone app); the Python package's history is in
   app's service, readable after the first unlock (the notification extension reads it while the
   device is locked), bound to this device, never in a backup, never synced; the app group doubles
   as the access group so the extension (and, on the watch, the complication) read the same item.
-  Until now it was a file in the app group sealed with a key kept beside it, which protected
-  nothing; that file (and the plain one of the interim builds) is moved into the Keychain at its
+  A sign-in kept by an earlier build (a file in the app group) moves into the Keychain at its
   first read, so nobody signs in again. The watch's kept sign-ins moved from UserDefaults into a
   second Keychain item (backlog 1053).
 - **The hold on the orb is shorter and its ring smaller.** A hold toggles in about a second
