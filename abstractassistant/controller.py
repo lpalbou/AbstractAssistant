@@ -1708,7 +1708,7 @@ class AssistantController:
                     "when_to_use": str(raw.get("when_to_use") or raw.get("whenToUse") or "").strip(),
                     # The gateway's own availability + risk classification. The
                     # assistant displays these; it never re-derives them.
-                    "available": raw.get("enabled") is not False,
+                    "available": raw.get("enabled") is not False and raw.get("available") is not False,
                     "approval_default": str(raw.get("approval_default") or "").strip().lower(),
                     "risk_tier": str(raw.get("risk_tier") or "").strip().lower(),
                     "tier": str(raw.get("tier") or "").strip(),
@@ -1721,9 +1721,18 @@ class AssistantController:
                     "comms_send",
                     "standing_effect",
                     "grantable",
+                    # The model picks where it reaches (a recipient, a URL): group
+                    # Auto leaves it alone (ui-kit tool_plan.ts bulkAutoReaches).
+                    "model_controlled_destination",
                 ):
                     if isinstance(raw.get(flag), bool):
                         item[flag] = bool(raw.get(flag))
+                # Why the gateway does not offer a tool, in its words
+                # (gateway tool_catalog.py: `why_disabled`, else `enable_gate`).
+                if item["available"] is False:
+                    why = str(raw.get("why_disabled") or raw.get("enable_gate") or "").strip()
+                    if why:
+                        item["why_disabled"] = why
                 if isinstance(raw.get("risk_rank"), int):
                     item["risk_rank"] = int(raw.get("risk_rank"))
                 # Process-spawning tools (R12.1): the gateway's command-sandbox

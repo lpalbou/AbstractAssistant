@@ -276,6 +276,15 @@ class SegmentedControl(QFrame):
         for button in self._buttons:
             button.setChecked(str(button.property("value")) == target)
 
+    def set_mixed(self) -> None:
+        """No segment pressed (a group whose rows differ: "Mixed"). An
+        exclusive group refuses to uncheck its last button, so exclusivity is
+        lifted for the moment it takes."""
+        self._group.setExclusive(False)
+        for button in self._buttons:
+            button.setChecked(False)
+        self._group.setExclusive(True)
+
     def set_tooltips(self, tips: dict) -> None:
         for button in self._buttons:
             tip = tips.get(str(button.property("value")))

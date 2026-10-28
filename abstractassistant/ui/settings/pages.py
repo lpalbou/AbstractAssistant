@@ -1342,21 +1342,55 @@ _TOOLSET_ICONS = {
 }
 
 
+# The tool-mode vocabulary decided in the kit (abstractuic ui-kit tool_mode_editor.tsx
+# `TOOL_MODE_LABELS`, tool_plan.ts `TOOL_MODES` = off | ask | auto, in that order). The desktop
+# keeps its stored dialect (disabled / ask / approve, preferences.json `tool_preferences`) and
+# never shows it: the wire value is mapped here, at the edge.
+TOOL_MODE_LABELS = {"off": "Off", "ask": "Ask", "auto": "Auto", "on": "On"}
+_TOOL_WIRE = {"off": "disabled", "ask": "ask", "auto": "approve"}
+TOOL_ROW_MODES = [(_TOOL_WIRE[m], TOOL_MODE_LABELS[m]) for m in ("off", "ask", "auto")]
+# The automation tool picker: the kit's allow-list mode (Off / On).
+TOOL_ALLOW_LIST_MODES = [("disabled", TOOL_MODE_LABELS["off"]), ("ask", TOOL_MODE_LABELS["on"])]
+_TOOL_LABEL_BY_WIRE = {wire: label for wire, label in TOOL_ROW_MODES}
+# What each mode does (hover text of a segment).
+_TOOL_MODE_TIPS = {"disabled": "Not offered to the run", "ask": "Asks before each call", "approve": "Runs without asking"}
+_ALLOW_LIST_TIPS = {"disabled": "Never offered to the model", "ask": "Available under this automation's approval setting"}
+# ui-kit tool_plan.ts BULK_AUTO_MAX_RANK and tool_mode_editor.tsx BULK_AUTO_CAP_SENTENCE, verbatim.
+BULK_AUTO_MAX_RANK = 2
+BULK_AUTO_CAP_SENTENCE = (
+    f"Auto for a whole group reaches the tools that read or make changes (risk {BULK_AUTO_MAX_RANK} or lower) "
+    "and whose destination the assistant does not choose. Set the others to Auto one at a time."
+)
+
+
+def _bulk_cap_text(names: List[str]) -> str:
+    """The kit's cap line: the sentence, then the tools it leaves, by name."""
+    if not names:
+        return ""
+    stays = "1 tool here stays" if len(names) == 1 else f"{len(names)} tools here stay"
+    return f"{BULK_AUTO_CAP_SENTENCE} {stays} as it is: {', '.join(sorted(names))}."
+
+
 class _ToolGroup(QFrame):
     """One gateway toolset as a collapsible panel (R10.4).
 
-    Header: the toolset name (the toggle, with a chevron), the tool count,
-    then "All auto" / "All ask" — pressed-state controls that SHOW whether
-    every tool of the panel is on that mode and set it when pressed. The rows
-    live in ``body``; collapsing hides the body, the filter hides rows.
+    Header: the toolset name (the toggle, with a chevron), the tool count, the
+    group's state ("Off", "Ask", "Auto", or "Mixed" when its tools differ),
+    then the same Off / Ask / Auto control as each tool (the kit's group head,
+    `aria-label "All <toolset> tools"`): it shows the uniform state and sets
+    every tool of the panel when pressed. Under it, when the panel is open and
+    group Auto cannot reach every tool, the kit's cap sentence names the ones
+    it leaves. The rows live in ``body``; collapsing hides the body, the
+    filter hides rows.
     """
 
-    def __init__(self, toolset: str, count: int, *, bulk: bool, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, toolset: str, count: int, *, modes: List[tuple], parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setObjectName("settingsCard")
         self.setProperty("toolGroup", toolset)
         self.toolset = toolset
         self.count = count
+        self._cap_text = ""
         outer = QVBoxLayout(self)
         outer.setContentsMargins(14, 10, 14, 10)
         outer.setSpacing(6)
@@ -1380,22 +1414,23 @@ class _ToolGroup(QFrame):
         head.addWidget(self.count_chip, 0, Qt.AlignVCenter)
         head.addStretch(1)
 
-        self.bulk = QFrame()
-        self.bulk.setObjectName("segmented")
-        bulk_box = QHBoxLayout(self.bulk)
-        bulk_box.setContentsMargins(0, 0, 0, 0)
-        bulk_box.setSpacing(0)
-        self.all_auto = self._bulk_button("All auto", "first")
-        self.all_auto.setToolTip(
-            f"Every {toolset} tool pre-approved on this Mac (outreach and destructive tools stay on Ask)"
-        )
-        self.all_ask = self._bulk_button("All ask", "last")
-        self.all_ask.setToolTip(f"Ask before running any {toolset} tool")
-        bulk_box.addWidget(self.all_auto)
-        bulk_box.addWidget(self.all_ask)
-        head.addWidget(self.bulk, 0, Qt.AlignVCenter)
-        self.bulk.setVisible(bulk)
+        # The uniform state in words, or "Mixed" (the kit's group-state badge).
+        self.state_label = QLabel("")
+        self.state_label.setObjectName("cardHelp")
+        self.state_label.setProperty("toolGroup", "state")
+        head.addWidget(self.state_label, 0, Qt.AlignVCenter)
+        self.mode = SegmentedControl(modes)
+        self.mode.setAccessibleName(f"All {toolset} tools")
+        self.mode.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        head.addWidget(self.mode, 0, Qt.AlignVCenter)
         outer.addLayout(head)
+
+        self.cap_note = QLabel("")
+        self.cap_note.setObjectName("cardHelp")
+        self.cap_note.setWordWrap(True)
+        self.cap_note.setProperty("toolGroup", "cap")
+        self.cap_note.hide()
+        outer.addWidget(self.cap_note)
 
         self.body = Card()
         self.body.setObjectName("toolGroupBody")
@@ -1403,18 +1438,9 @@ class _ToolGroup(QFrame):
         outer.addWidget(self.body)
         self._apply_open(False)
 
-    def _bulk_button(self, text: str, position: str) -> QPushButton:
-        b = QPushButton(text)
-        b.setObjectName("segment")
-        b.setProperty("segment", position)
-        b.setCheckable(True)
-        b.setAutoDefault(False)
-        b.setFocusPolicy(Qt.StrongFocus)
-        b.setAccessibleName(f"{text} — {self.toolset}")
-        return b
-
     def _apply_open(self, opened: bool) -> None:
         self.body.setVisible(bool(opened))
+        self.cap_note.setVisible(bool(opened) and bool(self._cap_text))
         self.toggle.setIcon(symbol_icon("chevron-down" if opened else "chevron-right", color=THEME.text_secondary, size=14))
         verb = "Hide" if opened else "Show"
         self.toggle.setToolTip(f"{verb} the {self.toolset} tools")
@@ -1429,12 +1455,29 @@ class _ToolGroup(QFrame):
     def is_open(self) -> bool:
         return self.body.isVisibleTo(self)
 
-    def set_bulk_state(self, auto: bool, ask: bool, enabled: bool) -> None:
-        for b, on in ((self.all_auto, auto), (self.all_ask, ask)):
-            b.blockSignals(True)
-            b.setChecked(bool(on))
-            b.blockSignals(False)
-            b.setEnabled(bool(enabled))
+    def set_group_state(self, uniform: str, *, enabled: bool, auto_enabled: bool = True, cap_text: str = "") -> None:
+        """Show the rows' truth: the uniform mode pressed, else none and "Mixed"."""
+        self.mode.blockSignals(True)
+        if uniform:
+            self.mode.set_value(uniform)
+        else:
+            self.mode.set_mixed()
+        self.mode.blockSignals(False)
+        label = dict(self.mode_options()).get(uniform, "") if uniform else "Mixed"
+        self.state_label.setText(label if enabled else "")
+        self.mode.setEnabled(bool(enabled))
+        self.mode.set_option_enabled("approve", bool(enabled) and bool(auto_enabled))
+        self._cap_text = str(cap_text or "")
+        self.cap_note.setText(self._cap_text)
+        self.cap_note.setVisible(self.is_open() and bool(self._cap_text))
+        if "approve" not in self.mode.values():
+            self.mode.set_tooltips(_ALLOW_LIST_TIPS)
+            return
+        auto_tip = _TOOL_MODE_TIPS["approve"] + (f". {BULK_AUTO_CAP_SENTENCE}" if self._cap_text else "")
+        self.mode.set_tooltips({"disabled": _TOOL_MODE_TIPS["disabled"], "ask": _TOOL_MODE_TIPS["ask"], "approve": auto_tip})
+
+    def mode_options(self) -> List[tuple]:
+        return [(b.property("value"), b.text()) for b in self.mode._buttons]
 
 
 class ToolsPage(SettingsPage):
@@ -1537,15 +1580,16 @@ class ToolsPage(SettingsPage):
         self._apply_filter()
 
     def _build_group(self, toolset: str, items: List[dict]) -> _ToolGroup:
-        group = _ToolGroup(toolset, len(items), bulk=not self.selection_only)
+        group = _ToolGroup(toolset, len(items), modes=TOOL_ALLOW_LIST_MODES if self.selection_only else TOOL_ROW_MODES)
         card = group.body
-        group.all_auto.clicked.connect(lambda _c=False, t=toolset: self._set_group(t, "approve"))
-        group.all_ask.clicked.connect(lambda _c=False, t=toolset: self._set_group(t, "ask"))
+        group.mode.changed.connect(lambda value, t=toolset: self._set_group(t, value))
         group.toggle.clicked.connect(lambda checked, t=toolset: self._open_choice.__setitem__(t, bool(checked)))
         # ALL collapsed by default (R11.5), overrides included; a panel the
         # user opened by hand stays open across refreshes.
         group.set_open(self._open_choice.get(toolset, False))
-        for item in sorted(items, key=lambda entry: str(entry.get("name") or "")):
+        # Offered tools first, then the ones the gateway does not offer (the kit's order).
+        ordered = sorted(items, key=lambda entry: (entry.get("available") is False, str(entry.get("name") or "")))
+        for item in ordered:
             name = str(item.get("name") or "")
             risk = describe_tool_risk(item)
             available = item.get("available") is not False
@@ -1559,41 +1603,70 @@ class ToolsPage(SettingsPage):
             head_row.addWidget(title, 1)
             # One tier chip; the concrete facts ride its tooltip so the row
             # stays one line wide at the dialog's minimum width.
-            chip = Chip(risk["label"] if available else "Disabled on gateway", risk["tone"] if available else "warning")
-            chip.setToolTip(str(risk.get("sentence") or "") if available else "The gateway has this tool switched off; approval cannot run it.")
+            chip = Chip(risk["label"], risk["tone"])
+            chip.setToolTip(str(risk.get("sentence") or ""))
             head_row.addWidget(chip)
-            control = SegmentedControl([("disabled", "Off"), ("ask", "On")] if self.selection_only else [("disabled", "Off"), ("approve", "Auto"), ("ask", "Ask")])
             default = str(item.get("policy_default") or "ask")
-            control.set_tooltips(
-                {
-                    "disabled": "Never offered to the model",
-                    "approve": "Pre-approved on this Mac" + (" · gateway default" if default == "approve" else ""),
-                    "ask": "Prompt every time" + (" · gateway default" if default == "ask" else ""),
-                }
-            )
-            control.set_value(str(item.get("selected_mode") or default))
+            # "Default: Ask" on a row that differs from the gateway's default (the kit's chip).
+            default_chip = Chip("", "neutral")
+            default_chip.setProperty("toolDefault", name)
+            default_chip.setToolTip("The gateway's default")
+            default_chip.hide()
+            head_row.addWidget(default_chip)
+            why = ""
             if self.selection_only:
-                control.set_tooltips({"disabled": "Never offered to the model", "ask": "Available under this automation's approval setting"})
+                control = SegmentedControl(TOOL_ALLOW_LIST_MODES)
+                control.set_tooltips(_ALLOW_LIST_TIPS)
                 control.set_value("disabled" if item.get("selected_mode") == "disabled" else "ask")
+                control.setEnabled(available or item.get("selected_mode") != "disabled")
             else:
-                control.changed.connect(lambda value, n=name: self._on_tool_changed(n, value))
-            control.setEnabled(available or (self.selection_only and item.get("selected_mode") != "disabled"))
+                control = SegmentedControl(TOOL_ROW_MODES)
+                control.set_tooltips(
+                    {
+                        wire: tip + (" · gateway default" if wire == default else "")
+                        for wire, tip in _TOOL_MODE_TIPS.items()
+                    }
+                )
+                if available:
+                    control.set_value(str(item.get("selected_mode") or default))
+                    control.changed.connect(lambda value, n=name: self._on_tool_changed(n, value))
+                else:
+                    # Read-only, visible, with the gateway's reason: a tool the
+                    # gateway does not offer is Off whatever this Mac stored.
+                    served = str(item.get("why_disabled") or "").strip().rstrip(".")
+                    why = f"Not offered by the gateway: {served or 'switched off on the gateway'}."
+                    control.set_value("disabled")
+                    control.setEnabled(False)
+                    control.setToolTip(why)
+                    control.set_tooltips({wire: why for wire, _label in TOOL_ROW_MODES})
+            control.setAccessibleName(f"Mode for {name}")
             control.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
             head_row.addWidget(control, 0)
+            lines = [head]
+            if why:
+                why_label = QLabel(why)
+                why_label.setObjectName("statusNote")
+                why_label.setProperty("tone", "warning")
+                why_label.setProperty("whyDisabled", name)
+                why_label.setWordWrap(True)
+                lines.append(why_label)
             sandbox_chip = self._sandbox_chip(item)
             if sandbox_chip is not None:
-                # Second line of the card: the command-sandbox state (R12.1).
-                line = QWidget()
-                stack = QVBoxLayout(line)
-                stack.setContentsMargins(0, 0, 0, 0)
-                stack.setSpacing(4)
-                stack.addWidget(head)
-                state_row = QHBoxLayout()
+                # A further line of the card: the command-sandbox state (R12.1).
+                state_line = QWidget()
+                state_row = QHBoxLayout(state_line)
                 state_row.setContentsMargins(0, 0, 0, 0)
                 state_row.addWidget(sandbox_chip, 1 if sandbox_chip.wordWrap() else 0)
                 if not sandbox_chip.wordWrap():
                     state_row.addStretch(1)
-                stack.addLayout(state_row)
+                lines.append(state_line)
+            if len(lines) > 1:
+                line = QWidget()
+                stack = QVBoxLayout(line)
+                stack.setContentsMargins(0, 0, 0, 0)
+                stack.setSpacing(4)
+                for widget in lines:
+                    stack.addWidget(widget)
                 head = line
             desc_bits = [str(item.get("description") or "").strip(), str(item.get("when_to_use") or "").strip()]
             full_description = " ".join(bit for bit in desc_bits if bit) or "No description available."
@@ -1602,18 +1675,37 @@ class ToolsPage(SettingsPage):
             help_label = getattr(row, "help_label", None)
             if help_label is not None and full_description != description:
                 help_label.setToolTip(full_description)
+            rank = item.get("risk_rank") if isinstance(item.get("risk_rank"), int) else int(risk.get("rank") or 0)
             self._rows[name] = {
                 "row": row,
                 "control": control,
+                "default_chip": default_chip,
                 "default_mode": default,
                 "saved_mode": control.value(),
                 "toolset": toolset,
                 "available": available,
+                "why": why,
                 "match": True,
-                "rank": int(risk.get("rank") or 0),
+                # Unclassified counts as the highest risk (the kit: a missing rank is 4).
+                "rank": int(rank) if int(rank or 0) > 0 else 4,
+                "model_controlled_destination": item.get("model_controlled_destination") is True,
                 "search": f"{name}\n{full_description}\n{toolset}".lower(),
             }
+            self._sync_default_chip(name)
         return group
+
+    def _sync_default_chip(self, name: str) -> None:
+        info = self._rows.get(name)
+        if info is None:
+            return
+        chip = info["default_chip"]
+        differs = (
+            not self.selection_only
+            and info["available"]
+            and info["control"].value() != str(info.get("default_mode") or "ask")
+        )
+        chip.setText(f"Default: {_TOOL_LABEL_BY_WIRE.get(str(info.get('default_mode') or 'ask'), '')}" if differs else "")
+        chip.setVisible(differs)
 
     def _sandbox_chip(self, item: Dict[str, Any]) -> Optional[Chip]:
         """The command-sandbox state of a process-spawning tool, exactly as the
@@ -1646,57 +1738,72 @@ class ToolsPage(SettingsPage):
         self._sandbox_chips[str(item.get("name") or "")] = chip
         return chip
 
-    # "All auto" never reaches outreach (3) / destroy (4): those are set to
-    # Auto one tool at a time, by name.
-    ALL_AUTO_MAX_RANK = 2
+    # Kept for older callers: group Auto's reach (ui-kit BULK_AUTO_MAX_RANK).
+    ALL_AUTO_MAX_RANK = BULK_AUTO_MAX_RANK
+
+    @staticmethod
+    def _bulk_auto_reaches(info: Dict[str, Any]) -> bool:
+        """ui-kit tool_plan.ts `bulkAutoReaches`: risk rank <= 2 and a destination the model does not choose."""
+        return int(info.get("rank") or 4) <= BULK_AUTO_MAX_RANK and not info.get("model_controlled_destination")
 
     def _group_rows(self, toolset: str) -> List[Dict[str, Any]]:
-        return [info for info in self._rows.values() if info["toolset"] == toolset and info["available"]]
+        """The tools a group control acts on: offered, and shown by the filter."""
+        return [
+            info
+            for info in self._rows.values()
+            if info["toolset"] == toolset and info["control"].isEnabled() and info.get("match", True)
+        ]
 
     def _sync_group_state(self, toolset: str) -> None:
-        """Pressed state = the truth of the rows: "All auto" is pressed when
-        every tool "All auto" may reach is on Auto, "All ask" when every tool
-        of the panel is on Ask; neither when they are mixed."""
+        """The group control shows the rows' truth: their one mode, else "Mixed"."""
         group = self.groups.get(toolset)
         if group is None:
             return
         rows = self._group_rows(toolset)
-        eligible = [info for info in rows if int(info.get("rank") or 0) <= self.ALL_AUTO_MAX_RANK]
-        auto = bool(eligible) and all(info["control"].value() == "approve" for info in eligible)
-        ask = bool(rows) and all(info["control"].value() == "ask" for info in rows)
-        group.set_bulk_state(auto, ask, enabled=bool(rows))
-        group.all_auto.setEnabled(bool(eligible))
+        modes = {info["control"].value() for info in rows}
+        uniform = next(iter(modes)) if len(modes) == 1 else ""
+        capped = [] if self.selection_only else [name for name, info in self._rows.items() if info in rows and not self._bulk_auto_reaches(info)]
+        group.set_group_state(
+            uniform,
+            enabled=bool(rows),
+            auto_enabled=len(capped) < len(rows),
+            cap_text=_bulk_cap_text(capped),
+        )
 
     def _set_group(self, toolset: str, mode: str) -> None:
         skipped: List[str] = []
-        hidden = 0
         changed: List[str] = []
+        hidden = sum(
+            1
+            for info in self._rows.values()
+            if info["toolset"] == toolset and info["control"].isEnabled() and not info.get("match", True)
+        )
         for name, info in self._rows.items():
-            if info["toolset"] != toolset or not info["available"]:
+            if info not in self._group_rows(toolset):
                 continue
             # Only what the filter shows: with a filter applied this used to
             # pre-approve mutating tools that were not on screen.
-            if not info.get("match", True):
-                hidden += 1
-                continue
-            if mode == "approve" and int(info.get("rank") or 0) > self.ALL_AUTO_MAX_RANK:
+            if mode == "approve" and not self._bulk_auto_reaches(info):
                 skipped.append(name)
                 continue
             if info["control"].value() != mode:
                 info["control"].set_value(mode)
                 changed.append(name)
+        if self.selection_only:
+            # The automation picker applies on "Use selection", never here.
+            self._sync_group_state(toolset)
+            return
         saved = self._persist(changed) if changed else True
+        for name in changed:
+            self._sync_default_chip(name)
         self._sync_group_state(toolset)
         if not saved:
             return
         if skipped and mode == "approve":
-            self.say(
-                "Left on Ask (outreach or destructive): " + ", ".join(sorted(skipped)) + ". Set them to Auto individually if you mean it.",
-                tone="warning",
-            )
+            self.say(_bulk_cap_text(skipped), tone="warning")
         elif hidden:
             self.say(
-                f"Applied to the {len(self._group_rows(toolset)) - hidden} tool(s) shown; "
+                f"Applied to the {len(self._group_rows(toolset))} tool(s) shown; "
                 f"{hidden} hidden by the filter were left alone.",
                 tone="info",
             )
@@ -1709,6 +1816,7 @@ class ToolsPage(SettingsPage):
             return
         if self._persist([name]):
             self.say("Saved on this device.")
+        self._sync_default_chip(name)
         self._sync_group_state(info["toolset"])
 
     def _apply_filter(self) -> None:
@@ -1731,13 +1839,18 @@ class ToolsPage(SettingsPage):
                 group.setVisible(True)
                 group.set_open(self._open_choice.get(toolset, False))
                 group.count_chip.setText(str(group.count))
+            # The group control speaks for the rows it would set: the shown ones.
+            self._sync_group_state(toolset)
 
     def _reset_defaults(self) -> None:
         changed = []
         for name, info in self._rows.items():
+            if not info["available"] and not self.selection_only:
+                continue  # not offered: read-only, Off whatever was stored
             if info["control"].value() != info["default_mode"]:
                 info["control"].set_value(info["default_mode"])
                 changed.append(name)
+            self._sync_default_chip(name)
         if self.selection_only:
             return
         if changed and not self._persist(changed):
@@ -1754,6 +1867,10 @@ class ToolsPage(SettingsPage):
         silently dropped saved modes for tools it did not list this time."""
         statuses = dict(safe_attr(_prefs(self.controller), "tool_preferences", {}) or {})
         for name, info in self._rows.items():
+            if not info["available"] and not self.selection_only:
+                # Shown Off and read-only because the gateway does not offer
+                # it: what this Mac stored for it stays as it was.
+                continue
             chosen = str(info["control"].value() or "ask")
             if chosen != str(info.get("default_mode") or "ask"):
                 statuses[name] = chosen
