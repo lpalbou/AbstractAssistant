@@ -19,7 +19,9 @@ gateway still works, labeled.
   chat's tool-policy decisions and the answer's stats all come from that one reconstruction.
   `assistant run` (CLI) does the same.
   - An approval or question answered on another client (or by the chat's tool policy) now closes
-    here: the sheet drops that batch, the ask dialog closes.
+    here: the sheet drops that batch, the ask dialog closes. Each question is asked once per
+    occurrence (a node asking again on the same wait key is asked again), and an older approval
+    still open in another delegated run stays on the sheet while a newer one is asked.
   - Attaching to a run asks only what is still open; a finished run shows its answer from the
     view even when its ledger has no terminal record.
   - Time to first render of a finished 3,000-record run: about 65 ms, was about 425 ms.
@@ -39,13 +41,15 @@ gateway still works, labeled.
   approval/answer `threading.Event`s). `gateway` no longer exports `GatewayEventAdapter` or the
   `extract_*` helpers.
 
-### Known differences from 0.15.0 (filed upstream)
+### Known differences from 0.15.0 (for AbstractRuntime; recorded in backlog 1063)
 
 - The run-activity card no longer shows each reasoning cycle's intermediate text (the view's
   `llm` activities carry no output text), and an `abstract.media.image.generated` event is no
-  longer its own "Generated image" message (the reducer does not record emit-event artifacts);
-  an image in the run's final output still shows. The answer's stats have no prompt-cache line
-  (not in the view).
+  longer its own "Generated image" message (the reducer does not record emit-event artifacts).
+  Media in the run's final output still shows; an output with no text gets the same notice as
+  before ("Generated image ready.").
+- The view has no run-level error: a failed run's reason is read from `GET /runs/{id}`.
+- The answer's stats have no prompt-cache line (not in the view).
 
 ## [0.15.0] - 2026-10-28
 

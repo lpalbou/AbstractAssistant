@@ -124,9 +124,10 @@ def test_an_interaction_answered_elsewhere_closes_and_is_never_asked_twice():
     open_view = load_case("a_delegated_child_approval")["expected_view"]
     proj = ViewProjector()
     proj.project(open_view)
-    closed = dict(open_view, interaction=None, status="running")
+    closed = dict(open_view, interaction=None, status="running",
+                  open_waits=[w for w in open_view["open_waits"] if not w["person_facing"]])
     events = proj.project(closed)
-    assert {"type": "interaction_closed", "wait_key": open_view["interaction"]["wait_key"]} in events
+    assert [e["wait_key"] for e in events if e["type"] == "interaction_closed"] == [open_view["interaction"]["wait_key"]]
     assert not [e for e in proj.project(open_view) if e["type"] == "tool_request"]
 
 
@@ -153,3 +154,37 @@ def test_attach_shows_only_the_open_question():
     assert all(e["final"] for e in events if e["type"] == "assistant")
     if view.get("interaction"):
         assert [e for e in events if e["type"] in ("ask_user", "tool_request")]
+
+
+def _ask_view(key: str, seq: int, run_id: str = "r1", *, also_open=()):
+    it = {"kind": "ask_user", "run_id": run_id, "wait_key": key, "step_id": f"s{seq}", "seq": seq,
+          "prompt": f"Q{seq}?", "choices": None, "allow_free_text": True,
+          "command": {"type": "resume", "run_id": run_id, "payload": {"wait_key": key}}}
+    waits = [{"run_id": run_id, "kind": "ask_user", "wait_key": key, "seq": seq, "person_facing": True}]
+    waits += [dict(w, person_facing=True) for w in also_open]
+    return {"root_run_id": "root", "status": "waiting", "interaction": it, "open_waits": waits,
+            "runs": [], "messages": [], "activities": [], "artifacts": []}
+
+
+def test_a_second_question_on_the_same_wait_key_is_asked():
+    """The runtime reuses a node's wait key for every question: each occurrence is asked."""
+    proj = ViewProjector()
+    first = proj.project(_ask_view("ask:node", 3))
+    assert [e["prompt"] for e in first if e["type"] == "ask_user"] == ["Q3?"]
+    # Answered, and the next question arrives in the same delta: close Q3, then ask Q5.
+    events = proj.project(_ask_view("ask:node", 5))
+    assert [e["type"] for e in events if e["type"] in ("interaction_closed", "ask_user")] == ["interaction_closed", "ask_user"]
+    assert [e["prompt"] for e in events if e["type"] == "ask_user"] == ["Q5?"]
+
+
+def test_an_older_open_approval_stays_open_while_a_newer_one_is_asked():
+    proj = ViewProjector()
+    a = {"run_id": "c1", "kind": "ask_user", "wait_key": "ask:a", "seq": 2}
+    proj.project(_ask_view("ask:a", 2, "c1"))
+    events = proj.project(_ask_view("ask:b", 4, "c2", also_open=[a]))
+    assert not [e for e in events if e["type"] == "interaction_closed"]  # A is still open
+    assert [e["wait_key"] for e in events if e["type"] == "ask_user"] == ["ask:b"]
+    # B answered: A is the interaction again; it is still on screen, so it is not asked twice.
+    events = proj.project(_ask_view("ask:a", 2, "c1"))
+    assert [e["wait_key"] for e in events if e["type"] == "interaction_closed"] == ["ask:b"]
+    assert not [e for e in events if e["type"] == "ask_user"]

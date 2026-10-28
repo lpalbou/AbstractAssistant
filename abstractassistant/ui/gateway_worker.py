@@ -24,7 +24,13 @@ from ..gateway import build_run_input_data
 from ..gateway.client import wait_answer_payload, wait_response_command
 from ..gateway.history_seed import seed_messages_from_history_bundle
 from ..gateway.live_deltas import ASSISTANT_DELTA
-from ..gateway.replay_view import ViewProjector, finished_llm_calls, follow_run, stats_from_view
+from ..gateway.replay_view import (
+    ViewProjector,
+    final_fallback_event,
+    finished_llm_calls,
+    follow_run,
+    stats_from_view,
+)
 
 
 class GatewayWorker(QThread):
@@ -604,7 +610,9 @@ class GatewayWorker(QThread):
                         final=bool(ev.get("final")),
                     )
                     ev["content"] = content
-                    if self._should_append_assistant(content, meta=meta):
+                    if ev.get("repeats_shown"):
+                        pass  # the final repeats an answer already in the transcript
+                    elif self._should_append_assistant(content, meta=meta):
                         if bool(ev.get("final")):
                             meta = self._meta_with_run_stats(meta, run_id=run_id)
                             ev["meta"] = meta
@@ -707,7 +715,17 @@ class GatewayWorker(QThread):
             on_live=self._handle_delta,
             on_mode=_on_mode,
         )
-        status = str((fold.view or {}).get("status") or "").strip().lower()
+        view = fold.view or {}
+        status = str(view.get("status") or "").strip().lower()
+        if status == "completed" and not projector.final_shown:
+            # No final message in the view (an output without text): the worker's own recovery
+            # (an output artifact's text, a media notice, an empty-answer notice) decides.
+            self._emit_ui_events(run_id=run_id, events=[final_fallback_event(view)])
+        if status == "failed" and not projector.error_shown:
+            # The view has no run-level error: the run's summary says why it failed.
+            summary = self._gateway.get_run(run_id=run_id)
+            reason = str((summary or {}).get("error") or "").strip() if isinstance(summary, dict) else ""
+            self.event_emitted.emit({"type": "error", "error": reason or "The run failed.", "run_id": run_id})
         if status in {"completed", "failed", "cancelled"}:
             return status
         if self.isInterruptionRequested():

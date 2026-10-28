@@ -47,6 +47,22 @@ Test: `tests/basic/test_replay_view_live.py::test_live_text_appears_then_the_com
 - Emit-event artifacts are not recorded (`_fold_event` returns before `_note_artifacts`): an
   `abstract.media.image.generated` event is no longer its own message.
 - No prompt-cache counters in the view's usage.
+- No run-level error in the view (`_snapshot` drops `error`): the desktop reads it from `GET /runs/{id}`.
+- A final output without text produces no `final` message: the desktop emits an empty final with
+  the output's artifacts so its own recovery runs.
+
+## Adversarial review (Opus, read-only) and fixes
+
+Findings fixed: interactions keyed by occurrence (run, wait key, seq), not by key (a node's
+second question was never asked); "closed" decided from `open_waits` (a newer approval in another
+child no longer withdraws an older open one); `follow_run_view` backs off after a clean end
+without `done`, and is back online (failures reset) when a stream connects (`on_open`); the local
+fold moves its read positions only after a successful fold and re-reads only unfinished runs'
+snapshots, rendering on a cursor change; empty/media-only answers and failed runs' reasons
+reach the palette; a non-JSON frame and the first GET/discovery are retried as transient;
+`LiveText` has no idle limit, reconnects calmly, and emits nothing after `stop()`; a final that
+repeats a shown answer is not appended twice; cycles count per run; an attach shows a running
+tool's start. Not changed: ViewFold's guard and the live-text lock (the review found them correct).
 
 ## Tests and evidence
 

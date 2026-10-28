@@ -792,13 +792,16 @@ class GatewayClient:
         stop_signal: Optional[Any] = None,
         timeout_s: Optional[float] = None,
         max_idle_s: Optional[float] = None,
+        on_open: Optional[Callable[[], None]] = None,
     ) -> None:
         """Follow ``GET /runs/{run_id}/view/stream`` (SSE).
 
         ``on_frame(event, id, data)`` receives ``view`` (the whole view), ``delta`` (``id`` =
         the cursor token after it) and ``done``; returning False stops. ``last_event_id`` is
         sent as ``Last-Event-ID`` (resume: the gateway sends nothing, one delta, or the whole
-        view). Keep-alive comments count as activity for ``max_idle_s``."""
+        view). Keep-alive comments count as activity for ``max_idle_s``. ``on_open()`` runs once the
+        stream is connected (a reconnect that only gets keep-alives is still back online). A frame
+        that is not JSON raises ``GatewayStreamIdle`` (reconnect from the copy's cursor)."""
         rid = str(run_id or "").strip()
         if not rid:
             raise ValueError("stream_run_view: run_id is required")
@@ -811,6 +814,8 @@ class GatewayClient:
         last_activity = time.monotonic()
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if on_open is not None:
+                    on_open()
                 parser = SseParser()
                 for raw in resp:
                     if stop_signal is not None and bool(getattr(stop_signal, "is_set", lambda: False)()):
@@ -825,7 +830,7 @@ class GatewayClient:
                         except Exception as exc:
                             # A frame we cannot read leaves the client's copy behind the
                             # gateway's: stop, and let the follower reconnect from its cursor.
-                            raise GatewayHttpError(f"stream_run_view: {ev.event} frame is not JSON ({exc})", status=0)
+                            raise GatewayStreamIdle(f"stream_run_view: {ev.event} frame is not JSON ({exc}); reconnecting")
                         if on_frame(ev.event, ev.id, data if isinstance(data, dict) else {}) is False:
                             return
                     if max_idle_s is not None and (time.monotonic() - last_activity) >= max_idle_s:

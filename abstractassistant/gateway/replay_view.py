@@ -198,6 +198,35 @@ def finished_llm_calls(view: Dict[str, Any]) -> Set[str]:
     return out
 
 
+def _media_meta(meta: Dict[str, Any], artifact_ids: Any, paths: Dict[str, str]) -> None:
+    """Name each artifact by the output field that held it (`image_artifact` -> an image tile);
+    the palette reads these keys for the answer's media."""
+    for art in artifact_ids or []:
+        ref = {"$artifact": str(art)}
+        parts = re.split(r"[.\[\]]", paths.get(str(art), ""))
+        field = next((k for k in reversed(parts) if k and not k.isdigit()), "")
+        if field in _MEDIA_KEYS and field not in meta:
+            meta[field] = ref
+        elif "artifact" not in meta:
+            meta["artifact"] = ref
+            meta["artifact_id"] = str(art)
+        else:
+            meta.setdefault("media", []).append(ref)
+
+
+def final_fallback_event(view: Dict[str, Any]) -> Dict[str, Any]:
+    """A completed run whose view has no final message (its output had no text: media only, or
+    nothing): an empty final answer carrying the output's artifacts, so the worker's recovery
+    (an output artifact's text, "Generated image ready.", an empty-answer notice) runs."""
+    root = str(view.get("root_run_id") or "")
+    paths = {str(a.get("id") or ""): str(a.get("path") or "") for a in view.get("artifacts") or []}
+    ids = [a for a, p in paths.items() if p.split(".", 1)[0].split("[", 1)[0] == "output"
+           and any(str(x.get("id")) == a and str(x.get("run_id") or "") == root for x in view.get("artifacts") or [])]
+    meta: Dict[str, Any] = {"run_id": root}
+    _media_meta(meta, ids, paths)
+    return {"type": "assistant", "content": "", "final": True, "ts": "", "run_id": root, "meta": meta}
+
+
 class ViewProjector:
     """Turns successive copies of a view into the UI events the panels render.
 
@@ -210,9 +239,15 @@ class ViewProjector:
         self._messages: Set[str] = set()
         self._started: Set[str] = set()
         self._tool_done: Set[str] = set()
-        self._cycles = 0
-        self._interaction = ""
-        self._seen_interactions: Set[str] = set()
+        self._cycles: Dict[str, int] = {}
+        # Interactions by OCCURRENCE (run, wait key, seq of its waiting record): the runtime
+        # reuses a node's wait key for every question it asks, so a key alone would swallow
+        # the second question (the 2026-07-28 stall). `_shown`: occurrence -> wait key.
+        self._shown: Dict[str, str] = {}
+        self._asked: Set[str] = set()
+        self._assistant_ids: Set[str] = set()
+        self.final_shown = False
+        self.error_shown = False
 
     def suppress_history(self, view: Dict[str, Any]) -> None:
         """Mark everything the view holds as already shown, except an open interaction (an
@@ -227,9 +262,12 @@ class ViewProjector:
             self._display[str(r.get("run_id") or "")] = str(r.get("display_status") or "")
         for act in view.get("activities") or []:
             aid = str(act.get("id") or "")
+            if str(act.get("status") or "") in ("running", "waiting"):
+                continue  # still going: its start is shown so its result pairs with it
             self._started.add(aid)
             if act.get("kind") == "llm":
-                self._cycles += 1
+                rid = str(act.get("run_id") or "")
+                self._cycles[rid] = self._cycles.get(rid, 0) + 1
             if str(act.get("status") or "") == "failed":
                 self._tool_done.add(f"{aid}|failed")
             for row in act.get("tool_calls") or []:
@@ -252,7 +290,7 @@ class ViewProjector:
             ev = self._message_event(m, root, paths)
             if ev is not None:
                 events.append(ev)
-        events.extend(self._interaction_events(view.get("interaction")))
+        events.extend(self._interaction_events(view.get("interaction"), view.get("open_waits")))
         status = str(view.get("status") or "")
         if status and status != self._status:
             self._status = status
@@ -268,8 +306,8 @@ class ViewProjector:
         if aid not in self._started:
             self._started.add(aid)
             if kind == "llm":
-                self._cycles += 1
-                ev: Dict[str, Any] = {"type": "cycle", "iteration": self._cycles, "run_id": rid}
+                self._cycles[rid] = self._cycles.get(rid, 0) + 1
+                ev: Dict[str, Any] = {"type": "cycle", "iteration": self._cycles[rid], "run_id": rid}
                 if act.get("started_at"):
                     ev["ts"] = str(act.get("started_at"))
                 out.append(ev)
@@ -299,6 +337,7 @@ class ViewProjector:
             out.append({"type": "tool", "run_id": rid, "message": _tool_message(row, act)})
         if kind != "tool" and str(act.get("status") or "") == "failed" and f"{aid}|failed" not in self._tool_done:
             self._tool_done.add(f"{aid}|failed")
+            self.error_shown = True
             out.append({"type": "error", "error": str(act.get("error") or f"{act.get('name') or kind} failed"), "run_id": rid})
         return out
 
@@ -320,36 +359,45 @@ class ViewProjector:
             return None
         rid = str(m.get("run_id") or root)
         meta: Dict[str, Any] = {"run_id": rid, "message_id": mid}
-        for art in m.get("artifact_ids") or []:
-            # The output field that named it says what it is (`image_artifact` -> an image tile);
-            # the palette reads these keys for the answer's media.
-            ref = {"$artifact": str(art)}
-            key = re.split(r"[.\[\]]", paths.get(str(art), ""))
-            field = next((k for k in reversed(key) if k and not k.isdigit()), "")
-            if field in _MEDIA_KEYS and field not in meta:
-                meta[field] = ref
-            elif "artifact" not in meta:
-                meta["artifact"] = ref
-                meta["artifact_id"] = str(art)
-            else:
-                meta.setdefault("media", []).append(ref)
+        _media_meta(meta, m.get("artifact_ids"), paths)
+        ev_extra: Dict[str, Any] = {}
         if final and m.get("repeats"):
             meta["repeats"] = m.get("repeats")
+            if str(m.get("repeats")) in self._assistant_ids:
+                ev_extra["repeats_shown"] = True  # the same text is already in the transcript
+        if final:
+            self.final_shown = True
+        elif role == "assistant":
+            self._assistant_ids.add(mid)
         ts = ""
         order = m.get("order")
         if isinstance(order, list) and order:
             ts = str(order[0] or "")
-        return {"type": "assistant", "content": text, "final": final, "ts": ts, "run_id": rid, "meta": meta}
+        return {"type": "assistant", "content": text, "final": final, "ts": ts, "run_id": rid, "meta": meta, **ev_extra}
 
-    def _interaction_events(self, it: Any) -> List[Dict[str, Any]]:
+    @staticmethod
+    def _occurrence(w: Dict[str, Any]) -> str:
+        return f"{w.get('run_id') or ''}|{w.get('wait_key') or ''}|{w.get('seq') or 0}"
+
+    def _interaction_events(self, it: Any, open_waits: Any) -> List[Dict[str, Any]]:
+        """Close every shown wait that is no longer open anywhere in the tree (`open_waits`),
+        then ask the view's interaction (the newest open one) if this occurrence was never
+        asked. An older wait that is still open stays on screen while a newer one is asked."""
         out: List[Dict[str, Any]] = []
-        key = str(it.get("wait_key") or "") if isinstance(it, dict) else ""
-        if self._interaction and key != self._interaction:
-            out.append({"type": "interaction_closed", "wait_key": self._interaction})
-        self._interaction = key
-        if not key or key in self._seen_interactions:
+        still_open = {self._occurrence(w) for w in open_waits or [] if isinstance(w, dict) and w.get("person_facing")}
+        if isinstance(it, dict):
+            still_open.add(self._occurrence(it))
+        for occ in [o for o in self._shown if o not in still_open]:
+            key = self._shown.pop(occ)
+            out.append({"type": "interaction_closed", "wait_key": key, "run_id": occ.split("|", 1)[0]})
+        if not isinstance(it, dict) or not it.get("wait_key"):
             return out
-        self._seen_interactions.add(key)
+        occ = self._occurrence(it)
+        if occ in self._shown or occ in self._asked:
+            return out
+        key = str(it.get("wait_key"))
+        self._shown[occ] = key
+        self._asked.add(occ)
         rid = str(it.get("run_id") or "")
         if it.get("kind") == "tool_approval":
             calls = [{"name": r.get("name"), "arguments": r.get("arguments"), "call_id": r.get("id")}
@@ -366,7 +414,6 @@ class ViewProjector:
             out.append(ev)
         return out
 
-
 def _transient(exc: BaseException) -> bool:
     if isinstance(exc, GatewayStreamIdle):
         return True
@@ -374,6 +421,25 @@ def _transient(exc: BaseException) -> bool:
         status = int(getattr(exc, "status", 0) or 0)
         return status in {408, 425, 429} or status >= 500
     return isinstance(exc, (urllib.error.URLError, ConnectionError, OSError))
+
+
+def _retrying(call: Callable[[], Any], *, should_stop: Callable[[], bool], attempts: int = 4) -> Any:
+    """`call()` with a short backoff on transient transport errors (a blip right after a run
+    starts must not end its follow); the last error, or a non-transient one, is raised."""
+    for n in range(attempts):
+        try:
+            return call()
+        except Exception as exc:  # noqa: BLE001
+            if not _transient(exc) or n == attempts - 1 or should_stop():
+                raise
+            _sleep(min(4.0, 0.5 * (2 ** n)), should_stop)
+    raise AssertionError("unreachable")
+
+
+def _sleep(seconds: float, should_stop: Callable[[], bool]) -> None:
+    deadline = time.monotonic() + max(0.0, seconds)
+    while time.monotonic() < deadline and not should_stop():
+        time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
 
 
 def follow_run_view(
@@ -391,9 +457,11 @@ def follow_run_view(
 
     `on_view(view)` runs after every change of the copy, the first GET included. A reconnect
     sends the copy's cursor as `Last-Event-ID`: the gateway answers with nothing, one delta, or
-    the whole view, so nothing is skipped or folded twice."""
+    the whole view, so nothing is skipped or folded twice. Consecutive transport failures are
+    counted until a stream connects again; a stream that ends without `done` (a proxy closing
+    an idle connection) is reconnected after a backoff, never in a tight loop."""
     fold = ViewFold()
-    status, _etag, body = gateway.get_run_view(run_id=run_id)
+    status, _etag, body = _retrying(lambda: gateway.get_run_view(run_id=run_id), should_stop=should_stop)
     if body is None:
         raise GatewayHttpError("get_run_view answered without a view", status=status)
     fold.apply_frame("view", body)
@@ -406,50 +474,52 @@ def follow_run_view(
             except Exception:
                 return False
 
-    failures = 0
-    offline = False
-    finished = {"done": False}
+    state = {"failures": 0, "offline": False, "done": False, "quiet": 0}
 
-    def _frame(event: str, _id: str, data: Dict[str, Any]) -> Optional[bool]:
-        nonlocal failures, offline
-        failures = 0
-        if offline:
-            offline = False
+    def _opened() -> None:
+        state["failures"] = 0
+        if state["offline"]:
+            state["offline"] = False
             if on_online:
                 on_online()
+
+    def _frame(event: str, _id: str, data: Dict[str, Any]) -> Optional[bool]:
+        state["quiet"] = 0
         if event == "done":
-            finished["done"] = True
+            state["done"] = True
             return False
         if fold.apply_frame(event, data):
             on_view(fold.view or {})
         return None
 
-    while not should_stop() and not finished["done"]:
+    while not should_stop() and not state["done"]:
         try:
             gateway.stream_run_view(run_id=run_id, on_frame=_frame, last_event_id=fold.token or None,
-                                    stop_signal=_Stop(), timeout_s=stream_idle_s, max_idle_s=stream_idle_s)
+                                    stop_signal=_Stop(), timeout_s=stream_idle_s, max_idle_s=stream_idle_s,
+                                    on_open=_opened)
         except Exception as exc:  # noqa: BLE001
             if not _transient(exc):
                 raise
-            failures += 1
-            if failures > max_transient_failures:
+            state["failures"] += 1
+            if state["failures"] > max_transient_failures:
                 raise
-            if not offline:
-                offline = True
+            if not state["offline"]:
+                state["offline"] = True
                 if on_offline:
                     on_offline(str(exc))
-            deadline = time.monotonic() + min(8.0, 0.5 * (2 ** (failures - 1)))
-            while time.monotonic() < deadline and not should_stop():
-                time.sleep(0.1)
+            _sleep(min(8.0, 0.5 * (2 ** (state["failures"] - 1))), should_stop)
             continue
-        if not finished["done"] and str((fold.view or {}).get("status") or "") in TERMINAL:
+        if state["done"] or should_stop():
+            break
+        if str((fold.view or {}).get("status") or "") in TERMINAL:
             # The stream closed without `done` on a finished tree: one GET settles the copy.
             st, _e, body = gateway.get_run_view(run_id=run_id, etag=f'"{fold.token}"' if fold.token else None)
             if st != 304 and body is not None and fold.apply_frame("view", body):
                 on_view(fold.view or {})
             break
+        state["quiet"] += 1
+        _sleep(min(5.0, 0.25 * (2 ** min(state["quiet"], 5))), should_stop)
     return fold
-
 
 
 def follow_run_ledger_locally(
@@ -467,9 +537,14 @@ def follow_run_ledger_locally(
     """A gateway without the view routes (before AbstractGateway 0.17.0): read the run tree's
     ledgers (`GET /runs/{id}/ledger`) and snapshots (`GET /runs/{id}`) and fold them with
     AbstractRuntime's own reducer (`ReplayView.apply`), here instead of on the gateway. The same
-    view, the same projection; only where the fold runs differs."""
+    view, the same projection; only where the fold runs differs.
+
+    A pass reads every run's new records and the snapshots of runs not yet finished, then folds
+    them; the read positions move only once the fold succeeded (a failed pass is read again,
+    and folding by seq is idempotent). The view is rendered when its cursor token changes."""
     rv = ReplayView(str(run_id))
     consumed: Dict[str, int] = {}
+    finished: Set[str] = set()  # runs whose snapshot is terminal: not re-read
     fold = ViewFold()
     failures = 0
     offline = False
@@ -482,25 +557,36 @@ def follow_run_ledger_locally(
                 grew = False
                 records: List[Dict[str, Any]] = []
                 snaps: Dict[str, Any] = {}
+                positions: Dict[str, int] = {}
                 for rid in rv.run_ids or [str(run_id)]:
+                    at = consumed.get(rid, 0)
                     while True:
-                        page = gateway.get_ledger(run_id=rid, after=consumed.get(rid, 0), limit=page_size)
-                        items = [r for r in (page.get("items") if isinstance(page, dict) else None) or [] if isinstance(r, dict)]
-                        consumed[rid] = int(page.get("next_after") or consumed.get(rid, 0) + len(items)) if isinstance(page, dict) else consumed.get(rid, 0)
+                        page = gateway.get_ledger(run_id=rid, after=at, limit=page_size)
+                        page = page if isinstance(page, dict) else {}
+                        items = [r for r in page.get("items") or [] if isinstance(r, dict)]
                         records.extend(items)
+                        at = int(page.get("next_after") or at + len(items))
                         if len(items) < page_size:
                             break
+                    positions[rid] = at
+                    if rid in finished:
+                        continue
                     snap = gateway.get_run(run_id=rid)
                     if isinstance(snap, dict) and snap:
-                        snaps[rid] = dict(snap, run_id=str(snap.get("run_id") or rid))
+                        snap = dict(snap, run_id=str(snap.get("run_id") or rid))
                         if rid == str(run_id):
                             # The run summary carries no input: the view's prompt message needs it.
                             if root_input is None:
                                 data = gateway.get_run_input_data(run_id=rid)
                                 root_input = data.get("input_data") if isinstance(data, dict) else {}
-                            snaps[rid]["input_data"] = root_input or {}
+                            snap["input_data"] = root_input or {}
+                        snaps[rid] = snap
                 before = set(rv.run_ids)
                 rv.apply(records, runs_by_id=snaps)
+                consumed.update(positions)
+                for rid, snap in snaps.items():
+                    if str(snap.get("status") or "").lower() in TERMINAL:
+                        finished.add(rid)
                 grew = bool(set(rv.run_ids) - before)
         except Exception as exc:  # noqa: BLE001
             if not _transient(exc):
@@ -512,27 +598,23 @@ def follow_run_ledger_locally(
                 offline = True
                 if on_offline:
                     on_offline(str(exc))
-            deadline = time.monotonic() + min(8.0, 0.5 * (2 ** (failures - 1)))
-            while time.monotonic() < deadline and not should_stop():
-                time.sleep(0.05)
+            _sleep(min(8.0, 0.5 * (2 ** (failures - 1))), should_stop)
             continue
         failures = 0
         if offline:
             offline = False
             if on_online:
                 on_online()
-        view = rv.to_json()
-        if fold.view != view:
-            fold.apply_frame("view", view)
-            on_view(view)
+        token = str(rv.cursor.get("token") or "")
+        if fold.view is None or token != fold.token:
+            fold.apply_frame("view", rv.to_json())
+            on_view(fold.view or {})
         if rv.is_terminal():
             if drained_terminal:
                 break
             drained_terminal = True  # one more pass: the terminal record can precede the last appends
             continue
-        deadline = time.monotonic() + poll_s
-        while time.monotonic() < deadline and not should_stop():
-            time.sleep(0.05)
+        _sleep(poll_s, should_stop)
     return fold
 
 
@@ -570,6 +652,8 @@ class LiveText:
             self._thread.join(join_s)
 
     def _emit(self, ev: Dict[str, Any]) -> None:
+        if self._stop.is_set():
+            return  # stopped: nothing reaches the palette after the follow has ended
         try:
             self._on_delta(ev)
         except Exception as exc:  # noqa: BLE001
@@ -597,10 +681,16 @@ class LiveText:
         backoff = 0.5
         while not self._stop.is_set():
             try:
+                # No idle limit: a long tool run sends neither steps nor deltas, and that is not
+                # a failure. `timeout_s` is the socket's (the gateway sends keep-alives).
                 self._gateway.stream_ledger(run_id=self._run_id, after=self._after, on_step=_step,
                                             stop_signal=self._stop, timeout_s=self._idle_s,
-                                            max_idle_s=self._idle_s, on_delta=_delta, on_open=_open)
-                backoff = 0.5
+                                            max_idle_s=None, on_delta=_delta, on_open=_open)
+                # The gateway ended the stream (`done`, or a proxy closed it): reconnect calmly;
+                # the follower stops this thread once the view says the run is done.
+                backoff = 1.0
+            except GatewayStreamIdle:
+                backoff = 0.5  # a quiet socket: reconnect, nothing to report
             except Exception as exc:  # noqa: BLE001
                 if not self.problem:
                     self.problem = f"live reply stream failed: {exc}"
@@ -623,7 +713,7 @@ def follow_run(
     """Follow a run tree until it is done: the gateway's replay view when it serves one
     (`supports_replay_view`), else the same view folded here from its ledger. `on_mode("view"
     | "local")` says which, before anything renders. `on_live` gets the live reply text."""
-    mode = "view" if gateway.supports_replay_view() else "local"
+    mode = "view" if _retrying(gateway.supports_replay_view, should_stop=should_stop) else "local"
     if on_mode:
         on_mode(mode)
     live: List[LiveText] = []
@@ -645,5 +735,5 @@ def follow_run(
             lt.stop()
 
 
-__all__ = ["ViewFold", "ViewProjector", "ViewOutOfSync", "LiveText", "follow_run", "follow_run_view",
+__all__ = ["ViewFold", "ViewProjector", "ViewOutOfSync", "LiveText", "follow_run", "follow_run_view", "final_fallback_event",
            "follow_run_ledger_locally", "finished_llm_calls", "stats_from_view", "TERMINAL"]

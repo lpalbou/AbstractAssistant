@@ -106,7 +106,8 @@ class _ViewGateway:
             time.sleep(0.01)
 
     def stream_run_view(self, *, run_id, on_frame, last_event_id=None, stop_signal=None, timeout_s=None,
-                        max_idle_s=None):
+                        max_idle_s=None, on_open=None):
+        on_open()
         assert self.live_sent.wait(5)
         done = _view("completed", activities=[_llm_activity("completed")], messages=[FINAL], seq=3)
         on_frame("delta", "run-1:3", done)
@@ -290,7 +291,8 @@ def test_cli_run_streams_live_text_then_prints_the_committed_final_once(monkeypa
             stop_signal.wait(5)
 
         def stream_run_view(self, *, run_id, on_frame, last_event_id=None, stop_signal=None, timeout_s=None,
-                            max_idle_s=None):
+                            max_idle_s=None, on_open=None):
+            on_open()
             assert live_done.wait(5)
             final = dict(FINAL, text="Bonjour")
             on_frame("delta", "run-1:3", _view("completed", activities=[_llm_activity("completed")],
@@ -343,3 +345,97 @@ def test_cli_run_streams_live_text_then_prints_the_committed_final_once(monkeypa
     assert captured.err == "Bonjour\n"
     assert captured.out.count("Bonjour") == 1
     assert started[0]["input_data"]["_runtime"]["stream"] is True
+
+
+from abstractassistant.gateway.replay_view import follow_run_ledger_locally, follow_run_view  # noqa: E402
+
+
+@pytest.mark.basic
+def test_a_stream_that_ends_without_done_is_reconnected_calmly():
+    calls: List[float] = []
+
+    class _Gw:
+        def get_run_view(self, **kw):
+            return 200, '"run-1:1"', _view("running", seq=1)
+
+        def stream_run_view(self, *, on_open=None, **kw):
+            calls.append(time.monotonic())
+            on_open()  # connected, then the proxy closes it cleanly
+
+    t0 = time.monotonic()
+    follow_run_view(gateway=_Gw(), run_id=ROOT, on_view=lambda v: None, should_stop=lambda: time.monotonic() - t0 > 1.0)
+    assert 2 <= len(calls) <= 6, len(calls)  # backed off, not millions of reconnects
+
+
+@pytest.mark.basic
+def test_back_online_when_a_reconnect_connects_and_blips_do_not_accumulate():
+    from abstractassistant.gateway.client import GatewayStreamIdle
+
+    marks: List[str] = []
+    n = {"i": 0}
+
+    class _Gw:
+        def get_run_view(self, **kw):
+            return 200, '"run-1:1"', _view("waiting", seq=1)
+
+        def stream_run_view(self, *, on_frame, on_open=None, **kw):
+            n["i"] += 1
+            if n["i"] % 2:
+                raise ConnectionError("blip")  # every other attempt: 10 blips in total
+            on_open()  # back, only keep-alives
+            if n["i"] >= 20:
+                on_frame("done", "", {})
+                return
+            raise GatewayStreamIdle("idle")
+
+    follow_run_view(gateway=_Gw(), run_id=ROOT, on_view=lambda v: None, should_stop=lambda: False,
+                    on_offline=lambda r: marks.append("off"), on_online=lambda: marks.append("on"),
+                    max_transient_failures=3)
+    assert marks[:2] == ["off", "on"]  # online again on connect, without any frame
+    assert n["i"] == 20  # 10 separated blips never reached the limit of 3 consecutive
+
+
+@pytest.mark.basic
+def test_local_fold_reads_a_failed_pass_again():
+    recs = [{"run_id": ROOT, "step_id": "a", "node_id": "end", "status": "completed",
+             "idempotency_key": "system:completion:end", "result": {"output": {"response": "Kept."}}}]
+    state = {"fail": True}
+
+    class _Gw(_OldGateway):
+        def get_run(self, run_id):
+            if state.pop("fail", False):
+                raise ConnectionError("blip after the ledger page was read")
+            return super().get_run(run_id)
+
+    fold = follow_run_ledger_locally(gateway=_Gw(recs), run_id=ROOT, on_view=lambda v: None,
+                                     should_stop=lambda: False)
+    assert [m["text"] for m in fold.view["messages"] if m["kind"] == "final"] == ["Kept."]
+    assert fold.view["cursor"]["runs"][ROOT] == 1
+
+
+@pytest.mark.basic
+def test_a_media_only_answer_still_reaches_the_transcript():
+    class _Gw(_OldGateway):
+        def get_run(self, run_id):
+            return {"run_id": run_id, "status": "completed", "output": {"image_artifact": {"$artifact": "img1"}}}
+
+    recs = [{"run_id": ROOT, "step_id": "a", "node_id": "end", "status": "completed",
+             "idempotency_key": "system:completion:end",
+             "result": {"output": {"image_artifact": {"$artifact": "img1", "content_type": "image/png"}}}}]
+    worker = _worker(_Gw(recs))
+    assert worker._follow_view(run_id=ROOT, attach=False) == "completed"
+    finals = [e for e in worker.event_emitted.items if e["type"] == "assistant" and e["final"]]
+    assert len(finals) == 1
+    assert finals[0]["content"] == "Generated image ready."
+    assert finals[0]["meta"]["image_artifact"] == {"$artifact": "img1"}
+
+
+@pytest.mark.basic
+def test_a_failed_run_says_why():
+    class _Gw(_OldGateway):
+        def get_run(self, run_id):
+            return {"run_id": run_id, "status": "failed", "error": "provider unreachable"}
+
+    worker = _worker(_Gw([]))
+    assert worker._follow_view(run_id=ROOT, attach=False) == "failed"
+    assert [e["error"] for e in worker.event_emitted.items if e["type"] == "error"] == ["provider unreachable"]
