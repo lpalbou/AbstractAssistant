@@ -5,6 +5,23 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+## [0.16.5] - 2026-10-28
+
+The web Assistant on AbstractUIC 0.8.3, and the desktop's AbstractVoice floor raised. No other Python change.
+
+### Changed
+
+- **AbstractVoice 0.19.3 or later** (was 0.11.4) for the base install and every voice extra (`voice`, `apple`,
+  `gpu`, `all`): its audio player now reports the start of every playback. Before it, a stopped reply left the
+  player's "started" flag set and later replies never reported a start (the cause behind the spinner of 0.16.4,
+  which the app already works around).
+- The web Assistant builds with `@abstractframework/ui-kit` 0.9.5 and `@abstractframework/panel-chat` 0.6.3
+  (were 0.9.4 and 0.6.2; `@abstractframework/app-server` stays 0.1.13). From the kit: reading a reply aloud shows a
+  spinner only while the first audio loads, then Pause / Play, and the speaker and copy buttons are always visible
+  (they appeared on hover only); the voice settings name a chosen voice by its name, never its id ("a saved voice"
+  when the catalog does not list it), list each speech model once with its role ("… -Base (clones)"), and a cloned
+  voice says which cloning model it is spoken with.
+
 ## [0.16.4] - 2026-10-28
 
 More desktop fixes from the operator's QA of 2026-10-28 (backlog 1068; follow-up 1069).
