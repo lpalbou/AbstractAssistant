@@ -138,9 +138,21 @@ describe("the replay view (panel-chat 0.6.0, AbstractGateway >= 0.17.0)", () => 
 
   it("the controller renders the conversation from the view: the child's approval, no ledger fold", async () => {
     const view = replayView();
+    // An earlier turn of the same conversation (panel-chat 0.6.2 shows every turn, AbstractUIC backlog 0058).
+    const earlier = {
+      ...view,
+      root_run_id: "prev0000-run",
+      status: "completed",
+      interaction: null,
+      activities: [],
+      messages: [{ id: "prev0000-run:input", role: "user", kind: "prompt", text: "first question", run_id: "prev0000-run", step_ids: [], seqs: [], source: "run_input", artifact_ids: [], order: ["2026-10-28T09:00:00+00:00", "prev0000-run", 0] }],
+    };
     const urls: string[] = [];
     vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
       urls.push(url);
+      if (url.endsWith("runs/prev0000-run/view")) return new Response(JSON.stringify(earlier), { status: 200, headers: { ETag: '"prev"' } });
+      if (url.includes("runs/root0000-run/history_bundle?include_session=true&include_subruns=false&ledger_max_items=1"))
+        return new Response(JSON.stringify({ session: { session_id: "sess-1", turns: [{ run_id: "prev0000-run" }, { run_id: "root0000-run" }] } }), { status: 200 });
       if (url.endsWith("/view")) return new Response(JSON.stringify(view), { status: 200, headers: { ETag: `"${view.cursor.token}"` } });
       if (url.includes("/view/stream") || url.includes("/ledger/stream")) {
         return new Response(new ReadableStream({ start(c) { init.signal?.addEventListener("abort", () => { try { c.close(); } catch { /* closed */ } }); } }), { status: 200, headers: { "Content-Type": "text/event-stream" } });
@@ -163,7 +175,14 @@ describe("the replay view (panel-chat 0.6.0, AbstractGateway >= 0.17.0)", () => 
     // With the empty records of view mode, the approval card is still the full control.
     const control = presentInteraction(pending, ctl, { records: snap.records, currentRun: snap.run, allowSkip: true });
     expect(control?.kind).toBe("tool-approval");
-    expect(urls.some((u) => u.includes("history_bundle") || /\/ledger\?/.test(u))).toBe(false);
+    // Every turn: the earlier turn's prompt comes first; the only bundle read is the small turn listing.
+    const contents = snap.messages.map((m) => m.content);
+    expect(contents.indexOf("first question")).toBeGreaterThanOrEqual(0);
+    expect(contents.indexOf("first question")).toBeLessThan(contents.indexOf("write a.txt"));
+    const bundles = urls.filter((u) => u.includes("history_bundle"));
+    expect(bundles).toHaveLength(1);
+    expect(urls.some((u) => /\/ledger\?/.test(u))).toBe(false);
+    expect(snap.messages.some((m) => /could not be listed|are not shown|could not be restored/.test(String(m.content)))).toBe(false);
     ctl.dispose();
     vi.unstubAllGlobals();
   });

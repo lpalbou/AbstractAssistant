@@ -5,6 +5,25 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+## [0.16.2] - 2026-10-28
+
+The web Assistant on AbstractUIC 0.8.2. The Python package is unchanged from 0.16.1 apart from its version.
+
+### Fixed
+
+- **A conversation reopened in the web Assistant shows every turn again** (0.16.1 showed only the last one):
+  `@abstractframework/panel-chat` 0.6.2 lists the conversation's turns as the runtime selects them (a small
+  `history_bundle?include_session=true` read) and renders each earlier turn from its own replay view, oldest first
+  (AbstractUIC backlog 0058).
+- The web Assistant builds with `@abstractframework/panel-chat` 0.6.2, `@abstractframework/ui-kit` 0.9.4 and
+  `@abstractframework/app-server` 0.1.13 (were 0.6.0, 0.9.2, 0.1.12). From the kit: the tool approval card makes
+  "Allow once" its primary and keeps one visible scope line; a gateway that does not answer reads "Gateway … did not
+  answer" instead of "Session rejected — sign in again"; "Create a voice" and "Manage voices" are styled; the voice
+  picker lists each Qwen3-TTS voice once; one duration format in the chat, and a tool time that includes an approval
+  wait says so; tool-row badges and the model picker's "Custom" are no longer cut.
+- Tests: the transport test reopens a two-turn conversation (both turns, oldest first, one small listing, no ledger
+  pages); the layout check counts the turn listing apart from the ledger fold's bundle.
+
 ## [0.16.1] - 2026-10-28
 
 Completes the replay-view migration of 0.16.0 on the web: the desktop app and the web Assistant now

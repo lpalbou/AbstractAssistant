@@ -31,11 +31,11 @@
     "test:layout": "node scripts/check_layout.mjs"
   },
   "dependencies": {
-    "@abstractframework/app-server": "0.1.12"
+    "@abstractframework/app-server": "0.1.13"
   },
   "devDependencies": {
-    "@abstractframework/panel-chat": "0.6.0",
-    "@abstractframework/ui-kit": "0.9.2",
+    "@abstractframework/panel-chat": "0.6.2",
+    "@abstractframework/ui-kit": "0.9.4",
     "@types/react": "18.3.27",
     "@types/react-dom": "18.3.7",
     "@vitejs/plugin-react": "4.7.0",
