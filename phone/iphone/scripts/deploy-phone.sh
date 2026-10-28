@@ -3,8 +3,7 @@
 #                 [--no-build] [--screen NAME] [--console] [--shoot FILE.png [--wait S]]
 # Signed Debug build for the connected physical iPhone (scripts/build.py --device; --no-build: the
 # last one), install over CoreDevice, launch with the sign-in from the arguments (or FILE: GW_URL +
-# GW_TOKEN [+ GW_USER]) verified and sealed on the iPhone, handed to the watch and registered for
-# push, exactly as the account-token sign-in does. No sign-in arguments keep the one on the iPhone;
+# GW_TOKEN [+ GW_USER]) verified and sealed on the iPhone and registered for push, exactly as the account-token sign-in does. No sign-in arguments keep the one on the iPhone;
 # --forget clears it. Debug builds only: Release ignores these launch arguments.
 # --console stays attached and prints the app's `phone-trace` lines (sign-in, watch handoff, push);
 # --shoot captures a screenshot after S seconds (default 10; black while the screen is off).
