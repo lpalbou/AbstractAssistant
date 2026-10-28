@@ -831,6 +831,19 @@ def attention_ack_cursor(summary: Mapping[str, Any]) -> Optional[str]:
     return None
 
 
+def new_failure_indices(summary: Mapping[str, Any]) -> List[int]:
+    """The unseen runs among ``new_result_indices`` that failed (``kind == "failure"``)."""
+    attention = summary.get("attention") if isinstance(summary, Mapping) else None
+    out: List[int] = []
+    for item in (attention.get("items") if isinstance(attention, Mapping) else None) or []:
+        if isinstance(item, Mapping) and item.get("kind") == "failure":
+            try:
+                out.append(int(item.get("index")))
+            except (TypeError, ValueError):
+                continue
+    return out
+
+
 def new_result_indices(summary: Mapping[str, Any]) -> List[int]:
     """The run indices of the unseen results (``attention.items``) — the runs the
     "N new results" notice is about, marked "New result" when the automation opens."""

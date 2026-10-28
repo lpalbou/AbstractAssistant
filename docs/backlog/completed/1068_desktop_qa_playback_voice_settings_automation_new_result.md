@@ -47,3 +47,13 @@ files, never artifact ids. Tests: `tests/basic/test_automation_new_result_marked
 
 The rest of the ask (each run as a full conversation exchange: its tool activity, media and approvals, as a chat
 turn renders them) needs each occurrence's replay view: follow-up 1069.
+
+## Review
+
+Adversarial review (opus, read-only) before merge: no blocker. Fixed: a superseded or stopped stream leg could
+announce a start that marked the NEXT reply as speaking (now only the current, unstopped leg announces); a start
+queued just before a pause no longer flips the card to Pause; the once-only start guard is atomic; an unseen failed
+run reads "New failure"; the route list's tooltip names the voice too; tests added for the single-shot lane and for
+Open -> the automation with its marks (fails without the wiring). Left as is: Open decides from the last polled
+automation summaries (a result newer than the last poll shows on the next poll); an unseen run older than the
+loaded page is not marked (the view opens on the latest run).

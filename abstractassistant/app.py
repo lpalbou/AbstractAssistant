@@ -185,6 +185,7 @@ from .core.automations import (
     NotificationLedger,
     automations_with_new_results,
     discussion_banner,
+    new_failure_indices,
     new_result_indices,
     target_from_workflow,
 )
@@ -7032,7 +7033,7 @@ class AssistantPalette(QMainWindow):
         # The unseen results, read before viewing acknowledges them below: an
         # automation opens like a conversation whose new exchange is marked and
         # in view (QA 2026-10-28 (g)).
-        view.set_new_runs(new_result_indices(summary))
+        view.set_new_runs(new_result_indices(summary), new_failure_indices(summary))
         view.set_occurrences([], next_cursor=None)
         view.set_summary(summary)
         view.workflow_label.clear()
@@ -10503,6 +10504,12 @@ class AssistantPalette(QMainWindow):
     def _on_message_speech_started(self, key: str) -> None:
         if str(self._active_spoken_message_key or "") != str(key or ""):
             return
+        try:
+            if self._controller.voice_manager.is_paused():
+                # A start queued just before a pause: the card stays on Play.
+                return
+        except Exception:
+            pass
         self._active_spoken_message_phase = "speaking"
         self._set_message_voice_card_state(str(key or ""), "speaking")
         # Say WHERE the audio is going and HOW LOUD the system output is:

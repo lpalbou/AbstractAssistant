@@ -1135,8 +1135,14 @@ class GatewayVoiceManager:
                     duration_s = self._queue_stream_wav_chunk(audio_bytes, playback_drained=playback_drained)
                     if duration_s is None:
                         return False
-                    # The audio is with the device: the card leaves its spinner for play/pause now.
-                    announce_start()
+                    # The audio is with the device: the card leaves its spinner for play/pause now
+                    # (only for the current, unstopped speech: a superseded leg must not mark
+                    # the next reply as speaking).
+                    if not stop_gate.is_set():
+                        with self._state_lock:
+                            current = self._stream_id == stream_id
+                        if current:
+                            announce_start()
                     queued_audio_s += max(0.0, float(duration_s))
                     continue
                 if event_type == "done":
@@ -1890,11 +1896,13 @@ class GatewayVoiceManager:
         self._tts_gate_start()
 
         start_announced = threading.Event()
+        once = threading.Lock()
 
         def _on_audio_start() -> None:
-            if start_announced.is_set():
-                return
-            start_announced.set()
+            with once:
+                if start_announced.is_set():
+                    return
+                start_announced.set()
             try:
                 if self.on_speech_start:
                     self.on_speech_start()
@@ -1993,11 +2001,13 @@ class GatewayVoiceManager:
         interrupted reply the next one never reports a start), and a card waiting for it
         spun its loading spinner for the whole reply (QA 2026-10-28 (h))."""
         speech_start_emitted = threading.Event()
+        once = threading.Lock()
 
         def _on_audio_start() -> None:
-            if speech_start_emitted.is_set():
-                return
-            speech_start_emitted.set()
+            with once:
+                if speech_start_emitted.is_set():
+                    return
+                speech_start_emitted.set()
             try:
                 if self.on_speech_start:
                     self.on_speech_start()

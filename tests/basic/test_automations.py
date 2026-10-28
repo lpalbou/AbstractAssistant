@@ -821,6 +821,21 @@ def test_palette_poll_notifies_once_and_opens_an_automation_with_its_controls(pa
 
 
 @pytest.mark.basic
+def test_open_goes_to_the_new_result_and_marks_it(palette, stub) -> None:
+    """QA 2026-10-28 (g): "new results" -> Open opens the automation that has them, its unseen runs
+    marked (#2 a result, #5 a failure) and in view; closing forgets the marks."""
+    window, _controller = palette
+    window._poll_automations()
+    window._open_attention("")
+    view = window.automation_view
+    assert view.isVisibleTo(window) and window._automation_view_id == TRIAGE
+    marks = {p.index: p.new_badge.text() for p in view.pairs if p.new_badge.isVisibleTo(p)}
+    assert marks == {2: "New result", 5: "New failure"}
+    window._close_automation_view()
+    assert view.new_indices == set() and view.first_new_pair() is None
+
+
+@pytest.mark.basic
 def test_run_now_while_paused_and_archive_confirmed_in_the_palette(palette, stub) -> None:
     window, _controller = palette
     window._poll_automations()

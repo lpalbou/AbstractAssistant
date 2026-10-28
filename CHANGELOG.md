@@ -5,6 +5,25 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+## [0.16.4] - 2026-10-28
+
+More desktop fixes from the operator's QA of 2026-10-28 (backlog 1068; follow-up 1069).
+
+### Fixed
+
+- **Reading a reply aloud: the spinner shows only while the audio loads**, then pause / play. After a reply was
+  interrupted (another reply's speaker, a stop), later replies kept spinning while they were spoken: the audio
+  player did not report their start (AbstractVoice's player keeps its "started" flag across a stop). The app now
+  marks a reply as speaking as soon as its first audio reaches the player.
+- **Speaker and copy are always shown** on a reply (they appeared on hover only).
+- **Settings → Voice output lists each model once** (every Qwen3-TTS model was listed twice: the gateway names each
+  model in two lists with two different ids).
+- **The voice route's state line is a neutral note and names the voice** ("· voice hal9000-qwen2"), never its id
+  ("· voice 41576236…") nor a warning colour.
+- **"1 new result" → Open shows the result.** Open goes to the automation that has the new result (several: the
+  Automations list with the first of them selected), marks that run "New result" and opens on it, instead of the
+  list with nothing marked. A run's file list names files, never their ids.
+
 ## [0.16.3] - 2026-10-28
 
 Desktop fixes from the operator's QA of the 2026-10-28 release (backlog 1067).

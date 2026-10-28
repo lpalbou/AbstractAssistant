@@ -557,6 +557,7 @@ class OccurrencePair(QWidget):
         bubble_width: "BubbleWidth",
         viewport_width: int,
         is_new: bool = False,
+        is_failure: bool = False,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -609,7 +610,7 @@ class OccurrencePair(QWidget):
         self.badge.setObjectName("autoTurnBadge")
         self.badge.setProperty("tone", view.tone)
         self.badge.setVisible(bool(view.badge))
-        self.new_badge = QLabel("New result", self.answer)
+        self.new_badge = QLabel("New failure" if is_failure else "New result", self.answer)
         self.new_badge.setObjectName("autoNewBadge")
         self.new_badge.setVisible(self.is_new)
         head.addWidget(self.new_badge, 0)
@@ -881,6 +882,7 @@ class AutomationView(QFrame):
         # Run indices with an unseen result, captured when the view opens
         # (before they are acknowledged): marked "New result".
         self.new_indices: Set[int] = set()
+        self.new_failures: Set[int] = set()
 
         # The list spans the history card's full inner width, exactly like the
         # chat's transcript (same x-edges for the bubbles); only the header is
@@ -1238,6 +1240,7 @@ class AutomationView(QFrame):
                 bubble_width=self._bubble_width,
                 viewport_width=self.list_width(),
                 is_new=int(view.row.get("index") or 0) in self.new_indices,
+                is_failure=int(view.row.get("index") or 0) in self.new_failures,
                 parent=self.list_host,
             )
             pair.discuss_requested.connect(self.discuss_requested.emit)
@@ -1269,11 +1272,14 @@ class AutomationView(QFrame):
         bar = self.scroll.verticalScrollBar()
         QTimer.singleShot(0, lambda: bar.setValue(bar.maximum()))
 
-    def set_new_runs(self, indices: Iterable[int]) -> None:
-        """The runs whose results the person has not seen yet (attention items)."""
+    def set_new_runs(self, indices: Iterable[int], failures: Iterable[int] = ()) -> None:
+        """The runs whose results the person has not seen yet (attention items);
+        ``failures``: those of them that failed (marked "New failure")."""
         self.new_indices = {int(i) for i in indices if str(i).strip().lstrip("-").isdigit()}
+        self.new_failures = {int(i) for i in failures if str(i).strip().lstrip("-").isdigit()}
         for pair in self.pairs:
             pair.is_new = pair.index in self.new_indices
+            pair.new_badge.setText("New failure" if pair.index in self.new_failures else "New result")
             pair.new_badge.setVisible(pair.is_new)
 
     def first_new_pair(self) -> Optional["OccurrencePair"]:

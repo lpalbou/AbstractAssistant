@@ -1251,7 +1251,9 @@ exactly where it stopped. With the stream connected:
 - a line above the transcript says what is waiting for you across every conversation and
   automation ("A conversation is waiting for you · 2 new results from your automations"), with
   **Open**. Open first asks the gateway whether that run still waits; it opens the conversation
-  when it does, and says so when it no longer does. For results it opens the Automations tab;
+  when it does, and says so when it no longer does. For results it opens the automation that has
+  them (several: the Automations tab with the first of them selected); the runs whose results you
+  have not seen are marked **New result** and the automation opens on the first of them;
 - the menu bar icon shows the amber "needs you" badge while a run elsewhere waits for you, and its
   tooltip repeats the line.
 
@@ -3147,6 +3149,25 @@ All notable changes to AbstractAssistant are documented in this file. Entries de
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
 ## [Unreleased]
+
+## [0.16.4] - 2026-10-28
+
+More desktop fixes from the operator's QA of 2026-10-28 (backlog 1068; follow-up 1069).
+
+### Fixed
+
+- **Reading a reply aloud: the spinner shows only while the audio loads**, then pause / play. After a reply was
+  interrupted (another reply's speaker, a stop), later replies kept spinning while they were spoken: the audio
+  player did not report their start (AbstractVoice's player keeps its "started" flag across a stop). The app now
+  marks a reply as speaking as soon as its first audio reaches the player.
+- **Speaker and copy are always shown** on a reply (they appeared on hover only).
+- **Settings → Voice output lists each model once** (every Qwen3-TTS model was listed twice: the gateway names each
+  model in two lists with two different ids).
+- **The voice route's state line is a neutral note and names the voice** ("· voice hal9000-qwen2"), never its id
+  ("· voice 41576236…") nor a warning colour.
+- **"1 new result" → Open shows the result.** Open goes to the automation that has the new result (several: the
+  Automations list with the first of them selected), marks that run "New result" and opens on it, instead of the
+  list with nothing marked. A run's file list names files, never their ids.
 
 ## [0.16.3] - 2026-10-28
 
@@ -7278,7 +7299,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.16.3"
+version = "0.16.4"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -17524,6 +17545,7 @@ class GatewayVoiceManager:
         allow_unpinned_retry: bool = True,
     ) -> bool:
         audio_started = False
+        announce_start: Callable[[], None] = lambda: None
         stream_opened = False
         player = None
         playback_drained = threading.Event()
@@ -17715,13 +17737,21 @@ class GatewayVoiceManager:
                         player = self._ensure_inprocess_audio_player()
                         if player is None:
                             return _artifact_fallback("in-process audio player unavailable")
-                        self._configure_stream_playback_callbacks(player, playback_drained)
+                        announce_start = self._configure_stream_playback_callbacks(player, playback_drained) or announce_start
                         audio_started = True
                     if not self._wait_for_stream_resume(pause_gate, stop_gate):
                         return False
                     duration_s = self._queue_stream_wav_chunk(audio_bytes, playback_drained=playback_drained)
                     if duration_s is None:
                         return False
+                    # The audio is with the device: the card leaves its spinner for play/pause now
+                    # (only for the current, unstopped speech: a superseded leg must not mark
+                    # the next reply as speaking).
+                    if not stop_gate.is_set():
+                        with self._state_lock:
+                            current = self._stream_id == stream_id
+                        if current:
+                            announce_start()
                     queued_audio_s += max(0.0, float(duration_s))
                     continue
                 if event_type == "done":
@@ -18474,7 +18504,14 @@ class GatewayVoiceManager:
         self._playback_backend = "inprocess"
         self._tts_gate_start()
 
+        start_announced = threading.Event()
+        once = threading.Lock()
+
         def _on_audio_start() -> None:
+            with once:
+                if start_announced.is_set():
+                    return
+                start_announced.set()
             try:
                 if self.on_speech_start:
                     self.on_speech_start()
@@ -18503,6 +18540,9 @@ class GatewayVoiceManager:
         player.on_audio_end = _on_audio_end
         player.playback_complete_callback = None
         player.play_audio(samples, sample_rate=sample_rate)
+        # Announced here too, not only from the player's hook (see
+        # `_configure_stream_playback_callbacks`).
+        _on_audio_start()
         return True
 
     def _begin_stream_playback(self) -> bool:
@@ -18560,13 +18600,23 @@ class GatewayVoiceManager:
         # callback via the stream finally.
         return True
 
-    def _configure_stream_playback_callbacks(self, player, playback_drained: threading.Event) -> None:
+    def _configure_stream_playback_callbacks(self, player, playback_drained: threading.Event) -> Callable[[], None]:
+        """Wire the player's start/end hooks for one stream leg; returns the once-only
+        "speech started" announcer.
+
+        The stream leg also calls the announcer itself once the first chunk is queued: the
+        player's own start hook is not reliable across playbacks (AbstractVoice's
+        `NonBlockingAudioPlayer.stop_stream()` leaves its started flag set, so after an
+        interrupted reply the next one never reports a start), and a card waiting for it
+        spun its loading spinner for the whole reply (QA 2026-10-28 (h))."""
         speech_start_emitted = threading.Event()
+        once = threading.Lock()
 
         def _on_audio_start() -> None:
-            if speech_start_emitted.is_set():
-                return
-            speech_start_emitted.set()
+            with once:
+                if speech_start_emitted.is_set():
+                    return
+                speech_start_emitted.set()
             try:
                 if self.on_speech_start:
                     self.on_speech_start()
@@ -18579,6 +18629,7 @@ class GatewayVoiceManager:
         player.on_audio_start = _on_audio_start
         player.on_audio_end = _on_audio_end
         player.playback_complete_callback = None
+        return _on_audio_start
 
     def _queue_stream_wav_chunk(self, audio_bytes: bytes, *, playback_drained: threading.Event) -> Optional[float]:
         player = self._ensure_inprocess_audio_player()
@@ -21046,6 +21097,50 @@ def attention_ack_cursor(summary: Mapping[str, Any]) -> Optional[str]:
     return None
 
 
+def new_failure_indices(summary: Mapping[str, Any]) -> List[int]:
+    """The unseen runs among ``new_result_indices`` that failed (``kind == "failure"``)."""
+    attention = summary.get("attention") if isinstance(summary, Mapping) else None
+    out: List[int] = []
+    for item in (attention.get("items") if isinstance(attention, Mapping) else None) or []:
+        if isinstance(item, Mapping) and item.get("kind") == "failure":
+            try:
+                out.append(int(item.get("index")))
+            except (TypeError, ValueError):
+                continue
+    return out
+
+
+def new_result_indices(summary: Mapping[str, Any]) -> List[int]:
+    """The run indices of the unseen results (``attention.items``) — the runs the
+    "N new results" notice is about, marked "New result" when the automation opens."""
+    attention = summary.get("attention") if isinstance(summary, Mapping) else None
+    items = attention.get("items") if isinstance(attention, Mapping) else None
+    out: List[int] = []
+    for item in items or []:
+        if not isinstance(item, Mapping):
+            continue
+        try:
+            index = int(item.get("index"))
+        except (TypeError, ValueError):
+            continue
+        if index not in out:
+            out.append(index)
+    return out
+
+
+def automations_with_new_results(summaries: Iterable[Mapping[str, Any]]) -> List[str]:
+    """The ids of the automations with unseen results, in list order (one id once)."""
+    out: List[str] = []
+    for summary in summaries or []:
+        if not isinstance(summary, Mapping):
+            continue
+        attention = summary.get("attention") if isinstance(summary.get("attention"), Mapping) else {}
+        aid = str(summary.get("automation_id") or "").strip()
+        if aid and aid not in out and int(attention.get("unseen_count") or 0) > 0:
+            out.append(aid)
+    return out
+
+
 def attention_total(summaries: Iterable[Mapping[str, Any]]) -> int:
     """Unread count for the tray and the section: unseen items + pending waits."""
     total = 0
@@ -22595,7 +22690,15 @@ class AssistantGatewayService:
             value = payload.get(key)
             if isinstance(value, list):
                 for item in value:
-                    choice = _choice(item, fallback_id=str(item), fallback_label=str(item))
+                    if isinstance(item, dict) and str(item.get("model") or "").strip():
+                        # `provider_models` rows are {provider, model, id: "<provider>/<model>"};
+                        # the model is the id every other list uses, so a row is the same choice
+                        # as its `items`/`models` twin (QA 2026-10-28 (i): every Qwen3-TTS model
+                        # was listed twice), and the model is what the override stores.
+                        model_id = str(item["model"]).strip()
+                        choice = _choice({**item, "id": model_id}, fallback_label=model_id)
+                    else:
+                        choice = _choice(item, fallback_id=str(item), fallback_label=str(item))
                     if choice is not None:
                         items.append(choice)
         for key in ("models_by_provider", "tts_models_by_provider", "stt_models_by_provider", "music_models_by_provider"):

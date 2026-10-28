@@ -846,8 +846,12 @@ class RouteOverrideEditor(QWidget):
         finally:
             self.voice_combo.blockSignals(False)
         if choices:
-            # The state line was written before the names were known.
-            self.route_state.setText(self._route_state_text(row))
+            # The state line and the route's tooltip were written before the names were known.
+            state = self._route_state_text(row)
+            self.route_state.setText(state)
+            item = self.route_list.currentItem()
+            if item is not None:
+                item.setToolTip(state)
 
     def _sync_reasoning_options(self) -> None:
         """Build the level buttons once per refresh.
