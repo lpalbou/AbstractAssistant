@@ -89,7 +89,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 
 - [phone/iphone/docs/troubleshooting.md](phone/iphone/docs/troubleshooting.md): dated automation runs, failure explanations, provider versus phone authentication, notifications and Apple push (the push forwarder, generic words on development builds), installed version/build and Apple-managed updates
 - [docs/macos-signing.md](docs/macos-signing.md): signing and notarizing the macOS app bundle (`build-macos-app --sign`, `--notarize`, `--dmg`, `--local-test`)
-- [web/README.md](web/README.md): the Assistant on the web, a scaffold run by hand against a gateway (not a release); renders a conversation from the gateway's replay view (`@abstractframework/panel-chat` 0.6.0, ui-kit 0.9.2), folding the ledger itself on a gateway before 0.17.0
+- [web/README.md](web/README.md): the Assistant on the web, a scaffold run by hand against a gateway (not a release); renders a conversation from the gateway's replay view (`@abstractframework/panel-chat` 0.6.2, ui-kit 0.9.4), folding the ledger itself on a gateway before 0.17.0
 
 ## Design Records
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records
@@ -3147,6 +3147,25 @@ All notable changes to AbstractAssistant are documented in this file. Entries de
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
 ## [Unreleased]
+
+## [0.16.2] - 2026-10-28
+
+The web Assistant on AbstractUIC 0.8.2. The Python package is unchanged from 0.16.1 apart from its version.
+
+### Fixed
+
+- **A conversation reopened in the web Assistant shows every turn again** (0.16.1 showed only the last one):
+  `@abstractframework/panel-chat` 0.6.2 lists the conversation's turns as the runtime selects them (a small
+  `history_bundle?include_session=true` read) and renders each earlier turn from its own replay view, oldest first
+  (AbstractUIC backlog 0058).
+- The web Assistant builds with `@abstractframework/panel-chat` 0.6.2, `@abstractframework/ui-kit` 0.9.4 and
+  `@abstractframework/app-server` 0.1.13 (were 0.6.0, 0.9.2, 0.1.12). From the kit: the tool approval card makes
+  "Allow once" its primary and keeps one visible scope line; a gateway that does not answer reads "Gateway … did not
+  answer" instead of "Session rejected — sign in again"; "Create a voice" and "Manage voices" are styled; the voice
+  picker lists each Qwen3-TTS voice once; one duration format in the chat, and a tool time that includes an approval
+  wait says so; tool-row badges and the model picker's "Custom" are no longer cut.
+- Tests: the transport test reopens a two-turn conversation (both turns, oldest first, one small listing, no ledger
+  pages); the layout check counts the turn listing apart from the ledger fold's bundle.
 
 ## [0.16.1] - 2026-10-28
 
@@ -7223,7 +7242,7 @@ PYTHONPATH=. python -P web/scripts/gen_tool_policy_parity.py   # needs the packa
 |---|---|
 | `bin/server.js`, `bin/cli.js` | The app server: built files, mount under `/apps/assistant-web/`, gateway session proxy |
 | `src/host/` | What the page needs from its host (gateway URLs, authentication, native capabilities); the browser host |
-| `src/gateway/` | Gateway calls (SSE over fetch, framed by the kit's `sseFrames`) and the kit's `WorkflowTransport` over them, with `replayView` (panel-chat 0.6.0: the conversation is rendered from the gateway's replay view on AbstractGateway >= 0.17.0, the ledger fold otherwise) |
+| `src/gateway/` | Gateway calls (SSE over fetch, framed by the kit's `sseFrames`) and the kit's `WorkflowTransport` over them, with `replayView` (panel-chat 0.6.2: the conversation, every turn of it, is rendered from the gateway's replay view on AbstractGateway >= 0.17.0, the ledger fold otherwise) |
 | `src/lib/` | Pure logic with tests: session fold, titles, workflow choice, run input, theme group |
 | `src/ui/` | The Assistant space on the kit: the conversation (`WorkflowChat`), the conversation list (the shell's navigation), Settings → Voice |
 | `src/styles/index.css` | App styles on the design tokens of `web/design/tokens.css` |
@@ -7239,7 +7258,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.16.1"
+version = "0.16.2"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
