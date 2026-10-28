@@ -3150,6 +3150,23 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+## [0.16.5] - 2026-10-28
+
+The web Assistant on AbstractUIC 0.8.3, and the desktop's AbstractVoice floor raised. No other Python change.
+
+### Changed
+
+- **AbstractVoice 0.19.3 or later** (was 0.11.4) for the base install and every voice extra (`voice`, `apple`,
+  `gpu`, `all`): its audio player now reports the start of every playback. Before it, a stopped reply left the
+  player's "started" flag set and later replies never reported a start (the cause behind the spinner of 0.16.4,
+  which the app already works around).
+- The web Assistant builds with `@abstractframework/ui-kit` 0.9.5 and `@abstractframework/panel-chat` 0.6.3
+  (were 0.9.4 and 0.6.2; `@abstractframework/app-server` stays 0.1.13). From the kit: reading a reply aloud shows a
+  spinner only while the first audio loads, then Pause / Play, and the speaker and copy buttons are always visible
+  (they appeared on hover only); the voice settings name a chosen voice by its name, never its id ("a saved voice"
+  when the catalog does not list it), list each speech model once with its role ("… -Base (clones)"), and a cloned
+  voice says which cloning model it is spoken with.
+
 ## [0.16.4] - 2026-10-28
 
 More desktop fixes from the operator's QA of 2026-10-28 (backlog 1068; follow-up 1069).
@@ -7299,7 +7316,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.16.4"
+version = "0.16.5"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -7331,10 +7348,11 @@ dependencies = [
     # 0.15.0: `abstractruntime.replay.apply_delta` keeps the client copy of the gateway's
     # replay view (one reducer, the runtime's; backlog 1063).
     "abstractruntime>=0.15.0",
-    # 0.11.4 is the first abstractvoice whose voice extras install `webrtcvad-wheels`
-    # (0.11.2/0.11.3 required the old `webrtcvad`); the macOS bundle's PyInstaller hook
-    # (packaging/macos/hooks/hook-webrtcvad.py) copies webrtcvad-wheels' metadata.
-    "abstractvoice[audio-io]>=0.11.4",
+    # 0.19.3: the in-process audio player reports the start of every playback (before it, a
+    # stop left its "started" flag set and later replies never reported a start; backlog 1068).
+    # (0.11.4 was the first whose voice extras install `webrtcvad-wheels`; the macOS bundle's
+    # PyInstaller hook, packaging/macos/hooks/hook-webrtcvad.py, copies its metadata.)
+    "abstractvoice[audio-io]>=0.19.3",
     # Used for an optional local config read (STT language hint) and the shared
     # About/identity helpers (abstractcore.utils.identity, new in 2.16.0); all
     # provider execution happens on the gateway, so no provider extras.
@@ -7363,18 +7381,18 @@ dependencies = [
 [project.optional-dependencies]
 lite = []  # Back-compat alias for the base install.
 voice = [
-    "abstractvoice[audio-io,stt]>=0.11.4",
+    "abstractvoice[audio-io,stt]>=0.19.3",
 ]
 apple = [
     "abstractcore[all-apple]>=2.16.0",
-    "abstractvoice[all-apple]>=0.11.4",
+    "abstractvoice[all-apple]>=0.19.3",
 ]
 gpu = [
     "abstractcore[all-gpu]>=2.16.0",
-    "abstractvoice[all-gpu]>=0.11.4",
+    "abstractvoice[all-gpu]>=0.19.3",
 ]
 all = [
-    "abstractvoice[audio-io,stt]>=0.11.4",
+    "abstractvoice[audio-io,stt]>=0.19.3",
 ]  # Back-compat alias for full voice I/O.
 dev = [
     "pytest>=7.0.0",

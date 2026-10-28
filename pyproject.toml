@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.16.4"
+version = "0.16.5"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -36,10 +36,11 @@ dependencies = [
     # 0.15.0: `abstractruntime.replay.apply_delta` keeps the client copy of the gateway's
     # replay view (one reducer, the runtime's; backlog 1063).
     "abstractruntime>=0.15.0",
-    # 0.11.4 is the first abstractvoice whose voice extras install `webrtcvad-wheels`
-    # (0.11.2/0.11.3 required the old `webrtcvad`); the macOS bundle's PyInstaller hook
-    # (packaging/macos/hooks/hook-webrtcvad.py) copies webrtcvad-wheels' metadata.
-    "abstractvoice[audio-io]>=0.11.4",
+    # 0.19.3: the in-process audio player reports the start of every playback (before it, a
+    # stop left its "started" flag set and later replies never reported a start; backlog 1068).
+    # (0.11.4 was the first whose voice extras install `webrtcvad-wheels`; the macOS bundle's
+    # PyInstaller hook, packaging/macos/hooks/hook-webrtcvad.py, copies its metadata.)
+    "abstractvoice[audio-io]>=0.19.3",
     # Used for an optional local config read (STT language hint) and the shared
     # About/identity helpers (abstractcore.utils.identity, new in 2.16.0); all
     # provider execution happens on the gateway, so no provider extras.
@@ -68,18 +69,18 @@ dependencies = [
 [project.optional-dependencies]
 lite = []  # Back-compat alias for the base install.
 voice = [
-    "abstractvoice[audio-io,stt]>=0.11.4",
+    "abstractvoice[audio-io,stt]>=0.19.3",
 ]
 apple = [
     "abstractcore[all-apple]>=2.16.0",
-    "abstractvoice[all-apple]>=0.11.4",
+    "abstractvoice[all-apple]>=0.19.3",
 ]
 gpu = [
     "abstractcore[all-gpu]>=2.16.0",
-    "abstractvoice[all-gpu]>=0.11.4",
+    "abstractvoice[all-gpu]>=0.19.3",
 ]
 all = [
-    "abstractvoice[audio-io,stt]>=0.11.4",
+    "abstractvoice[audio-io,stt]>=0.19.3",
 ]  # Back-compat alias for full voice I/O.
 dev = [
     "pytest>=7.0.0",
