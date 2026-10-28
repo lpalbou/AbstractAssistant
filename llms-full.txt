@@ -1140,29 +1140,46 @@ one (see [Limits](#limits)).
 
 ## Reading an automation
 
-Click a row in the Automations tab. The palette shows the automation in place of the
-conversation, and **← Chat** returns to it.
+Click a row in the Automations tab. The palette shows the automation in the chat's own surface, in
+place of the conversation: its runs as the chat's exchanges and the chat's composer underneath
+(see [Continue as a session](#continue-as-a-session)). The **←** button, choosing a chat or **+ New chat**
+returns to the conversation; a message you were writing there is kept aside while the automation is open
+and comes back.
 
-The header gives the title and one line with what starts it, status, next run, context mode and run
-count. What starts it is said in words: the gateway's schedule sentence, "When mail arrives in
-you@example.org", "When Python news has a new item" (the feed connection's name), "When Orders is
-called" (the webhook connection's name) or "By hand"; an automation that runs when something happens
-shows no next run. The words come from the gateway (`trigger_text`) when it serves them, else from
-your connections and mailboxes, then the workflow and the automation's workspaces in one line, **Workspaces: <summary>**
-(the gateway's summary for the stored choice, or for your default when it uses your default,
-verbatim). Below it, a highlighted block lists what is new ("New · #12 Price above threshold",
-"Failed · #9") and how many runs are waiting for you.
+The header is two compact rows:
 
-Each run reads as a pair of chat turns, oldest at the top, newest in view:
+- the title (cut with "…" when long; hover it for the full title), **one status chip** (Active,
+  Paused, Archived, Completed, Failed, or **Running…** while a run is in progress) and a **⋯** menu;
+- **one schedule chip** with what starts it ("Every 24 h", "Every day at 08:00", "When mail arrives
+  in you@example.org"; hover it for the gateway's full sentence and time zone), **one next-run chip**
+  ("Next in 3 h · 11:06 PM", from the gateway's next run; none for an automation that runs when
+  something happens or is paused), then the **Active** switch and the icon controls (below).
 
-- **the trigger turn**: the run's number, the gateway's summary of what fired it and when
-  (`#7 · schedule: every 30 minutes (UTC), tick 5 · fired 2026-09-27 06:30 UTC`), then the task
-  the run was given;
-- **the answer turn**: the run's status and finish time, then its answer. A result the workflow
-  marked as notable carries its notification title and a **Notified** badge. A failed run is red,
-  with the gateway's reason and the number of attempts ("Failed after 3 attempts"). A run that
-  waits for you is highlighted with **Waiting for you** and the controls to answer it. A running
-  run shows **Running**. Files the run produced are listed by name.
+What starts it is said in words: the gateway's schedule sentence (`schedule_rule_text`, shortened for
+the chip), "When mail arrives in you@example.org", "When Python news has a new item" (the feed
+connection's name), "When Orders is called" (the webhook connection's name) or "By hand"; the words
+come from the gateway (`trigger_text`) when it serves them, else from your connections and mailboxes.
+
+The **⋯** menu holds the details: **Workflow: basic-agent 0.0.5** (the workflow and its version),
+**Workspaces…** (the gateway's summary for the stored workspace choice, or for your default, verbatim),
+the context mode ("Context: Growing — each run sees the previous runs") and **Copy automation id**
+(for support). A slim notice says how many runs are waiting for you; a link **Continued as a session
+on Oct 27** opens the newest session this automation was continued as, when the gateway's session
+list names it.
+
+Each run reads as one exchange of the chat, oldest at the top:
+
+- **a system line** says what started it and when, in words: "Scheduled run 1 · Oct 9 at 11:06 PM",
+  "Run now · run 4 · Today at 07:12 AM", "Email received · run 3 · 2 new emails · …" (hover it for the
+  full date). The runtime's bracketed trigger line in the task ("[Trigger schedule@1 · occurrence 1 ·
+  fired …]") and the framed input of an email, feed or webhook run are never shown;
+- **the task** is the chat's user bubble;
+- **the result** is the chat's reply card, with its time (and date when not today), **copy** and the
+  **speaker** that reads it aloud, as in a conversation. A result the workflow marked as notable
+  carries **Notified** and its notification title. A failed run has a red card with the gateway's
+  message and **Failed after 3 attempts** on its line. A run that waits for you shows **Waiting for
+  you** and the controls to answer it. A running run shows **Running**. An unseen result is marked
+  **New result** (or **New failure**). Files the run produced are listed by name.
 
 Quiet runs (completed, nothing to notify) are shown dimmed. **Load older runs** at the top pages
 back through the history.
@@ -1176,10 +1193,10 @@ stay counted until you answer them.
 | Control | What it does |
 |---|---|
 | **Active** (a switch, first in the bar) | On: the automation runs on its schedule. Off: paused, scheduled runs are skipped; a run in progress finishes. Switching it back on restarts the schedule at its next time after now (it does not fire at once; times missed while paused are skipped). Unavailable, with the reason, once the automation is archived, ended or legacy, or when the gateway does not permit the change. |
-| **Run now** (the play-in-a-circle icon, as in the web clients) | One run immediately, instead of waiting for the schedule. The schedule does not move: the next scheduled run keeps its time, and if that time comes while this run is still going, the scheduled run starts right after it. It does not count toward a run limit. It also works while paused, and the automation stays paused. In a Growing automation, later runs see it in their history. Disabled while a run is in progress. |
-| **Stop current** | Stops the run in progress. |
-| **Edit** | Title, interval (`30m`, `8h`, `7d`; for an email trigger the check interval, at least `60s`) or, for a Daily, Weekly or Monthly schedule, its rule (the kind, the days, the day of the month and the time, with the gateway's line "in Europe/Paris (this automation's time zone)" and its preview sentence; the automation keeps its own zone and its run limits), context mode, workflow, tool selection, **Workspaces** (the same chooser as the schedule window, with the stored choice; each change checked by the gateway) and result-email recipients, inline. **Save** sends the changes as one revision; with **Use my default** the stored choice is removed. Applies from the next run; a new interval starts counting from the change, so no missed run fires. |
-| **Archive** | Asks for confirmation in the palette. Nothing runs any more; the history is kept. |
+| **Run now** (the play-in-a-circle icon, as in the web clients; the controls are icons, their name in the tooltip) | One run immediately, instead of waiting for the schedule. The schedule does not move: the next scheduled run keeps its time, and if that time comes while this run is still going, the scheduled run starts right after it. It does not count toward a run limit. It also works while paused, and the automation stays paused. In a Growing automation, later runs see it in their history. Disabled while a run is in progress. |
+| **Stop current** (the square icon) | Stops the run in progress. |
+| **Edit** (the pen icon) | Title, interval (`30m`, `8h`, `7d`; for an email trigger the check interval, at least `60s`) or, for a Daily, Weekly or Monthly schedule, its rule (the kind, the days, the day of the month and the time, with the gateway's line "in Europe/Paris (this automation's time zone)" and its preview sentence; the automation keeps its own zone and its run limits), context mode, workflow, tool selection, **Workspaces** (the same chooser as the schedule window, with the stored choice; each change checked by the gateway) and result-email recipients, inline. **Save** sends the changes as one revision; with **Use my default** the stored choice is removed. Applies from the next run; a new interval starts counting from the change, so no missed run fires. |
+| **Archive** (the box icon) | Asks for confirmation in the palette. Nothing runs any more; the history is kept. |
 
 Hovering a control shows what it does: the same text as the web clients (AbstractUIC's shared
 control hints). Run now's tooltip adds the next scheduled time ("Next scheduled run: 2026-09-27
@@ -1221,19 +1238,27 @@ something else) is shown without answer controls, with a note to answer it from 
 rather than answered blindly. If your answer does not reach the gateway, the palette says so and
 the run keeps waiting.
 
-## Discuss a result
+## Continue as a session
 
-**Discuss this run** (your own copy; the automation's files stay read-only) on a finished run opens a field ("What do you want to discuss about this result?");
-**Start** asks the gateway to open a new session seeded with the automation's whole history up to
-that run (whatever its context mode), sends your question in it, and switches the palette to it. It
-is an ordinary chat: it keeps the workflow's normal tools and appears among your chats with the badge
-**about automation <title>** (click the badge to open the automation). The automation's files are
-mounted read-only (the notice after Discuss says where); the discussion works in its own writable
-workspace, and nothing is written back to the automation. The file tools refuse to write into the
-mounted folder; shell commands are not sandboxed, so approve them with that in mind.
+Write in the composer under an open automation and press Return (or the send button): the palette asks
+the gateway to open a new session seeded with the automation's history up to its **latest finished
+run** (whatever its context mode), sends what you wrote in it, and switches to it. While the session is
+being created the composer says **Continuing as a session…**; if the gateway refuses, your text is put
+back with the reason. The session then shows **Continued as a session from “<title>” (run N).** with
+**Back to the automation**.
 
-Discuss is disabled on a run in progress, and the palette asks you to let a running reply finish
-(or stop it) before it opens a discussion.
+To continue from an earlier run, open the run's **⋯** menu and choose **Discuss here**: the line above
+the composer says "Your next message continues from run 3." (**Use the latest run** undoes it).
+
+The session is an ordinary chat: it keeps the workflow's normal tools and appears among your chats with
+the badge **about automation <title>** (click the badge to open the automation). The automation's files
+are mounted read-only (hover the notice to see where); the session works in its own writable workspace,
+and nothing is written back to the automation. The file tools refuse to write into the mounted folder;
+shell commands are not sandboxed, so approve them with that in mind. Files cannot be attached to the
+first message; attach them in the session.
+
+A run in progress cannot be continued from, and the palette asks you to let a running reply finish (or
+stop it) before it opens the session.
 
 ## Notifications and your event stream
 
@@ -1790,7 +1815,7 @@ automation itself. The user guide is [automations.md](automations.md).
 flowchart LR
   subgraph Desktop["AbstractAssistant (this Mac)"]
     Switcher["Session switcher\nSessions | Automations tabs · discussion badge"]
-    View["Automation view (ui/automations)\nruns as chat pairs · controls · waits · Discuss"]
+    View["Automation view (ui/automations)\nruns as chat exchanges · chip header · waits · the chat's composer"]
     Sheet["Schedule this conversation…\nwhat · when (UTC) · context · tools"]
     Hub["AutomationsHub\ncalls off the GUI thread\nrefetch on stream events · 5 min reconcile"]
     Follower["gateway/me_events\nEventFollower: catch-up then SSE\nLast-Event-ID reconnect"]
@@ -1870,8 +1895,11 @@ receipt marked `duplicate` is confirmed with "(already received)"; a receipt wit
 - **Waits.** A waiting occurrence is answered with the `resume` command on
   `/api/gateway/commands`, with the payload the wait's declared kind accepts (`ask_user`,
   `tool_approval`, `event`). A wait without a known kind is not answered.
-- **Discuss.** `POST …/{id}/discuss` returns a new `discussion` session and its first run; the
-  palette switches to it and follows the run like any reattached turn.
+- **Discuss (continue as a session).** What is typed in the palette's composer under an open
+  automation is sent as `POST …/{id}/discuss` with the latest finished run (or the run chosen with
+  "Discuss here"); it returns a new `discussion` session and its first run, and the palette switches to
+  it and follows the run like any reattached turn. The automation links the discussions the gateway's
+  session list names for it (`session_kind=discussion`, `automation_id`).
 - **Errors.** Every non-2xx answer carries `detail.reason_code`, shown as a sentence with the
   gateway's message. An answer without that envelope, or a body that is not a JSON object, is an
   `invalid_response` error rather than a silent success.
@@ -3149,6 +3177,36 @@ All notable changes to AbstractAssistant are documented in this file. Entries de
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
 ## [Unreleased]
+
+### Changed
+
+- **An automation opens as the chat** (operator, 2026-10-28; backlog 1070). Its runs read as the chat's exchanges: a
+  compact system line in words ("Scheduled run 1 · Oct 9 at 11:06 PM", "Run now · run 4 · Today at 7:12 AM"), the
+  task as your bubble (the runtime's "[Trigger schedule@1 · occurrence 1 · fired …]" line and, for an email, feed or
+  webhook run, its framed input are never shown; the line counts it: "Email received · run 3 · 2 new emails") and the
+  result as the chat's reply card with its time, copy and **speaker**. The chat's composer stays underneath: what
+  you write continues the automation as a new session from its latest finished run (or the run you chose with
+  **Discuss here** in its ⋯ menu), the composer says "Continuing as a session…" meanwhile, and the session opens
+  with "Continued as a session from “<title>” (run N)." and **Back to the automation**. The automation links the
+  newest session it was continued as ("Continued as a session on Oct 27"). The per-run "Discuss this run" button
+  and its field are gone. The chat's draft is kept aside while an automation is open and comes back on leaving;
+  choosing a chat or + New chat leaves the automation.
+- **The automation header is chips and icons**: the title (one line, full title on hover), one status chip, one
+  schedule chip ("Every 24 h"), one next-run chip ("Next in 3 h · 11:06 PM"), the Active switch and icon buttons
+  for Run now / Stop / Edit / Archive (name and reason in the tooltip). The workflow ("basic-agent 0.0.5", no
+  digest), the workspaces summary, the context mode and **Copy automation id** moved to a ⋯ menu. No raw id or
+  reason code is shown (ADR 0043).
+- **Message footer chips open a structured card** (the kit's stat detail): "Tokens · 7,586 total" with Usage
+  (model calls, Input / Output / Total), Prompt cache ("not reported" when the ledger has none) and the footnote
+  "From the run ledger; summed across this turn and its child runs."; Tools, Files, Time and Model cards likewise.
+  It opens on hover or keyboard focus (every chip is reachable with Tab) and closes on Escape; the plain grey
+  multi-line tooltips are gone.
+
+### Fixed
+
+- A user bubble's text height is computed for the width it really gets (the bubble minus its time and copy
+  button) from the start; it was computed for the full width, and the card claimed more height than it was given
+  until the next layout pass.
 
 ## [0.16.5] - 2026-10-28
 
@@ -20373,6 +20431,21 @@ __all__ = [
     "set_trigger_names",
     "mailbox_address",
     "is_event_trigger",
+    "TRIGGER_RUN_WORDS",
+    "attention_lines",
+    "context_mode_text",
+    "continued_line",
+    "continued_sessions",
+    "discussion_banner",
+    "discussion_workspace_note",
+    "next_run_chip",
+    "occurrence_system_line",
+    "readable_when",
+    "schedule_chip",
+    "split_trigger_envelope",
+    "status_chip",
+    "trigger_input_count",
+    "workflow_text",
 ]
 
 # ------------------------------------------------------------------ cadence
@@ -21649,26 +21722,253 @@ def revise_changes(
     return (changes or None), []
 
 
+# ------------------------------------------------ the automation as a chat
+#
+# Design pass 2026-10-28 (operator: "it should be our conventional chat"): an
+# automation opens in the palette's chat surface. These are the words of that
+# surface — a compact header (one status chip, one schedule chip, one next-run
+# chip), a readable system line per run instead of the runtime's bracketed
+# trigger envelope, and the "Continued as a session" notices. No raw id is
+# ever part of these strings (ADR 0043).
+
+# The first line the runtime composes into a run's task turn
+# (abstractruntime automations/controller.py `_render_prompt`):
+# "[Trigger schedule@1 · occurrence 1 · fired 2026-10-09T23:06:22+00:00]".
+_TRIGGER_ENVELOPE_RE = re.compile(r"^\s*\[Trigger [^\]\n]*\][ \t]*(?:\r?\n|$)")
+# The untrusted-input frame the runtime appends after the task for an email,
+# feed or webhook run (abstractruntime email/frame.py `email_frame`,
+# triggers/event_frame.py `connection_events_frame`): "[Email trigger: 2 new
+# message(s). …boundary <hex>…]" then each item between boundary markers. It is
+# the run's input data, framed for the model — not words for a person.
+_INPUT_FRAME_RE = re.compile(r"^\[([^\]\n]{1,200}?) trigger: (\d+) new (message|event)\(s\)\.", re.M)
+
+# What started a run, in words (the envelope's / row's `trigger.source_id`).
+TRIGGER_RUN_WORDS = {
+    "schedule": "Scheduled",
+    "manual": "Run now",
+    "email.received": "Email received",
+    "feed.item": "New feed item",
+    "webhook.received": "Web address called",
+}
+
+
+def split_trigger_envelope(user_turn: Any) -> Tuple[str, str]:
+    """``(envelope, task)``: the runtime's bracketed first line (``""`` when the
+    turn has none) and the task text people read — without that line and
+    without the untrusted-input frame an email / feed / webhook run carries
+    after the task (its boundary token and raw ids are not for people)."""
+    text = str(user_turn or "")
+    m = _TRIGGER_ENVELOPE_RE.match(text)
+    envelope, rest = (m.group(0).strip(), text[m.end():]) if m else ("", text)
+    frame = _INPUT_FRAME_RE.search(rest)
+    if frame is not None:
+        rest = rest[: frame.start()]
+    return envelope, rest.strip()
+
+
+def trigger_input_count(user_turn: Any) -> str:
+    """ "2 new emails" / "1 new event" from the run's input frame; "" when none."""
+    m = _INPUT_FRAME_RE.search(str(user_turn or ""))
+    if m is None:
+        return ""
+    count = int(m.group(2))
+    noun = "email" if m.group(1) == "Email" else m.group(3)
+    return f"{count} new {noun}{'' if count == 1 else 's'}"
+
+
+def _clock_12h(dt: datetime) -> str:
+    # The chat cards' clock ("05:40 PM", `app._format_message_timestamp`).
+    return f"{dt.hour % 12 or 12:02d}:{dt.minute:02d} {'AM' if dt.hour < 12 else 'PM'}"
+
+
+def readable_when(ts: Any, *, now: Optional[datetime] = None) -> str:
+    """ "Today at 4:28 PM", "Yesterday at 9:00 AM", "Oct 9 at 11:06 PM", "Oct 9, 2025 at
+    11:06 PM" — in the person's own time zone (the stamp is a UTC instant)."""
+    when = _parse_ts(ts)
+    if when is None:
+        return ""
+    local = when.astimezone()
+    today = (now or datetime.now(timezone.utc)).astimezone().date()
+    clock = _clock_12h(local)
+    if local.date() == today:
+        return f"Today at {clock}"
+    if (today - local.date()).days == 1:
+        return f"Yesterday at {clock}"
+    day = f"{local.strftime('%b')} {local.day}"
+    if local.year != today.year:
+        day = f"{day}, {local.year}"
+    return f"{day} at {clock}"
+
+
+def occurrence_system_line(row: Mapping[str, Any], *, now: Optional[datetime] = None) -> Tuple[str, str]:
+    """``(line, tooltip)`` above a run in the automation's chat: "Scheduled run 1 ·
+    Oct 9 at 11:06 PM", "Run now · run 4 · Today at 7:12 AM". Never the bracketed
+    envelope, never a command or run id (the served ``trigger.summary`` of a
+    run-now names its command id, so it is not used)."""
+    trigger = row.get("trigger") if isinstance(row.get("trigger"), Mapping) else {}
+    source = str(trigger.get("source_id") or "")
+    index = int(row.get("index") or 0)
+    word = TRIGGER_RUN_WORDS.get(source, "Triggered")
+    head = f"Scheduled run {index}" if source == "schedule" else f"{word} · run {index}"
+    received = trigger_input_count(row.get("user_turn"))
+    if received:
+        head = f"{head} · {received}"
+    when = readable_when(row.get("fired_at"), now=now)
+    line = f"{head} · {when}" if when else head
+    fired = _parse_ts(row.get("fired_at"))
+    tooltip = head
+    if fired is not None:
+        local = fired.astimezone()
+        tooltip = (
+            f"{head}, started {local.strftime('%A')}, {local.strftime('%B')} {local.day}, {local.year} "
+            f"at {_clock_12h(local)} (your time)"
+        )
+    return line, tooltip
+
+
+def status_chip(summary: Mapping[str, Any]) -> Tuple[str, str]:
+    """``(text, tone)`` of the header's ONE status chip: Running… / Active /
+    Paused / Archived / Completed / Failed."""
+    status = str(summary.get("status") or "")
+    if status in {"active", "paused"} and current_run(summary) is not None:
+        return "Running…", "running"
+    text = STATUS_LABELS.get(status, status.capitalize() or "Unknown")
+    tone = {"active": "active", "paused": "paused", "failed": "failed"}.get(status, "ended")
+    return text, tone
+
+
+_UNIT_SHORT = ((re.compile(r"\b(\d+) hours?\b"), r"\1 h"), (re.compile(r"\b(\d+) minutes?\b"), r"\1 min"),
+               (re.compile(r"\b(\d+) seconds?\b"), r"\1 s"))
+
+
+def schedule_chip(summary: Mapping[str, Any]) -> Tuple[str, str]:
+    """``(chip, tooltip)``: the served trigger sentence, compacted for a chip
+    ("Every 24 hours (UTC)" -> "Every 24 h"; "Every Mon, Tue and Fri at 09:00
+    (Europe/Paris) · 10 runs max" -> "Every Mon, Tue and Fri at 09:00"). The
+    tooltip keeps the full served sentence and the zone. Nothing is composed:
+    the chip is a cut of the gateway's words (round 16 rule)."""
+    trigger = summary.get("trigger") if isinstance(summary.get("trigger"), Mapping) else {}
+    full = trigger_summary(trigger, summary)
+    chip = full.split(" · ")[0].strip()
+    chip = re.sub(r"\s*\([^()]*\)\s*$", "", chip).strip() or full
+    for pattern, short in _UNIT_SHORT:
+        chip = pattern.sub(short, chip)
+    lines = [full]
+    zone = summary.get("time_zone")
+    if isinstance(zone, str) and zone and zone not in full:
+        lines.append(f"Times in {zone}.")
+    return chip, "\n".join(lines)
+
+
+def next_run_chip(summary: Mapping[str, Any], *, now: Optional[datetime] = None) -> Tuple[str, str]:
+    """``(chip, tooltip)``: "Next in 3 h · 11:06 PM" / "Due now · 11:06 PM"; ``("", "")``
+    when nothing is scheduled (paused, ended, an event trigger). The relative part
+    is from the served ``next_run_at``, the clock CUT from the served
+    ``next_run_local`` (the automation's zone): no zone arithmetic."""
+    if summary.get("status") != "active":
+        return "", ""
+    relative = next_run_text(summary, now=now)  # "next in 14 h" / "next: now" / "next —"
+    if relative == "next —":
+        # A trigger that waits for something to happen has no next run to show;
+        # a schedule without one says so.
+        trigger = summary.get("trigger") if isinstance(summary.get("trigger"), Mapping) else {}
+        return ("", "") if is_event_trigger(trigger) else ("No next run", "The gateway reports no next scheduled run.")
+    # The clock in YOUR time, like the run lines and the cards (the served
+    # instant shown in the local zone; nothing is computed). The tooltip keeps
+    # the gateway's wall time in the automation's own zone, cut as served.
+    when = _parse_ts(summary.get("next_run_at"))
+    clock = _clock_12h(when.astimezone()) if when is not None else ""
+    head = "Due now" if relative == "next: now" else f"Next in {relative[len('next in '):]}"
+    chip = f"{head} · {clock}" if clock else head
+    served = format_served_local(summary.get("next_run_local"), summary.get("time_zone"))
+    return chip, (f"Next scheduled run: {served}" if served else "Next scheduled run")
+
+
+def context_mode_text(summary: Mapping[str, Any]) -> str:
+    """The overflow menu's context line."""
+    if summary.get("context_mode") == "growing":
+        return "Context: Growing — each run sees the previous runs"
+    return "Context: Independent — each run starts fresh"
+
+
+def workflow_text(detail: Mapping[str, Any]) -> str:
+    """ "Workflow: basic-agent 0.0.5" from the definition's target — the bundle's
+    readable name and version; the flow id (a digest) is not shown (ADR 0043).
+    "" when the target names no bundle."""
+    definition = detail.get("definition") if isinstance(detail.get("definition"), Mapping) else {}
+    target = definition.get("target") if isinstance(definition.get("target"), Mapping) else {}
+    ref = str(target.get("bundle_ref") or "").strip()
+    if not ref:
+        ref = str(target.get("workflow_id") or "").strip().split(":", 1)[0]
+    if not ref:
+        return ""
+    bundle, sep, version = ref.rpartition("@")
+    name = f"{bundle} {version}" if sep and bundle else ref
+    return f"Workflow: {name}"
+
+
+def attention_lines(summary: Mapping[str, Any]) -> List[str]:
+    """The slim attention notice: "2 runs waiting for you" (results already show
+    their own "New result" mark on the run itself)."""
+    attention = summary.get("attention") if isinstance(summary.get("attention"), Mapping) else {}
+    waiting = int(attention.get("pending_waits") or 0)
+    return [f"{waiting} run{'' if waiting == 1 else 's'} waiting for you"] if waiting else []
+
+
+def continued_sessions(digests: Iterable[Mapping[str, Any]], automation_id: str) -> List[Mapping[str, Any]]:
+    """The discussion sessions the gateway lists for this automation (its `/runs`
+    rows' ``session_kind`` and ``automation_id``), newest first."""
+    aid = str(automation_id or "")
+    rows = [
+        d for d in digests or []
+        if isinstance(d, Mapping) and aid and d.get("session_kind") == "discussion" and str(d.get("automation_id") or "") == aid
+    ]
+    return sorted(rows, key=lambda d: str(d.get("created_at") or ""), reverse=True)
+
+
+def continued_line(created_at: Any, more: int = 0, *, now: Optional[datetime] = None) -> str:
+    """ "Continued as a session on Oct 27" (+ " · 2 more" when there are others)."""
+    when = _parse_ts(created_at)
+    if when is None:
+        head = "Continued as a session"
+    else:
+        local = when.astimezone()
+        today = (now or datetime.now(timezone.utc)).astimezone().date()
+        if local.date() == today:
+            day = "today"
+        else:
+            day = f"on {local.strftime('%b')} {local.day}" + (f", {local.year}" if local.year != today.year else "")
+        head = f"Continued as a session {day}"
+    return f"{head} · {more} more" if more > 0 else head
+
+
 # --------------------------------------------------------------- discussion
 
 
-def discussion_banner(result: Mapping[str, Any], *, occurrence_index: int) -> Tuple[str, str]:
-    """``(text, tone)`` of the notice after Discuss. The discussion carries the
-    automation's history through occurrence N, mounts the automation's files
-    read-only at ``mounted_workspace`` and works in its own writable
-    ``workspace_root`` (both from the discuss response). A response without
-    ``mounted_workspace`` is said, never papered over."""
+def discussion_banner(result: Mapping[str, Any], *, occurrence_index: int, title: str = "") -> Tuple[str, str]:
+    """``(text, tone)`` of the notice once a message typed in an automation
+    became a session: "Continued as a session from “<title>” (run N)". The
+    discussion carries the automation's history through run N, mounts the
+    automation's files read-only and works in its own writable folder (both
+    from the discuss response; see `discussion_workspace_note`). A response
+    without ``mounted_workspace`` is said, never papered over."""
+    name = f"“{title}”" if str(title or "").strip() else "the automation"
+    head = f"Continued as a session from {name} (run {occurrence_index})."
     mounted = str(result.get("mounted_workspace") or "").strip()
     own = str(result.get("workspace_root") or "").strip()
     if not mounted or not own:
-        return (
-            f"Discussion of run #{occurrence_index} opened, but the gateway did not say where its files are.",
-            "warn",
-        )
+        return f"{head} The gateway did not say where its files are.", "warn"
+    return head, "info"
+
+
+def discussion_workspace_note(result: Mapping[str, Any]) -> str:
+    """The notice's tooltip: where the session's files are."""
+    mounted = str(result.get("mounted_workspace") or "").strip()
+    if not mounted:
+        return "The gateway did not say where the automation's files are."
     return (
-        f"Discussion of run #{occurrence_index} opened: it knows the automation's runs up to this one; the "
-        f"automation's files are read-only at {mounted}, and this conversation has its own folder.",
-        "info",
+        "It knows the automation's runs up to this one. The automation's files are read-only at "
+        f"{mounted}; this session has its own folder."
     )
 
 

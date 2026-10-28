@@ -31,6 +31,8 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt5.QtWidgets import QLabel  # noqa: E402
+
 from abstractassistant.core import automations as rules
 from abstractassistant.core.automations import (
     NotificationLedger,
@@ -807,13 +809,17 @@ def test_palette_poll_notifies_once_and_opens_an_automation_with_its_controls(pa
     assert [p.index for p in view.pairs] == [1, 2, 3, 4, 5, 6, 7]
     tones = [p.answer.property("tone") for p in view.pairs]
     assert tones == ["quiet", "notified", "quiet", "quiet", "failed", "quiet", "waiting"]
-    # The failed pair shows its failure reason and attempts.
-    failed_texts = [w.text() for w in view.pairs[4].answer.findChildren(type(view.title_label))]
-    assert any("IMAP read timed out" in t and "3 attempts" in t for t in failed_texts)
+    # The failed pair shows its failure reason (in words, no reason code) and its attempts on the run's badge.
+    from PyQt5.QtWidgets import QLabel
+
+    failed_texts = [w.text() for w in view.pairs[4].answer.findChildren(QLabel)]
+    assert any("IMAP read timed out" in t for t in failed_texts)
+    assert not any("occurrence_failed" in t for t in failed_texts), "no raw reason code (ADR 0043)"
+    assert view.pairs[4].badge.text() == "Failed after 3 attempts"
     # Viewing acknowledged the DISPLAYED items (the last one's cursor).
     assert stub.calls("POST", f"{AUTOMATIONS_PATH}/{TRIAGE}/seen")[-1]["body"] == {"attention_cursor": "att1:2"}
-    # A run in progress (current_occurrence): run now off, stop current on, said in the header.
-    assert "run #7 running" in view.meta_label.text()
+    # A run in progress (current_occurrence): run now off, stop current on, said in the header's status chip.
+    assert view.status_chip.text() == "Running…" and view.status_chip.toolTip() == "Run 7 is running."
     assert not view.control_buttons["run_now"].isEnabled()
     assert view.control_buttons["stop_current"].isEnabled()
     window._close_automation_view()
@@ -916,13 +922,15 @@ def test_run_now_carries_the_shared_icon_and_hint_in_the_palette(palette, stub) 
     assert button.isEnabled()
     summary = stub.summary(NEWS)
     expected = rules.control_hint("run_now", summary)
-    assert button.toolTip() == expected and button.accessibleDescription() == expected
+    # An icon control: its label leads the tooltip and is its accessible name.
+    assert button.toolTip() == f"Run now\n{expected}" and button.accessibleDescription() == expected
+    assert button.text() == "" and button.accessibleName() == "Run now"
     assert "Next scheduled run: 2026-09-27 10:00 Europe/Paris." in button.toolTip()
     from abstractassistant import icons
     from abstractassistant.theme import THEME
 
     assert not button.icon().isNull()
-    assert button.icon().cacheKey() == icons.symbol_icon("play-circle", color=THEME.text_secondary, size=12).cacheKey()
+    assert button.icon().cacheKey() == icons.symbol_icon("play-circle", color=THEME.text_secondary, size=15).cacheKey()
     # Every other control carries its own hint.
     for control in ("stop_current", "revise", "archive"):
         assert rules.CONTROL_HINTS[control] in view.control_buttons[control].toolTip()
@@ -930,7 +938,7 @@ def test_run_now_carries_the_shared_icon_and_hint_in_the_palette(palette, stub) 
     # After the command is confirmed the button gets its icon back.
     button.click()
     view.end_pending()
-    assert button.text() == "Run now" and not button.icon().isNull()
+    assert button.icon().cacheKey() == icons.symbol_icon("play-circle", color=THEME.text_secondary, size=15).cacheKey()
 
 
 @pytest.mark.basic
@@ -940,7 +948,7 @@ def test_a_disabled_run_now_says_why_first_then_the_hint(palette, stub) -> None:
     window._open_automation(TRIAGE)
     button = window.automation_view.control_buttons["run_now"]
     assert not button.isEnabled()
-    assert button.toolTip() == "A run is in progress.\n" + rules.control_hint("run_now", stub.summary(TRIAGE))
+    assert button.toolTip() == "Run now: A run is in progress.\n" + rules.control_hint("run_now", stub.summary(TRIAGE))
     assert button.toolTip().endswith("Growing context: later runs see this run in their history.")
 
 
@@ -1006,27 +1014,204 @@ def test_edit_sends_only_the_changed_fields_with_the_expected_revision(palette, 
 
 
 @pytest.mark.basic
-def test_discuss_switches_to_the_returned_session(palette, stub) -> None:
+def test_typing_in_the_automation_continues_its_latest_run_as_a_session(palette, stub) -> None:
+    """Operator 2026-10-28: an automation opens as the conventional chat and the
+    person may write; what they write creates a session from the accumulated
+    context (discuss with the LATEST run) and continues there."""
     window, controller = palette
     window._poll_automations()
+    chat_placeholder = window.prompt_edit.placeholderText()
     window._open_automation(TRIAGE)
     view = window.automation_view
-    pair = next(p for p in view.pairs if p.index == 6)
-    assert pair.discuss_button.isEnabled()
-    assert not next(p for p in view.pairs if p.index == 7).discuss_button.isEnabled()
-    pair.discuss_button.click()
-    pair.discuss_edit.setText("Why was nothing urgent?")
-    pair.discuss_send.click()
+    # The chat's OWN composer stays under the automation (no second input).
+    assert window.composer_card.isVisibleTo(window)
+    assert window.prompt_edit.placeholderText() == "Write to continue as a session…"
+    assert not window.attach_button.isEnabled()
+    from PyQt5.QtWidgets import QLineEdit
+
+    assert not any("discuss" in w.placeholderText().lower() for w in view.findChildren(QLineEdit)), "no second discuss input"
+    window.prompt_edit.setPlainText("Why was nothing urgent?")
+    window._submit()  # Return
     sent = stub.calls("POST", f"{AUTOMATIONS_PATH}/{TRIAGE}/discuss")[-1]["body"]
+    # Run 7 is still waiting (cannot be discussed): the latest finished run is 6.
     assert sent["occurrence_index"] == 6 and sent["prompt"] == "Why was nothing urgent?"
     discussion = next(r for r in stub.run_rows if r["session_kind"] == "discussion")
     assert controller.opened == [{"session_id": discussion["session_id"], "run_id": discussion["run_id"]}]
-    assert not view.isVisibleTo(window), "the discussion replaces the automation view"
-    banner = window.banner_label.text()
-    assert banner == (
-        "Discussion of run #6 opened: it knows the automation's runs up to this one; the "
-        f"automation's files are read-only at /data/automations/{TRIAGE}/workspace, and this conversation has its own folder."
-    )
+    assert not view.isVisibleTo(window), "the session replaces the automation view"
+    banner = window.continued_banner
+    assert banner.isVisibleTo(window)
+    assert "Continued as a session from “Inbox triage” (run 6)." in banner.text()
+    assert "Back to the automation" in banner.text() and TRIAGE not in banner.text().split("href")[0]
+    assert f"/data/automations/{TRIAGE}/workspace" in banner.toolTip()
+    # The composer is the chat's again (its words, attach, Send).
+    assert window.prompt_edit.placeholderText() == chat_placeholder and window.attach_button.isEnabled()
+    assert not window.prompt_edit.isReadOnly() and window.send_button.isEnabled()
+    # The link goes back to the automation.
+    window._on_continued_banner_link("automation")
+    assert view.isVisibleTo(window) and window._automation_view_id == TRIAGE
+    assert not banner.isVisibleTo(window)
+
+
+@pytest.mark.basic
+def test_discuss_here_picks_the_run_the_composer_continues_from(palette, stub) -> None:
+    window, _controller = palette
+    window._poll_automations()
+    window._open_automation(TRIAGE)
+    view = window.automation_view
+    assert not next(p for p in view.pairs if p.index == 7).discuss_action.isEnabled(), "a waiting run cannot be discussed"
+    pair = next(p for p in view.pairs if p.index == 3)
+    assert pair.discuss_action.text() == "Discuss here" and pair.discuss_action.isEnabled()
+    pair.discuss_action.trigger()
+    assert view.selection_bar.isVisibleTo(view) and view.selection_label.text() == "Your next message continues from run 3."
+    assert window.prompt_edit.placeholderText() == "Write to continue from run 3 as a session…"
+    window.prompt_edit.setPlainText("What changed since then?")
+    window.send_button.click()
+    sent = stub.calls("POST", f"{AUTOMATIONS_PATH}/{TRIAGE}/discuss")[-1]["body"]
+    assert sent["occurrence_index"] == 3
+
+
+@pytest.mark.basic
+def test_continuing_says_so_in_words_and_a_refusal_keeps_the_text(palette, stub) -> None:
+    window, _controller = palette
+    window._poll_automations()
+    window._open_automation(TRIAGE)
+    view = window.automation_view
+    held: List[Any] = []
+    window._automations.discuss = lambda aid, index, prompt, done: held.append(done)
+    window.prompt_edit.setPlainText("Summarise the week")
+    window._submit()
+    # ADR 0039: a word state in the composer while the session is created, never a bare spinner.
+    assert window.prompt_edit.placeholderText() == "Continuing as a session…" and window.prompt_edit.isReadOnly()
+    assert window.prompt_edit.toPlainText() == "" and not window.send_button.isEnabled()
+    window._submit()
+    assert len(held) == 1, "one request at a time"
+    held[0](False, AutomationApiError(status=409, reason_code="automation_busy", message=""))
+    assert window.prompt_edit.toPlainText() == "Summarise the week", "nothing typed is lost"
+    assert not window.prompt_edit.isReadOnly() and window.send_button.isEnabled()
+    assert "already in progress" in view.error_label.text()
+
+
+@pytest.mark.basic
+def test_leaving_the_automation_while_its_session_is_created_loses_nothing(palette, stub) -> None:
+    window, controller = palette
+    window._poll_automations()
+    window._open_automation(TRIAGE)
+    held: List[Any] = []
+    window._automations.discuss = lambda aid, index, prompt, done: held.append(done)
+    window.prompt_edit.setPlainText("First question")
+    window._submit()
+    window._close_automation_view()  # ← while the session is being created
+    assert not window.prompt_edit.isReadOnly() and window.attach_button.isEnabled()
+    held[0](False, AutomationApiError(status=0, reason_code="unreachable", message="refused"))
+    assert "Could not continue the automation as a session" in window.banner_label.text()
+    assert window.prompt_edit.toPlainText() == "", "never put into the chat's composer"
+    window._open_automation(TRIAGE)
+    assert window.prompt_edit.toPlainText() == "First question", "the refused text waits in the automation"
+    window.prompt_edit.clear()
+    window._close_automation_view()
+    # A success after leaving still opens the session the person asked for.
+    window._open_automation(TRIAGE)
+    window.prompt_edit.setPlainText("Second question")
+    window._submit()
+    window._close_automation_view()
+    held[1](True, {"session_id": "s-late", "run_id": "r-late", "mounted_workspace": "/m", "workspace_root": "/w"})
+    assert controller.opened[-1] == {"session_id": "s-late", "run_id": "r-late"}
+    assert window.continued_banner.isVisibleTo(window)
+
+
+@pytest.mark.basic
+def test_choosing_a_chat_leaves_the_automation_and_its_draft_stays_the_chats(palette, stub) -> None:
+    window, controller = palette
+    window._poll_automations()
+    window.prompt_edit.setPlainText("half-written chat message")
+    window._open_automation(TRIAGE)
+    assert window.prompt_edit.toPlainText() == "", "the chat's draft is never sent as a discussion"
+    window.prompt_edit.setPlainText("for the automation")
+    # Picking a chat in the switcher (or + New chat) leaves the automation.
+    window._switch_to_session(window._active_session_id())
+    assert not window.automation_view.isVisibleTo(window) and not window._automation_view_id
+    assert window.prompt_edit.placeholderText() != "Write to continue as a session…"
+    before = len(stub.calls("POST", f"{AUTOMATIONS_PATH}/{TRIAGE}/discuss"))
+    window._continue_automation()
+    assert len(stub.calls("POST", f"{AUTOMATIONS_PATH}/{TRIAGE}/discuss")) == before
+    # The chat's draft is back; the text typed for the automation waits in the automation.
+    assert window.prompt_edit.toPlainText() == "half-written chat message"
+    window._open_automation(TRIAGE)
+    assert window.prompt_edit.toPlainText() == "for the automation"
+    window._open_automation(NEWS)  # another automation: its own (empty) composer
+    assert window.prompt_edit.toPlainText() == ""
+    window._open_automation(TRIAGE)
+    assert window.prompt_edit.toPlainText() == "for the automation"
+    window._close_automation_view()
+    assert window.prompt_edit.toPlainText() == "half-written chat message", "nothing lost either way"
+
+
+@pytest.mark.basic
+def test_a_send_queued_for_the_chat_never_lands_in_another_session(palette, stub) -> None:
+    window, controller = palette
+    window._poll_automations()
+    window.prompt_edit.setPlainText("queued for chat A")
+    window._pending_submit = True  # typed while a stopped run was closing
+    window._open_automation(TRIAGE)
+    assert window._pending_submit is False
+    sent: List[str] = []
+    window._submit = lambda: sent.append(window.prompt_edit.toPlainText())
+    controller.create_session = lambda: None
+    window._create_session()  # + New chat while the automation is open
+    _settle()
+    assert sent == [], "the queued text is not sent into the new chat"
+    assert window.prompt_edit.toPlainText() == "queued for chat A"
+
+
+@pytest.mark.basic
+def test_a_chosen_run_that_can_no_longer_be_discussed_is_let_go_visibly(palette, stub) -> None:
+    window, _controller = palette
+    window._poll_automations()
+    window._open_automation(TRIAGE)
+    view = window.automation_view
+    next(p for p in view.pairs if p.index == 3).discuss_action.trigger()
+    assert view.discuss_target() == (3, "") and view.selection_bar.isVisibleTo(view)
+    rows = [r for r in view.occurrences if r["index"] != 3]
+    view.set_occurrences(rows, next_cursor=None)
+    assert view.discuss_from is None and not view.selection_bar.isVisibleTo(view)
+    assert window.prompt_edit.placeholderText() == "Write to continue as a session…"
+
+
+@pytest.mark.basic
+def test_runs_loading_reads_as_loading_not_as_no_run(palette, stub) -> None:
+    window, _controller = palette
+    window._poll_automations()
+    held: List[Any] = []
+    window._automations.load_occurrences = lambda aid, done, cursor=None: held.append(done)
+    window._open_automation(TRIAGE)
+    assert window.prompt_edit.placeholderText() == "Loading runs…"
+    view = window.automation_view
+    view.reset_details()
+    assert view.workflow_action.text() == "Workflow: loading…" and not view.workspaces_action.isEnabled()
+    view.set_workflow_detail(None)
+    assert view.workflow_action.text() == "Workflow: could not be read"
+    held[0](True, {"items": copy.deepcopy(_fixture("occurrences.json")["items"]), "next_cursor": None})
+    assert window.prompt_edit.placeholderText() == "Write to continue as a session…"
+
+
+@pytest.mark.basic
+def test_the_automation_links_the_session_it_was_continued_as(palette, stub) -> None:
+    window, _controller = palette
+    window._poll_automations()
+    window._session_digests = [
+        {"session_id": "s-old", "session_kind": "discussion", "automation_id": TRIAGE, "created_at": "2026-09-20T08:00:00Z"},
+        {"session_id": "s-new", "session_kind": "discussion", "automation_id": TRIAGE, "created_at": "2026-09-27T08:00:00Z"},
+        {"session_id": "s-other", "session_kind": "discussion", "automation_id": NEWS, "created_at": "2026-09-28T08:00:00Z"},
+        {"session_id": "s-chat", "session_kind": "", "automation_id": "", "created_at": "2026-09-29T08:00:00Z"},
+    ]
+    window._open_automation(TRIAGE)
+    view = window.automation_view
+    assert view.continued_label.isVisibleTo(view)
+    assert "Continued as a session on Sep 27" in view.continued_label.text() and "1 more" in view.continued_label.text()
+    opened: List[str] = []
+    window._switch_to_session = lambda sid: opened.append(sid)
+    view.continued_label.linkActivated.emit("session:0")
+    assert opened == ["s-new"] and not view.isVisibleTo(window)
 
 
 @pytest.mark.basic
@@ -1129,7 +1314,9 @@ def test_scenario_weekly_journal_growing(palette, stub) -> None:
     assert body["trigger"]["config"] == {"kind": "every", "every": "7d"} and body["context"] == {"mode": "growing"}
     summary = stub.summary(aid)
     assert trigger_summary(summary["trigger"], summary) == "Served every 7d"
-    assert "Growing" in window.automation_view.meta_label.text()
+    view = window.automation_view
+    assert view.context_action.text() == "Context: Growing — each run sees the previous runs"
+    assert view.schedule_chip.text() == "Served every 7d"
 
 
 @pytest.mark.basic
@@ -1232,7 +1419,7 @@ def test_a_tool_approval_wait_lists_its_calls_and_answers_approved(palette, stub
     window._poll_automations()
     window._open_automation(TRIAGE)
     pair = next(p for p in window.automation_view.pairs if p.index == 7)
-    texts = [w.text() for w in pair.answer.findChildren(type(window.automation_view.title_label))]
+    texts = [w.text() for w in pair.answer.findChildren(QLabel)]
     assert any("send_email" in t and "clara@example.com" in t for t in texts), texts
     entry = next(e for e in pair.wait_inputs if e["kind"] == "tool_approval")
     assert entry["edit"] is None, "an approval is Approve / Deny, never free text"
@@ -1266,7 +1453,7 @@ def test_an_event_wait_answers_with_an_object_and_a_kindless_wait_cannot_be_answ
     pair = window.automation_view.pairs[0]
     entry = pair.wait_inputs[0]
     assert entry["edit"] is None and entry["choices"] == [] and "approve" not in entry
-    texts = [w.text() for w in pair.answer.findChildren(type(window.automation_view.title_label))]
+    texts = [w.text() for w in pair.answer.findChildren(QLabel)]
     assert any("did not say what answer it expects" in t for t in texts)
     assert len(stub.calls("POST", "/api/gateway/commands")) == before
 
@@ -1437,15 +1624,16 @@ def test_discuss_wording_matches_the_web_and_the_captured_response_carries_both_
     window._poll_automations()
     window._open_automation(TRIAGE)
     pair = next(p for p in window.automation_view.pairs if p.index == 6)
-    assert pair.discuss_button.text() == "Discuss this run (your own copy; the automation's files stay read-only)"
-    assert pair.discuss_button.toolTip() == (
+    assert pair.discuss_action.text() == "Discuss here"
+    assert pair.discuss_action.toolTip() == (
         "Starts a new session that forks this automation at #6 with its full history (runs 1–6). It works in its "
         "own writable workspace; the automation's files are mounted read-only for the file tools (shell commands are "
         "not sandboxed), and nothing is written back into the automation's session."
     )
     captured = next(c for c in _fixture("commands.json")["items"] if c["name"] == "discuss")
     text, tone = rules.discussion_banner(captured["response"], occurrence_index=captured["request"]["body"]["occurrence_index"])
-    assert tone == "info" and captured["response"]["mounted_workspace"] in text
+    assert tone == "info" and text.startswith("Continued as a session from the automation (run ")
+    assert captured["response"]["mounted_workspace"] in rules.discussion_workspace_note(captured["response"])
 
 
 # ------------------------------------------- layout: the chat's geometry
@@ -1509,8 +1697,8 @@ def test_the_occurrence_list_ends_at_its_last_row(palette, stub) -> None:
         # below the sum of those minimums).
         for pair in view.pairs:
             assert pair.minimumSizeHint().height() <= pair.height(), f"{label}: #{pair.index} claims more than it shows"
-            button = pair.discuss_button
-            assert button.minimumSizeHint().height() <= button.height() or not button.isVisible()
+            line = pair.system_line
+            assert line.minimumSizeHint().height() <= line.height() or not line.isVisible()
         assert view.list_host.minimumSizeHint().height() <= _list_extent(view)[2]
         host, bottom, stacked = _list_extent(view)
         assert bottom == stacked, f"{label}: rows overlap or leave holes"
@@ -1536,8 +1724,9 @@ def test_the_occurrence_list_ends_at_its_last_row(palette, stub) -> None:
 def test_an_occurrence_is_a_chat_exchange_with_the_chats_edges(palette, stub) -> None:
     """Ruling 2026-09-27: automation turns use the chat's rendering container.
     The task is the chat's user bubble (right), the answer the chat's
-    assistant card (left), Discuss a compact action under the card, and no
-    frame around the pair; the edges are the chat's at the same width."""
+    assistant card (left), a compact system line above them (design pass
+    2026-10-28), and no frame around the pair; the edges are the chat's at the
+    same width."""
     import abstractassistant.app as app_module
     from PyQt5.QtCore import QPoint
     from PyQt5.QtWidgets import QFrame, QWidget
@@ -1563,8 +1752,8 @@ def test_an_occurrence_is_a_chat_exchange_with_the_chats_edges(palette, stub) ->
         assert type(pair) is not QFrame and not isinstance(pair, QFrame)
         task = pair.trigger_text
         assert type(task) is app_module.MessageCard and task._bubble.objectName() == "userBubble"
-        # The caption sits above the task bubble, right-aligned with it.
-        assert pair.task_meta.geometry().bottom() < task.geometry().top()
+        # The system line sits above the task bubble.
+        assert pair.system_line.mapTo(pair, QPoint(0, pair.system_line.height())).y() < task.geometry().top()
         edges.add(("task-right", right(task._bubble)))
         card = pair.answer_text if pair.answer_text is not None else pair.note
         assert card is not None
@@ -1574,17 +1763,12 @@ def test_an_occurrence_is_a_chat_exchange_with_the_chats_edges(palette, stub) ->
         else:
             box = card  # a failure / wait / nothing-yet note, the same column
         edges.add(("answer-left", left(box)))
-        # Discuss: under the card, right-aligned with it, label unchanged.
-        row = pair.discuss_row
-        assert row.mapTo(window, QPoint(0, 0)).y() >= box.mapTo(window, QPoint(0, box.height())).y()
-        assert right(pair.discuss_button) == right(box)
-        assert pair.discuss_button.text() == "Discuss this run (your own copy; the automation's files stay read-only)"
-        assert pair.discuss_button.height() < 40, "one compact line at this width"
-        assert not pair.discuss_box.isVisible()
+        # No per-run input and no long Discuss button: a ⋯ on the system line.
+        assert not hasattr(pair, "discuss_button") and pair.more_button.height() <= 24
     # The information stays: failed reason + red tone, waiting highlighted.
     failed = next(p for p in view.pairs if p.index == 5)
-    assert failed.note.property("tone") == "failed" and "IMAP read timed out" in failed.note.findChildren(type(view.title_label))[0].text()
-    assert failed.status_meta.property("tone") == "failed" and failed.badge.text().startswith("Failed after 3")
+    assert failed.note.property("tone") == "failed" and "IMAP read timed out" in failed.note.findChildren(QLabel)[0].text()
+    assert failed.badge.property("tone") == "failed" and failed.badge.text().startswith("Failed after 3")
     waiting = next(p for p in view.pairs if p.index == 7)
     assert waiting.note.property("tone") == "waiting" and waiting.wait_inputs
     notified = next(p for p in view.pairs if p.index == 2)
@@ -1614,23 +1798,6 @@ def test_an_occurrence_is_a_chat_exchange_with_the_chats_edges(palette, stub) ->
     answer = next(c for c in cards if c._bubble.objectName() == "assistantBubble")
     assert right(user._bubble) == task_right.pop(), "task bubble right edge = chat user bubble right edge"
     assert left(answer._bubble) == answer_left.pop(), "answer card left edge = chat card left edge"
-
-
-@pytest.mark.basic
-def test_discuss_opens_its_prompt_under_the_card(palette, stub) -> None:
-    window, _controller = palette
-    _tall_palette(window)
-    window._poll_automations()
-    window._open_automation(TRIAGE)
-    _settle()
-    pair = next(p for p in window.automation_view.pairs if p.index == 6)
-    assert not pair.discuss_box.isVisible()
-    pair.discuss_button.click()
-    _settle()
-    assert pair.discuss_box.isVisible()
-    assert pair.discuss_box.geometry().top() >= pair.discuss_row.geometry().bottom()
-    assert pair.discuss_edit.placeholderText() == "What do you want to discuss about this result?"
-
 
 
 @pytest.mark.basic
@@ -1795,11 +1962,11 @@ def test_the_view_never_infers_a_run_in_progress_from_the_last_occurrence(palett
     window._open_automation(NEWS)
     view = window.automation_view
     assert view.control_buttons["run_now"].isEnabled() and not view.control_buttons["stop_current"].isEnabled()
-    assert "running" not in view.meta_label.text()
+    assert view.status_chip.text() == "Active"
     news["current_occurrence"] = {"index": 7, "run_id": "r7", "attempt": 1, "status": "admitted"}
     window._poll_automations()
     assert not view.control_buttons["run_now"].isEnabled() and view.control_buttons["stop_current"].isEnabled()
-    assert "run #7 running" in view.meta_label.text()
+    assert view.status_chip.text() == "Running…" and view.status_chip.property("tone") == "running"
     # The pending confirmations read it too: Stop is confirmed once it is gone.
     from abstractassistant.core.automations import command_confirmed
 
@@ -1986,7 +2153,7 @@ def test_the_view_edits_an_email_triggers_interval(palette, stub) -> None:
     window._poll_automations()
     window._open_automation(NEWS)
     view = window.automation_view
-    assert "When mail arrives in your mailbox" in view.meta_label.text()
+    assert view.schedule_chip.text().startswith("When mail arrives in your mailbox")
     assert view.edit_every.isEnabled() and view.edit_every.text() == "1h"
     view.edit_box.show()
     view.edit_every.setText("3h")
@@ -2220,13 +2387,14 @@ def test_a_trigger_is_said_in_words_never_by_its_source_id() -> None:
 @pytest.mark.basic
 def test_an_event_trigger_shows_no_next_run_and_the_hub_reads_its_names() -> None:
     from abstractassistant.core.automations import set_trigger_names, trigger_summary
-    from abstractassistant.ui.automations import AutomationsHub, _next_run_text
+    from abstractassistant.core.automations import next_run_chip
+    from abstractassistant.ui.automations import AutomationsHub
 
     feed = {"automation_id": "a1", "status": "active", "next_run_at": None,
             "trigger": {"source_id": "feed.item", "source_version": 1, "config": {"connection_id": "tc_9"}}}
-    assert _next_run_text(feed) == "", "it runs when something happens: no next run"
+    assert next_run_chip(feed) == ("", ""), "it runs when something happens: no next run"
     schedule = {**feed, "trigger": {"source_id": "schedule", "source_version": 2, "config": {}}}
-    assert _next_run_text(schedule) == "no next run"
+    assert next_run_chip(schedule)[0] == "No next run"
 
     class Names:
         calls: list = []
@@ -2250,3 +2418,98 @@ def test_an_event_trigger_shows_no_next_run_and_the_hub_reads_its_names() -> Non
         assert client.calls == [], "a served trigger_text needs no lookup"
     finally:
         set_trigger_names(connections={}, mailboxes={})
+
+
+# ------------------------------- design pass 2026-10-28: the chat surface
+
+
+@pytest.mark.basic
+def test_the_header_is_chips_and_icons_not_a_joined_sentence(palette, stub) -> None:
+    """Operator 2026-10-28: "so much text in the upper tab, unreadable, not
+    enough use of buttons". One status chip, one schedule chip, one next-run
+    chip; the workflow, workspaces and context live in the ⋯ menu."""
+    from PyQt5.QtWidgets import QPushButton
+
+    window, _controller = palette
+    window._poll_automations()
+    window._open_automation(NEWS)
+    _settle()
+    view = window.automation_view
+    assert not hasattr(view, "meta_label") and not hasattr(view, "workflow_label") and not hasattr(view, "workspaces_label")
+    header = [w for w in view.findChildren(QLabel) if w.isVisibleTo(view) and not view.list_host.isAncestorOf(w)]
+    for label in header:
+        text = label.text()
+        assert text.count(" · ") <= 1, f"a ' · '-joined header line: {text!r}"
+        for word in ("Workflow:", "Workspaces:", "Growing", "Independent", " runs"):
+            assert word not in text, f"{word!r} belongs in the ⋯ menu, not the header: {text!r}"
+    assert view.status_chip.text() == "Active" and view.schedule_chip.isVisibleTo(view)
+    # The one-shot actions are icon buttons (label in the tooltip and accessible name).
+    for control, label in view.CONTROL_LABELS:
+        button = view.control_buttons[control]
+        assert button.text() == "" and not button.icon().isNull() and button.accessibleName() == label
+        assert button.toolTip().startswith(label) or not button.isEnabled()
+    menu = [a.text() for a in view.more_menu.actions() if a.text()]
+    assert menu[1:] == ["Workspaces…", "Context: Independent — each run starts fresh", "Copy automation id"], menu
+    assert menu[0].startswith("Workflow: ")
+    # The title is one ellipsized line; the full title is its tooltip.
+    assert view.title_label.toolTip() == stub.summary(NEWS)["title"] == view.title_label.full_text
+    assert not [b for b in view.findChildren(QPushButton) if b.isVisibleTo(view) and b.text() in {"Run now", "Stop current", "Edit", "Archive"}]
+
+
+@pytest.mark.basic
+def test_a_run_reads_as_a_system_line_never_the_bracketed_envelope(palette, stub) -> None:
+    """ADR 0043: no "[Trigger schedule@1 · occurrence 1 · fired …]" in a user
+    bubble, no command id from a run-now's served summary anywhere."""
+    import abstractassistant.app as app_module
+
+    window, _controller = palette
+    window._poll_automations()
+    window._open_automation(TRIAGE)
+    view = window.automation_view
+    assert len(view.pairs) == 7
+    for pair in view.pairs:
+        assert "[Trigger" in next(r for r in stub.occurrences[TRIAGE] if r["index"] == pair.index)["user_turn"]
+        texts = [b.toPlainText() for b in pair.trigger_text.findChildren(app_module.AutoSizingTextBrowser)]
+        assert texts and not any("[Trigger" in t or "occurrence " in t for t in texts), texts
+        assert "Inbox triage" in texts[0]
+        line = pair.system_line.text()
+        assert "[" not in line and "@" not in line and f"run {pair.index}" in line.lower(), line
+    manual = next(p for p in view.pairs if p.index == 4)
+    assert manual.system_line.text().startswith("Run now · run 4 · ")
+    assert next(p for p in view.pairs if p.index == 1).system_line.text().startswith("Scheduled run 1 · ")
+    every_label = " ".join(w.text() + " " + w.toolTip() for w in view.findChildren(QLabel))
+    assert "5b0e1c27" not in every_label, "the run-now command id is never shown"
+
+
+@pytest.mark.basic
+def test_an_automation_result_card_has_the_chats_speaker(palette, stub) -> None:
+    window, _controller = palette
+    window._poll_automations()
+    window._open_automation(TRIAGE)
+    view = window.automation_view
+    pair = next(p for p in view.pairs if p.index == 6)
+    card = pair.answer_text
+    assert card is not None and card._voice_button is not None, "speaker on every automation reply"
+    assert card._copy_button is not None
+    assert pair.trigger_text._voice_button is None, "the task is not read aloud from here"
+    spoken: List[str] = []
+
+    class Voice:
+        def stop_speaking(self):
+            pass
+
+        def speak(self, text, callback=None):
+            spoken.append(text)
+            return True
+
+        def is_speaking(self):
+            return bool(spoken)
+
+        def is_paused(self):
+            return False
+
+    window._controller.voice_manager = Voice()
+    card._voice_button.click()
+    assert spoken == ["1 new newsletter; nothing needs a reply."], spoken
+    # The card follows the voice like a session card.
+    assert card._voice_state == "synthesizing"
