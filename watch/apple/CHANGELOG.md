@@ -7,6 +7,10 @@ iPhone app); the Python package's history is in
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-10-28
+
+Build 40, shared with the iPhone app (`MARKETING_VERSION` 0.16.1, `CURRENT_PROJECT_VERSION` 40).
+
 ### Added
 
 - **Voices in groups, with their language (AbstractGateway 0.16.0 voice library).** Settings → Voice
@@ -17,6 +21,15 @@ iPhone app); the Python package's history is in
 
 ### Fixed
 
+- **Run on an automation's details answers the tap.** The tap is felt (a click, then the start
+  haptic once the gateway accepts the run), the Run button shows a spinner and a "Starting… 0:01"
+  line becomes "Running… 0:03" once the gateway has the command; the details stay until the gateway
+  has started the run, then the automation's orb page follows that very run (its steps timed from
+  the tap, then its answer, spoken). Before, the button only went inert while the command was sent,
+  the page went back to the orb at rest, and that page looked for the run again: a run that ended
+  before its first look (a short task on a fast model) was never shown there, and a longer one
+  showed only after several round trips. A refused Run says why, with the failure haptic.
+  (QA 2026-10-28 item m; `RunFeedbackUITests`, `LiveRunFeedbackUITests`.)
 - **A sign-out stands.** Once signed out, the watch stays signed out across launches until you
   sign in on it. The watch and the iPhone sign in independently: neither passes its sign-in to the
   other, and neither needs the other's app. Sign out confirms the credential is gone from the

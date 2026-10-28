@@ -96,7 +96,8 @@ sign-ins), `--test-known <url,url>` (gateways signed into, oldest first), `--tes
 `--render-orb-work` (the orb at work, frame by frame, into Documents), `--render-orb-scenes` (the scene styles, robots included, at rest, speaking, listening, thinking and working, into Documents), `--reset-tools` (tool and
 workflow choices back to the gateway's), `--reset-seen` (every answer counts as new),
 `--fresh-conversation` and `--test-session <id>` (open a conversation), `--slow-automations`
-(sample automations answer 6 s late, as on a public gateway). Release builds ignore them.
+(sample automations answer 6 s late, as on a public gateway), `--slow-run` (a sample Run is
+accepted 4 s after the tap, as a command over the watch's radio). Release builds ignore them.
 
 ## Live in the simulator
 

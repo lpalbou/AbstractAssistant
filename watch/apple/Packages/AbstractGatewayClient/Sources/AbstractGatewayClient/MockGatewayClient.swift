@@ -144,6 +144,8 @@ public actor MockGatewayClient: GatewayClient {
     private var automationsFailures: Int
     /// How long an automation's definition takes to read (a public gateway's take seconds).
     private let definitionDelay: Duration
+    /// How long a Run now takes to be accepted (a command over a watch's radio takes seconds).
+    private let runDelay: Duration
     /// How many polls fail before the gateway answers (a watch whose radio is still coming up);
     /// `.max`: it never does.
     private var pollFailures: Int
@@ -161,13 +163,14 @@ public actor MockGatewayClient: GatewayClient {
     private var activityResolved = false
 
     public init(world: World, waits: [Wait]? = nil, wordInterval: TimeInterval = 0.12, automationsDelay: Duration = .zero,
-                automationsFailures: Int = 0, pollFailures: Int = 0, definitionDelay: Duration = .zero,
+                automationsFailures: Int = 0, pollFailures: Int = 0, definitionDelay: Duration = .zero, runDelay: Duration = .zero,
                 emptyAutomations: Bool = false, activityScenario: String? = nil, historyFixture: Bool = false, conversationListFixture: Bool = false,
                 categoryFixture: Bool = false, emailFixture: Bool = false, accessFixture: Bool = false, mediaImage: Data? = nil, mediaVoice: Data? = nil,
                 speechPreparationDelay: TimeInterval = 0) {
         self.world = world
         self.pending = waits ?? world.sampleWaits; self.wordInterval = wordInterval; self.automationsDelay = automationsDelay
         self.automationsFailures = automationsFailures; self.pollFailures = pollFailures; self.definitionDelay = definitionDelay
+        self.runDelay = runDelay
         self.emptyAutomations = emptyAutomations; self.activityScenario = activityScenario
         self.historyFixture = historyFixture; self.conversationListFixture = conversationListFixture; self.categoryFixture = categoryFixture
         self.emailFixture = emailFixture; self.accessFixture = accessFixture
@@ -294,6 +297,7 @@ public actor MockGatewayClient: GatewayClient {
     /// Run now: the automation runs for 14 s (`current_occurrence` set, a ledger that moves on).
     private var automationRunStarted: [String: Date] = [:]
     public func runAutomationNow(id: String) async throws {
+        if runDelay > .zero { try await Task.sleep(for: runDelay) }
         guard world == .watch else { automationRunStarted[id] = Date(); return }
         // As the gateway: one run at a time.
         if let t = automationRunStarted[id], Date().timeIntervalSince(t) < 14 {
