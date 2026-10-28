@@ -78,7 +78,7 @@ PYTHONPATH=. python -P web/scripts/gen_tool_policy_parity.py   # needs the packa
 |---|---|
 | `bin/server.js`, `bin/cli.js` | The app server: built files, mount under `/apps/assistant-web/`, gateway session proxy |
 | `src/host/` | What the page needs from its host (gateway URLs, authentication, native capabilities); the browser host |
-| `src/gateway/` | Gateway calls (SSE over fetch, framed by the kit's `sseFrames`) and the kit's `WorkflowTransport` over them |
+| `src/gateway/` | Gateway calls (SSE over fetch, framed by the kit's `sseFrames`) and the kit's `WorkflowTransport` over them, with `replayView` (panel-chat 0.6.0: the conversation is rendered from the gateway's replay view on AbstractGateway >= 0.17.0, the ledger fold otherwise) |
 | `src/lib/` | Pure logic with tests: session fold, titles, workflow choice, run input, theme group |
 | `src/ui/` | The Assistant space on the kit: the conversation (`WorkflowChat`), the conversation list (the shell's navigation), Settings → Voice |
 | `src/styles/index.css` | App styles on the design tokens of `web/design/tokens.css` |

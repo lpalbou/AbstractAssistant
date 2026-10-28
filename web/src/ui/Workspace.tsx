@@ -1,7 +1,9 @@
 /**
  * The open conversation, composed from the kit (ADR 0001; backlog 0030, 0032):
- * - `useWorkflowSession` + this app's transport (src/gateway/transport.ts) fold the ledger,
- *   follow child runs, stream live replies and hold the pending question;
+ * - `useWorkflowSession` + this app's transport (src/gateway/transport.ts) render the
+ *   conversation from the gateway's replay view (AbstractGateway >= 0.17.0; the controller folds
+ *   the ledger itself on an older gateway, labeled here), stream live replies and hold the
+ *   pending question;
  * - `WorkflowChat` is the thread and the composer (typed attachment chips through
  *   `useAttachmentUploads`, Stop, a transcript toolbar);
  * - `presentInteraction` is the approval / question panel, with the ONE wording set and the
@@ -15,6 +17,7 @@ import {
   useAttachmentUploads,
   useWorkflowSession,
   workflowPendingInteraction,
+  workflowSourceLabel,
   type ChatMessage,
 } from "@abstractframework/panel-chat";
 import {
@@ -297,6 +300,11 @@ export function Workspace(props: {
           <h1 className="aa-chat__title">{props.title}</h1>
           {listWords ? <span className={`aa-state aa-state--${props.listState}`}>{listWords}</span> : null}
           {snapshot.connection === "reconnecting" ? <span className="aa-chat__status" role="status">Reconnecting…</span> : null}
+          {snapshot.source === "ledger_fold" ? (
+            <span className="aa-chat__status aa-chat__source" title={workflowSourceLabel(snapshot)}>
+              Rebuilt in this browser
+            </span>
+          ) : null}
           {snapshot.displayStatus ? <span className="aa-chat__status" role="status">{snapshot.displayStatus}</span> : null}
         </div>
       }
