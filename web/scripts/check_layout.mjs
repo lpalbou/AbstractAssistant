@@ -62,13 +62,15 @@ function answer(path, mode) {
   if (m) return json({ input_data: { prompt: titles[m[1]] || "" } });
   // "ledger_fold": a gateway before 0.17.0 (no view route: FastAPI's unmatched-route answer), so
   // the chat folds the ledger, labeled. "replay_view": AbstractGateway >= 0.17.0 serves the view.
+  if (path === "api/gateway/runs/earlier-gone/view") return json({ detail: "Run not found" }, 404);
   m = /^api\/gateway\/runs\/([^/?]+)\/view$/.exec(path);
   if (m) { seen.view += 1; return mode === "replay_view" ? json(viewFor(m[1])) : json({ detail: "Not Found" }, 404); }
   if (/^api\/gateway\/runs\/[^/?]+\/view\/stream$/.test(path)) return mode === "replay_view" ? { status: 200, contentType: "text/event-stream", body: "event: done\ndata: {}\n\n" } : json({ detail: "Not Found" }, 404);
   // panel-chat 0.6.2 lists a conversation's turns from a SMALL bundle (no sub-runs, one ledger item): not the
   // ledger fold's full bundle, counted apart.
   m = /^api\/gateway\/runs\/([^/?]+)\/history_bundle\?include_session=true&include_subruns=false&ledger_max_items=1/.exec(path);
-  if (m) { seen.turns += 1; return json({ session: { session_id: "s1", turns: [{ run_id: m[1] }] } }); }
+  // Two earlier turns: one renders, one cannot be read (its labeled "History" note must fit too).
+  if (m) { seen.turns += 1; return json({ session: { session_id: "s1", turns: [{ run_id: "earlier-ok" }, { run_id: "earlier-gone" }, { run_id: m[1] }] } }); }
   if (/^api\/gateway\/runs\/[^/?]+\/history_bundle/.test(path)) { seen.history += 1; return json(bundle); }
   if (/^api\/gateway\/runs\/[^/?]+\/ledger\/stream/.test(path)) return { status: 200, contentType: "text/event-stream", body: "" };
   if (/^api\/gateway\/runs\/[^/?]+\/ledger/.test(path)) return json({ items: [], next_after: 0 });
@@ -150,6 +152,7 @@ try {
       const hint = await page.locator(".aa-chat__source").count();
       if (mode === "replay_view" && (seen.history > 0 || seen.view === 0)) failures.push(`${tag}: not rendered from the replay view (history ${seen.history}, view ${seen.view})`);
       if (mode === "replay_view" && seen.turns === 0) failures.push(`${tag}: the conversation's turns were not listed (panel-chat 0.6.2)`);
+      if (mode === "replay_view" && !(await page.getByText("could not be restored", { exact: false }).count())) failures.push(`${tag}: the unreadable earlier turn is not labeled`);
       if (mode === "replay_view" && hint) failures.push(`${tag}: the ledger-fold label shows while the view is used`);
       if (mode === "ledger_fold" && !hint) failures.push(`${tag}: the ledger fold is not labeled`);
       if (touch && !m.coarse) failures.push(`${tag}: the touch emulation did not give a coarse pointer`);

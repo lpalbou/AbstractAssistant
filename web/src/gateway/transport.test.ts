@@ -114,7 +114,7 @@ function replayView(token = "root0000:3.child000:2~d1") {
   };
 }
 
-describe("the replay view (panel-chat 0.6.0, AbstractGateway >= 0.17.0)", () => {
+describe("the replay view (panel-chat 0.6.2, AbstractGateway >= 0.17.0)", () => {
   it("reads GET runs/{id}/view and follows /view/stream with Last-Event-ID, through the host", async () => {
     const calls: Array<[string, RequestInit]> = [];
     const view = replayView();
@@ -181,6 +181,7 @@ describe("the replay view (panel-chat 0.6.0, AbstractGateway >= 0.17.0)", () => 
     expect(contents.indexOf("first question")).toBeLessThan(contents.indexOf("write a.txt"));
     const bundles = urls.filter((u) => u.includes("history_bundle"));
     expect(bundles).toHaveLength(1);
+    expect(bundles[0]).toContain("include_subruns=false&ledger_max_items=1");
     expect(urls.some((u) => /\/ledger\?/.test(u))).toBe(false);
     expect(snap.messages.some((m) => /could not be listed|are not shown|could not be restored/.test(String(m.content)))).toBe(false);
     ctl.dispose();
