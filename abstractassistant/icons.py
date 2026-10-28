@@ -340,6 +340,15 @@ _ICON_PATHS: dict = {
         "m2 2 20 20",
     ],
     "chevron-up": ["m18 15-6-6-6 6"],
+    "chevron-left": ["m15 18-6-6 6-6"],
+    # Lucide `ellipsis`: an overflow ("more actions") menu.
+    "ellipsis": [
+        "M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0-2 0",
+        "M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0-2 0",
+        "M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0-2 0",
+    ],
+    # Lucide `square` (stroke): Stop the run in progress, in an icon row.
+    "square": ["M3 3m2 0h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"],
     "loader": [
         "M12 2v4", "m16.2 7.8 2.9-2.9", "M18 12h4", "m16.2 16.2 2.9 2.9",
         "M12 18v4", "m4.9 19.1 2.9-2.9", "M2 12h4", "m4.9 4.9 2.9 2.9",

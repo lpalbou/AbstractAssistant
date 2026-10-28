@@ -89,6 +89,20 @@ __all__ = [
     "set_trigger_names",
     "mailbox_address",
     "is_event_trigger",
+    "TRIGGER_RUN_WORDS",
+    "attention_lines",
+    "context_mode_text",
+    "continued_line",
+    "continued_sessions",
+    "discussion_banner",
+    "discussion_workspace_note",
+    "next_run_chip",
+    "occurrence_system_line",
+    "readable_when",
+    "schedule_chip",
+    "split_trigger_envelope",
+    "status_chip",
+    "workflow_text",
 ]
 
 # ------------------------------------------------------------------ cadence
@@ -1365,26 +1379,230 @@ def revise_changes(
     return (changes or None), []
 
 
+# ------------------------------------------------ the automation as a chat
+#
+# Design pass 2026-10-28 (operator: "it should be our conventional chat"): an
+# automation opens in the palette's chat surface. These are the words of that
+# surface — a compact header (one status chip, one schedule chip, one next-run
+# chip), a readable system line per run instead of the runtime's bracketed
+# trigger envelope, and the "Continued as a session" notices. No raw id is
+# ever part of these strings (ADR 0043).
+
+# The first line the runtime composes into a run's task turn
+# (abstractruntime automations/controller.py `_render_prompt`):
+# "[Trigger schedule@1 · occurrence 1 · fired 2026-10-09T23:06:22+00:00]".
+_TRIGGER_ENVELOPE_RE = re.compile(r"^\s*\[Trigger [^\]\n]*\][ \t]*(?:\r?\n|$)")
+
+# What started a run, in words (the envelope's / row's `trigger.source_id`).
+TRIGGER_RUN_WORDS = {
+    "schedule": "Scheduled",
+    "manual": "Run now",
+    "email.received": "Email received",
+    "feed.item": "New feed item",
+    "webhook.received": "Web address called",
+}
+
+
+def split_trigger_envelope(user_turn: Any) -> Tuple[str, str]:
+    """``(envelope, task)``: the runtime's bracketed first line (``""`` when the
+    turn has none) and the task text people read, without it."""
+    text = str(user_turn or "")
+    m = _TRIGGER_ENVELOPE_RE.match(text)
+    if not m:
+        return "", text.strip()
+    return m.group(0).strip(), text[m.end():].strip()
+
+
+def _clock_12h(dt: datetime) -> str:
+    return f"{dt.hour % 12 or 12}:{dt.minute:02d} {'AM' if dt.hour < 12 else 'PM'}"
+
+
+def readable_when(ts: Any, *, now: Optional[datetime] = None) -> str:
+    """ "Today at 4:28 PM", "Yesterday at 9:00 AM", "Oct 9 at 11:06 PM", "Oct 9, 2025 at
+    11:06 PM" — in the person's own time zone (the stamp is a UTC instant)."""
+    when = _parse_ts(ts)
+    if when is None:
+        return ""
+    local = when.astimezone()
+    today = (now or datetime.now(timezone.utc)).astimezone().date()
+    clock = _clock_12h(local)
+    if local.date() == today:
+        return f"Today at {clock}"
+    if (today - local.date()).days == 1:
+        return f"Yesterday at {clock}"
+    day = f"{local.strftime('%b')} {local.day}"
+    if local.year != today.year:
+        day = f"{day}, {local.year}"
+    return f"{day} at {clock}"
+
+
+def occurrence_system_line(row: Mapping[str, Any], *, now: Optional[datetime] = None) -> Tuple[str, str]:
+    """``(line, tooltip)`` above a run in the automation's chat: "Scheduled run 1 ·
+    Oct 9 at 11:06 PM", "Run now · run 4 · Today at 7:12 AM". Never the bracketed
+    envelope, never a command or run id (the served ``trigger.summary`` of a
+    run-now names its command id, so it is not used)."""
+    trigger = row.get("trigger") if isinstance(row.get("trigger"), Mapping) else {}
+    source = str(trigger.get("source_id") or "")
+    index = int(row.get("index") or 0)
+    word = TRIGGER_RUN_WORDS.get(source, "Triggered")
+    head = f"Scheduled run {index}" if source == "schedule" else f"{word} · run {index}"
+    when = readable_when(row.get("fired_at"), now=now)
+    line = f"{head} · {when}" if when else head
+    fired = _parse_ts(row.get("fired_at"))
+    tooltip = head
+    if fired is not None:
+        local = fired.astimezone()
+        tooltip = (
+            f"{head}, started {local.strftime('%A')}, {local.strftime('%B')} {local.day}, {local.year} "
+            f"at {_clock_12h(local)} (your time)"
+        )
+    return line, tooltip
+
+
+def status_chip(summary: Mapping[str, Any]) -> Tuple[str, str]:
+    """``(text, tone)`` of the header's ONE status chip: Running… / Active /
+    Paused / Archived / Completed / Failed."""
+    status = str(summary.get("status") or "")
+    if status in {"active", "paused"} and current_run(summary) is not None:
+        return "Running…", "running"
+    text = STATUS_LABELS.get(status, status.capitalize() or "Unknown")
+    tone = {"active": "active", "paused": "paused", "failed": "failed"}.get(status, "ended")
+    return text, tone
+
+
+_UNIT_SHORT = ((re.compile(r"\b(\d+) hours?\b"), r"\1 h"), (re.compile(r"\b(\d+) minutes?\b"), r"\1 min"),
+               (re.compile(r"\b(\d+) seconds?\b"), r"\1 s"))
+
+
+def schedule_chip(summary: Mapping[str, Any]) -> Tuple[str, str]:
+    """``(chip, tooltip)``: the served trigger sentence, compacted for a chip
+    ("Every 24 hours (UTC)" -> "Every 24 h"; "Every Mon, Tue and Fri at 09:00
+    (Europe/Paris) · 10 runs max" -> "Every Mon, Tue and Fri at 09:00"). The
+    tooltip keeps the full served sentence and the zone. Nothing is composed:
+    the chip is a cut of the gateway's words (round 16 rule)."""
+    trigger = summary.get("trigger") if isinstance(summary.get("trigger"), Mapping) else {}
+    full = trigger_summary(trigger, summary)
+    chip = full.split(" · ")[0].strip()
+    chip = re.sub(r"\s*\([^()]*\)\s*$", "", chip).strip() or full
+    for pattern, short in _UNIT_SHORT:
+        chip = pattern.sub(short, chip)
+    lines = [full]
+    zone = summary.get("time_zone")
+    if isinstance(zone, str) and zone and zone not in full:
+        lines.append(f"Times in {zone}.")
+    return chip, "\n".join(lines)
+
+
+def next_run_chip(summary: Mapping[str, Any], *, now: Optional[datetime] = None) -> Tuple[str, str]:
+    """``(chip, tooltip)``: "Next in 3 h · 11:06 PM" / "Due now · 11:06 PM"; ``("", "")``
+    when nothing is scheduled (paused, ended, an event trigger). The relative part
+    is from the served ``next_run_at``, the clock CUT from the served
+    ``next_run_local`` (the automation's zone): no zone arithmetic."""
+    if summary.get("status") != "active":
+        return "", ""
+    relative = next_run_text(summary, now=now)  # "next in 14 h" / "next: now" / "next —"
+    if relative == "next —":
+        # A trigger that waits for something to happen has no next run to show;
+        # a schedule without one says so.
+        trigger = summary.get("trigger") if isinstance(summary.get("trigger"), Mapping) else {}
+        return ("", "") if is_event_trigger(trigger) else ("No next run", "The gateway reports no next scheduled run.")
+    local = summary.get("next_run_local")
+    m = _SERVED_LOCAL_RE.match(local) if isinstance(local, str) else None
+    clock = ""
+    if m:
+        hour, minute = (int(x) for x in m.group(2).split(":"))
+        clock = f"{hour % 12 or 12}:{minute:02d} {'AM' if hour < 12 else 'PM'}"
+    head = "Due now" if relative == "next: now" else f"Next in {relative[len('next in '):]}"
+    chip = f"{head} · {clock}" if clock else head
+    served = format_served_local(local, summary.get("time_zone"))
+    return chip, (f"Next scheduled run: {served}" if served else "Next scheduled run")
+
+
+def context_mode_text(summary: Mapping[str, Any]) -> str:
+    """The overflow menu's context line."""
+    if summary.get("context_mode") == "growing":
+        return "Context: Growing — each run sees the previous runs"
+    return "Context: Independent — each run starts fresh"
+
+
+def workflow_text(detail: Mapping[str, Any]) -> str:
+    """ "Workflow: basic-agent 0.0.5" from the definition's target — the bundle's
+    readable name and version; the flow id (a digest) is not shown (ADR 0043).
+    "" when the target names no bundle."""
+    definition = detail.get("definition") if isinstance(detail.get("definition"), Mapping) else {}
+    target = definition.get("target") if isinstance(definition.get("target"), Mapping) else {}
+    ref = str(target.get("bundle_ref") or "").strip()
+    if not ref:
+        ref = str(target.get("workflow_id") or "").strip().split(":", 1)[0]
+    if not ref:
+        return ""
+    bundle, sep, version = ref.rpartition("@")
+    name = f"{bundle} {version}" if sep and bundle else ref
+    return f"Workflow: {name}"
+
+
+def attention_lines(summary: Mapping[str, Any]) -> List[str]:
+    """The slim attention notice: "2 runs waiting for you" (results already show
+    their own "New result" mark on the run itself)."""
+    attention = summary.get("attention") if isinstance(summary.get("attention"), Mapping) else {}
+    waiting = int(attention.get("pending_waits") or 0)
+    return [f"{waiting} run{'' if waiting == 1 else 's'} waiting for you"] if waiting else []
+
+
+def continued_sessions(digests: Iterable[Mapping[str, Any]], automation_id: str) -> List[Mapping[str, Any]]:
+    """The discussion sessions the gateway lists for this automation (its `/runs`
+    rows' ``session_kind`` and ``automation_id``), newest first."""
+    aid = str(automation_id or "")
+    rows = [
+        d for d in digests or []
+        if isinstance(d, Mapping) and aid and d.get("session_kind") == "discussion" and str(d.get("automation_id") or "") == aid
+    ]
+    return sorted(rows, key=lambda d: str(d.get("created_at") or ""), reverse=True)
+
+
+def continued_line(created_at: Any, more: int = 0, *, now: Optional[datetime] = None) -> str:
+    """ "Continued as a session on Oct 27" (+ " · 2 more" when there are others)."""
+    when = _parse_ts(created_at)
+    if when is None:
+        head = "Continued as a session"
+    else:
+        local = when.astimezone()
+        today = (now or datetime.now(timezone.utc)).astimezone().date()
+        if local.date() == today:
+            day = "today"
+        else:
+            day = f"on {local.strftime('%b')} {local.day}" + (f", {local.year}" if local.year != today.year else "")
+        head = f"Continued as a session {day}"
+    return f"{head} · {more} more" if more > 0 else head
+
+
 # --------------------------------------------------------------- discussion
 
 
-def discussion_banner(result: Mapping[str, Any], *, occurrence_index: int) -> Tuple[str, str]:
-    """``(text, tone)`` of the notice after Discuss. The discussion carries the
-    automation's history through occurrence N, mounts the automation's files
-    read-only at ``mounted_workspace`` and works in its own writable
-    ``workspace_root`` (both from the discuss response). A response without
-    ``mounted_workspace`` is said, never papered over."""
+def discussion_banner(result: Mapping[str, Any], *, occurrence_index: int, title: str = "") -> Tuple[str, str]:
+    """``(text, tone)`` of the notice once a message typed in an automation
+    became a session: "Continued as a session from “<title>” (run N)". The
+    discussion carries the automation's history through run N, mounts the
+    automation's files read-only and works in its own writable folder (both
+    from the discuss response; see `discussion_workspace_note`). A response
+    without ``mounted_workspace`` is said, never papered over."""
+    name = f"“{title}”" if str(title or "").strip() else "the automation"
+    head = f"Continued as a session from {name} (run {occurrence_index})."
     mounted = str(result.get("mounted_workspace") or "").strip()
     own = str(result.get("workspace_root") or "").strip()
     if not mounted or not own:
-        return (
-            f"Discussion of run #{occurrence_index} opened, but the gateway did not say where its files are.",
-            "warn",
-        )
+        return f"{head} The gateway did not say where its files are.", "warn"
+    return head, "info"
+
+
+def discussion_workspace_note(result: Mapping[str, Any]) -> str:
+    """The notice's tooltip: where the session's files are."""
+    mounted = str(result.get("mounted_workspace") or "").strip()
+    if not mounted:
+        return "The gateway did not say where the automation's files are."
     return (
-        f"Discussion of run #{occurrence_index} opened: it knows the automation's runs up to this one; the "
-        f"automation's files are read-only at {mounted}, and this conversation has its own folder.",
-        "info",
+        "It knows the automation's runs up to this one. The automation's files are read-only at "
+        f"{mounted}; this session has its own folder."
     )
 
 

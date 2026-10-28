@@ -44,9 +44,9 @@ def test_a_pre_round_16_row_reads_with_next_fire_at_and_dashes() -> None:
     assert next_run_text(s, now=NOW) == "next in 3 h"
     assert "2026-10-09 19:53 UTC" in control_hint("run_now", s)
     assert "time_zone" not in ROW, "the input is not changed"
-    from abstractassistant.ui.automations import _next_run_text
+    from abstractassistant.core.automations import next_run_chip
 
-    assert _next_run_text(s, now=NOW) == "next 2026-10-09 19:53 UTC (in 3 h)"
+    assert next_run_chip(s, now=NOW) == ("Next in 3 h · 7:53 PM", "Next scheduled run: 2026-10-09 19:53 UTC")
     # Invalid types are as absent as missing ones; no next run served → none (never computed).
     bad = served_summary({**ROW, "time_zone": 5, "schedule_rule_text": ["x"], "next_run_local": None})
     assert (bad["time_zone"], bad["schedule_rule_text"]) == ("UTC", "—")
@@ -57,7 +57,7 @@ def test_a_pre_round_16_row_reads_with_next_fire_at_and_dashes() -> None:
     r16 = served_summary({**ROW, "time_zone": "Europe/Paris", "next_run_at": ROW["next_fire_at"],
                           "next_run_local": "2026-10-09T21:53:29.622724+02:00", "schedule_rule_text": "Every 24 hours (UTC)"})
     assert trigger_summary(r16["trigger"], r16) == "Every 24 hours (UTC)"
-    assert _next_run_text(r16, now=NOW) == "next 2026-10-09 21:53 Europe/Paris (in 3 h)"
+    assert next_run_chip(r16, now=NOW) == ("Next in 3 h · 9:53 PM", "Next scheduled run: 2026-10-09 21:53 Europe/Paris")
 
 
 class _Stub:

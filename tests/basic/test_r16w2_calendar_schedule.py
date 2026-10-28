@@ -298,16 +298,20 @@ def test_the_header_card_and_hint_show_the_served_next_run(palette, stub) -> Non
     window._poll_automations()
     window._open_automation(MORNING)
     view = window.automation_view
-    meta = view.meta_label.text()
-    assert meta.startswith("Every day at 08:00 (Europe/Paris) · Active")
-    assert "next 2026-09-28 08:00 Europe/Paris" in meta
+    # The header's chips: the served rule (cut for a chip; the full sentence in
+    # its tooltip), one status chip, the served next run (no " · "-joined line).
+    assert view.schedule_chip.text() == "Every day at 08:00"
+    assert view.schedule_chip.toolTip().startswith("Every day at 08:00 (Europe/Paris)")
+    assert view.status_chip.text() == "Active"
+    assert view.next_chip.toolTip() == "Next scheduled run: 2026-09-28 08:00 Europe/Paris"
+    assert view.next_chip.text().endswith("· 8:00 AM")
     assert "Next scheduled run: 2026-09-28 08:00 Europe/Paris." in view.control_buttons["run_now"].toolTip()
     # A mutant gateway value moves every display: the client computes nothing.
     moved = dict(stub.summary(MORNING), next_run_at="2026-09-29T06:00:00+00:00", next_run_local="2026-09-29T08:00:00+02:00",
                  schedule_rule_text="Every day at 08:00 (Europe/Paris) [moved]")
     view.set_summary(moved)
-    assert view.meta_label.text().startswith("Every day at 08:00 (Europe/Paris) [moved]")
-    assert "next 2026-09-29 08:00 Europe/Paris" in view.meta_label.text()
+    assert view.schedule_chip.text() == "Every day at 08:00 (Europe/Paris) [moved]"
+    assert view.next_chip.toolTip() == "Next scheduled run: 2026-09-29 08:00 Europe/Paris"
     assert "Next scheduled run: 2026-09-29 08:00 Europe/Paris." in view.control_buttons["run_now"].toolTip()
 
 

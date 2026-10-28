@@ -2038,7 +2038,7 @@ def test_assistant_palette_footer_files_metric_derives_operations_from_tool_deta
 
     tools_metric = metrics["tools"]
     assert tools_metric["plain"] == "tools : 4"
-    assert "[failed]" in tools_metric["tooltip"]
+    assert "(failed)" in tools_metric["tooltip"] and "1 failed" in tools_metric["detail"].headline
 
 
 @pytest.mark.basic
@@ -2202,7 +2202,9 @@ def test_assistant_palette_message_card_renders_wrapping_stats_chips() -> None:
     ]
     assert len(files_labels) == 1
     assert files_labels[0].text() == "1 file"
-    assert "a.txt" in files_labels[0].toolTip()
+    # The chip opens the structured card (no plain grey tooltip of its own).
+    assert files_labels[0].toolTip() == ""
+    assert files_labels[0].stat_detail.title == "Files" and "a.txt" in files_labels[0].accessibleDescription()
 
 
 @pytest.mark.basic

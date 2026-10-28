@@ -24,7 +24,10 @@ def test_turn_cache_sums_across_subruns_and_weights_by_tokens():
     assert cache["label"] == "82% reused"  # not the average of 0% and 90%
     tooltip = next(m for m in metrics if m["kind"] == "tokens_in")["tooltip"]
     assert "12,200" in tooltip and "9,000" in tooltip and "2,000" in tooltip
-    assert "2 of 2" in tooltip and "Repeated context" in tooltip
+    # The structured card: usage across both model calls, the cache split, the ledger footnote.
+    assert "Usage · 2 model calls" in tooltip and "re-sends the conversation" in tooltip
+    assert "Measured on" not in tooltip, "every call measured: no partial-coverage row"
+    assert "From the run ledger; summed across this turn and its child runs." in tooltip
 
 
 def test_missing_cache_is_not_zero_and_partial_counts_are_labeled():

@@ -184,9 +184,11 @@ def test_edit_box_round_trip_stores_the_new_workspaces_in_one_revision(app) -> N
 def test_the_view_shows_one_workspaces_line(app) -> None:
     view = _view(app)
     view.set_workspaces_summary("Deny everything, allow listed workspaces · /data/project (rw)")
-    assert view.workspaces_label.text() == "Workspaces: Deny everything, allow listed workspaces · /data/project (rw)"
+    # In the header's ⋯ menu ("Workspaces…"), not a header line.
+    assert view.workspaces_text == "Workspaces: Deny everything, allow listed workspaces · /data/project (rw)"
+    assert view.workspaces_action.isEnabled()
     view.set_workspaces_summary("")
-    assert view.workspaces_label.text() == ""
+    assert view.workspaces_text == "" and not view.workspaces_action.isEnabled()
 
 
 # --------------------------------------------------------------------------- helpers + wiring

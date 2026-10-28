@@ -17,11 +17,9 @@ import copy
 import json
 import threading
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
 from PyQt5.QtCore import QEvent, QObject, QPoint, QSize, Qt, QTime, QTimer, pyqtSignal
-from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -31,6 +29,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QPlainTextEdit,
     QPushButton,
     QRadioButton,
@@ -60,7 +59,6 @@ from ..core.automations import (
     PENDING_TEXT,
     command_confirmed,
     SCHEDULE_PRESETS,
-    STATUS_LABELS,
     NotificationLedger,
     ScheduleWhen,
     api_error_text,
@@ -70,27 +68,32 @@ from ..core.automations import (
     active_toggle_command,
     automation_controls,
     build_create_request,
-    format_utc,
     group_by_automation,
     new_attention_notices,
     occurrence_views,
     parse_duration,
     revise_changes,
     trigger_summary,
-    is_event_trigger,
     set_trigger_names,
     CALENDAR_DAYS,
     CALENDAR_KINDS,
     SCHEDULE_TEXT,
     calendar_config,
     calendar_when_from,
-    format_served_local,
     is_schedule_v2,
     is_served_preview_kind,
     shows_account_zone,
-    next_run_text,
     schedule_trigger,
     time_zone_line,
+    attention_lines,
+    context_mode_text,
+    continued_line,
+    next_run_chip,
+    occurrence_system_line,
+    schedule_chip,
+    split_trigger_envelope,
+    status_chip,
+    workflow_text,
 )
 from ..gateway.automations import AutomationApiError, AutomationsClient
 from ..gateway.client import WAIT_KINDS
@@ -284,26 +287,6 @@ def _clip(text: Any, limit: int = _EXCERPT_MAX) -> str:
     return value if len(value) <= limit else value[: limit - 1].rstrip() + "…"
 
 
-def _next_run_text(summary: Mapping[str, Any], *, now: Optional[datetime] = None) -> str:
-    """The header's next run, from the gateway's SERVED values only (round 16):
-    "next 2026-10-09 08:00 Europe/Paris (in 14 h)" — `next_run_local` cut (no
-    zone arithmetic) and the relative part from `next_run_at`."""
-    status = summary.get("status")
-    if status == "paused":
-        return "paused"
-    if status in {"archived", "completed", "failed"}:
-        return STATUS_LABELS.get(str(status), str(status)).lower()
-    if not summary.get("next_run_at"):
-        # A trigger that waits for something to happen has no next run to show.
-        trigger = summary.get("trigger") if isinstance(summary.get("trigger"), Mapping) else {}
-        return "" if is_event_trigger(trigger) else "no next run"
-    relative = next_run_text(summary, now=now)  # "next in 14 h" / "next: now"
-    local = format_served_local(summary.get("next_run_local"), summary.get("time_zone"))
-    when = relative[len("next in "):] if relative.startswith("next in ") else "now"
-    # The kit header's words: "<time> (in 14 h)" / "<time> (due now)".
-    return f"next {local} (in {when})" if local and when != "now" else (f"next {local} (due now)" if local else relative)
-
-
 # ----------------------------------------------------------------- styles
 
 
@@ -335,8 +318,43 @@ def automation_row_qss() -> str:
     QLabel#autoExcerpt[tone="warn"] {{ color: {THEME.attention_text}; }}
     QFrame#autoView {{ background: transparent; border: none; }}
     QScrollArea#autoScroll, QWidget#autoList {{ background: transparent; border: none; }}
-    QLabel#autoViewTitle {{ color: {THEME.text_strong}; font-size: 13px; font-weight: 800; }}
+    QLabel#autoViewTitle {{ color: {THEME.text_strong}; font-size: 14px; font-weight: 800; }}
     QLabel#autoViewMeta {{ color: {THEME.text_muted}; font-size: 11px; }}
+    /* Design pass 2026-10-28: the header is chips and icons, not sentences. */
+    QLabel#autoChip {{
+        color: {THEME.text_secondary}; background: {THEME.overlay_faint};
+        border: 1px solid {THEME.border_subtle}; border-radius: 9px;
+        padding: 2px 8px; font-size: 11px; font-weight: 600;
+    }}
+    QLabel#autoStatusChip {{
+        color: {THEME.text_secondary}; background: {THEME.overlay_faint};
+        border: 1px solid {THEME.border_subtle}; border-radius: 9px;
+        padding: 2px 8px; font-size: 11px; font-weight: 700;
+    }}
+    QLabel#autoStatusChip[tone="active"] {{
+        color: {THEME.positive}; background: {THEME.positive_bg}; border-color: {alpha(THEME.positive, 0.45)};
+    }}
+    QLabel#autoStatusChip[tone="running"] {{
+        color: {THEME.accent_text}; background: {THEME.accent_bg}; border-color: {THEME.accent_border};
+    }}
+    QLabel#autoStatusChip[tone="paused"] {{
+        color: {THEME.attention_text}; background: {THEME.attention_bg}; border-color: {THEME.attention_border};
+    }}
+    QLabel#autoStatusChip[tone="failed"] {{
+        color: {THEME.danger_text}; background: {THEME.danger_bg}; border-color: {alpha(THEME.danger, 0.55)};
+    }}
+    QPushButton#autoIconButton, QPushButton#autoRunMore {{
+        background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 0px;
+        min-height: 0px; min-width: 0px;
+    }}
+    QPushButton#autoIconButton:hover, QPushButton#autoRunMore:hover {{
+        background: {THEME.overlay_hover}; border-color: {THEME.border_subtle};
+    }}
+    QPushButton#autoIconButton:focus, QPushButton#autoRunMore:focus {{ border-color: {THEME.accent_border}; }}
+    QPushButton#autoIconButton:disabled {{ background: transparent; border-color: transparent; }}
+    QLabel#autoSystemLine {{ color: {THEME.text_muted}; font-size: 11px; font-weight: 600; }}
+    QLabel#autoContinued {{ font-size: 11px; font-weight: 600; padding: 0px 2px; }}
+    QLabel#autoSelection {{ color: {THEME.text_secondary}; font-size: 11px; }}
     QLabel#autoViewError {{
         color: {THEME.danger_text}; background: {THEME.danger_bg};
         border-radius: 8px; padding: 6px 8px; font-size: 11px;
@@ -344,7 +362,7 @@ def automation_row_qss() -> str:
     QLabel#autoViewNotice {{ color: {THEME.text_secondary}; font-size: 11px; }}
     QLabel#autoAttention {{
         color: {THEME.attention_text}; background: {THEME.attention_bg};
-        border: 1px solid {THEME.attention_border}; border-radius: 8px; padding: 5px 8px; font-size: 11px;
+        border: 1px solid {THEME.attention_border}; border-radius: 8px; padding: 3px 8px; font-size: 11px;
     }}
     QWidget#autoOccurrence, QWidget#autoAnswerColumn {{ background: transparent; border: none; }}
     /* An answer side that is not an answer (failure, wait, nothing yet): the
@@ -362,13 +380,13 @@ def automation_row_qss() -> str:
     QLabel#autoTurnMeta[tone="waiting"] {{ color: {THEME.attention_text}; }}
     QLabel#autoTurnText {{ color: {THEME.text_primary}; font-size: 12px; }}
     QLabel#autoTurnText[tone="quiet"] {{ color: {THEME.text_muted}; }}
-    QLabel#autoTurnBadge {{ color: {THEME.attention_text}; font-size: 10px; font-weight: 800; }}
+    QLabel#autoTurnBadge {{ color: {THEME.attention_text}; font-size: 11px; font-weight: 700; }}
     QLabel#autoTurnBadge[tone="failed"] {{ color: {THEME.danger_text}; }}
     QLabel#autoTurnBadge[tone="notified"] {{ color: {THEME.accent_text}; }}
     QLabel#autoNewBadge {{
         color: {THEME.attention_text}; background: {THEME.attention_bg};
-        border: 1px solid {THEME.attention_border}; border-radius: 7px;
-        padding: 1px 7px; font-size: 10px; font-weight: 800;
+        border: 1px solid {THEME.attention_border}; border-radius: 8px;
+        padding: 1px 7px; font-size: 11px; font-weight: 700;
     }}
     QPushButton#autoControl, QPushButton#autoSmall {{
         color: {THEME.text_secondary};
@@ -407,18 +425,6 @@ def automation_row_qss() -> str:
         text-decoration: underline;
     }}
     QPushButton#autoControl:disabled, QPushButton#autoSmall:disabled {{ color: {THEME.text_faint}; }}
-    /* The Discuss action under an answer: compact, like the chat's action row. */
-    QLabel#autoWrapButton {{
-        color: {THEME.text_muted};
-        background: transparent;
-        border: 1px solid {THEME.border_subtle};
-        border-radius: 9px;
-        padding: 2px 9px;
-        font-size: 10px;
-        font-weight: 600;
-    }}
-    QLabel#autoWrapButton:hover {{ color: {THEME.text_primary}; background: {THEME.overlay_hover}; }}
-    QLabel#autoWrapButton:disabled {{ color: {THEME.text_faint}; border-color: {alpha(THEME.text_faint, 0.18)}; }}
     QPushButton#autoDanger {{
         color: {THEME.text_strong}; background: {THEME.danger_bg};
         border: 1px solid {alpha(THEME.danger, 0.55)}; border-radius: 8px; padding: 3px 10px; font-size: 11px;
@@ -450,18 +456,6 @@ TurnRenderer = Callable[[str, str, str, int], QWidget]
 BubbleWidth = Callable[..., int]
 
 
-def _clock_utc(ts: Any, *, seconds: bool = False) -> str:
-    """A caption's time: ``13:42 UTC`` today, with the date on other days."""
-    try:
-        when = datetime.fromisoformat(str(ts).replace("Z", "+00:00")).astimezone(timezone.utc)
-    except (TypeError, ValueError):
-        return format_utc(ts)
-    clock = when.strftime("%H:%M:%S" if seconds else "%H:%M")
-    if when.date() != datetime.now(timezone.utc).date():
-        clock = f"{when.strftime('%Y-%m-%d')} {clock}"
-    return f"{clock} UTC"
-
-
 def _button(text: str, name: str = "autoControl", *, parent: Optional[QWidget] = None, tooltip: str = "") -> QPushButton:
     button = QPushButton(text, parent)
     button.setObjectName(name)
@@ -486,50 +480,8 @@ def _text_label(text: str, name: str, *, parent: QWidget, tone: str = "") -> QLa
     return label
 
 
-class WrappingButton(QLabel):
-    """A button whose label wraps: the Discuss control's full wording must
-    fit a narrow palette without widening the list (a QPushButton's text
-    never wraps and forced a horizontal scroll)."""
-
-    clicked = pyqtSignal()
-
-    def __init__(self, text: str, parent: Optional[QWidget] = None) -> None:
-        super().__init__(text, parent)
-        self.setObjectName("autoWrapButton")
-        self.setWordWrap(True)
-        self.setTextFormat(Qt.PlainText)
-        self.setCursor(Qt.PointingHandCursor)
-        # Its height is its height for the width it gets (heightForWidth).
-        # A `Minimum` vertical policy made its sizeHint its MINIMUM height —
-        # and a word-wrapped label's sizeHint is taken at a narrow guessed
-        # width (2-3 lines). The occurrence list's minimum height summed that
-        # over every row, and the scroll area never sizes its content below
-        # its minimum: 26 px of empty space per occurrence under the last one.
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-
-    def sizeHint(self) -> QSize:  # noqa: N802 (Qt API)
-        # One line when the row has room (a word-wrapped QLabel otherwise
-        # guesses a narrow, two-line shape); the layout shrinks it and it
-        # wraps (heightForWidth) only when the palette is narrower.
-        margins = self.contentsMargins()
-        width = self.fontMetrics().horizontalAdvance(self.text()) + margins.left() + margins.right() + 2 * self.frameWidth() + 2
-        return QSize(width, self.heightForWidth(width))
-
-    def click(self) -> None:
-        if self.isEnabled():
-            self.clicked.emit()
-
-    def mouseReleaseEvent(self, event) -> None:  # noqa: N802 (Qt API)
-        if event.button() == Qt.LeftButton:
-            self.click()
-            return
-        super().mouseReleaseEvent(event)
-
-
-# The web panel's wording (ui-kit 12f736a), word for word.
-DISCUSS_LABEL = "Discuss this run (your own copy; the automation's files stay read-only)"
-
-
+# The web panel's help for discussing a run (ui-kit 12f736a), word for word;
+# it is the tooltip of a run's "Discuss here".
 def discuss_help(index: int) -> str:
     return (
         f"Starts a new session that forks this automation at #{index} with its full history (runs 1–{index}). "
@@ -538,13 +490,73 @@ def discuss_help(index: int) -> str:
     )
 
 
-class OccurrencePair(QWidget):
-    """One occurrence as a chat exchange, with the chat's own geometry: the
-    task turn is the chat's user bubble (right-aligned) under a muted caption,
-    the answer is the chat's assistant card (left) under a muted status line,
-    and Discuss is a compact action under the card. No frame around the pair."""
+DISCUSS_HERE_LABEL = "Discuss here"
+CONTINUE_PLACEHOLDER = "Write to continue as a session…"
+CONTINUE_PENDING = "Continuing as a session…"
 
-    discuss_requested = pyqtSignal(int, str)
+
+def _icon_button(glyph: str, tooltip: str, *, parent: QWidget, name: str = "autoIconButton", size: int = 28) -> QPushButton:
+    """A compact icon control: its label lives in the tooltip and the
+    accessible name (the header's Run now / Stop / Edit / Archive / ⋯)."""
+    button = QPushButton("", parent)
+    button.setObjectName(name)
+    button.setCursor(Qt.PointingHandCursor)
+    button.setFixedSize(size, size)
+    button.setIcon(symbol_icon(glyph, color=THEME.text_secondary, size=15))
+    button.setIconSize(QSize(15, 15))
+    button.setToolTip(tooltip)
+    button.setAccessibleName(tooltip.split("\n", 1)[0])
+    return button
+
+
+def _chip(text: str, name: str, *, parent: QWidget, tone: str = "") -> QLabel:
+    chip = QLabel(text, parent)
+    chip.setObjectName(name)
+    chip.setTextFormat(Qt.PlainText)
+    if tone:
+        chip.setProperty("tone", tone)
+    return chip
+
+
+class ElidedLabel(QLabel):
+    """One line, cut with "…" to the width it gets; the full text is its
+    tooltip (the automation's title in the header)."""
+
+    def __init__(self, text: str = "", parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.full_text = ""
+        self.setTextFormat(Qt.PlainText)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.set_full_text(text)
+
+    def set_full_text(self, text: str) -> None:
+        self.full_text = str(text or "")
+        self.setToolTip(self.full_text)
+        self.setAccessibleName(self.full_text)
+        self._elide()
+
+    def _elide(self) -> None:
+        width = max(0, self.width() - 2)
+        shown = self.fontMetrics().elidedText(self.full_text, Qt.ElideRight, width) if width > 0 else self.full_text
+        super().setText(shown)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt API)
+        super().resizeEvent(event)
+        self._elide()
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 (Qt API)
+        hint = super().minimumSizeHint()
+        return QSize(40, hint.height())
+
+
+class OccurrencePair(QWidget):
+    """One run as one exchange of the chat: a compact system line (what
+    started it, when, in words — never the runtime's bracketed envelope), the
+    task as the chat's user bubble, the result as the chat's assistant card
+    (a failure or a wait keeps its own card). A run's ⋯ menu offers
+    "Discuss here": the composer's next message continues from THIS run."""
+
+    discuss_here = pyqtSignal(int)
     wait_answered = pyqtSignal(str, str, str, object)  # run_id, wait_key, kind, answer
 
     def __init__(
@@ -568,8 +580,8 @@ class OccurrencePair(QWidget):
         self.is_new = bool(is_new)
         self._bubble_width = bubble_width
         # The turns are rendered by the palette's own chat message widget
-        # (markdown, tables, code, JSON) — never by a second renderer here.
-        # (role, card) so a resize gives each the chat's width for its role.
+        # (markdown, tables, code, JSON, the footer with speaker and copy) —
+        # never by a second renderer here.
         self.turn_cards: List[QWidget] = []
         self._turn_roles: List[str] = []
         row = view.row
@@ -581,19 +593,43 @@ class OccurrencePair(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)  # the chat's gap between turns
 
-        # -- the task turn: the chat's user bubble, caption above it ---------
-        task = QVBoxLayout()
-        task.setContentsMargins(0, 0, 0, 0)
-        task.setSpacing(3)
-        trig = row.get("trigger") if isinstance(row.get("trigger"), Mapping) else {}
-        meta = f"#{self.index} · {trig.get('summary') or trig.get('source_id') or 'trigger'} · fired {_clock_utc(row.get('fired_at'))}"
-        self.task_meta = _text_label(meta, "autoTurnMeta", parent=self)
-        self.task_meta.setAlignment(Qt.AlignRight)
-        self.task_meta.setToolTip(f"fired {format_utc(row.get('fired_at'))}")
-        task.addWidget(self.task_meta)
-        self.trigger_text = self._turn("user", str(row.get("user_turn") or ""), str(row.get("fired_at") or ""), user_width, render_turn)
-        task.addWidget(self.trigger_text)
-        layout.addLayout(task)
+        # -- the system line: what started the run and when, in words -------
+        line, tip = occurrence_system_line(row)
+        system = QHBoxLayout()
+        system.setContentsMargins(0, 4, 0, 0)
+        system.setSpacing(6)
+        system.addStretch(1)
+        self.system_line = _chip(line, "autoSystemLine", parent=self)
+        self.system_line.setToolTip(tip)
+        system.addWidget(self.system_line, 0, Qt.AlignVCenter)
+        self.new_badge = _chip("New failure" if is_failure else "New result", "autoNewBadge", parent=self)
+        self.new_badge.setVisible(self.is_new)
+        system.addWidget(self.new_badge, 0, Qt.AlignVCenter)
+        self.badge = _chip(view.badge, "autoTurnBadge", parent=self, tone=view.tone)
+        self.badge.setVisible(bool(view.badge))
+        system.addWidget(self.badge, 0, Qt.AlignVCenter)
+        system.addStretch(1)
+        can_discuss = bool(discuss_enabled and view.can_discuss)
+        self.more_button = _icon_button("ellipsis", f"More for run {self.index}", parent=self, name="autoRunMore", size=22)
+        self.more_menu = QMenu(self.more_button)
+        self.more_menu.setToolTipsVisible(True)
+        self.discuss_action = self.more_menu.addAction(DISCUSS_HERE_LABEL)
+        self.discuss_action.setEnabled(can_discuss)
+        self.discuss_action.setToolTip(discuss_help(self.index) if can_discuss else (discuss_reason or "Not while it is running."))
+        self.discuss_action.triggered.connect(lambda _=False: self.discuss_here.emit(self.index))
+        self.more_button.clicked.connect(
+            lambda _=False: self.more_menu.exec_(self.more_button.mapToGlobal(QPoint(0, self.more_button.height())))
+        )
+        system.addWidget(self.more_button, 0, Qt.AlignVCenter)
+        layout.addLayout(system)
+
+        # -- the task: the chat's user bubble, without the envelope ---------
+        _envelope, task_text = split_trigger_envelope(row.get("user_turn"))
+        self.task_text = task_text
+        self.trigger_text: Optional[QWidget] = None
+        if task_text:
+            self.trigger_text = self._turn("user", task_text, str(row.get("fired_at") or ""), user_width, render_turn)
+            layout.addWidget(self.trigger_text)
 
         # -- the answer side: a column exactly as wide as the chat's card ----
         self.answer = QWidget(self)
@@ -602,37 +638,14 @@ class OccurrencePair(QWidget):
         self.answer.setFixedWidth(answer_width)
         al = QVBoxLayout(self.answer)
         al.setContentsMargins(0, 0, 0, 0)
-        al.setSpacing(3)
-        head = QHBoxLayout()
-        head.setContentsMargins(0, 0, 0, 0)
-        head.setSpacing(6)
-        self.badge = QLabel(view.badge, self.answer)
-        self.badge.setObjectName("autoTurnBadge")
-        self.badge.setProperty("tone", view.tone)
-        self.badge.setVisible(bool(view.badge))
-        self.new_badge = QLabel("New failure" if is_failure else "New result", self.answer)
-        self.new_badge.setObjectName("autoNewBadge")
-        self.new_badge.setVisible(self.is_new)
-        head.addWidget(self.new_badge, 0)
-        head.addWidget(self.badge, 0)
-        finished = row.get("finished_at")
-        self.status_meta = _text_label(
-            f"{view.status_text}{' · ' + _clock_utc(finished, seconds=True) if finished else ''}",
-            "autoTurnMeta",
-            parent=self.answer,
-            tone=view.tone if view.tone in {"failed", "waiting"} else "",
-        )
-        if finished:
-            self.status_meta.setToolTip(f"finished {format_utc(finished)}")
-        head.addWidget(self.status_meta, 1)
-        al.addLayout(head)
+        al.setSpacing(4)
 
         notify = row.get("notify") if isinstance(row.get("notify"), Mapping) else None
         if notify is not None and notify.get("title"):
-            al.addWidget(_text_label(str(notify.get("title")), "autoTurnBadge", parent=self.answer, tone="notified"))
+            al.addWidget(_text_label(f"Notified: {notify.get('title')}", "autoTurnBadge", parent=self.answer, tone="notified"))
 
         # A failure, a wait or "nothing yet" is said in a card of the chat's
-        # assistant-bubble shape, toned by the occurrence.
+        # assistant-bubble shape, toned by the run.
         self.note: Optional[QFrame] = None
         failure = row.get("failure") if isinstance(row.get("failure"), Mapping) else None
         waits = [w for w in (row.get("waits") or []) if isinstance(w, Mapping)]
@@ -646,14 +659,14 @@ class OccurrencePair(QWidget):
             nl.setContentsMargins(12, 10, 12, 12)
             nl.setSpacing(6)
             if failure is not None:
-                attempts = int(failure.get("attempts") or row.get("attempts") or 1)
-                failure_text = f"{failure.get('message') or 'This run failed.'} ({failure.get('reason_code') or 'failed'}, {attempts} attempt{'s' if attempts != 1 else ''})"
-                nl.addWidget(_text_label(failure_text, "autoTurnText", parent=self.note))
+                # The message in words; the attempts are on the run's badge (no raw code).
+                nl.addWidget(_text_label(str(failure.get("message") or "This run failed."), "autoTurnText", parent=self.note))
             # Pending waits, answered from here by their KIND (decision D1).
             for wait in waits:
                 nl.addWidget(self._wait_box(wait, row, parent=self.note))
             if failure is None and not waits and not answer_text:
-                nl.addWidget(_text_label("(no answer)", "autoTurnText", parent=self.note, tone="quiet"))
+                empty = "Still running…" if view.tone == "running" else "This run gave no answer."
+                nl.addWidget(_text_label(empty, "autoTurnText", parent=self.note, tone="quiet"))
             al.addWidget(self.note)
         self.answer_text: Optional[QWidget] = None
         if answer_text:
@@ -675,36 +688,6 @@ class OccurrencePair(QWidget):
             # Names only: an artifact id is not for people (QA 2026-10-28 rule).
             names = ", ".join(str(a.get("name") or "a file") for a in artifacts if isinstance(a, Mapping))
             al.addWidget(_text_label(f"Files: {names}", "autoTurnMeta", parent=self.answer))
-
-        # -- Discuss: a compact action under the card, right-aligned --------
-        self.discuss_row = QWidget(self.answer)
-        dr = QHBoxLayout(self.discuss_row)
-        dr.setContentsMargins(0, 1, 0, 0)
-        dr.setSpacing(0)
-        dr.addStretch(1)
-        self.discuss_button = WrappingButton(DISCUSS_LABEL, self.discuss_row)
-        self.discuss_button.setToolTip(
-            discuss_help(self.index) if discuss_enabled and view.can_discuss else (discuss_reason or "Not while it is running")
-        )
-        self.discuss_button.setEnabled(bool(discuss_enabled and view.can_discuss))
-        self.discuss_button.clicked.connect(self._start_discuss)
-        dr.addWidget(self.discuss_button, 0)
-        al.addWidget(self.discuss_row)
-
-        # -- the discuss prompt (inline, shown on demand) -------------------
-        self.discuss_box = QWidget(self.answer)
-        dl = QHBoxLayout(self.discuss_box)
-        dl.setContentsMargins(0, 2, 0, 0)
-        self.discuss_edit = QLineEdit(self.discuss_box)
-        self.discuss_edit.setObjectName("autoInput")
-        self.discuss_edit.setPlaceholderText("What do you want to discuss about this result?")
-        self.discuss_edit.returnPressed.connect(self._submit_discuss)
-        self.discuss_send = _button("Start", "autoPrimary", parent=self.discuss_box)
-        self.discuss_send.clicked.connect(self._submit_discuss)
-        dl.addWidget(self.discuss_edit, 1)
-        dl.addWidget(self.discuss_send, 0)
-        self.discuss_box.hide()
-        al.addWidget(self.discuss_box)
 
         side = QHBoxLayout()
         side.setContentsMargins(0, 0, 0, 0)
@@ -827,25 +810,20 @@ class OccurrencePair(QWidget):
         if text:
             self._emit_text(run_id, wait_key, kind, text)
 
-    def _start_discuss(self) -> None:
-        self.discuss_box.show()
-        self.discuss_edit.setFocus(Qt.ShortcutFocusReason)
-
-    def _submit_discuss(self) -> None:
-        prompt = self.discuss_edit.text().strip()
-        if prompt:
-            self.discuss_requested.emit(self.index, prompt)
-
 
 class AutomationView(QFrame):
-    """An automation opened in the palette: its occurrences as a chat, with
-    the "Active" switch (on = runs on its schedule, off = paused) and run now /
-    edit / archive / discuss."""
+    """An automation opened in the palette's chat surface: a compact header
+    (title, one status chip, one schedule chip, one next-run chip, the Active
+    switch, icon controls and a ⋯ menu), its runs as the chat's exchanges, and
+    the palette's own composer underneath (the palette routes what is typed
+    there to `discuss_target`: a new session continuing from that run)."""
 
     back_requested = pyqtSignal()
     control_requested = pyqtSignal(str)  # pause | resume | run_now | stop_current | archive
     revise_requested = pyqtSignal(object)  # changes
-    discuss_requested = pyqtSignal(int, str)
+    discuss_selected = pyqtSignal(int)  # a run's "Discuss here" (0 = back to the latest run)
+    session_requested = pyqtSignal(str)  # "Continued as a session on …" clicked
+    target_changed = pyqtSignal()  # the run the composer would continue from may have changed
     wait_answered = pyqtSignal(str, str, str, object)
     load_more_requested = pyqtSignal()
     retry_requested = pyqtSignal()
@@ -854,14 +832,15 @@ class AutomationView(QFrame):
     # Names from the shared `automation_controls.json` (the kit's CONTROL_LABELS).
     # Pause/Resume are not buttons: the "Active" switch sends them (operator
     # 2026-09-30: a persistent on/off state is a switch labelled by the
-    # feature, never a Pause/Resume verb pair). These are the one-shot actions.
+    # feature, never a Pause/Resume verb pair). These are the one-shot actions,
+    # drawn as icons with their label in the tooltip (design pass 2026-10-28).
     CONTROL_LABELS = tuple(
         (control, AUTOMATION_CONTROLS["labels"][control])
         for control in ("run_now", "stop_current", "revise", "archive")
     )
     ACTIVE_LABEL = AUTOMATION_CONTROLS["labels"]["active"]
-    # Controls drawn with the kit's glyph (the web clients' icon for the same action).
-    CONTROL_ICONS = {"run_now": "play-circle"}
+    # The kit's glyph for Run now (the web clients' icon); Lucide for the rest.
+    CONTROL_ICONS = {"run_now": "play-circle", "stop_current": "square", "revise": "square-pen", "archive": "archive"}
 
     def __init__(self, *, render_turn: "TurnRenderer", bubble_width: "BubbleWidth", parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -883,6 +862,13 @@ class AutomationView(QFrame):
         # (before they are acknowledged): marked "New result".
         self.new_indices: Set[int] = set()
         self.new_failures: Set[int] = set()
+        # The run the composer's next message continues from (a run's
+        # "Discuss here"); None = the latest run that can be discussed.
+        self.discuss_from: Optional[int] = None
+        # The overflow menu's lines (readable; no id but the explicit copy action).
+        self.workflow_text = ""
+        self.workspaces_text = ""
+        self.continued: List[Mapping[str, Any]] = []
 
         # The list spans the history card's full inner width, exactly like the
         # chat's transcript (same x-edges for the bubbles); only the header is
@@ -895,45 +881,59 @@ class AutomationView(QFrame):
         top.setSpacing(6)
         root.addLayout(top)
 
+        # Row 1: ← · title (ellipsized, full title in its tooltip) · status chip · ⋯
         head = QHBoxLayout()
-        head.setSpacing(8)
-        self.back_button = _button("← Chat", "autoControl", parent=self, tooltip="Back to the conversation")
+        head.setSpacing(6)
+        self.back_button = _icon_button("chevron-left", "Back to the chat", parent=self)
         self.back_button.clicked.connect(self.back_requested.emit)
         head.addWidget(self.back_button, 0)
-        self.title_label = QLabel("", self)
+        self.title_label = ElidedLabel("", self)
         self.title_label.setObjectName("autoViewTitle")
-        self.title_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         head.addWidget(self.title_label, 1)
+        self.status_chip = _chip("", "autoStatusChip", parent=self)
+        head.addWidget(self.status_chip, 0, Qt.AlignVCenter)
+        self.more_button = _icon_button("ellipsis", "More", parent=self)
+        self.more_menu = QMenu(self.more_button)
+        self.more_menu.setToolTipsVisible(True)
+        self.workflow_action = self.more_menu.addAction("Workflow: loading…")
+        self.workflow_action.setEnabled(False)
+        self.workspaces_action = self.more_menu.addAction("Workspaces…")
+        self.workspaces_action.setEnabled(False)
+        self.workspaces_action.triggered.connect(self._show_workspaces)
+        self.context_action = self.more_menu.addAction("")
+        self.context_action.setEnabled(False)
+        self.more_menu.addSeparator()
+        self.copy_id_action = self.more_menu.addAction("Copy automation id")
+        self.copy_id_action.triggered.connect(self._copy_id)
+        self.more_button.clicked.connect(
+            lambda _=False: self.more_menu.exec_(self.more_button.mapToGlobal(QPoint(0, self.more_button.height())))
+        )
+        head.addWidget(self.more_button, 0)
         top.addLayout(head)
-        self.meta_label = _text_label("", "autoViewMeta", parent=self)
-        top.addWidget(self.meta_label)
-        self.workflow_label = _text_label("", "autoViewMeta", parent=self)
-        top.addWidget(self.workflow_label)
-        # "Workspaces: <summary>" (R13.2): the gateway's dry run for the stored payload, verbatim.
-        self.workspaces_label = _text_label("", "autoViewMeta", parent=self)
-        self.workspaces_label.setProperty("workspace", "automation-line")
-        self.workspaces_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        top.addWidget(self.workspaces_label)
 
+        # Row 2: schedule chip · next-run chip · (stretch) · Active · icon controls
         controls = QHBoxLayout()
         controls.setSpacing(5)
-        # The automation's state, first in the bar (as the web panel's bar).
+        self.schedule_chip = _chip("", "autoChip", parent=self)
+        self.next_chip = _chip("", "autoChip", parent=self)
+        controls.addWidget(self.schedule_chip, 0, Qt.AlignVCenter)
+        controls.addWidget(self.next_chip, 0, Qt.AlignVCenter)
+        controls.addStretch(1)
         # The switch shows the gateway's status and changes only when the
         # gateway confirms: a click sends pause/resume and the switch is busy
-        # until then.
-        self.active_switch = AfSwitch(self.ACTIVE_LABEL, self, reason_inline=True)
+        # until then. Why it cannot change is in its tooltip.
+        self.active_switch = AfSwitch(self.ACTIVE_LABEL, self)
         self.active_switch.set_hint(control_hint("active"))
         self.active_switch.clicked.connect(lambda _checked=False: self._on_active_clicked())
-        controls.addWidget(self.active_switch)
-        controls.addSpacing(6)
+        controls.addWidget(self.active_switch, 0, Qt.AlignVCenter)
+        controls.addSpacing(4)
         self.control_buttons: Dict[str, QPushButton] = {}
         for control, label in self.CONTROL_LABELS:
-            button = _button(label, "autoControl", parent=self, tooltip=control_hint(control))
-            self._set_control_icon(control, button)
+            button = _icon_button(self.CONTROL_ICONS[control], f"{label}\n{control_hint(control)}", parent=self)
+            button.setAccessibleName(label)
             button.clicked.connect(lambda _=False, c=control: self._on_control(c))
-            controls.addWidget(button)
+            controls.addWidget(button, 0, Qt.AlignVCenter)
             self.control_buttons[control] = button
-        controls.addStretch(1)
         top.addLayout(controls)
 
         # Archive confirmation, inside the palette (never a modal).
@@ -1051,9 +1051,19 @@ class AutomationView(QFrame):
         self.notice_label = _text_label("", "autoViewNotice", parent=self)
         self.notice_label.hide()
         top.addWidget(self.notice_label)
+        # Slim: "2 runs waiting for you".
         self.attention_label = _text_label("", "autoAttention", parent=self)
         self.attention_label.hide()
         top.addWidget(self.attention_label)
+        # "Continued as a session on Oct 27" → that session (the gateway's
+        # session list names the discussions of this automation).
+        self.continued_label = QLabel("", self)
+        self.continued_label.setObjectName("autoContinued")
+        self.continued_label.setTextFormat(Qt.RichText)
+        self.continued_label.setTextInteractionFlags(Qt.LinksAccessibleByMouse | Qt.LinksAccessibleByKeyboard)
+        self.continued_label.linkActivated.connect(self._open_continued)
+        self.continued_label.hide()
+        top.addWidget(self.continued_label)
 
         self.scroll = QScrollArea(self)
         self.scroll.setObjectName("autoScroll")
@@ -1070,11 +1080,30 @@ class AutomationView(QFrame):
         self.scroll.setWidget(self.list_host)
         self.scroll.viewport().installEventFilter(self)
         root.addWidget(self.scroll, 1)
+
+        # Above the composer: which run the next message continues from, when
+        # the person chose one ("Discuss here").
+        self.selection_bar = QWidget(self)
+        sb = QHBoxLayout(self.selection_bar)
+        sb.setContentsMargins(4, 0, 4, 0)
+        sb.setSpacing(6)
+        self.selection_label = _text_label("", "autoSelection", parent=self.selection_bar)
+        sb.addWidget(self.selection_label, 1)
+        self.selection_clear = _button("Use the latest run", "autoLink", parent=self.selection_bar)
+        self.selection_clear.clicked.connect(lambda _=False: self.select_discuss_run(None))
+        sb.addWidget(self.selection_clear, 0)
+        self.selection_bar.hide()
+        root.addWidget(self.selection_bar)
         self.restyle()
 
     def restyle(self) -> None:
         self.setStyleSheet(automation_row_qss())
         self.edit_workspaces.restyle()
+        for glyph, button in [(self.CONTROL_ICONS[c], b) for c, b in self.control_buttons.items()] + [
+            ("chevron-left", self.back_button), ("ellipsis", self.more_button)
+        ]:
+            if self.pending is None or self.control_buttons.get(self.pending) is not button:
+                button.setIcon(symbol_icon(glyph, color=THEME.text_secondary, size=15))
 
     # ------------------------------------------------------------ state
 
@@ -1088,30 +1117,31 @@ class AutomationView(QFrame):
     def set_summary(self, summary: Mapping[str, Any]) -> None:
         """Re-render the header and controls. The chat pairs are rebuilt only
         when what they show changes (the discuss gate): a 60-s poll must not
-        wipe an answer or a discuss prompt being typed."""
+        wipe an answer being typed."""
         incoming = dict(summary)
         if incoming == self.summary:
             return
         before = self.controls()["discuss"] if self.summary else None
         self.summary = incoming
         self._check_pending()
-        self.title_label.setText(str(summary.get("title") or "Automation"))
+        self.title_label.set_full_text(str(summary.get("title") or "Automation"))
         trigger = summary.get("trigger") if isinstance(summary.get("trigger"), Mapping) else {}
-        status = STATUS_LABELS.get(str(summary.get("status") or ""), str(summary.get("status") or ""))
-        mode = "Growing — each run sees the previous runs" if summary.get("context_mode") == "growing" else "Independent — each run starts fresh"
+        status_text, tone = status_chip(summary)
+        self.status_chip.setText(status_text)
+        self.status_chip.setProperty("tone", tone)
         current = current_run(summary)
-        running = f"run #{current.get('index')} running" if current is not None else ""
-        parts = [trigger_summary(trigger, summary), status, running, _next_run_text(summary), mode, f"{int(summary.get('occurrence_count') or 0)} runs"]
-        self.meta_label.setText(" · ".join(p for p in parts if p))
-        attention = summary.get("attention") if isinstance(summary.get("attention"), Mapping) else {}
-        lines = []
-        for item in attention.get("items") or []:
-            if isinstance(item, Mapping):
-                prefix = "Failed" if item.get("kind") == "failure" else "New"
-                lines.append(f"{prefix} · #{item.get('index')} {item.get('title') or ''}".rstrip())
-        if int(attention.get("pending_waits") or 0):
-            waiting = int(attention.get('pending_waits'))
-            lines.append(f"{waiting} run{'' if waiting == 1 else 's'} waiting for you")
+        self.status_chip.setToolTip(f"Run {current.get('index')} is running." if current is not None else "")
+        refresh_style(self.status_chip)
+        chip, tip = schedule_chip(summary)
+        self.schedule_chip.setText(chip)
+        self.schedule_chip.setToolTip(tip)
+        self.schedule_chip.setVisible(bool(chip))
+        nxt, nxt_tip = next_run_chip(summary)
+        self.next_chip.setText(nxt)
+        self.next_chip.setToolTip(nxt_tip)
+        self.next_chip.setVisible(bool(nxt))
+        self.context_action.setText(context_mode_text(summary))
+        lines = attention_lines(summary)
         self.attention_label.setText("\n".join(lines))
         self.attention_label.setVisible(bool(lines))
         if not self.edit_box.isVisibleTo(self):  # never under the user's typing
@@ -1137,6 +1167,7 @@ class AutomationView(QFrame):
         self._apply_controls()
         if self.controls()["discuss"] != before:
             self._rebuild_pairs()
+        self.target_changed.emit()
 
     def set_occurrences(self, rows: Sequence[Mapping[str, Any]], *, next_cursor: Optional[str], append: bool = False) -> None:
         incoming = [dict(r) for r in rows if isinstance(r, Mapping)]
@@ -1148,6 +1179,7 @@ class AutomationView(QFrame):
         self.next_cursor = next_cursor if isinstance(next_cursor, str) and next_cursor else None
         self._apply_controls()
         self._rebuild_pairs()
+        self.target_changed.emit()
 
     def set_busy(self, busy: bool) -> None:
         self.busy = bool(busy)
@@ -1163,6 +1195,60 @@ class AutomationView(QFrame):
         value = str(text or "").strip()
         self.notice_label.setText(value)
         self.notice_label.setVisible(bool(value))
+
+    # ------------------------------------------- continuing as a session
+
+    def discuss_target(self) -> Tuple[Optional[int], str]:
+        """``(run index, reason)``: the run the composer's next message continues
+        from — the one chosen with "Discuss here", else the LATEST run that can
+        be discussed (a run in progress cannot) — or ``(None, why not)``."""
+        if not self.summary:
+            return None, "The automation is still loading."
+        enabled, reason = self.controls()["discuss"]
+        if not enabled:
+            return None, reason or "This automation cannot be continued as a session."
+        views = [v for v in occurrence_views(self.occurrences) if v.can_discuss]
+        indices = [int(v.row.get("index") or 0) for v in views]
+        if self.discuss_from is not None and self.discuss_from in indices:
+            return self.discuss_from, ""
+        if not indices:
+            return None, "No finished run to continue from yet."
+        return max(indices), ""
+
+    def select_discuss_run(self, index: Optional[int]) -> None:
+        """A run's "Discuss here" (``None`` = back to the latest run)."""
+        self.discuss_from = int(index) if index else None
+        target, _reason = self.discuss_target()
+        chosen = self.discuss_from is not None and target == self.discuss_from
+        self.selection_label.setText(f"Your next message continues from run {target}." if chosen else "")
+        self.selection_bar.setVisible(chosen)
+        self.discuss_selected.emit(int(target) if chosen else 0)
+
+    def set_continued(self, sessions: Sequence[Mapping[str, Any]]) -> None:
+        """The discussion sessions the gateway lists for this automation
+        (newest first): "Continued as a session on Oct 27" links the newest."""
+        self.continued = [dict(s) for s in sessions if isinstance(s, Mapping) and s.get("session_id")]
+        if not self.continued:
+            self.continued_label.clear()
+            self.continued_label.hide()
+            return
+        newest = self.continued[0]
+        text = continued_line(newest.get("created_at"), len(self.continued) - 1)
+        color = THEME.accent_text
+        self.continued_label.setText(
+            f'<a href="session:0" style="color:{color}; text-decoration:none;">{html.escape(text)} →</a>'
+        )
+        self.continued_label.setToolTip("Open that session")
+        self.continued_label.show()
+
+    def _open_continued(self, href: str) -> None:
+        try:
+            position = int(str(href).split(":", 1)[1])
+            session_id = str(self.continued[position].get("session_id") or "")
+        except (IndexError, ValueError):
+            return
+        if session_id:
+            self.session_requested.emit(session_id)
 
     # --------------------------------------------------------- rendering
 
@@ -1195,22 +1281,16 @@ class AutomationView(QFrame):
             return
         state = self.controls()
         self._apply_active_switch(state)
+        labels = dict(self.CONTROL_LABELS)
         for control, button in self.control_buttons.items():
             enabled, reason = state[control]
             button.setEnabled(bool(enabled))
-            # What the control does (the kit's hint, with the next scheduled
-            # time for Run now); a disabled control first says why.
+            # The label first (the button is an icon), what the control does
+            # (the kit's hint, with the next scheduled time for Run now); a
+            # disabled control first says why.
             hint = control_hint(control, self.summary)
-            button.setToolTip(hint if enabled else f"{reason}\n{hint}")
+            button.setToolTip(f"{labels[control]}\n{hint}" if enabled else f"{reason}\n{hint}")
             button.setAccessibleDescription(hint)
-
-    def _set_control_icon(self, control: str, button: QPushButton) -> None:
-        glyph = self.CONTROL_ICONS.get(control)
-        if glyph:
-            button.setIcon(symbol_icon(glyph, color=THEME.text_secondary, size=12))
-            button.setIconSize(QSize(12, 12))
-        else:
-            button.setIcon(QIcon())
 
     def _rebuild_pairs(self) -> None:
         while self.list_layout.count():
@@ -1243,7 +1323,7 @@ class AutomationView(QFrame):
                 is_failure=int(view.row.get("index") or 0) in self.new_failures,
                 parent=self.list_host,
             )
-            pair.discuss_requested.connect(self.discuss_requested.emit)
+            pair.discuss_here.connect(self.select_discuss_run)
             pair.wait_answered.connect(self.wait_answered.emit)
             self.list_layout.addWidget(pair)
             self.pairs.append(pair)
@@ -1343,13 +1423,40 @@ class AutomationView(QFrame):
         self.begin_pending("archive")
         self.control_requested.emit("archive")
 
+    def _copy_id(self) -> None:
+        """The overflow menu's "Copy automation id" (support detail, ADR 0043)."""
+        from PyQt5.QtWidgets import QApplication
+
+        if self.automation_id:
+            QApplication.clipboard().setText(self.automation_id)
+            self.set_notice("Automation id copied.")
+
+    def _show_workspaces(self) -> None:
+        """"Workspaces…": the gateway's dry-run summary for the stored payload."""
+        from PyQt5.QtWidgets import QDialogButtonBox
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Workspaces")
+        dialog.setStyleSheet(dialog_stylesheet())
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(_text_label("Workspaces", "dialogTitle", parent=dialog))
+        layout.addWidget(_text_label(self.workspaces_text or "Not loaded yet.", "dialogSubtitle", parent=dialog))
+        buttons = QDialogButtonBox(QDialogButtonBox.Close, dialog)
+        buttons.rejected.connect(dialog.reject)
+        buttons.accepted.connect(dialog.accept)
+        layout.addWidget(buttons)
+        dialog.setMinimumWidth(360)
+        self.workspaces_dialog = dialog
+        dialog.open()
+
     # ---------------------------------------------------------- pending
 
     PENDING_TIMEOUT_MS = 30_000
 
     def begin_pending(self, control: str) -> None:
-        """The clicked control shows a spinner and every control is disabled
-        until the gateway's state confirms the command (or it fails)."""
+        """The clicked control shows a loader, every control is disabled and
+        the notice says what is happening in words (ADR 0039) until the
+        gateway's state confirms the command (or it fails)."""
         from PyQt5.QtCore import QTimer
 
         self.pending = control
@@ -1358,8 +1465,8 @@ class AutomationView(QFrame):
         token = self._pending_token
         button = self.control_buttons.get(control)  # pause/resume: the Active switch (busy)
         if button is not None:
-            button.setText(PENDING_TEXT[control])
-            button.setIcon(symbol_icon("loader", color=THEME.accent_text, size=12))
+            button.setIcon(symbol_icon("loader", color=THEME.accent_text, size=15))
+        self.set_notice(PENDING_TEXT[control])
         self._apply_controls()
         # Owned by the view: it dies with the view, never fires into a deleted one.
         timer = QTimer(self)
@@ -1374,8 +1481,9 @@ class AutomationView(QFrame):
             return
         button = self.control_buttons.get(self.pending)
         if button is not None:
-            button.setText(dict(self.CONTROL_LABELS)[self.pending])
-            self._set_control_icon(self.pending, button)
+            button.setIcon(symbol_icon(self.CONTROL_ICONS[self.pending], color=THEME.text_secondary, size=15))
+        if self.notice_label.text() == PENDING_TEXT[self.pending]:
+            self.set_notice("")
         self.pending = None
         self._pending_before = {}
         self._apply_controls()
@@ -1457,16 +1565,16 @@ class AutomationView(QFrame):
         self.edit_served.provider = provider
 
     def set_workspaces_summary(self, summary: str) -> None:
-        """The automation's one line, "Workspaces: <summary>" (empty = no text; the
-        label stays in the layout, as the workflow line, so a late answer never
-        re-flows the occurrence list)."""
-        text = workspaces_line(summary) if summary else ""
-        self.workspaces_label.setText(text)
+        """The overflow menu's "Workspaces…": the gateway's dry run for the
+        stored payload ("Workspaces: <summary>"; empty = not known yet)."""
+        self.workspaces_text = workspaces_line(summary) if summary else ""
+        self.workspaces_action.setEnabled(bool(self.workspaces_text))
+        self.workspaces_action.setToolTip(self.workspaces_text)
 
     def set_workflow_detail(self, detail: Mapping[str, Any]) -> None:
-        target = (detail.get("definition") or {}).get("target") or {}
-        value = target.get("workflow_id") or f"{target.get('bundle_ref', '')}:{target.get('flow_id', '')}"
-        self.workflow_label.setText(f"Workflow: {value}" if value != ":" else "")
+        """The overflow menu's "Workflow: basic-agent 0.0.5" (no flow digest)."""
+        self.workflow_text = workflow_text(detail)
+        self.workflow_action.setText(self.workflow_text or "Workflow: not reported")
 
 
 # ------------------------------------------- calendar "When" (round 16)
