@@ -936,6 +936,7 @@ class GatewayVoiceManager:
         allow_unpinned_retry: bool = True,
     ) -> bool:
         audio_started = False
+        announce_start: Callable[[], None] = lambda: None
         stream_opened = False
         player = None
         playback_drained = threading.Event()
@@ -1127,13 +1128,15 @@ class GatewayVoiceManager:
                         player = self._ensure_inprocess_audio_player()
                         if player is None:
                             return _artifact_fallback("in-process audio player unavailable")
-                        self._configure_stream_playback_callbacks(player, playback_drained)
+                        announce_start = self._configure_stream_playback_callbacks(player, playback_drained) or announce_start
                         audio_started = True
                     if not self._wait_for_stream_resume(pause_gate, stop_gate):
                         return False
                     duration_s = self._queue_stream_wav_chunk(audio_bytes, playback_drained=playback_drained)
                     if duration_s is None:
                         return False
+                    # The audio is with the device: the card leaves its spinner for play/pause now.
+                    announce_start()
                     queued_audio_s += max(0.0, float(duration_s))
                     continue
                 if event_type == "done":
@@ -1875,7 +1878,12 @@ class GatewayVoiceManager:
         self._playback_backend = "inprocess"
         self._tts_gate_start()
 
+        start_announced = threading.Event()
+
         def _on_audio_start() -> None:
+            if start_announced.is_set():
+                return
+            start_announced.set()
             try:
                 if self.on_speech_start:
                     self.on_speech_start()
@@ -1904,6 +1912,9 @@ class GatewayVoiceManager:
         player.on_audio_end = _on_audio_end
         player.playback_complete_callback = None
         player.play_audio(samples, sample_rate=sample_rate)
+        # Announced here too, not only from the player's hook (see
+        # `_configure_stream_playback_callbacks`).
+        _on_audio_start()
         return True
 
     def _begin_stream_playback(self) -> bool:
@@ -1961,7 +1972,15 @@ class GatewayVoiceManager:
         # callback via the stream finally.
         return True
 
-    def _configure_stream_playback_callbacks(self, player, playback_drained: threading.Event) -> None:
+    def _configure_stream_playback_callbacks(self, player, playback_drained: threading.Event) -> Callable[[], None]:
+        """Wire the player's start/end hooks for one stream leg; returns the once-only
+        "speech started" announcer.
+
+        The stream leg also calls the announcer itself once the first chunk is queued: the
+        player's own start hook is not reliable across playbacks (AbstractVoice's
+        `NonBlockingAudioPlayer.stop_stream()` leaves its started flag set, so after an
+        interrupted reply the next one never reports a start), and a card waiting for it
+        spun its loading spinner for the whole reply (QA 2026-10-28 (h))."""
         speech_start_emitted = threading.Event()
 
         def _on_audio_start() -> None:
@@ -1980,6 +1999,7 @@ class GatewayVoiceManager:
         player.on_audio_start = _on_audio_start
         player.on_audio_end = _on_audio_end
         player.playback_complete_callback = None
+        return _on_audio_start
 
     def _queue_stream_wav_chunk(self, audio_bytes: bytes, *, playback_drained: threading.Event) -> Optional[float]:
         player = self._ensure_inprocess_audio_player()

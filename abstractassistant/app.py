@@ -67,7 +67,6 @@ from PyQt5.QtWidgets import (
     QFileDialog,
     QFrame,
     QGraphicsDropShadowEffect,
-    QGraphicsOpacityEffect,
     QGridLayout,
     QHBoxLayout,
     QInputDialog,
@@ -182,7 +181,13 @@ from .gateway.live_deltas import (
     end_reason_text,
 )
 from .ui.session_switcher import SessionSwitcher
-from .core.automations import NotificationLedger, discussion_banner, target_from_workflow
+from .core.automations import (
+    NotificationLedger,
+    automations_with_new_results,
+    discussion_banner,
+    new_result_indices,
+    target_from_workflow,
+)
 from .core.attention import AttentionModel, attention_banner_text, device_id as attention_device_id
 from .gateway.events import tool_policy_decision_text
 from .gateway.me_events import EventFollower
@@ -3534,51 +3539,30 @@ class MessageCard(QFrame):
         self._apply_voice_button_state(str(state or "").strip())
 
     def _register_action_button(self, button: QPushButton) -> None:
-        """Park an action button in its hover-revealed rest state.
+        """An action button of the card (speaker, copy): always shown.
 
-        The button keeps its layout slot (opacity animates, never show/hide)
-        so hover cannot reflow the card; a hidden button is also disabled so
-        an invisible target cannot be clicked.
-        """
-        effect = QGraphicsOpacityEffect(button)
-        effect.setOpacity(0.0)
-        button.setGraphicsEffect(effect)
-        button.setEnabled(False)
+        They were revealed on hover only; the operator asked for them to be
+        visible at all times (QA 2026-10-28 (h)): a reply's speaker and copy
+        are found without hunting for them."""
         self._action_buttons.append(button)
 
     def _actions_should_show(self) -> bool:
-        # An active voice button (spinner/pause/play) is a playback state
-        # indicator, not just an affordance: it stays pinned while the mouse
-        # is elsewhere.
-        return self._actions_hovered or self._voice_state in {
-            "synthesizing",
-            "speaking",
-            "paused",
-        }
+        return True
 
     def _update_action_visibility(self) -> None:
-        visible = self._actions_should_show()
-        for button in self._action_buttons:
-            effect = button.graphicsEffect()
-            if effect is not None:
-                effect.setOpacity(1.0 if visible else 0.0)
         if self._copy_button is not None:
-            self._copy_button.setEnabled(visible)
+            self._copy_button.setEnabled(True)
         if self._voice_button is not None:
-            # While synthesizing the voice button shows a spinner and must not
-            # accept clicks even though it is visible.
-            self._voice_button.setEnabled(
-                visible and self._voice_state != "synthesizing"
-            )
+            # While the reply audio loads the button shows a spinner and does
+            # not accept clicks; once audio plays it is play/pause.
+            self._voice_button.setEnabled(self._voice_state != "synthesizing")
 
     def enterEvent(self, event) -> None:  # noqa: N802
         self._actions_hovered = True
-        self._update_action_visibility()
         super().enterEvent(event)
 
     def leaveEvent(self, event) -> None:  # noqa: N802
         self._actions_hovered = False
-        self._update_action_visibility()
         super().leaveEvent(event)
 
     def _copy_message(self) -> None:
@@ -6902,7 +6886,25 @@ class AssistantPalette(QMainWindow):
 
             threading.Thread(target=work, name="attention-open", daemon=True).start()
             return
+        # New results: straight to the automation that has them, opened on the
+        # new run (QA 2026-10-28 (g): Open showed a list with nothing marked);
+        # several automations: the list, with the first of them selected.
+        with_new = automations_with_new_results(getattr(self._state("_automations"), "summaries", None) or [])
+        if len(with_new) == 1:
+            self.show_palette()
+            self._open_automation(with_new[0])
+            return
         self.open_automations()
+        if with_new:
+            def _select_first() -> None:
+                switcher = self._state("_session_switcher")
+                if switcher is not None:
+                    try:
+                        switcher.select_automation(with_new[0])
+                    except RuntimeError:
+                        pass
+
+            QTimer.singleShot(0, _select_first)
 
     def _on_attention_open(self, data: Dict[str, Any]) -> None:
         if not data.get("live"):
@@ -7027,6 +7029,10 @@ class AssistantPalette(QMainWindow):
         view = self.automation_view
         view.set_error("")
         view.set_notice("Loading runs…")
+        # The unseen results, read before viewing acknowledges them below: an
+        # automation opens like a conversation whose new exchange is marked and
+        # in view (QA 2026-10-28 (g)).
+        view.set_new_runs(new_result_indices(summary))
         view.set_occurrences([], next_cursor=None)
         view.set_summary(summary)
         view.workflow_label.clear()
@@ -7053,7 +7059,7 @@ class AssistantPalette(QMainWindow):
             view.set_occurrences(value.get("items") or [], next_cursor=value.get("next_cursor"))
             if where == "top":
                 view.scroll.verticalScrollBar().setValue(0)
-            else:
+            elif not view.scroll_to_first_new():
                 view.scroll_to_latest()
             # Viewing acknowledges the attention items the view DISPLAYED.
             self._automations.mark_seen(summary)
@@ -7063,6 +7069,7 @@ class AssistantPalette(QMainWindow):
 
     def _close_automation_view(self) -> None:
         self._automation_view_id = ""
+        self.automation_view.set_new_runs([])
         self.automation_view.hide()
         self.history_scroll.show()
         self.composer_card.show()
