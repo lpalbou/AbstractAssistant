@@ -46,8 +46,8 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 - Per-answer statistics (tokens, tools, files, duration, model) with clickable detail views.
 - Multi-attachment composer with an image gallery, drag and drop, and artifact previews.
 - In your pocket and on your wrist: **AbstractAssistant for iPhone and Apple Watch** is one app
-  (0.16.0, pre-release through TestFlight): the iPhone app carries the watch app, one sign-in
-  serves both, and notifications reach you while the app is closed (Apple push, once your gateway
+  (0.16.0, pre-release through TestFlight): the iPhone app carries the watch app, each signs in
+  on its own and works without the other, and notifications reach you while the app is closed (Apple push, once your gateway
   has a push forwarder). The iPhone has the same conversations, tools and automations, with tab badges for
   what needs you ([phone/iphone/README.md](phone/iphone/README.md)); the watch talks to the same
   gateway by voice around the orb, answers approvals and questions, continues your sessions and runs

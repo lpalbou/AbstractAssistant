@@ -50,6 +50,11 @@ comes to the front, and through Apple push while it is closed. Check, in order:
 - Your gateway offers the event stream. An older gateway keeps the Inbox and Automations lists up
   to date, without notifications.
 - A Focus can hold "Approval needed" back unless AbstractAssistant is allowed in that Focus.
+- An automation's result or failure, and a flow's "Notify me", arrive quietly: they go to
+  Notification Center without a banner or sound. Approvals and questions alert.
+- When an iPhone is signed in to the same account, the gateway pushes the iPhone, and the watch
+  shows the alert through Apple's forwarding (iPhone locked, watch on your wrist). A watch away
+  from that iPhone shows it when its app next opens or checks.
 
 ## A notification shows only "Approval needed" or "Tap to read it"
 

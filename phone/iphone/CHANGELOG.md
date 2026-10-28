@@ -32,8 +32,7 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
   app's service, readable after the first unlock (the notification extension reads it while the
   device is locked), bound to this device, never in a backup, never synced; the app group doubles
   as the access group so the extension (and, on the watch, the complication) read the same item.
-  Until now it was a file in the app group sealed with a key kept beside it, which protected
-  nothing; that file (and the plain one of the interim builds) is moved into the Keychain at its
+  A sign-in kept by an earlier build (a file in the app group) moves into the Keychain at its
   first read, so nobody signs in again. The watch's kept sign-ins moved from UserDefaults into a
   second Keychain item (backlog 1053).
 - **A paused reading shows a speaker, not a play triangle.** The message's read-aloud button is a
