@@ -1,10 +1,13 @@
 /**
- * The Assistant's gateway calls as panel-chat's `WorkflowTransport`: the kit's
- * `WorkflowSessionController` (through `useWorkflowSession`) folds the ledger, follows child
- * runs, keeps live replies and the pending question, and sends the commands. Only the HTTP
- * stays here (src/gateway/client.ts: the host builds every URL and authenticates every call).
+ * The Assistant's gateway calls as panel-chat's `WorkflowTransport`. With `replayView` the
+ * kit's `WorkflowSessionController` (through `useWorkflowSession`) renders the conversation
+ * from the gateway's replay view (`GET runs/{id}/view` + its stream, AbstractGateway >= 0.17.0:
+ * status, the pending question wherever in the run tree it waits, messages, tool rows) and opens
+ * the ledger stream only for live reply text; on an older gateway it falls back to folding the
+ * ledger itself, labeled (`snapshot.source`). Only the HTTP stays here (src/gateway/client.ts:
+ * the host builds every URL and authenticates every call).
  */
-import { llmDeltaFromSse, type WorkflowTransport } from "@abstractframework/panel-chat";
+import { createReplayViewTransport, llmDeltaFromSse, type WorkflowTransport } from "@abstractframework/panel-chat";
 
 import type { GatewayClient } from "./client";
 
@@ -40,5 +43,6 @@ export function createAssistantTransport(client: GatewayClient, opts: { onDeltaE
       );
     },
     submitCommand: (command) => client.submitCommand({ ...command, client_id: command.client_id || "abstractassistant-web" }),
+    replayView: createReplayViewTransport({ fetch: client.replayFetch }),
   };
 }

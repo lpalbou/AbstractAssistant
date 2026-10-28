@@ -114,6 +114,20 @@ export class GatewayClient {
   };
 
   /**
+   * The kit's `ReplayViewFetch` (panel-chat `createReplayViewTransport`): `path` is a gateway
+   * API route (`runs/<id>/view`, `runs/<id>/view/stream`), resolved by the host like every other
+   * route here and sent with its credentials. Reads only (the view routes are GETs).
+   */
+  readonly replayFetch = (path: string, init: RequestInit = {}): Promise<Response> => {
+    try {
+      const headers = { ...(init.headers as Record<string, string> | undefined), ...this.host.auth.headers(false) };
+      return fetch(this.host.gatewayUrl(path), { ...init, headers, credentials: this.host.auth.credentials });
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  };
+
+  /**
    * The kit's `SessionToolPolicyRequest` (ui-kit `createSessionToolPolicyClient`): resolves
    * with the parsed JSON body, rejects on a non-2xx answer with `{status, body}` so the kit
    * can tell a 409 revision conflict from any other failure.

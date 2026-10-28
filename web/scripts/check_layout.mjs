@@ -42,6 +42,9 @@ function answer(path) {
   if (path.startsWith("api/gateway/runs?")) return json({ items: sessions, has_more: false });
   let m = /^api\/gateway\/runs\/([^/?]+)\/input_data/.exec(path);
   if (m) return json({ input_data: { prompt: titles[m[1]] || "" } });
+  // A gateway before 0.17.0: no replay view route (FastAPI's unmatched-route answer), so the
+  // chat keeps the ledger fold below, labeled. The view path is covered by src/gateway/transport.test.ts.
+  if (/^api\/gateway\/runs\/[^/?]+\/view(\/stream)?$/.test(path)) return json({ detail: "Not Found" }, 404);
   if (/^api\/gateway\/runs\/[^/?]+\/history_bundle/.test(path)) return json(bundle);
   if (/^api\/gateway\/runs\/[^/?]+\/ledger\/stream/.test(path)) return { status: 200, contentType: "text/event-stream", body: "" };
   if (/^api\/gateway\/runs\/[^/?]+\/ledger/.test(path)) return json({ items: [], next_after: 0 });

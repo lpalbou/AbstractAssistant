@@ -5,6 +5,17 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+### Changed
+
+- **The web Assistant renders a conversation from the gateway's replay view** (`web/`; `@abstractframework/panel-chat`
+  0.6.0, AbstractUIC 0.8.0; root backlog 0993, AbstractRuntime 0854). On AbstractGateway 0.17.0 or later the chat reads
+  `GET /api/gateway/runs/{id}/view` and follows `/view/stream` (reconnecting with `Last-Event-ID`): the status, the
+  pending approval or question wherever in the run tree it waits (a sub-agent's included), the messages and the tool
+  rows come from the gateway's one reconstruction instead of this page folding the history bundle and ledger pages,
+  and there is no timed run poll. The ledger stream stays open only for live reply text. On an older gateway the page
+  keeps folding the ledger itself (the controller labels it, `snapshot.source: "ledger_fold"`). `GatewayClient.replayFetch`
+  is the view routes' authenticated fetch; `createAssistantTransport` adds `replayView`.
+
 ## [0.15.0] - 2026-10-28
 
 Needs AbstractGateway 0.16.0 for the voice library (Create a voice, grouped voices) and the chat-wide tool policy; on an older gateway the chat-wide grant falls back to the labeled local grant this app answers, and the voice library's requests are refused by the gateway.
