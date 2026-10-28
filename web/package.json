@@ -34,7 +34,7 @@
     "@abstractframework/app-server": "0.1.13"
   },
   "devDependencies": {
-    "@abstractframework/panel-chat": "0.6.3",
+    "@abstractframework/panel-chat": "0.6.4",
     "@abstractframework/ui-kit": "0.9.5",
     "@types/react": "18.3.27",
     "@types/react-dom": "18.3.7",
