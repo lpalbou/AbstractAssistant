@@ -192,29 +192,46 @@ one (see [Limits](#limits)).
 
 ## Reading an automation
 
-Click a row in the Automations tab. The palette shows the automation in place of the
-conversation, and **← Chat** returns to it.
+Click a row in the Automations tab. The palette shows the automation in the chat's own surface, in
+place of the conversation: its runs as the chat's exchanges and the chat's composer underneath
+(see [Continue as a session](#continue-as-a-session)). The **←** button, choosing a chat or **+ New chat**
+returns to the conversation; a message you were writing there is kept aside while the automation is open
+and comes back.
 
-The header gives the title and one line with what starts it, status, next run, context mode and run
-count. What starts it is said in words: the gateway's schedule sentence, "When mail arrives in
-you@example.org", "When Python news has a new item" (the feed connection's name), "When Orders is
-called" (the webhook connection's name) or "By hand"; an automation that runs when something happens
-shows no next run. The words come from the gateway (`trigger_text`) when it serves them, else from
-your connections and mailboxes, then the workflow and the automation's workspaces in one line, **Workspaces: <summary>**
-(the gateway's summary for the stored choice, or for your default when it uses your default,
-verbatim). Below it, a highlighted block lists what is new ("New · #12 Price above threshold",
-"Failed · #9") and how many runs are waiting for you.
+The header is two compact rows:
 
-Each run reads as a pair of chat turns, oldest at the top, newest in view:
+- the title (cut with "…" when long; hover it for the full title), **one status chip** (Active,
+  Paused, Archived, Completed, Failed, or **Running…** while a run is in progress) and a **⋯** menu;
+- **one schedule chip** with what starts it ("Every 24 h", "Every day at 08:00", "When mail arrives
+  in you@example.org"; hover it for the gateway's full sentence and time zone), **one next-run chip**
+  ("Next in 3 h · 11:06 PM", from the gateway's next run; none for an automation that runs when
+  something happens or is paused), then the **Active** switch and the icon controls (below).
 
-- **the trigger turn**: the run's number, the gateway's summary of what fired it and when
-  (`#7 · schedule: every 30 minutes (UTC), tick 5 · fired 2026-09-27 06:30 UTC`), then the task
-  the run was given;
-- **the answer turn**: the run's status and finish time, then its answer. A result the workflow
-  marked as notable carries its notification title and a **Notified** badge. A failed run is red,
-  with the gateway's reason and the number of attempts ("Failed after 3 attempts"). A run that
-  waits for you is highlighted with **Waiting for you** and the controls to answer it. A running
-  run shows **Running**. Files the run produced are listed by name.
+What starts it is said in words: the gateway's schedule sentence (`schedule_rule_text`, shortened for
+the chip), "When mail arrives in you@example.org", "When Python news has a new item" (the feed
+connection's name), "When Orders is called" (the webhook connection's name) or "By hand"; the words
+come from the gateway (`trigger_text`) when it serves them, else from your connections and mailboxes.
+
+The **⋯** menu holds the details: **Workflow: basic-agent 0.0.5** (the workflow and its version),
+**Workspaces…** (the gateway's summary for the stored workspace choice, or for your default, verbatim),
+the context mode ("Context: Growing — each run sees the previous runs") and **Copy automation id**
+(for support). A slim notice says how many runs are waiting for you; a link **Continued as a session
+on Oct 27** opens the newest session this automation was continued as, when the gateway's session
+list names it.
+
+Each run reads as one exchange of the chat, oldest at the top:
+
+- **a system line** says what started it and when, in words: "Scheduled run 1 · Oct 9 at 11:06 PM",
+  "Run now · run 4 · Today at 07:12 AM", "Email received · run 3 · 2 new emails · …" (hover it for the
+  full date). The runtime's bracketed trigger line in the task ("[Trigger schedule@1 · occurrence 1 ·
+  fired …]") and the framed input of an email, feed or webhook run are never shown;
+- **the task** is the chat's user bubble;
+- **the result** is the chat's reply card, with its time (and date when not today), **copy** and the
+  **speaker** that reads it aloud, as in a conversation. A result the workflow marked as notable
+  carries **Notified** and its notification title. A failed run has a red card with the gateway's
+  message and **Failed after 3 attempts** on its line. A run that waits for you shows **Waiting for
+  you** and the controls to answer it. A running run shows **Running**. An unseen result is marked
+  **New result** (or **New failure**). Files the run produced are listed by name.
 
 Quiet runs (completed, nothing to notify) are shown dimmed. **Load older runs** at the top pages
 back through the history.
@@ -228,10 +245,10 @@ stay counted until you answer them.
 | Control | What it does |
 |---|---|
 | **Active** (a switch, first in the bar) | On: the automation runs on its schedule. Off: paused, scheduled runs are skipped; a run in progress finishes. Switching it back on restarts the schedule at its next time after now (it does not fire at once; times missed while paused are skipped). Unavailable, with the reason, once the automation is archived, ended or legacy, or when the gateway does not permit the change. |
-| **Run now** (the play-in-a-circle icon, as in the web clients) | One run immediately, instead of waiting for the schedule. The schedule does not move: the next scheduled run keeps its time, and if that time comes while this run is still going, the scheduled run starts right after it. It does not count toward a run limit. It also works while paused, and the automation stays paused. In a Growing automation, later runs see it in their history. Disabled while a run is in progress. |
-| **Stop current** | Stops the run in progress. |
-| **Edit** | Title, interval (`30m`, `8h`, `7d`; for an email trigger the check interval, at least `60s`) or, for a Daily, Weekly or Monthly schedule, its rule (the kind, the days, the day of the month and the time, with the gateway's line "in Europe/Paris (this automation's time zone)" and its preview sentence; the automation keeps its own zone and its run limits), context mode, workflow, tool selection, **Workspaces** (the same chooser as the schedule window, with the stored choice; each change checked by the gateway) and result-email recipients, inline. **Save** sends the changes as one revision; with **Use my default** the stored choice is removed. Applies from the next run; a new interval starts counting from the change, so no missed run fires. |
-| **Archive** | Asks for confirmation in the palette. Nothing runs any more; the history is kept. |
+| **Run now** (the play-in-a-circle icon, as in the web clients; the controls are icons, their name in the tooltip) | One run immediately, instead of waiting for the schedule. The schedule does not move: the next scheduled run keeps its time, and if that time comes while this run is still going, the scheduled run starts right after it. It does not count toward a run limit. It also works while paused, and the automation stays paused. In a Growing automation, later runs see it in their history. Disabled while a run is in progress. |
+| **Stop current** (the square icon) | Stops the run in progress. |
+| **Edit** (the pen icon) | Title, interval (`30m`, `8h`, `7d`; for an email trigger the check interval, at least `60s`) or, for a Daily, Weekly or Monthly schedule, its rule (the kind, the days, the day of the month and the time, with the gateway's line "in Europe/Paris (this automation's time zone)" and its preview sentence; the automation keeps its own zone and its run limits), context mode, workflow, tool selection, **Workspaces** (the same chooser as the schedule window, with the stored choice; each change checked by the gateway) and result-email recipients, inline. **Save** sends the changes as one revision; with **Use my default** the stored choice is removed. Applies from the next run; a new interval starts counting from the change, so no missed run fires. |
+| **Archive** (the box icon) | Asks for confirmation in the palette. Nothing runs any more; the history is kept. |
 
 Hovering a control shows what it does: the same text as the web clients (AbstractUIC's shared
 control hints). Run now's tooltip adds the next scheduled time ("Next scheduled run: 2026-09-27
@@ -273,19 +290,27 @@ something else) is shown without answer controls, with a note to answer it from 
 rather than answered blindly. If your answer does not reach the gateway, the palette says so and
 the run keeps waiting.
 
-## Discuss a result
+## Continue as a session
 
-**Discuss this run** (your own copy; the automation's files stay read-only) on a finished run opens a field ("What do you want to discuss about this result?");
-**Start** asks the gateway to open a new session seeded with the automation's whole history up to
-that run (whatever its context mode), sends your question in it, and switches the palette to it. It
-is an ordinary chat: it keeps the workflow's normal tools and appears among your chats with the badge
-**about automation <title>** (click the badge to open the automation). The automation's files are
-mounted read-only (the notice after Discuss says where); the discussion works in its own writable
-workspace, and nothing is written back to the automation. The file tools refuse to write into the
-mounted folder; shell commands are not sandboxed, so approve them with that in mind.
+Write in the composer under an open automation and press Return (or the send button): the palette asks
+the gateway to open a new session seeded with the automation's history up to its **latest finished
+run** (whatever its context mode), sends what you wrote in it, and switches to it. While the session is
+being created the composer says **Continuing as a session…**; if the gateway refuses, your text is put
+back with the reason. The session then shows **Continued as a session from “<title>” (run N).** with
+**Back to the automation**.
 
-Discuss is disabled on a run in progress, and the palette asks you to let a running reply finish
-(or stop it) before it opens a discussion.
+To continue from an earlier run, open the run's **⋯** menu and choose **Discuss here**: the line above
+the composer says "Your next message continues from run 3." (**Use the latest run** undoes it).
+
+The session is an ordinary chat: it keeps the workflow's normal tools and appears among your chats with
+the badge **about automation <title>** (click the badge to open the automation). The automation's files
+are mounted read-only (hover the notice to see where); the session works in its own writable workspace,
+and nothing is written back to the automation. The file tools refuse to write into the mounted folder;
+shell commands are not sandboxed, so approve them with that in mind. Files cannot be attached to the
+first message; attach them in the session.
+
+A run in progress cannot be continued from, and the palette asks you to let a running reply finish (or
+stop it) before it opens the session.
 
 ## Notifications and your event stream
 

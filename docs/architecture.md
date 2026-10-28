@@ -148,7 +148,7 @@ automation itself. The user guide is [automations.md](automations.md).
 flowchart LR
   subgraph Desktop["AbstractAssistant (this Mac)"]
     Switcher["Session switcher\nSessions | Automations tabs · discussion badge"]
-    View["Automation view (ui/automations)\nruns as chat pairs · controls · waits · Discuss"]
+    View["Automation view (ui/automations)\nruns as chat exchanges · chip header · waits · the chat's composer"]
     Sheet["Schedule this conversation…\nwhat · when (UTC) · context · tools"]
     Hub["AutomationsHub\ncalls off the GUI thread\nrefetch on stream events · 5 min reconcile"]
     Follower["gateway/me_events\nEventFollower: catch-up then SSE\nLast-Event-ID reconnect"]
@@ -228,8 +228,11 @@ receipt marked `duplicate` is confirmed with "(already received)"; a receipt wit
 - **Waits.** A waiting occurrence is answered with the `resume` command on
   `/api/gateway/commands`, with the payload the wait's declared kind accepts (`ask_user`,
   `tool_approval`, `event`). A wait without a known kind is not answered.
-- **Discuss.** `POST …/{id}/discuss` returns a new `discussion` session and its first run; the
-  palette switches to it and follows the run like any reattached turn.
+- **Discuss (continue as a session).** What is typed in the palette's composer under an open
+  automation is sent as `POST …/{id}/discuss` with the latest finished run (or the run chosen with
+  "Discuss here"); it returns a new `discussion` session and its first run, and the palette switches to
+  it and follows the run like any reattached turn. The automation links the discussions the gateway's
+  session list names for it (`session_kind=discussion`, `automation_id`).
 - **Errors.** Every non-2xx answer carries `detail.reason_code`, shown as a sentence with the
   gateway's message. An answer without that envelope, or a body that is not a JSON object, is an
   `invalid_response` error rather than a silent success.
