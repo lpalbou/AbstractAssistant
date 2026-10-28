@@ -50,7 +50,7 @@ Included files (in order):
 - abstractassistant/controller.py
 - abstractassistant/gateway/client.py
 - abstractassistant/gateway/run_input.py
-- abstractassistant/gateway/adapter.py
+- abstractassistant/gateway/replay_view.py
 - abstractassistant/ui/gateway_worker.py
 - abstractassistant/core/voice_conversation.py
 - abstractassistant/core/tool_risk.py
@@ -1529,6 +1529,16 @@ the stream. Whether the gateway offers live replies is read from
 
 ## Gateway routes used
 
+- Replay view (AbstractGateway 0.17.0+; detected from `/openapi.json` paths, once per client):
+  `GET /api/gateway/runs/{run_id}/view` (`If-None-Match` with the cursor ETag -> 304) and
+  `GET /api/gateway/runs/{run_id}/view/stream` (SSE `view`, `delta`, `done`; reconnects send
+  `Last-Event-ID`). The client copy is kept with `abstractruntime.replay.apply_delta`; a delta that
+  is not newer than the copy is dropped. Python: `GatewayClient.supports_replay_view()`,
+  `get_run_view()`, `stream_run_view()`; `abstractassistant.gateway.replay_view` (`follow_run`,
+  `ViewFold`, `ViewProjector`, `LiveText`). Without the routes the app folds the ledger routes
+  below with AbstractRuntime's reducer and the run status line says so. A failed discovery is an
+  error, not the older path.
+
 - Sign-in and identity: `/api/gateway/apps/desktop-handover` (console hand-over, loopback),
   `/api/gateway/session/login`, `/api/gateway/session/logout`, `/api/gateway/about` (version rows
   for Settings → About; `/api/gateway/discovery/capabilities` is read when it is absent)
@@ -1546,8 +1556,9 @@ the stream. Whether the gateway offers live replies is read from
   `input_data` and transcripts from its latest run's `history_bundle`
   ([architecture.md](architecture.md#sessions))
 - Runs: `/api/gateway/runs/start`, `/api/gateway/runs/{run_id}`,
-  `/api/gateway/runs/{run_id}/input_data`, `/api/gateway/runs/{run_id}/history_bundle`,
-  `/api/gateway/runs/{run_id}/ledger`, `/api/gateway/runs/{run_id}/ledger/stream`,
+  `/api/gateway/runs/{run_id}/input_data`, `/api/gateway/runs/{run_id}/history_bundle` (the
+  session transcript seed), `/api/gateway/runs/{run_id}/ledger` (older gateways only: folded here),
+  `/api/gateway/runs/{run_id}/ledger/stream` (live reply frames only),
   `/api/gateway/commands` (pause, resume, cancel, inject_guidance, resume of waits)
 - Discovery and configuration (read): `/api/gateway/me`, `/api/gateway/discovery/capabilities`,
   `/api/gateway/discovery/providers`, `/api/gateway/discovery/providers/{provider}/models`,
@@ -1911,10 +1922,18 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
   connection flags, including `--gateway-handover-file`.
 - `_version.py` — the single version source for `assistant --version`, Settings → About and the
   macOS app bundle.
-- `ui/gateway_worker.py` — one thread per run: uploads attachments, starts the run, follows the
-  ledger, materializes assistant and tool messages, submits wait answers, folds run statistics.
-- `gateway/adapter.py` — ledger records to UI events (`cycle`, `cycle_result`, `tool_started`,
-  `tool`, `tool_request`, `ask_user`, `assistant`, `status`).
+- `ui/gateway_worker.py` — one thread per run: uploads attachments, starts the run, follows its
+  replay view, materializes assistant and tool messages, submits wait answers through
+  `/commands`.
+- `gateway/replay_view.py` — the run as AbstractRuntime's replay view (`replay_view_v1`, ADR 0010
+  in AbstractRuntime): `follow_run` reads the gateway's `/runs/{id}/view` + `/view/stream`
+  (AbstractGateway 0.17.0+, found in `/openapi.json`) and keeps the copy with the runtime's
+  `apply_delta`; on an older gateway it folds `/runs/{id}/ledger` pages and `/runs/{id}` with the
+  runtime's own reducer and says so in the status line. `ViewProjector` turns each change into UI
+  events (`cycle`, `tool_started`, `tool`, `tool_request`, `ask_user`, `interaction_closed`,
+  `tool_policy_decision`, `assistant`, `status`); the app never parses ledger records.
+  `LiveText` reads the ledger stream's live reply frames only, beside the view, until the view
+  stream carries the reply being written.
 - `gateway/live_deltas.py` — the run stream's live reply events (`llm.delta`, `llm.delta_end`) as
   UI events (`assistant_delta`, `assistant_delta_end`, `assistant_delta_reset` on each
   reconnect) and the per-call text they build; the palette's live bubble and the CLI both use it.
@@ -3134,6 +3153,52 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   and there is no timed run poll. The ledger stream stays open only for live reply text. On an older gateway the page
   keeps folding the ledger itself, and the conversation header says so ("Rebuilt in this browser", with the reason on hover). `GatewayClient.replayFetch`
   is the view routes' authenticated fetch; `createAssistantTransport` adds `replayView`.
+
+## [0.16.0] - 2026-10-28
+
+Needs `abstractruntime>=0.15.0`. Best with AbstractGateway 0.17.0 (the replay view); an older
+gateway still works, labeled.
+
+### Changed
+
+- **Runs are rendered from the replay view** (backlog 1063; framework root 0993, AbstractRuntime
+  0854 and ADR 0010). On AbstractGateway 0.17.0 the desktop reads `GET /runs/{id}/view` and its
+  stream (`replay_view_v1`) and keeps its copy with AbstractRuntime's `apply_delta`: the run's
+  status, the approval or question wherever it waits in the run tree, replies, tool rows, the
+  chat's tool-policy decisions and the answer's stats all come from that one reconstruction.
+  `assistant run` (CLI) does the same.
+  - An approval or question answered on another client (or by the chat's tool policy) now closes
+    here: the sheet drops that batch, the ask dialog closes. Each question is asked once per
+    occurrence (a node asking again on the same wait key is asked again), and an older approval
+    still open in another delegated run stays on the sheet while a newer one is asked.
+  - Attaching to a run asks only what is still open; a finished run shows its answer from the
+    view even when its ledger has no terminal record.
+  - Time to first render of a finished 3,000-record run: about 65 ms, was about 425 ms.
+  - On a gateway without the view routes (before 0.17.0) the app folds the run's ledger with
+    AbstractRuntime's reducer itself and the status line says so. A gateway whose discovery
+    (`/openapi.json`) fails is reported as an error.
+  - The reply being written still streams live: until the view stream carries it, the app reads
+    the ledger stream's live reply frames beside the view; the committed message replaces it.
+
+### Removed
+
+- The app's own ledger reconstruction: `gateway/adapter.py` (`GatewayEventAdapter`),
+  `gateway/run_controller.py` (`GatewayRunController` and its sub-run stack), the record parsers
+  of `gateway/events.py` (only `tool_policy_decision_text` stays), and the worker's attach
+  bookkeeping (answered-wait counting, pending-wait search in ledgers and run summaries, the
+  synthetic wait record, the foreground sub-run tracking, per-record stats, the unused
+  approval/answer `threading.Event`s). `gateway` no longer exports `GatewayEventAdapter` or the
+  `extract_*` helpers.
+
+### Known differences from 0.15.0 (for AbstractRuntime; recorded in backlog 1063)
+
+- The run-activity card no longer shows each reasoning cycle's intermediate text (the view's
+  `llm` activities carry no output text), and an `abstract.media.image.generated` event is no
+  longer its own "Generated image" message (the reducer does not record emit-event artifacts).
+  Media in the run's final output still shows; an output with no text gets the same notice as
+  before ("Generated image ready.").
+- The view has no run-level error: a failed run's reason is read from `GET /runs/{id}`.
+- The answer's stats have no prompt-cache line (not in the view).
 
 ## [0.15.0] - 2026-10-28
 
@@ -4618,6 +4683,10 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ### Changed
 
+- **The voice list is read compact** (`GET /voice/voices?compact=true`, the same voices, about a
+  fifth of the bytes). A UI test against a real gateway (`TEST_RUNNER_GW_URL`, `TEST_RUNNER_GW_TOKEN`)
+  opens a conversation with its messages and plays a chosen voice's sample.
+
 - **The sign-in lives in the Keychain, shared through the app group.** A Keychain item of the
   app's service, readable after the first unlock (the notification extension reads it while the
   device is locked), bound to this device, never in a backup, never synced; the app group doubles
@@ -6100,6 +6169,10 @@ iPhone app); the Python package's history is in
 
 ### Changed
 
+- **The voice list is read compact.** Settings → Voice asks `GET /voice/voices?compact=true`: the
+  same voices without the engines' duplicated source catalogs (1.4 MB → 250 KB on a gateway with the
+  shared voice pack), so the list loads within the watch's read timeout over the iPhone's link.
+
 - **Finer schedule choices.** Every 30 seconds, minute, 5, 15 and 30 minutes, then every hour, 2,
   4, 6, 8 and 12 hours, day, 2 days and week, when editing an automation and when creating one. An
   interval written in seconds reads as minutes ("Every 60s" is "Every minute"). The gateway still
@@ -7153,7 +7226,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.15.0"
+version = "0.16.0"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -7182,7 +7255,9 @@ dependencies = [
     # with the [voice] extra for anyone who also wants local transcription.)
     # abstractruntime supplies the session-memory run-id contract shared with
     # the gateway (session_attachments); execution itself stays on the gateway.
-    "abstractruntime>=0.8.4",
+    # 0.15.0: `abstractruntime.replay.apply_delta` keeps the client copy of the gateway's
+    # replay view (one reducer, the runtime's; backlog 1063).
+    "abstractruntime>=0.15.0",
     # 0.11.4 is the first abstractvoice whose voice extras install `webrtcvad-wheels`
     # (0.11.2/0.11.3 required the old `webrtcvad`); the macOS bundle's PyInstaller hook
     # (packaging/macos/hooks/hook-webrtcvad.py) copies webrtcvad-wheels' metadata.
@@ -7440,14 +7515,9 @@ class LiveDeltaPrinter:
         self._finished: set = set()
         self.final_seen = False
 
-    def note_record(self, rec: Dict[str, Any]) -> None:
-        """Remember llm_call steps whose durable record arrived."""
-        effect = rec.get("effect") if isinstance(rec.get("effect"), dict) else {}
-        if str(effect.get("type") or "").strip().lower() != "llm_call":
-            return
-        status = str(rec.get("status") or "").strip().lower()
-        if status in {"completed", "failed", "cancelled"}:
-            self._finished.add(str(rec.get("step_id") or ""))
+    def note_finished(self, call_ids) -> None:
+        """Remember llm calls the replay view holds as finished (their durable record arrived)."""
+        self._finished.update(str(c) for c in call_ids or () if c)
 
     def _write(self, text: str) -> None:
         self._out.write(text)
@@ -7505,9 +7575,11 @@ class LiveDeltaPrinter:
 
 
 def _run_gateway_command(args: argparse.Namespace) -> int:
-    from .gateway import GatewayEventAdapter, build_run_input_data
+    import threading
+
+    from .gateway import build_run_input_data
     from .gateway.history_seed import seed_messages_from_history_bundle
-    from .gateway.run_controller import GatewayRunController
+    from .gateway.replay_view import ViewProjector, finished_llm_calls, follow_run
     from .controller import AssistantController
 
     config = _build_config_from_args(args)
@@ -7575,28 +7647,31 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
         )
     llm_manager.set_last_run_id(run_id)
 
-    adapter = GatewayEventAdapter()
-    controller = GatewayRunController(gateway=gateway, debug=False)
+    projector = ViewProjector()
     live_printer = LiveDeltaPrinter(sys.stderr)
+    live_lock = threading.Lock()
     final = ""
 
-    def _submit_resume(*, active_run_id: str, wait_key: str, payload: Dict[str, Any]) -> None:
+    def _answer(ev: Dict[str, Any], payload: Dict[str, Any]) -> None:
+        # The view's interaction names the resume to send (`command`); the answer goes through
+        # the gateway's commands, and the view then says the wait is closed.
+        command = ev.get("command") if isinstance(ev.get("command"), dict) else {}
+        target = str(command.get("run_id") or ev.get("run_id") or run_id)
         gateway.submit_command(
             command={
                 "command_id": f"resume_{int(time.time() * 1000)}",
-                "run_id": str(active_run_id),
+                "run_id": target,
                 "type": "resume",
-                "payload": {"wait_key": wait_key, "payload": payload},
+                "payload": {"wait_key": str(ev.get("wait_key") or ""), "payload": payload},
                 "client_id": "abstractassistant-cli",
             }
         )
 
-    def _on_record(active_run_id: str, rec: Dict[str, object]) -> None:
+    def _on_view(view: Dict[str, Any]) -> None:
         nonlocal final
-        live_printer.note_record(rec)  # type: ignore[arg-type]
-        for ev in adapter.handle_record(rec):
-            if not isinstance(ev, dict):
-                continue
+        with live_lock:
+            live_printer.note_finished(finished_llm_calls(view))
+        for ev in projector.project(view):
             typ = str(ev.get("type") or "").strip()
             if typ == "assistant":
                 content = str(ev.get("content") or "")
@@ -7605,35 +7680,42 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
                     live_printer.final_seen = True
                 continue
             if typ == "tool_request":
-                wait_key = str(ev.get("wait_key") or "").strip()
-                if not wait_key:
-                    continue
                 tool_calls = ev.get("tool_calls")
                 approved = _approve_tool_batch(tool_calls if isinstance(tool_calls, list) else [])
                 payload: Dict[str, Any] = {"approved": approved}
                 if not approved:
                     payload["reason"] = "Denied by user"
-                _submit_resume(active_run_id=active_run_id, wait_key=wait_key, payload=payload)
+                _answer(ev, payload)
                 continue
             if typ == "ask_user":
-                wait_key = str(ev.get("wait_key") or "").strip()
-                if not wait_key:
-                    continue
                 prompt = str(ev.get("prompt") or "Input required:").strip() or "Input required:"
                 response = input(f"\n{prompt}\n> ").strip()
-                _submit_resume(active_run_id=active_run_id, wait_key=wait_key, payload={"response": response})
+                _answer(ev, {"response": response})
                 continue
             if typ == "error":
                 raise RuntimeError(str(ev.get("error") or "Gateway run failed"))
 
-    controller.follow_run(
-        root_run_id=run_id,
-        on_record=_on_record,
+    def _on_live(ev: Dict[str, Any]) -> None:
+        with live_lock:
+            live_printer(ev)
+
+    def _on_mode(mode: str) -> None:
+        if mode != "view":
+            sys.stderr.write(
+                "[this gateway has no replay view (before AbstractGateway 0.17.0): "
+                "folding the run's ledger here with AbstractRuntime's reducer]\n"
+            )
+
+    fold = follow_run(
+        gateway=gateway,
+        run_id=run_id,
+        on_view=_on_view,
         should_stop=lambda: False,
-        on_delta=live_printer,
+        on_live=_on_live,
+        on_mode=_on_mode,
     )
 
-    status = str(controller.get_run_status(run_id=run_id) or "").strip().lower()
+    status = str((fold.view or {}).get("status") or "").strip().lower()
     if status in {"failed", "cancelled"} and not final:
         raise RuntimeError(f"Gateway run ended with status '{status}'")
 
@@ -12027,6 +12109,139 @@ class GatewayClient:
                 raise GatewayStreamIdle("stream_ledger socket timeout")
             raise
 
+    # The replay view (AbstractGateway 0.17.0, AbstractRuntime `replay_view_v1`).
+    REPLAY_VIEW_PATH = "/api/gateway/runs/{run_id}/view"
+    REPLAY_VIEW_STREAM_PATH = "/api/gateway/runs/{run_id}/view/stream"
+
+    def supports_replay_view(self) -> bool:
+        """Whether this gateway serves the replay view routes (discovery: its OpenAPI paths).
+
+        Gateways before 0.17.0 do not; the caller then takes the legacy ledger path and says so
+        (never a silent fallback). The answer is remembered per client. A failed discovery
+        raises: it is not read as "no"."""
+        cached = getattr(self, "_replay_view_supported", None)
+        if cached is not None:
+            return bool(cached)
+        doc = self.openapi_document()
+        paths = doc.get("paths") if isinstance(doc, dict) else None
+        if not isinstance(paths, dict):
+            raise GatewayHttpError("openapi_document has no paths: cannot tell whether the replay view is served", status=0)
+        ok = self.REPLAY_VIEW_PATH in paths and self.REPLAY_VIEW_STREAM_PATH in paths
+        self._replay_view_supported = ok
+        return ok
+
+    def get_run_view(
+        self,
+        *,
+        run_id: str,
+        etag: Optional[str] = None,
+        at: Optional[str] = None,
+        timeout_s: Optional[float] = None,
+    ) -> Tuple[int, str, Optional[Dict[str, Any]]]:
+        """``GET /runs/{run_id}/view``: ``(status, etag, view)``.
+
+        ``etag`` (the view's cursor token, quoted as the gateway sends it) is sent as
+        ``If-None-Match``: an unchanged view answers ``(304, etag, None)``. ``at`` asks for the
+        view as the ledger stood at that cursor token."""
+        rid = str(run_id or "").strip()
+        if not rid:
+            raise ValueError("get_run_view: run_id is required")
+        query = {"at": str(at)} if at else None
+        url = self._url(self.REPLAY_VIEW_PATH.format(run_id=rid), query=query)
+        extra = {"Accept": "application/json"}
+        if etag:
+            extra["If-None-Match"] = str(etag)
+        req = urllib.request.Request(url, headers=self._headers(extra=extra), method="GET")
+        timeout = self._cfg.timeout_s if timeout_s is None else float(timeout_s)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                tag = str(resp.headers.get("ETag") or "")
+                raw = resp.read()
+                try:
+                    body = json.loads(_decode_bytes(raw, label="get_run_view"))
+                except Exception as exc:
+                    raise GatewayHttpError(f"get_run_view failed: the view is not JSON ({exc})", status=int(resp.status or 0))
+                if not isinstance(body, dict):
+                    raise GatewayHttpError("get_run_view failed: the view is not a JSON object", status=int(resp.status or 0))
+                return int(resp.status or 200), tag, body
+        except urllib.error.HTTPError as e:
+            if int(getattr(e, "code", 0) or 0) == 304:
+                return 304, str(e.headers.get("ETag") or etag or ""), None
+            body_text = _read_error(e, label="get_run_view failed")
+            raise GatewayHttpError(
+                f"get_run_view failed: {body_text}",
+                status=int(getattr(e, "code", 0) or 0),
+                retry_after_s=_retry_after_s(dict(e.headers)),
+                body_text=body_text,
+            )
+
+    def stream_run_view(
+        self,
+        *,
+        run_id: str,
+        on_frame: Callable[[str, str, Dict[str, Any]], Optional[bool]],
+        last_event_id: Optional[str] = None,
+        stop_signal: Optional[Any] = None,
+        timeout_s: Optional[float] = None,
+        max_idle_s: Optional[float] = None,
+        on_open: Optional[Callable[[], None]] = None,
+    ) -> None:
+        """Follow ``GET /runs/{run_id}/view/stream`` (SSE).
+
+        ``on_frame(event, id, data)`` receives ``view`` (the whole view), ``delta`` (``id`` =
+        the cursor token after it) and ``done``; returning False stops. ``last_event_id`` is
+        sent as ``Last-Event-ID`` (resume: the gateway sends nothing, one delta, or the whole
+        view). Keep-alive comments count as activity for ``max_idle_s``. ``on_open()`` runs once the
+        stream is connected (a reconnect that only gets keep-alives is still back online). A frame
+        that is not JSON raises ``GatewayStreamIdle`` (reconnect from the copy's cursor)."""
+        rid = str(run_id or "").strip()
+        if not rid:
+            raise ValueError("stream_run_view: run_id is required")
+        url = self._url(self.REPLAY_VIEW_STREAM_PATH.format(run_id=rid))
+        extra = {"Accept": "text/event-stream"}
+        if last_event_id:
+            extra["Last-Event-ID"] = str(last_event_id)
+        req = urllib.request.Request(url, headers=self._headers(extra=extra), method="GET")
+        timeout = self._cfg.timeout_s if timeout_s is None else float(timeout_s)
+        last_activity = time.monotonic()
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if on_open is not None:
+                    on_open()
+                parser = SseParser()
+                for raw in resp:
+                    if stop_signal is not None and bool(getattr(stop_signal, "is_set", lambda: False)()):
+                        return
+                    last_activity = time.monotonic()
+                    text = _decode_bytes(raw, label="stream_run_view")
+                    for ev in parser.push(text):
+                        if ev.event not in {"view", "delta", "done"}:
+                            continue
+                        try:
+                            data = json.loads(ev.data) if ev.data else {}
+                        except Exception as exc:
+                            # A frame we cannot read leaves the client's copy behind the
+                            # gateway's: stop, and let the follower reconnect from its cursor.
+                            raise GatewayStreamIdle(f"stream_run_view: {ev.event} frame is not JSON ({exc}); reconnecting")
+                        if on_frame(ev.event, ev.id, data if isinstance(data, dict) else {}) is False:
+                            return
+                    if max_idle_s is not None and (time.monotonic() - last_activity) >= max_idle_s:
+                        raise GatewayStreamIdle(f"stream_run_view idle for {max_idle_s:.0f}s")
+        except socket.timeout:
+            raise GatewayStreamIdle("stream_run_view socket timeout")
+        except urllib.error.HTTPError as e:
+            body_text = _read_error(e, label="stream_run_view failed")
+            raise GatewayHttpError(
+                f"stream_run_view failed: {body_text}",
+                status=int(getattr(e, "code", 0) or 0),
+                retry_after_s=_retry_after_s(dict(e.headers)),
+                body_text=body_text,
+            )
+        except urllib.error.URLError as e:
+            if isinstance(getattr(e, "reason", None), socket.timeout):
+                raise GatewayStreamIdle("stream_run_view socket timeout")
+            raise
+
     def list_bundles(self) -> Dict[str, Any]:
         return self._request_json(method="GET", url=self._url("/api/gateway/bundles"), label="list_bundles failed")
 
@@ -14054,357 +14269,762 @@ def build_run_input_data(
 
     return out
 
---- abstractassistant/gateway/adapter.py ---
+--- abstractassistant/gateway/replay_view.py ---
+"""The desktop's reading of a run: AbstractGateway's replay view (`replay_view_v1`).
+
+AbstractGateway 0.17.0 serves `GET /runs/{id}/view` and `GET /runs/{id}/view/stream`; the view is
+AbstractRuntime's one reconstruction of a run tree (`abstractruntime.replay`, ADR 0010). This
+module keeps the client's copy with the runtime's own `apply_delta` (no second reducer) and turns
+each change of that copy into the events the chat and run panels already render. It never reads
+ledger records.
+
+- `ViewFold`: the client copy. A `view` frame replaces it; a `delta` frame is applied with
+  `abstractruntime.replay.apply_delta` unless it is not newer than the copy (the same cursor
+  token, or a run's seq below the copy's): a delta delivered twice or late never rolls the
+  copy back.
+- `ViewProjector`: copy -> UI events (`status`, `assistant`, `tool_started`, `tool`,
+  `tool_request`, `ask_user`, `interaction_closed`, `cycle`, `tool_policy_decision`, `error`).
+- `follow_run_view`: GET the view, then the stream with `Last-Event-ID` resume and bounded
+  reconnects, until `done`.
 """
-Translate gateway ledger records into AbstractAssistant UI events.
 
-This adapter is intentionally minimal and mirrors the behavior of
-`abstractcode/web` for status/messages/waits.
-"""
+from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+import json
+import re
+import threading
+import time
+import urllib.error
+import warnings
+from typing import Any, Callable, Dict, List, Optional, Set
 
-from .events import (
-    event_name_from_wait_key,
-    extract_emit_event,
-    TOOL_POLICY_DECISION_EVENT,
-    tool_policy_decision_event,
-    extract_flow_end_output,
-    extract_tool_calls_from_wait,
-    extract_wait_from_record,
-    is_tool_approval_wait,
-    _coerce_wait_reason,
-    normalize_ui_event_name,
-    parse_status_payload,
-)
-from .history_seed import tool_messages_from_record
-from .tool_usage import tool_call_uid
-from .types import StepRecord, WaitState
+from abstractruntime.replay import ReplayView, apply_delta
 
-# Activity-view texts are bounded so a single verbose cycle cannot bloat the
-# UI event stream; the transcript/ledger keep the full text.
+from .client import GatewayHttpError, GatewayStreamIdle
+
+TERMINAL = frozenset({"completed", "failed", "cancelled"})
+
+
+class ViewOutOfSync(RuntimeError):
+    """A delta arrived before any view: the copy cannot be built from it."""
+
+
+def _cursor_runs(view_or_delta: Dict[str, Any]) -> Dict[str, int]:
+    cur = view_or_delta.get("cursor") if isinstance(view_or_delta, dict) else None
+    runs = cur.get("runs") if isinstance(cur, dict) else None
+    out: Dict[str, int] = {}
+    if isinstance(runs, dict):
+        for k, v in runs.items():
+            try:
+                out[str(k)] = int(v)
+            except (TypeError, ValueError):
+                continue
+    return out
+
+
+def _token(view_or_delta: Dict[str, Any]) -> str:
+    cur = view_or_delta.get("cursor") if isinstance(view_or_delta, dict) else None
+    return str(cur.get("token") or "") if isinstance(cur, dict) else ""
+
+
+class ViewFold:
+    """The client's copy of one run tree's replay view."""
+
+    def __init__(self) -> None:
+        self.view: Optional[Dict[str, Any]] = None
+        self.dropped = 0  # deltas refused as duplicate or stale
+
+    @property
+    def token(self) -> str:
+        return _token(self.view or {})
+
+    def apply_frame(self, event: str, data: Dict[str, Any]) -> bool:
+        """Fold one stream frame; True when the copy changed."""
+        if event == "view":
+            self.view = dict(data)
+            return True
+        if event != "delta":
+            return False
+        if self.view is None:
+            raise ViewOutOfSync("a replay-view delta arrived before the view")
+        new_tok = _token(data)
+        if new_tok and new_tok == self.token:
+            self.dropped += 1
+            return False
+        have = _cursor_runs(self.view)
+        got = _cursor_runs(data)
+        # A delta's cursor names every run of the tree it folded: a run the copy holds that
+        # the delta lacks, or a lower seq, means the delta is older than the copy.
+        for rid, seq in have.items():
+            if got.get(rid, 0) < seq:
+                self.dropped += 1
+                return False
+        self.view = apply_delta(self.view, data)
+        return True
+
+
+_MEDIA_KEYS = frozenset({"image_artifact", "video_artifact", "audio_artifact", "music_artifact"})
+_SKIP_TOOLS = frozenset({"send_telegram_message", "send_telegram_artifact"})
+# Activity-view texts are bounded so one verbose call cannot bloat the event stream.
 _ACTIVITY_TEXT_MAX_CHARS = 4000
 
 
-def _bounded_activity_text(text: str) -> str:
+def _bounded(text: str, limit: int = _ACTIVITY_TEXT_MAX_CHARS) -> str:
     value = str(text or "")
-    if len(value) <= _ACTIVITY_TEXT_MAX_CHARS:
+    if len(value) <= limit:
         return value
-    #[WARNING:TRUNCATION] bounded for the live activity view; the ledger keeps the full text
-    return value[: _ACTIVITY_TEXT_MAX_CHARS - 1] + "…"
+    #[WARNING:TRUNCATION] bounded for the live activity view; the view keeps the full value
+    return value[: limit - 1] + "…"
 
 
-class GatewayEventAdapter:
-    """Adapter that maps ledger records into AbstractAssistant event dicts."""
+def _tool_entries(act: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """`tool_started` entries (the run-activity card pairs them with results by `call_uid`)."""
+    out = []
+    for row in act.get("tool_calls") or []:
+        if not isinstance(row, dict) or not str(row.get("name") or "").strip():
+            continue
+        args = row.get("arguments")
+        try:
+            text = str(args) if args else ""
+        except Exception:
+            text = ""
+        entry: Dict[str, Any] = {
+            "name": str(row.get("name")).strip(),
+            "call_uid": f"{act.get('id')}#{row.get('id')}",
+            "arguments_preview": _bounded(text, 120),
+            "arguments_text": _bounded(text),
+        }
+        if isinstance(args, (dict, str)) and args:
+            entry["arguments"] = args
+        if act.get("started_at"):
+            entry["ts"] = str(act.get("started_at"))
+        out.append(entry)
+    return out
+
+
+def _tool_message(row: Dict[str, Any], act: Dict[str, Any]) -> Dict[str, Any]:
+    """A finished tool row as the transcript's tool message (the shape the session seed writes)."""
+    from .history_seed import _extract_artifacts_from_output, _truncate_output
+
+    out = row.get("output")
+    try:
+        preview = "" if out is None else (out if isinstance(out, str) else json.dumps(out, indent=2, ensure_ascii=False))
+    except Exception:
+        preview = str(out)
+    preview = _truncate_output(preview)
+    st = str(row.get("status") or "")
+    rid = str(act.get("run_id") or "")
+    meta: Dict[str, Any] = {
+        "name": str(row.get("name") or "tool"),
+        "call_id": str(row.get("id") or "") or None,
+        "call_uid": f"{act.get('id')}#{row.get('id')}",
+        "success": st == "completed",
+        "error": str(row.get("error") or "") or None,
+        "arguments": row.get("arguments"),
+        "output_preview": preview,
+        "status": st,
+        "run_id": rid,
+    }
+    if row.get("decided_by"):
+        meta["decided_by"] = row.get("decided_by")
+    artifacts = _extract_artifacts_from_output(out) if out is not None else []
+    if artifacts:
+        meta["artifacts"] = artifacts
+    return {"role": "tool", "content": preview, "ts": str(act.get("ended_at") or ""), "metadata": meta, "run_id": rid}
+
+
+def stats_from_view(view: Dict[str, Any]) -> Dict[str, Any]:
+    """The answer's stats block (`_assistant_stats`) from the view: usage, calls, duration."""
+    from .run_stats import compact_tool_call_for_ui, parse_iso_ms
+
+    usage = view.get("usage") if isinstance(view.get("usage"), dict) else {}
+    lo = hi = None
+    details: List[Dict[str, Any]] = []
+    for act in view.get("activities") or []:
+        for key in ("started_at", "ended_at"):
+            ms = parse_iso_ms(act.get(key))
+            if ms is not None:
+                lo = ms if lo is None else min(lo, ms)
+                hi = ms if hi is None else max(hi, ms)
+        if act.get("kind") == "tool":
+            for row in act.get("tool_calls") or []:
+                if str(row.get("status") or "") in ("completed", "failed", "denied"):
+                    details.append(compact_tool_call_for_ui({
+                        "name": row.get("name"), "arguments": row.get("arguments"), "call_uid": row.get("id"),
+                        "success": row.get("status") == "completed", "error": row.get("error")}))
+    return {
+        "duration_ms": max(0, hi - lo) if lo is not None and hi is not None else 0,
+        "llm_calls": int(usage.get("llm_calls") or 0),
+        "tool_calls": len(details),
+        "tool_call_details": details,
+        "usage": {k: int(usage.get(k) or 0) for k in ("input_tokens", "output_tokens", "total_tokens")},
+    }
+
+
+def finished_llm_calls(view: Dict[str, Any]) -> Set[str]:
+    """Step ids of llm calls whose durable record the view holds (live text for them is over)."""
+    out: Set[str] = set()
+    for act in view.get("activities") or []:
+        if act.get("kind") == "llm" and str(act.get("status") or "") in TERMINAL:
+            out.update(str(s) for s in act.get("step_ids") or [] if s)
+    return out
+
+
+def _media_meta(meta: Dict[str, Any], artifact_ids: Any, paths: Dict[str, str]) -> None:
+    """Name each artifact by the output field that held it (`image_artifact` -> an image tile);
+    the palette reads these keys for the answer's media."""
+    for art in artifact_ids or []:
+        ref = {"$artifact": str(art)}
+        parts = re.split(r"[.\[\]]", paths.get(str(art), ""))
+        field = next((k for k in reversed(parts) if k and not k.isdigit()), "")
+        if field in _MEDIA_KEYS and field not in meta:
+            meta[field] = ref
+        elif "artifact" not in meta:
+            meta["artifact"] = ref
+            meta["artifact_id"] = str(art)
+        else:
+            meta.setdefault("media", []).append(ref)
+
+
+def final_fallback_event(view: Dict[str, Any], output: Any = None) -> Dict[str, Any]:
+    """A completed run whose view has no final message (its output had no text: media only, or
+    nothing): an empty final answer carrying the output's artifacts, so the worker's recovery
+    (an output artifact's text, "Generated image ready.", an empty-answer notice) runs.
+
+    `output` is the run's own output (`GET /runs/{id}`): its media fields are taken as they are
+    (with their content type). The view names an artifact by its EARLIEST reference, so an image
+    a tool made and the run then returned is not under `output` there."""
+    root = str(view.get("root_run_id") or "")
+    if isinstance(output, dict):
+        meta0: Dict[str, Any] = {"run_id": root}
+        for key in (*sorted(_MEDIA_KEYS), "artifact", "artifact_ref"):
+            ref = output.get(key)
+            if isinstance(ref, dict) and str(ref.get("$artifact") or "").strip():
+                meta0["artifact" if key == "artifact_ref" else key] = dict(ref)
+        if isinstance(meta0.get("artifact"), dict):
+            meta0.setdefault("artifact_id", str(meta0["artifact"]["$artifact"]))
+        if len(meta0) > 1:
+            return {"type": "assistant", "content": "", "final": True, "ts": "", "run_id": root, "meta": meta0}
+    paths = {str(a.get("id") or ""): str(a.get("path") or "") for a in view.get("artifacts") or []}
+    ids = [a for a, p in paths.items() if p.split(".", 1)[0].split("[", 1)[0] == "output"
+           and any(str(x.get("id")) == a and str(x.get("run_id") or "") == root for x in view.get("artifacts") or [])]
+    meta: Dict[str, Any] = {"run_id": root}
+    _media_meta(meta, ids, paths)
+    return {"type": "assistant", "content": "", "final": True, "ts": "", "run_id": root, "meta": meta}
+
+
+class ViewProjector:
+    """Turns successive copies of a view into the UI events the panels render.
+
+    Each event is emitted once per identity: a message id, an activity id, a tool row's
+    (activity, call) and final status, an interaction's wait key."""
 
     def __init__(self) -> None:
-        # Wait-occurrence bookkeeping. A wait_key is STABLE across repeated
-        # waits from the same node (e.g. "tool_calls:<run_id>:act" for EVERY
-        # tool-approval batch of that agent run), so a key alone cannot
-        # identify one question: dedup by key alone silently swallowed the
-        # second approval request and the run parked forever while the UI
-        # showed a running tool (live stall, 2026-07-28). One occurrence =
-        # one waiting ledger record = one step_id.
-        #
-        # Two mark families with different lifetimes:
-        # - seeded marks: occurrences known answered BEFORE this stream
-        #   (reattach replay). Never cleared — a terminal replay must stay
-        #   silent through its resume records.
-        # - live marks: occurrences emitted during this stream. Cleared by
-        #   the wait's resume record — the question was answered, and the
-        #   NEXT wait on the same key is a new question that must prompt.
-        # A mark of "" means "occurrence unknown" and suppresses the key
-        # wholesale (synthetic rehydration records carry no step_id).
-        self._seeded_wait_marks: Dict[str, set] = {}
-        self._live_wait_marks: Dict[str, set] = {}
-        self._seen_tool_call_ids: set[str] = set()
-        self._cycles_by_run: Dict[str, int] = {}
+        self._status = ""
+        self._display: Dict[str, str] = {}
+        self._messages: Set[str] = set()
+        self._started: Set[str] = set()
+        self._tool_done: Set[str] = set()
+        self._cycles: Dict[str, int] = {}
+        # Interactions by OCCURRENCE (run, wait key, seq of its waiting record): the runtime
+        # reuses a node's wait key for every question it asks, so a key alone would swallow
+        # the second question (the 2026-07-28 stall). `_shown`: occurrence -> wait key.
+        self._shown: Dict[str, str] = {}
+        self._asked: Set[str] = set()
+        self._assistant_ids: Set[str] = set()
+        self.final_shown = False
+        self.error_shown = False
 
-    def seed_seen_wait_keys(self, wait_keys) -> None:
-        """Mark whole wait keys as already-handled (every occurrence).
+    def suppress_history(self, view: Dict[str, Any]) -> None:
+        """Mark everything the view holds as already shown, except an open interaction (an
+        attach: the transcript comes from the session seed; the open question must still be
+        asked)."""
+        for m in view.get("messages") or []:
+            # The final answer still passes: the worker appends it only when the seeded
+            # transcript lacks it (a session seed can miss the last turn).
+            if str(m.get("kind") or "") != "final":
+                self._messages.add(str(m.get("id") or ""))
+        for r in view.get("runs") or []:
+            self._display[str(r.get("run_id") or "")] = str(r.get("display_status") or "")
+        for act in view.get("activities") or []:
+            aid = str(act.get("id") or "")
+            if str(act.get("status") or "") in ("running", "waiting"):
+                continue  # still going: its start is shown so its result pairs with it
+            self._started.add(aid)
+            if act.get("kind") == "llm":
+                rid = str(act.get("run_id") or "")
+                self._cycles[rid] = self._cycles.get(rid, 0) + 1
+            if str(act.get("status") or "") == "failed":
+                self._tool_done.add(f"{aid}|failed")
+            for row in act.get("tool_calls") or []:
+                if str(row.get("status") or "") not in ("running", "waiting"):
+                    self._tool_done.add(f"{aid}|{row.get('id')}")
 
-        Wholesale suppression: prefer ``seed_handled_wait_occurrences`` so a
-        pending repeat of the same key can still prompt."""
-        for key in wait_keys or []:
-            k = str(key or "").strip()
-            if k:
-                self._seeded_wait_marks.setdefault(k, set()).add("")
-
-    def seed_handled_wait_occurrences(self, occurrences) -> None:
-        """Mark specific wait occurrences (wait_key, step_id) as handled so a
-        reattach replay does not re-open already-answered dialogs, while a
-        NEW occurrence of the same wait_key still prompts."""
-        for pair in occurrences or []:
-            try:
-                key, step = pair
-            except Exception:
-                continue
-            k = str(key or "").strip()
-            if not k:
-                continue
-            self._seeded_wait_marks.setdefault(k, set()).add(str(step or "").strip())
-
-    def _wait_already_handled(self, wait_key: str, step_id: str) -> bool:
-        for marks in (self._seeded_wait_marks.get(wait_key), self._live_wait_marks.get(wait_key)):
-            if not marks:
-                continue
-            if "" in marks:
-                return True
-            if step_id and step_id in marks:
-                return True
-            if not step_id:
-                # Unknown occurrence (synthetic record): anything already
-                # handled for this key is the same pending question.
-                return True
-        return False
-
-    def seed_tool_call_ids(self, call_ids: List[str]) -> None:
-        for cid in call_ids:
-            c = str(cid or "").strip()
-            if c:
-                self._seen_tool_call_ids.add(c)
-
-    def handle_record(self, rec: StepRecord | None) -> List[Dict[str, Any]]:
-        """Return UI events derived from a single ledger record."""
+    def project(self, view: Dict[str, Any]) -> List[Dict[str, Any]]:
         events: List[Dict[str, Any]] = []
-        record_ts = ""
-        record_step_id = ""
-        if isinstance(rec, dict):
-            record_ts = str(rec.get("ended_at") or rec.get("started_at") or "").strip()
-            record_step_id = str(rec.get("step_id") or "").strip()
+        root = str(view.get("root_run_id") or "")
+        self._root = root
+        for r in view.get("runs") or []:
+            rid = str(r.get("run_id") or "")
+            text = str(r.get("display_status") or "")
+            if text and text != self._display.get(rid) and str(r.get("status") or "") not in TERMINAL:
+                events.append({"type": "status", "status": text, "run_id": rid})
+            self._display[rid] = text
+        for act in view.get("activities") or []:
+            events.extend(self._activity_events(act))
+        paths = {str(a.get("id") or ""): str(a.get("path") or "") for a in view.get("artifacts") or []}
+        for m in view.get("messages") or []:
+            ev = self._message_event(m, root, paths)
+            if ev is not None:
+                events.append(ev)
+        events.extend(self._interaction_events(view.get("interaction"), view.get("open_waits")))
+        status = str(view.get("status") or "")
+        if status and status != self._status:
+            self._status = status
+            if status not in TERMINAL:
+                events.append({"type": "status", "status": "waiting" if status == "waiting" else "thinking"})
+        return events
 
-        # Realtime run activity (2026-07-10): STARTED records carry the full effect payload
-        # BEFORE execution, so the user can see what the agent is doing while the call is
-        # still in flight — a reasoning cycle beginning, or a tool launching with its args.
-        # Previously only tool RESULTS surfaced; the in-flight phase was a silent "thinking".
-        if isinstance(rec, dict):
-            raw_status = rec.get("status")
-            status0 = str(getattr(raw_status, "value", raw_status) or "").strip().lower()
-            effect = rec.get("effect") if isinstance(rec.get("effect"), dict) else {}
-            etype = str(effect.get("type") or "").strip().lower()
-            if status0 == "started" and etype == "llm_call" and str(rec.get("node_id") or "") == "reason":
-                rid = str(rec.get("run_id") or "")
-                n = int(self._cycles_by_run.get(rid, 0)) + 1
-                self._cycles_by_run[rid] = n
-                cycle_event: Dict[str, Any] = {"type": "cycle", "iteration": n}
-                if record_ts:
-                    # Ledger timestamp of the cycle start (live activity
-                    # durations are computed ONLY from ledger timestamps).
-                    cycle_event["ts"] = record_ts
-                events.append(cycle_event)
-            elif status0 == "completed" and etype == "llm_call" and str(rec.get("node_id") or "") == "reason":
-                # The model's ACTUAL output for this cycle (its intermediate
-                # "thinking" between tool rounds) lives on the COMPLETED
-                # record's result — never on the STARTED payload, whose
-                # `messages` are the conversation INTO the model (echoing the
-                # user's prompt as "thinking" was the 2026-07-17 dishonesty).
-                rid = str(rec.get("run_id") or "")
-                n = int(self._cycles_by_run.get(rid, 0))
-                result = rec.get("result") if isinstance(rec.get("result"), dict) else {}
-                content = str(result.get("content") or "").strip()
-                reasoning = ""
-                raw_reasoning = result.get("reasoning")
-                if isinstance(raw_reasoning, str) and raw_reasoning.strip():
-                    reasoning = raw_reasoning.strip()
-                else:
-                    meta0 = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
-                    if isinstance(meta0.get("reasoning"), str):
-                        reasoning = str(meta0.get("reasoning")).strip()
-                if content or reasoning:
-                    events.append(
-                        {
-                            "type": "cycle_result",
-                            "iteration": max(1, n),
-                            "content": _bounded_activity_text(content),
-                            "reasoning": _bounded_activity_text(reasoning),
-                            "ts": record_ts,
-                        }
-                    )
-            elif status0 == "started" and etype == "tool_calls":
-                payload0 = effect.get("payload") if isinstance(effect.get("payload"), dict) else {}
-                tools: List[Dict[str, Any]] = []
-                # STARTED records carry started_at; ended_at is the fallback for
-                # a replayed record. Only a real ledger timestamp is forwarded.
-                tool_started_ts = str(rec.get("started_at") or rec.get("ended_at") or "").strip()
-                for tc in payload0.get("tool_calls") or []:
-                    if not (isinstance(tc, dict) and str(tc.get("name") or "").strip()):
-                        continue
-                    args = tc.get("arguments")
-                    try:
-                        preview = str(args) if args else ""
-                    except Exception:
-                        preview = ""
-                    if len(preview) > 120:
-                        #[WARNING:TRUNCATION] bounded args preview for the activity line
-                        preview = preview[:119] + "…"
-                    full_args = ""
-                    try:
-                        full_args = _bounded_activity_text(str(args) if args else "")
-                    except Exception:
-                        full_args = ""
-                    tool_entry: Dict[str, Any] = {
-                        "name": str(tc.get("name")).strip(),
-                        "arguments_preview": preview,
-                        "arguments_text": full_args,
-                    }
-                    # Identity + timing + structured args for the live activity
-                    # model: results are matched by call_id (FIFO by name when
-                    # absent) and titles use the raw arguments, not their repr.
-                    call_id = str(
-                        tc.get("call_id") or tc.get("id") or tc.get("runtime_call_id") or ""
-                    ).strip()
-                    if call_id:
-                        tool_entry["call_id"] = call_id
-                    # The identity the activity card pairs a start with its result
-                    # on. `call_id` is the model's number and repeats across turns.
-                    call_uid = tool_call_uid(tc)
-                    if call_uid:
-                        tool_entry["call_uid"] = call_uid
-                    if tool_started_ts:
-                        tool_entry["ts"] = tool_started_ts
-                    if isinstance(args, (dict, str)) and args:
-                        tool_entry["arguments"] = args
-                    tools.append(tool_entry)
+    def _activity_events(self, act: Dict[str, Any]) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        aid = str(act.get("id") or "")
+        kind = str(act.get("kind") or "")
+        rid = str(act.get("run_id") or "")
+        if aid not in self._started:
+            self._started.add(aid)
+            if kind == "llm":
+                self._cycles[rid] = self._cycles.get(rid, 0) + 1
+                ev: Dict[str, Any] = {"type": "cycle", "iteration": self._cycles[rid], "run_id": rid}
+                if act.get("started_at"):
+                    ev["ts"] = str(act.get("started_at"))
+                out.append(ev)
+            elif kind == "tool":
+                tools = _tool_entries(act)
                 if tools:
-                    events.append({"type": "tool_started", "tools": tools})
+                    out.append({"type": "tool_started", "tools": tools, "run_id": rid})
+            elif kind == "tool_policy":
+                policy = act.get("policy") if isinstance(act.get("policy"), dict) else {}
+                set_by = policy.get("set_by") if isinstance(policy.get("set_by"), dict) else {}
+                out.append({
+                    "type": "tool_policy_decision", "decision": str(act.get("decision") or ""),
+                    "source": str(act.get("source") or ""),
+                    "tools": [{"name": str(r.get("name") or ""), "call_id": str(r.get("id") or ""),
+                               "matched": str(r.get("matched") or "")}
+                              for r in act.get("tool_calls") or [] if isinstance(r, dict) and r.get("name")],
+                    "set_by": str(set_by.get("user_id") or ""), "set_at": str(policy.get("set_at") or ""),
+                    "run_id": rid, "ts": str(act.get("started_at") or "")})
+        for row in act.get("tool_calls") or []:
+            st = str(row.get("status") or "")
+            key = f"{aid}|{row.get('id')}"
+            if kind != "tool" or st in ("running", "waiting") or key in self._tool_done:
+                continue
+            self._tool_done.add(key)
+            if str(row.get("name") or "") in _SKIP_TOOLS:
+                continue
+            out.append({"type": "tool", "run_id": rid, "message": _tool_message(row, act)})
+        if kind != "tool" and str(act.get("status") or "") == "failed" and f"{aid}|failed" not in self._tool_done:
+            self._tool_done.add(f"{aid}|failed")
+            if rid == getattr(self, "_root", ""):
+                self.error_shown = True  # a child's failed step may be recovered: not the run's reason
+            out.append({"type": "error", "error": str(act.get("error") or f"{act.get('name') or kind} failed"), "run_id": rid})
+        return out
 
-        emit = extract_emit_event(rec)
-        if emit:
-            name, payload, _scope = emit
-            if name == "abstract.status":
-                parsed = parse_status_payload(payload)
-                text = str(parsed.get("text") or "").strip()
-                if text and text.lower() not in {"ready", "completed"}:
-                    events.append({"type": "status", "status": text})
-            elif name == TOOL_POLICY_DECISION_EVENT:
-                # Allowed/denied by the chat's session tool policy with NO
-                # wait: an activity line, never an approval prompt.
-                decision = tool_policy_decision_event(payload, ts=record_ts)
-                if decision:
-                    events.append(decision)
-            elif name == "abstract.message":
-                text = ""
-                if isinstance(payload, str):
-                    text = payload
-                elif isinstance(payload, dict):
-                    text = str(payload.get("text") or payload.get("message") or "")
-                text = text.strip()
-                if text:
-                    # For now, render messages as assistant content in the tray UI.
-                    events.append({"type": "assistant", "content": text, "final": False, "ts": record_ts})
-            elif name == "abstract.media.image.generated" and isinstance(payload, dict):
-                artifact = payload.get("image_artifact")
-                if isinstance(artifact, dict) and str(artifact.get("$artifact") or "").strip():
-                    prompt = str(payload.get("prompt") or "").strip()
-                    meta = {"image_artifact": dict(artifact), "generated_media": dict(payload)}
-                    events.append(
-                        {
-                            "type": "assistant",
-                            "content": "Generated image" + (f": {prompt}" if prompt else ""),
-                            "meta": meta,
-                            "final": False,
-                            "ts": record_ts,
-                        }
-                    )
+    def _message_event(self, m: Dict[str, Any], root: str, paths: Dict[str, str]) -> Optional[Dict[str, Any]]:
+        mid = str(m.get("id") or "")
+        if not mid or mid in self._messages:
+            return None
+        self._messages.add(mid)
+        role = str(m.get("role") or "")
+        kind = str(m.get("kind") or "")
+        # Assistant turns, and a workflow's `abstract.message` (a system `event` message).
+        if not (role == "assistant" or (role == "system" and kind == "event")):
+            return None
+        if kind == "question":
+            return None  # asked through the interaction (the ask dialog), not as a reply
+        text = str(m.get("text") or "")
+        final = kind == "final"
+        if not text.strip() and not final:
+            return None
+        rid = str(m.get("run_id") or root)
+        meta: Dict[str, Any] = {"run_id": rid, "message_id": mid}
+        _media_meta(meta, m.get("artifact_ids"), paths)
+        ev_extra: Dict[str, Any] = {}
+        if final and m.get("repeats"):
+            meta["repeats"] = m.get("repeats")
+            if str(m.get("repeats")) in self._assistant_ids:
+                ev_extra["repeats_shown"] = True  # the same text is already in the transcript
+        if final:
+            self.final_shown = True
+        elif role == "assistant":
+            self._assistant_ids.add(mid)
+        ts = ""
+        order = m.get("order")
+        if isinstance(order, list) and order:
+            ts = str(order[0] or "")
+        return {"type": "assistant", "content": text, "final": final, "ts": ts, "run_id": rid, "meta": meta, **ev_extra}
 
-        # A resume record means the wait it names was ANSWERED: clear the
-        # live marks so the next wait on the same (stable) key re-prompts
-        # instead of being deduped into a permanent stall. Seeded marks
-        # stay — a terminal replay must not re-open its historical waits.
-        if isinstance(rec, dict):
-            eff0 = rec.get("effect") if isinstance(rec.get("effect"), dict) else {}
-            if str(eff0.get("type") or "").strip().lower() == "resume":
-                payload0 = eff0.get("payload") if isinstance(eff0.get("payload"), dict) else {}
-                resumed_key = str(payload0.get("wait_key") or "").strip()
-                if resumed_key:
-                    self._live_wait_marks.pop(resumed_key, None)
+    @staticmethod
+    def _occurrence(w: Dict[str, Any]) -> str:
+        return f"{w.get('run_id') or ''}|{w.get('wait_key') or ''}|{w.get('seq') or 0}"
 
-        wait = extract_wait_from_record(rec)
-        if wait:
-            events.extend(self._wait_events(wait, step_id=record_step_id))
+    def _interaction_events(self, it: Any, open_waits: Any) -> List[Dict[str, Any]]:
+        """Close every shown wait that is no longer open anywhere in the tree (`open_waits`),
+        then ask the view's interaction (the newest open one) if this occurrence was never
+        asked. An older wait that is still open stays on screen while a newer one is asked."""
+        out: List[Dict[str, Any]] = []
+        still_open = {self._occurrence(w) for w in open_waits or [] if isinstance(w, dict) and w.get("person_facing")}
+        if isinstance(it, dict):
+            still_open.add(self._occurrence(it))
+        for occ in [o for o in self._shown if o not in still_open]:
+            key = self._shown.pop(occ)
+            out.append({"type": "interaction_closed", "wait_key": key, "run_id": occ.split("|", 1)[0]})
+        if not isinstance(it, dict) or not it.get("wait_key"):
+            return out
+        occ = self._occurrence(it)
+        if occ in self._shown or occ in self._asked:
+            return out
+        key = str(it.get("wait_key"))
+        self._shown[occ] = key
+        self._asked.add(occ)
+        rid = str(it.get("run_id") or "")
+        if it.get("kind") == "tool_approval":
+            calls = [{"name": r.get("name"), "arguments": r.get("arguments"), "call_id": r.get("id")}
+                     for r in it.get("tool_calls") or [] if isinstance(r, dict)]
+            out.append({"type": "tool_request", "tool_calls": calls, "wait_key": key, "run_id": rid,
+                        "step_id": str(it.get("step_id") or ""), "command": it.get("command")})
+        else:
+            ev = {"type": "ask_user", "prompt": str(it.get("prompt") or "Input required:"), "wait_key": key,
+                  "run_id": rid, "step_id": str(it.get("step_id") or ""), "command": it.get("command")}
+            if isinstance(it.get("choices"), list):
+                ev["choices"] = list(it["choices"])
+            if it.get("allow_free_text") is not None:
+                ev["allow_free_text"] = bool(it.get("allow_free_text"))
+            out.append(ev)
+        return out
 
-        for msg in tool_messages_from_record(rec or {}):
-            meta = msg.get("metadata") if isinstance(msg, dict) else None
-            # Replay guard, keyed on the call's UNIQUE identity. Keyed on `call_id`
-            # it swallowed every result after the first whenever the model numbered
-            # its calls per response ("0", "0", "0"): the live card showed one tool
-            # finishing and the rest spinning forever. A record with no unique id
-            # (older runtimes) is never deduped — a repeated row beats a lost one.
-            call_uid = str(meta.get("call_uid") or "").strip() if isinstance(meta, dict) else ""
-            if call_uid:
-                if call_uid in self._seen_tool_call_ids:
-                    continue
-                self._seen_tool_call_ids.add(call_uid)
-            events.append({"type": "tool", "message": msg})
+def _transient(exc: BaseException) -> bool:
+    if isinstance(exc, GatewayStreamIdle):
+        return True
+    if isinstance(exc, GatewayHttpError):
+        status = int(getattr(exc, "status", 0) or 0)
+        return status in {408, 425, 429} or status >= 500
+    return isinstance(exc, (urllib.error.URLError, ConnectionError, OSError))
 
-        out = extract_flow_end_output(rec)
-        if out:
-            events.append(
-                {
-                    "type": "assistant",
-                    "content": out.get("response", ""),
-                    "meta": out.get("meta"),
-                    "final": True,
-                    "ts": record_ts,
-                }
-            )
 
-        if rec and isinstance(rec, dict):
-            status = str(rec.get("status") or "").strip().lower()
-            if status == "failed":
-                err = str(rec.get("error") or rec.get("result", {}).get("error") or "step failed").strip()
-                events.append({"type": "error", "error": err})
+def _retrying(call: Callable[[], Any], *, should_stop: Callable[[], bool], attempts: int = 4) -> Any:
+    """`call()` with a short backoff on transient transport errors (a blip right after a run
+    starts must not end its follow); the last error, or a non-transient one, is raised."""
+    for n in range(attempts):
+        try:
+            return call()
+        except Exception as exc:  # noqa: BLE001
+            if not _transient(exc) or n == attempts - 1 or should_stop():
+                raise
+            _sleep(min(4.0, 0.5 * (2 ** n)), should_stop)
+    raise AssertionError("unreachable")
 
-        return events
 
-    def _wait_events(self, wait: WaitState, *, step_id: str = "") -> List[Dict[str, Any]]:
-        """Convert a wait state into UI events.
+def _sleep(seconds: float, should_stop: Callable[[], bool]) -> None:
+    deadline = time.monotonic() + max(0.0, seconds)
+    while time.monotonic() < deadline and not should_stop():
+        time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
 
-        Dedup is per OCCURRENCE (wait_key + waiting-record step_id), never
-        per key alone: the runtime reuses stable keys for repeated waits
-        from the same node, and a key-only dedup swallows the second
-        question forever."""
-        events: List[Dict[str, Any]] = []
-        wait_key = str(wait.get("wait_key") or "").strip()
-        step = str(step_id or "").strip()
-        reason = _coerce_wait_reason(wait.get("reason"))
-        if wait_key and self._wait_already_handled(wait_key, step):
-            return []
 
-        def _mark_handled() -> None:
-            if wait_key:
-                self._live_wait_marks.setdefault(wait_key, set()).add(step)
+def follow_run_view(
+    *,
+    gateway: Any,
+    run_id: str,
+    on_view: Callable[[Dict[str, Any]], None],
+    should_stop: Callable[[], bool],
+    on_offline: Optional[Callable[[str], None]] = None,
+    on_online: Optional[Callable[[], None]] = None,
+    max_transient_failures: int = 5,
+    stream_idle_s: float = 30.0,
+) -> ViewFold:
+    """Follow one run tree's view until the gateway says `done` (or `should_stop`).
 
-        tool_calls = extract_tool_calls_from_wait(wait)
-        approval_wait = is_tool_approval_wait(wait)
-        if tool_calls or approval_wait:
-            request = {"type": "tool_request", "tool_calls": tool_calls, "wait_key": wait_key}
-            if step:
-                request["step_id"] = str(step)
-            events.append(request)
-            _mark_handled()
-            return events
+    `on_view(view)` runs after every change of the copy, the first GET included. A reconnect
+    sends the copy's cursor as `Last-Event-ID`: the gateway answers with nothing, one delta, or
+    the whole view, so nothing is skipped or folded twice. Consecutive transport failures are
+    counted until a stream connects again; a stream that ends without `done` (a proxy closing
+    an idle connection) is reconnected after a backoff, never in a tight loop."""
+    fold = ViewFold()
+    status, _etag, body = _retrying(lambda: gateway.get_run_view(run_id=run_id), should_stop=should_stop)
+    if body is None:
+        raise GatewayHttpError("get_run_view answered without a view", status=status)
+    fold.apply_frame("view", body)
+    on_view(fold.view or {})
 
-        if reason == "event":
-            ev_name = normalize_ui_event_name(event_name_from_wait_key(wait_key))
-            if ev_name == "abstract.ask":
-                prompt = str(wait.get("prompt") or "Input required:").strip()
-                ask = {"type": "ask_user", "prompt": prompt, "wait_key": wait_key}
-                if step:
-                    ask["step_id"] = str(step)
-                events.append(ask)
-                _mark_handled()
-                return events
+    class _Stop:
+        def is_set(self) -> bool:
+            try:
+                return bool(should_stop())
+            except Exception:
+                return False
 
-        if reason == "user":
-            prompt = str(wait.get("prompt") or "Input required:").strip()
-            ask = {"type": "ask_user", "prompt": prompt, "wait_key": wait_key}
-            if step:
-                ask["step_id"] = str(step)
-            events.append(ask)
-            _mark_handled()
+    state = {"failures": 0, "offline": False, "done": False, "quiet": 0}
 
-        return events
+    def _opened() -> None:
+        state["failures"] = 0
+        if state["offline"]:
+            state["offline"] = False
+            if on_online:
+                on_online()
+
+    def _frame(event: str, _id: str, data: Dict[str, Any]) -> Optional[bool]:
+        state["quiet"] = 0
+        if event == "done":
+            state["done"] = True
+            return False
+        if fold.apply_frame(event, data):
+            on_view(fold.view or {})
+        return None
+
+    while not should_stop() and not state["done"]:
+        try:
+            gateway.stream_run_view(run_id=run_id, on_frame=_frame, last_event_id=fold.token or None,
+                                    stop_signal=_Stop(), timeout_s=stream_idle_s, max_idle_s=stream_idle_s,
+                                    on_open=_opened)
+        except Exception as exc:  # noqa: BLE001
+            if not _transient(exc):
+                raise
+            state["failures"] += 1
+            if state["failures"] > max_transient_failures:
+                raise
+            if not state["offline"]:
+                state["offline"] = True
+                if on_offline:
+                    on_offline(str(exc))
+            _sleep(min(8.0, 0.5 * (2 ** (state["failures"] - 1))), should_stop)
+            continue
+        if state["done"] or should_stop():
+            break
+        if str((fold.view or {}).get("status") or "") in TERMINAL:
+            # The stream closed without `done` on a finished tree: one GET settles the copy.
+            st, _e, body = gateway.get_run_view(run_id=run_id, etag=f'"{fold.token}"' if fold.token else None)
+            if st != 304 and body is not None and fold.apply_frame("view", body):
+                on_view(fold.view or {})
+            break
+        state["quiet"] += 1
+        _sleep(min(5.0, 0.25 * (2 ** min(state["quiet"], 5))), should_stop)
+    return fold
+
+
+def follow_run_ledger_locally(
+    *,
+    gateway: Any,
+    run_id: str,
+    on_view: Callable[[Dict[str, Any]], None],
+    should_stop: Callable[[], bool],
+    on_offline: Optional[Callable[[str], None]] = None,
+    on_online: Optional[Callable[[], None]] = None,
+    poll_s: float = 0.5,
+    page_size: int = 2000,
+    max_transient_failures: int = 5,
+) -> ViewFold:
+    """A gateway without the view routes (before AbstractGateway 0.17.0): read the run tree's
+    ledgers (`GET /runs/{id}/ledger`) and snapshots (`GET /runs/{id}`) and fold them with
+    AbstractRuntime's own reducer (`ReplayView.apply`), here instead of on the gateway. The same
+    view, the same projection; only where the fold runs differs.
+
+    A pass reads every run's new records and the snapshots of runs not yet finished, then folds
+    them; the read positions move only once the fold succeeded (a failed pass is read again,
+    and folding by seq is idempotent). The view is rendered when its cursor token changes."""
+    rv = ReplayView(str(run_id))
+    consumed: Dict[str, int] = {}
+    finished: Set[str] = set()  # runs whose snapshot is terminal: not re-read
+    fold = ViewFold()
+    failures = 0
+    offline = False
+    drained_terminal = False
+    root_input: Optional[Dict[str, Any]] = None
+    while not should_stop():
+        try:
+            grew = True
+            while grew:  # a fold can discover a child run: read its ledger before rendering
+                grew = False
+                records: List[Dict[str, Any]] = []
+                snaps: Dict[str, Any] = {}
+                positions: Dict[str, int] = {}
+                for rid in rv.run_ids or [str(run_id)]:
+                    at = consumed.get(rid, 0)
+                    while True:
+                        page = gateway.get_ledger(run_id=rid, after=at, limit=page_size)
+                        page = page if isinstance(page, dict) else {}
+                        items = [r for r in page.get("items") or [] if isinstance(r, dict)]
+                        records.extend(items)
+                        at = int(page.get("next_after") or at + len(items))
+                        if len(items) < page_size:
+                            break
+                    positions[rid] = at
+                    if rid in finished:
+                        continue
+                    snap = gateway.get_run(run_id=rid)
+                    if isinstance(snap, dict) and snap:
+                        snap = dict(snap, run_id=str(snap.get("run_id") or rid))
+                        if rid == str(run_id):
+                            # The run summary carries no input: the view's prompt message needs it.
+                            if root_input is None:
+                                data = gateway.get_run_input_data(run_id=rid)
+                                root_input = data.get("input_data") if isinstance(data, dict) else {}
+                            snap["input_data"] = root_input or {}
+                        snaps[rid] = snap
+                before = set(rv.run_ids)
+                rv.apply(records, runs_by_id=snaps)
+                consumed.update(positions)
+                for rid, snap in snaps.items():
+                    if str(snap.get("status") or "").lower() in TERMINAL:
+                        finished.add(rid)
+                grew = bool(set(rv.run_ids) - before)
+        except Exception as exc:  # noqa: BLE001
+            if not _transient(exc):
+                raise
+            failures += 1
+            if failures > max_transient_failures:
+                raise
+            if not offline:
+                offline = True
+                if on_offline:
+                    on_offline(str(exc))
+            _sleep(min(8.0, 0.5 * (2 ** (failures - 1))), should_stop)
+            continue
+        failures = 0
+        if offline:
+            offline = False
+            if on_online:
+                on_online()
+        token = str(rv.cursor.get("token") or "")
+        if fold.view is None or token != fold.token:
+            fold.apply_frame("view", rv.to_json())
+            on_view(fold.view or {})
+        if rv.is_terminal():
+            if drained_terminal:
+                break
+            drained_terminal = True  # one more pass: the terminal record can precede the last appends
+            continue
+        _sleep(poll_s, should_stop)
+    return fold
+
+
+class LiveText:
+    """The reply being written, until the view stream carries it.
+
+    The view holds only committed state; a run started with `_runtime.stream` also sends
+    `llm.delta` / `llm.delta_end` frames (contract S) on `GET /runs/{root}/ledger/stream`, for
+    the root and every run below it. This thread reads that stream for those frames only (its
+    `step` rows are the view's business and are skipped) and hands them to `on_delta` as the
+    palette's `assistant_delta*` events. Each (re)connect first sends `assistant_delta_reset`
+    (the gateway then re-sends a snapshot of every reply still open). A failure here never ends
+    the run's follow: the committed message still arrives through the view. Stopped by `stop()`.
+
+    Replace with the view stream's own ephemeral text once the runtime and gateway ship it."""
+
+    def __init__(self, *, gateway: Any, run_id: str, on_delta: Callable[[Dict[str, Any]], None],
+                 after: int = 0, idle_s: float = 30.0) -> None:
+        self._gateway = gateway
+        self._run_id = str(run_id)
+        self._on_delta = on_delta
+        self._after = max(0, int(after))
+        self._idle_s = float(idle_s)
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._loop, name=f"live-text-{self._run_id[:8]}", daemon=True)
+        self.problem = ""
+
+    def start(self) -> "LiveText":
+        self._thread.start()
+        return self
+
+    def stop(self, join_s: float = 2.0) -> None:
+        self._stop.set()
+        if self._thread.is_alive() and threading.current_thread() is not self._thread:
+            self._thread.join(join_s)
+
+    def _emit(self, ev: Dict[str, Any]) -> None:
+        if self._stop.is_set():
+            return  # stopped: nothing reaches the palette after the follow has ended
+        try:
+            self._on_delta(ev)
+        except Exception as exc:  # noqa: BLE001
+            if not self.problem:
+                self.problem = f"live reply handler failed: {exc}"
+                warnings.warn(f"#FALLBACK: {self.problem} (run {self._run_id})")
+
+    def _loop(self) -> None:
+        from .live_deltas import ASSISTANT_DELTA_RESET, to_ui_event
+
+        def _step(ev: Dict[str, Any]) -> Optional[bool]:
+            cur = ev.get("cursor") if isinstance(ev, dict) else None
+            if isinstance(cur, int):
+                self._after = max(self._after, cur)
+            return None
+
+        def _delta(name: str, data: Dict[str, Any]) -> None:
+            ev = to_ui_event(name, data, run_id=self._run_id)  # a malformed frame warns and is skipped
+            if ev is not None:
+                self._emit(ev)
+
+        def _open() -> None:
+            self._emit({"type": ASSISTANT_DELTA_RESET, "run_id": self._run_id})
+
+        backoff = 0.5
+        while not self._stop.is_set():
+            try:
+                # No idle limit: a long tool run sends neither steps nor deltas, and that is not
+                # a failure. `timeout_s` is the socket's (the gateway sends keep-alives).
+                self._gateway.stream_ledger(run_id=self._run_id, after=self._after, on_step=_step,
+                                            stop_signal=self._stop, timeout_s=self._idle_s,
+                                            max_idle_s=None, on_delta=_delta, on_open=_open)
+                # The gateway ended the stream (`done`, or a proxy closed it): reconnect calmly;
+                # the follower stops this thread once the view says the run is done.
+                backoff = 1.0
+            except GatewayStreamIdle:
+                backoff = 0.5  # a quiet socket: reconnect, nothing to report
+            except Exception as exc:  # noqa: BLE001
+                if not self.problem:
+                    self.problem = f"live reply stream failed: {exc}"
+                    warnings.warn(f"#FALLBACK: {self.problem} (run {self._run_id}); the reply appears when it is committed")
+                backoff = min(backoff * 2.0, 5.0)
+            self._stop.wait(backoff)
+
+
+def follow_run(
+    *,
+    gateway: Any,
+    run_id: str,
+    on_view: Callable[[Dict[str, Any]], None],
+    should_stop: Callable[[], bool],
+    on_offline: Optional[Callable[[str], None]] = None,
+    on_online: Optional[Callable[[], None]] = None,
+    on_live: Optional[Callable[[Dict[str, Any]], None]] = None,
+    on_mode: Optional[Callable[[str], None]] = None,
+) -> ViewFold:
+    """Follow a run tree until it is done: the gateway's replay view when it serves one
+    (`supports_replay_view`), else the same view folded here from its ledger. `on_mode("view"
+    | "local")` says which, before anything renders. `on_live` gets the live reply text."""
+    mode = "view" if _retrying(gateway.supports_replay_view, should_stop=should_stop) else "local"
+    if on_mode:
+        on_mode(mode)
+    live: List[LiveText] = []
+
+    def _on_view(view: Dict[str, Any]) -> None:
+        if on_live and not live and str(view.get("status") or "") not in TERMINAL:
+            # Start after the records the view already holds: the stream's step rows are skipped,
+            # so there is no reason to read the run's history again.
+            root_seq = _cursor_runs(view).get(str(run_id), 0)
+            live.append(LiveText(gateway=gateway, run_id=run_id, on_delta=on_live, after=root_seq).start())
+        on_view(view)
+
+    try:
+        follower = follow_run_view if mode == "view" else follow_run_ledger_locally
+        return follower(gateway=gateway, run_id=run_id, on_view=_on_view, should_stop=should_stop,
+                        on_offline=on_offline, on_online=on_online)
+    finally:
+        for lt in live:
+            lt.stop()
+
+
+__all__ = ["ViewFold", "ViewProjector", "ViewOutOfSync", "LiveText", "follow_run", "follow_run_view", "final_fallback_event",
+           "follow_run_ledger_locally", "finished_llm_calls", "stats_from_view", "TERMINAL"]
 
 --- abstractassistant/ui/gateway_worker.py ---
 """
@@ -14418,7 +15038,6 @@ from __future__ import annotations
 import json
 import os
 import threading
-import time
 import warnings
 from typing import Any, Dict, List, Optional
 
@@ -14430,20 +15049,25 @@ except Exception:  # pragma: no cover - Qt binding fallback
     except Exception:
         from PyQt6.QtCore import QThread, pyqtSignal
 
-from ..gateway import (
-    GatewayEventAdapter,
-    build_run_input_data,
-)
+from ..gateway import build_run_input_data
 from ..gateway.client import wait_answer_payload, wait_response_command
-from ..gateway.events import extract_wait_from_record
 from ..gateway.history_seed import seed_messages_from_history_bundle
 from ..gateway.live_deltas import ASSISTANT_DELTA
-from ..gateway.run_controller import GatewayRunController
-from ..gateway.run_stats import aggregate_run_stats, observe_record
+from ..gateway.replay_view import (
+    ViewProjector,
+    final_fallback_event,
+    finished_llm_calls,
+    follow_run,
+    stats_from_view,
+)
 
 
 class GatewayWorker(QThread):
-    """Worker thread that drives a gateway-first run (ledger replay + SSE)."""
+    """Worker thread that drives a gateway-first run.
+
+    The run is read as AbstractRuntime's replay view (served by the gateway, or folded here
+    from its ledger on a gateway before 0.17.0) and projected onto the palette's events
+    (`gateway.replay_view`); the reply being written comes from the live text stream."""
 
     event_emitted = pyqtSignal(object)  # dict payloads
     # Fatal: the follower is finished. The palette tears the worker down.
@@ -14485,7 +15109,6 @@ class GatewayWorker(QThread):
         super().__init__()
         self._llm_manager = llm_manager
         self._gateway = None
-        self._adapter = GatewayEventAdapter()
         self._user_text = str(user_text or "")
         self._attachments = list(attachments or [])
         self._system_prompt_extra = str(system_prompt_extra) if system_prompt_extra else ""
@@ -14526,17 +15149,11 @@ class GatewayWorker(QThread):
             else None
         )
 
-        self._tool_approval_event = threading.Event()
-        self._tool_approval_decision: Optional[bool] = None
-        self._ask_user_event = threading.Event()
-        self._ask_user_response: Optional[str] = None
         self._pending_tool_approval_wait: Optional[Dict[str, str]] = None
         self._pending_ask_user_wait: Optional[Dict[str, str]] = None
         self._offline = False
         self._root_run_id = ""
-        self._follow_run_id = ""
-        self._final_observed = False
-        self._stats_by_run: Dict[str, Dict[str, Any]] = {}
+        self._view_stats: Optional[Dict[str, Any]] = None
         self._run_activity_by_run: Dict[str, str] = {}
         self._output_artifact_candidates: List[tuple[str, str]] = []
         self._seen_output_artifacts: set[tuple[str, str]] = set()
@@ -14557,8 +15174,6 @@ class GatewayWorker(QThread):
         request arriving while a dialog is open would overwrite that slot and
         misroute the answer.
         """
-        self._tool_approval_decision = bool(approved)
-        self._tool_approval_event.set()
         rid = str(run_id or "").strip()
         key = str(wait_key or "").strip()
         # Require BOTH kwargs to key by identity; a lone kwarg (XOR) would
@@ -14591,8 +15206,6 @@ class GatewayWorker(QThread):
         wait_key: Optional[str] = None,
     ) -> None:
         """Answer an ask-user wait (keyed like :meth:`provide_tool_approval`)."""
-        self._ask_user_response = str(response or "")
-        self._ask_user_event.set()
         rid = str(run_id or "").strip()
         key = str(wait_key or "").strip()
         # Require BOTH kwargs to key by identity (see provide_tool_approval).
@@ -14691,7 +15304,6 @@ class GatewayWorker(QThread):
     def _seed_history_from_gateway(self, *, run_id: str) -> None:
         if self._gateway is None or self._llm_manager is None:
             return
-        bundle = None
         try:
             bundle = self._gateway.get_run_history_bundle(
                 run_id=run_id,
@@ -14709,17 +15321,6 @@ class GatewayWorker(QThread):
                     artifact_id=aid,
                 ),
             )
-            try:
-                # `call_uid`, not `call_id`: the adapter's replay guard keys on the
-                # unique identity (the model's `call_id` repeats across turns).
-                tool_ids = [
-                    str(m.get("metadata", {}).get("call_uid") or "")
-                    for m in messages
-                    if isinstance(m, dict) and str(m.get("role") or "") == "tool"
-                ]
-                self._adapter.seed_tool_call_ids([cid for cid in tool_ids if cid.strip()])
-            except Exception:
-                pass
             if messages:
                 had_assistant_before = self._session_has_assistant_for_run(run_id)
                 changed = bool(self._llm_manager.replace_gateway_messages(messages, last_run_id=run_id))
@@ -14749,195 +15350,6 @@ class GatewayWorker(QThread):
                     "run_id": run_id,
                     "message": f"Gateway history replay failed: {e}",
                 }
-            )
-        try:
-            if isinstance(bundle, dict):
-                self._maybe_emit_pending_wait(run_id=run_id, bundle=bundle)
-        except Exception:
-            pass
-
-    def _normalize_wait_dict(self, wait: Dict[str, Any]) -> Dict[str, Any]:
-        out = dict(wait or {})
-        reason = out.get("reason")
-        if hasattr(reason, "value"):
-            try:
-                out["reason"] = str(reason.value or "").strip()
-            except Exception:
-                out["reason"] = str(reason or "").strip()
-        elif reason is not None:
-            out["reason"] = str(reason).strip()
-        return out
-
-    def _all_ledger_wait_occurrences(self, bundle: Dict[str, Any]) -> list:
-        """Every wait occurrence (wait_key, step_id) in the bundle's ledgers,
-        in per-ledger record order (a wait_key repeats across occurrences —
-        one waiting record = one occurrence)."""
-        occurrences: list = []
-        ledgers = bundle.get("ledgers") if isinstance(bundle, dict) else None
-        if not isinstance(ledgers, dict):
-            return occurrences
-        for ledger in ledgers.values():
-            items = ledger.get("items") if isinstance(ledger, dict) else None
-            if not isinstance(items, list):
-                continue
-            for it in items:
-                rec = it.get("record") if isinstance(it, dict) else None
-                if not isinstance(rec, dict):
-                    continue
-                wait = extract_wait_from_record(rec)
-                if isinstance(wait, dict):
-                    key = str(wait.get("wait_key") or "").strip()
-                    if key:
-                        occurrences.append((key, str(rec.get("step_id") or "").strip()))
-        return occurrences
-
-    def _answered_wait_occurrences(self, bundle: Dict[str, Any]) -> list:
-        """Wait occurrences that were ANSWERED, per ledger.
-
-        A resume record carries the `wait_key` it answers, so within one
-        ledger the Nth waiting record for a key is answered by the Nth resume
-        for that key. Anything left over is still pending.
-
-        This replaces asking the run for its "current" wait, which read the
-        ROOT run while the approval the user must answer lives on the AGENT
-        SUBRUN: the root waits on `subworkflow:<child>` and never on
-        `tool_approval:<child>:act:<hash>`, so the pending child approval was
-        seeded as already-handled and its dialog never re-opened. One real run
-        sat parked on that for 16 minutes.
-        """
-        answered: list = []
-        ledgers = bundle.get("ledgers") if isinstance(bundle, dict) else None
-        if not isinstance(ledgers, dict):
-            return answered
-        for ledger in ledgers.values():
-            items = ledger.get("items") if isinstance(ledger, dict) else None
-            if not isinstance(items, list):
-                continue
-            waits: Dict[str, list] = {}
-            resumes: Dict[str, int] = {}
-            for it in items:
-                rec = it.get("record") if isinstance(it, dict) else None
-                if not isinstance(rec, dict):
-                    continue
-                wait = extract_wait_from_record(rec)
-                if isinstance(wait, dict):
-                    key = str(wait.get("wait_key") or "").strip()
-                    if key:
-                        waits.setdefault(key, []).append(str(rec.get("step_id") or "").strip())
-                    continue
-                effect = rec.get("effect") if isinstance(rec.get("effect"), dict) else {}
-                if str(effect.get("type") or "") == "resume":
-                    payload = effect.get("payload") if isinstance(effect.get("payload"), dict) else {}
-                    key = str(payload.get("wait_key") or "").strip()
-                    if key:
-                        resumes[key] = resumes.get(key, 0) + 1
-            for key, steps in waits.items():
-                for step in steps[: resumes.get(key, 0)]:
-                    answered.append((key, step))
-        return answered
-
-    def _suppress_resolved_waits_for_attach(self, run_id: str) -> None:
-        """On reattach, mark the ANSWERED wait occurrences as seen so the
-        full-ledger replay does not re-open dialogs the user already dealt
-        with (answering a stale wait fails its resume and can leave the run
-        tree in a bad state) — and leave every UNANSWERED one alone, so a
-        still-pending approval is raised again.
-
-        Occurrences are (wait_key, step_id) pairs: the runtime reuses stable
-        wait keys for repeated waits from the same node, so a key alone cannot
-        tell an answered wait from its pending successor.
-        """
-        if self._gateway is None:
-            return
-        try:
-            bundle = self._gateway.get_run_history_bundle(
-                run_id=run_id,
-                include_subruns=True,
-                include_session=False,
-                ledger_mode="tail",
-                ledger_max_items=2000,
-            )
-        except Exception:
-            return
-        occurrences = self._answered_wait_occurrences(bundle)
-        if occurrences:
-            self._adapter.seed_handled_wait_occurrences(occurrences)
-
-    def _find_latest_wait_from_ledgers(self, bundle: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        ledgers = bundle.get("ledgers") if isinstance(bundle, dict) else None
-        if not isinstance(ledgers, dict):
-            return None
-        best: Optional[Dict[str, Any]] = None
-        best_ts = ""
-        for rid, ledger in ledgers.items():
-            items = ledger.get("items") if isinstance(ledger, dict) else None
-            if not isinstance(items, list) or not items:
-                continue
-            for it in reversed(items):
-                rec = it.get("record") if isinstance(it, dict) else None
-                if not isinstance(rec, dict):
-                    continue
-                wait = extract_wait_from_record(rec)
-                if not isinstance(wait, dict):
-                    continue
-                ts = str(rec.get("ended_at") or rec.get("started_at") or "")
-                if ts >= best_ts:
-                    best_ts = ts
-                    best = {"run_id": str(rid or "").strip(), "wait": self._normalize_wait_dict(wait)}
-                break
-        return best
-
-    def _find_wait_from_run_summaries(self, *, bundle: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        if self._gateway is None:
-            return None
-        ledgers = bundle.get("ledgers") if isinstance(bundle, dict) else None
-        if not isinstance(ledgers, dict):
-            return None
-        for rid in ledgers.keys():
-            run_id = str(rid or "").strip()
-            if not run_id:
-                continue
-            try:
-                info = self._gateway.get_run(run_id=run_id)
-            except Exception:
-                continue
-            if not isinstance(info, dict):
-                continue
-            status = str(info.get("status") or "").strip().lower()
-            if status != "waiting":
-                continue
-            waiting = info.get("waiting")
-            if isinstance(waiting, dict):
-                return {"run_id": run_id, "wait": self._normalize_wait_dict(waiting)}
-        return None
-
-    def _make_synthetic_wait_record(self, wait: Dict[str, Any]) -> Dict[str, Any]:
-        """Build a synthetic ledger record with the wait at ``result.wait``
-        (the canonical location used by ``StepRecord.finish_waiting``)."""
-        return {"result": {"wait": self._normalize_wait_dict(wait)}}
-
-    def _maybe_emit_pending_wait(self, *, run_id: str, bundle: Dict[str, Any]) -> None:
-        if not isinstance(bundle, dict):
-            return
-        run_info = bundle.get("run") if isinstance(bundle.get("run"), dict) else None
-        status = str(run_info.get("status") or "").strip().lower() if isinstance(run_info, dict) else ""
-        if status != "waiting":
-            return
-        waiting = run_info.get("waiting") if isinstance(run_info, dict) else None
-        if isinstance(waiting, dict):
-            rec = self._make_synthetic_wait_record(waiting)
-            self._handle_events(run_id=run_id, rec=rec)
-            return
-        fallback = self._find_latest_wait_from_ledgers(bundle)
-        if isinstance(fallback, dict) and isinstance(fallback.get("wait"), dict):
-            rec = self._make_synthetic_wait_record(fallback["wait"])
-            self._handle_events(run_id=str(fallback.get("run_id") or run_id), rec=rec)
-            return
-        fallback2 = self._find_wait_from_run_summaries(bundle=bundle)
-        if isinstance(fallback2, dict) and isinstance(fallback2.get("wait"), dict):
-            self._handle_events(
-                run_id=str(fallback2.get("run_id") or run_id),
-                rec=self._make_synthetic_wait_record(fallback2["wait"]),
             )
 
     def _build_run_activity_summary(self, *, run_id: str, fallback_prompt: str = "") -> str:
@@ -15022,38 +15434,6 @@ class GatewayWorker(QThread):
             return
         self._seen_output_artifacts.add(key)
         self._output_artifact_candidates.append(key)
-
-    def _record_output_artifact_candidates(self, *, run_id: str, rec: Dict[str, Any]) -> None:
-        if not isinstance(rec, dict):
-            return
-
-        def _remember(value: Any, *, candidate_run_id: str) -> None:
-            artifact_id = self._artifact_id_from_value(value)
-            if artifact_id:
-                self._remember_output_artifact(run_id=candidate_run_id, artifact_id=artifact_id)
-
-        result = rec.get("result")
-        if isinstance(result, dict):
-            output = result.get("output")
-            if output is not None:
-                _remember(output, candidate_run_id=run_id)
-                if isinstance(output, dict):
-                    for key in (
-                        "artifact",
-                        "artifact_ref",
-                        "image_artifact",
-                        "video_artifact",
-                        "audio_artifact",
-                        "music_artifact",
-                    ):
-                        _remember(output.get(key), candidate_run_id=run_id)
-
-        effect = rec.get("effect")
-        payload = effect.get("payload") if isinstance(effect, dict) else None
-        resume_payload = payload.get("payload") if isinstance(payload, dict) else None
-        if isinstance(resume_payload, dict):
-            candidate_run_id = str(resume_payload.get("sub_run_id") or run_id).strip() or run_id
-            _remember(resume_payload.get("output"), candidate_run_id=candidate_run_id)
 
     @staticmethod
     def _text_from_output_payload(payload: Any) -> str:
@@ -15241,19 +15621,14 @@ class GatewayWorker(QThread):
 
         threading.Thread(target=_send, name="abstractassistant-wait-submit", daemon=True).start()
 
-    def _handle_events(self, *, run_id: str, rec: Dict[str, Any]) -> None:
-        self._note_finished_llm_call(rec)
-        self._update_follow_run_id_from_record(run_id=run_id, rec=rec)
-        self._record_output_artifact_candidates(run_id=run_id, rec=rec)
-        self._record_run_stats(run_id=run_id, rec=rec)
-        events = self._adapter.handle_record(rec)
+    def _emit_ui_events(self, *, run_id: str, events: List[Dict[str, Any]]) -> None:
+        """Hand the view's UI events to the palette (assistant and tool messages also go to
+        the transcript). The view already decided which messages belong to the conversation."""
         for ev in events:
             if isinstance(ev, dict) and run_id:
                 ev.setdefault("run_id", run_id)
             typ = ev.get("type") if isinstance(ev, dict) else None
             if typ == "assistant":
-                if not self._is_foreground_run(run_id):
-                    continue
                 history_changed = False
                 try:
                     meta = ev.get("meta") if isinstance(ev.get("meta"), dict) else {}
@@ -15264,7 +15639,9 @@ class GatewayWorker(QThread):
                         final=bool(ev.get("final")),
                     )
                     ev["content"] = content
-                    if self._should_append_assistant(content, meta=meta):
+                    if ev.get("repeats_shown"):
+                        pass  # the final repeats an answer already in the transcript
+                    elif self._should_append_assistant(content, meta=meta):
                         if bool(ev.get("final")):
                             meta = self._meta_with_run_stats(meta, run_id=run_id)
                             ev["meta"] = meta
@@ -15275,12 +15652,6 @@ class GatewayWorker(QThread):
                             ts=str(ev.get("ts") or ""),
                         )
                         history_changed = True
-                    # A final answer with content is now in the transcript
-                    # (either appended above or already present as the latest
-                    # assistant message): the live path is authoritative and
-                    # the post-run history reseed must not run.
-                    if bool(ev.get("final")) and str(content or "").strip():
-                        self._final_observed = True
                 except Exception as e:
                     warnings.warn(f"Failed to append assistant message: {e}")
                 ev["history_changed"] = history_changed
@@ -15291,7 +15662,7 @@ class GatewayWorker(QThread):
                 wait_key = str(ev.get("wait_key") or "").strip()
                 if wait_key:
                     self._pending_tool_approval_wait = {
-                        "run_id": str(run_id or "").strip(),
+                        "run_id": str(ev.get("run_id") or run_id or "").strip(),
                         "wait_key": wait_key,
                     }
                 self.event_emitted.emit(ev)
@@ -15301,7 +15672,7 @@ class GatewayWorker(QThread):
                 wait_key = str(ev.get("wait_key") or "").strip()
                 if wait_key:
                     self._pending_ask_user_wait = {
-                        "run_id": str(run_id or "").strip(),
+                        "run_id": str(ev.get("run_id") or run_id or "").strip(),
                         "wait_key": wait_key,
                     }
                 self.event_emitted.emit(ev)
@@ -15324,18 +15695,82 @@ class GatewayWorker(QThread):
 
             self.event_emitted.emit(ev)
 
-    _FINAL_LLM_CALL_STATUSES = frozenset({"completed", "failed", "cancelled"})
+    def _follow_view(self, *, run_id: str, attach: bool) -> str:
+        """Render the run from its replay view until it is done; return its status.
 
-    def _note_finished_llm_call(self, rec: Dict[str, Any]) -> None:
-        """Remember llm_call steps whose durable record has arrived."""
-        effect = rec.get("effect") if isinstance(rec.get("effect"), dict) else {}
-        if str(effect.get("type") or "").strip().lower() != "llm_call":
-            return
-        raw_status = rec.get("status")
-        status = str(getattr(raw_status, "value", raw_status) or "").strip().lower()
-        step_id = str(rec.get("step_id") or "").strip()
-        if step_id and status in self._FINAL_LLM_CALL_STATUSES:
-            self._finished_calls().add(step_id)
+        The view is AbstractRuntime's reconstruction (the gateway's `/view`, or folded here
+        from the ledger on an older gateway, which the status line says). This worker only
+        projects its changes onto the palette (`ViewProjector`). An attach shows the
+        transcript from the session seed and asks only what is still open. The reply being
+        written arrives on the live text stream until its message is committed in the view."""
+        projector = ViewProjector()
+        state: Dict[str, Any] = {"first": True}
+
+        def _on_mode(mode: str) -> None:
+            if mode != "view":
+                self.event_emitted.emit(
+                    {
+                        "type": "replay_mode",
+                        "mode": mode,
+                        "message": "This gateway has no replay view (AbstractGateway before 0.17.0): "
+                        "the app folds the run's ledger with AbstractRuntime's reducer.",
+                    }
+                )
+
+        def _on_view(view: Dict[str, Any]) -> None:
+            if state["first"] and attach:
+                projector.suppress_history(view)
+            state["first"] = False
+            self._view_stats = stats_from_view(view)
+            for art in view.get("artifacts") or []:
+                if "output" in str(art.get("path") or ""):
+                    self._remember_output_artifact(run_id=str(art.get("run_id") or ""), artifact_id=str(art.get("id") or ""))
+            events = projector.project(view)
+            with self._live_lock():
+                # A call the view holds as finished gets no more live text (S-2.2), decided
+                # under the same lock as the delta forwarder, so a late delta never lands
+                # after the message that replaces it.
+                self._finished_calls().update(finished_llm_calls(view))
+                if events:
+                    self._emit_ui_events(run_id=str(view.get("root_run_id") or run_id), events=events)
+
+        fold = follow_run(
+            gateway=self._gateway,
+            run_id=run_id,
+            on_view=_on_view,
+            should_stop=self.isInterruptionRequested,
+            on_offline=self._mark_offline,
+            on_online=self._mark_online,
+            on_live=self._handle_delta,
+            on_mode=_on_mode,
+        )
+        view = fold.view or {}
+        status = str(view.get("status") or "").strip().lower()
+        summary: Dict[str, Any] = {}
+        if (status == "completed" and not projector.final_shown) or (status == "failed" and not projector.error_shown):
+            # The view has neither the run's output fields nor its error: the summary does.
+            try:
+                got = self._gateway.get_run(run_id=run_id)
+                summary = got if isinstance(got, dict) else {}
+            except Exception as exc:  # noqa: BLE001
+                warnings.warn(f"#FALLBACK: could not read the run summary of {run_id}: {exc}")
+        if status == "completed" and not projector.final_shown:
+            # No final message in the view (an output without text): the worker's own recovery
+            # (an output artifact's text, a media notice, an empty-answer notice) decides.
+            self._emit_ui_events(run_id=run_id, events=[final_fallback_event(view, summary.get("output"))])
+        if status == "failed" and not projector.error_shown:
+            reason = str(summary.get("error") or "").strip()
+            self.event_emitted.emit({"type": "error", "error": reason or "The run failed.", "run_id": run_id})
+        if status in {"completed", "failed", "cancelled"}:
+            return status
+        if self.isInterruptionRequested():
+            return "cancelled"
+        # Stopped on a tree that is still open: say what the view says, never "completed".
+        return status or "running"
+
+    def _live_lock(self) -> threading.Lock:
+        # Per instance, created on first use (tests build workers via __new__).
+        return self.__dict__.setdefault("_live_text_lock", threading.Lock())
 
     def _finished_calls(self) -> set:
         # Per instance, created on first use (tests build workers via __new__).
@@ -15353,9 +15788,10 @@ class GatewayWorker(QThread):
         """
         if not isinstance(ev, dict):
             return
-        if ev.get("type") == ASSISTANT_DELTA and str(ev.get("call_id") or "") in self._finished_calls():
-            return
-        self.event_emitted.emit(ev)
+        with self._live_lock():
+            if ev.get("type") == ASSISTANT_DELTA and str(ev.get("call_id") or "") in self._finished_calls():
+                return
+            self.event_emitted.emit(ev)
 
     def _should_append_assistant(self, content: str, *, meta: Optional[Dict[str, Any]] = None) -> bool:
         text = str(content or "").strip()
@@ -15426,39 +15862,6 @@ class GatewayWorker(QThread):
                 return dict(msg)
         return None
 
-    def _is_foreground_run(self, run_id: str) -> bool:
-        """Return True when events should surface to the UI."""
-        rid = str(run_id or "").strip()
-        if not rid:
-            return True
-        root = str(self._root_run_id or "").strip()
-        if not root or rid == root:
-            return True
-        follow = str(self._follow_run_id or "").strip()
-        return bool(follow and rid == follow)
-
-    def _update_follow_run_id_from_record(self, *, run_id: str, rec: Dict[str, Any]) -> None:
-        """Track the foreground subworkflow run when the root waits."""
-        root = str(self._root_run_id or "").strip()
-        if not root or str(run_id or "").strip() != root:
-            return
-        wait = extract_wait_from_record(rec)
-        if not isinstance(wait, dict):
-            return
-        reason = str(wait.get("reason") or "").strip().lower()
-        if reason != "subworkflow":
-            return
-        details = wait.get("details")
-        sub = ""
-        if isinstance(details, dict):
-            sub = str(details.get("sub_run_id") or details.get("subRunId") or "").strip()
-        if not sub:
-            wait_key = str(wait.get("wait_key") or "").strip()
-            if wait_key.startswith("subworkflow:"):
-                sub = str(wait_key.split(":", 1)[1] or "").strip()
-        if sub:
-            self._follow_run_id = sub
-
     def _mark_offline(self, reason: str) -> None:
         if self._offline:
             return
@@ -15518,9 +15921,6 @@ class GatewayWorker(QThread):
                 pass
         self.event_emitted.emit({"type": "workspace", "root": root, "source": source, "run_id": run_id})
 
-    def _record_run_stats(self, *, run_id: str, rec: Dict[str, Any]) -> None:
-        observe_record(self._stats_by_run, run_id=run_id, rec=rec)
-
     def _meta_with_run_stats(self, meta: Dict[str, Any], *, run_id: str) -> Dict[str, Any]:
         merged = dict(meta or {})
         rid = str(run_id or "").strip()
@@ -15530,7 +15930,7 @@ class GatewayWorker(QThread):
         # execute llm_call/tool_calls effects in sub-runs while the final
         # answer event fires on the root run, so the root bucket alone
         # understates (often to zero) the real token/tool activity.
-        stats = aggregate_run_stats(self._stats_by_run)
+        stats = self.__dict__.get("_view_stats")
         if isinstance(stats, dict):
             merged["_assistant_stats"] = {"run_id": rid, **stats}
         return merged
@@ -15546,27 +15946,13 @@ class GatewayWorker(QThread):
             if not session_id:
                 raise RuntimeError("Session id is required for gateway runs")
 
-            controller = GatewayRunController(gateway=self._gateway, debug=self._debug)
-
             run_id = self._attach_run_id
             if run_id:
                 if self._llm_manager:
                     self._llm_manager.set_last_run_id(run_id)
                 self._root_run_id = str(run_id or "")
-                self._follow_run_id = ""
-                # Reattach replays the whole ledger from the start; suppress
-                # already-resolved waits so answered dialogs don't re-open.
-                self._suppress_resolved_waits_for_attach(run_id)
-                status = controller.get_run_status(run_id=run_id)
-                if status in {"completed", "failed", "cancelled"}:
-                    controller.replay_terminal_ledger(
-                        run_id=run_id,
-                        after=0,
-                        on_record=lambda rid, rec: self._handle_events(run_id=rid, rec=rec),
-                    )
-                    self._seed_history_from_gateway(run_id=run_id)
-                    self.event_emitted.emit({"type": "status", "status": status})
-                    return
+                # The transcript of the conversation comes from the session seed; the view
+                # then asks only what is still open (no answered dialog re-opens).
                 self._seed_history_from_gateway(run_id=run_id)
                 self._emit_run_activity(run_id=run_id)
             else:
@@ -15641,33 +16027,13 @@ class GatewayWorker(QThread):
                 if self._llm_manager:
                     self._llm_manager.set_last_run_id(run_id)
                 self._root_run_id = str(run_id or "")
-                self._follow_run_id = ""
                 self._emit_run_activity(run_id=run_id, fallback_prompt=self._user_text)
                 self._remember_workspace_root(run_id=run_id, requested=self._workspace_root)
 
             self.event_emitted.emit({"type": "status", "status": "thinking"})
             self._offline = False
 
-            controller.follow_run(
-                root_run_id=run_id,
-                on_record=lambda rid, rec: self._handle_events(run_id=rid, rec=rec),
-                should_stop=self.isInterruptionRequested,
-                on_offline=self._mark_offline,
-                on_online=self._mark_online,
-                on_delta=self._handle_delta,
-            )
-
-            # The live-followed final answer (with its run-tree stats) is
-            # authoritative. Reseeding from the history bundle here would
-            # REPLACE the transcript with the gateway's bundle view — which can
-            # lack the answer entirely (missing session turns force the
-            # recovery path) and rebuilds every message. Reseed only as a gap
-            # filler when no final answer was observed on the stream.
-            if not self._final_observed:
-                self._seed_history_from_gateway(run_id=run_id)
-            final_status = controller.get_run_status(run_id=run_id)
-            if final_status not in {"completed", "failed", "cancelled"}:
-                final_status = "completed"
+            final_status = self._follow_view(run_id=run_id, attach=bool(self._attach_run_id))
             self.event_emitted.emit({"type": "status", "status": final_status})
         except Exception as e:
             if self._debug:
@@ -22161,7 +22527,7 @@ INCLUDED_FILES: list[str] = [
     "abstractassistant/controller.py",
     "abstractassistant/gateway/client.py",
     "abstractassistant/gateway/run_input.py",
-    "abstractassistant/gateway/adapter.py",
+    "abstractassistant/gateway/replay_view.py",
     "abstractassistant/ui/gateway_worker.py",
     "abstractassistant/core/voice_conversation.py",
     "abstractassistant/core/tool_risk.py",

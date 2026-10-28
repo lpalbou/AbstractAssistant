@@ -161,61 +161,6 @@ def test_client_drops_deltas_when_no_hook_is_given() -> None:
     assert steps == [7]
 
 
-@pytest.mark.basic
-def test_controller_resets_on_every_connect_and_resumes_from_the_step_cursor(monkeypatch) -> None:
-    from abstractassistant.gateway.run_controller import GatewayRunController
-
-    first = [_step(1), _delta("call-a", 40, "Hel", snapshot=True), _delta("call-a", 41, "lo")]
-    second = [_delta("call-a", 41, "Hello", snapshot=True), _delta("call-a", 42, "!"), _step(2), _delta_end("call-a", 43)]
-    events: List[Dict[str, Any]] = []
-    with _FakeGateway([first, second], ["running", "completed"]) as gw:
-        controller = GatewayRunController(gateway=_client(gw.url))
-        monkeypatch.setattr(GatewayRunController, "_sleep_with_stop", staticmethod(lambda *_a: None))
-        after, sub, completed = controller.stream_run(
-            run_id="run-1",
-            after=0,
-            seen_sub_runs=set(),
-            on_record=lambda rid, rec: events.append({"type": "record", "step_id": rec["step_id"]}),
-            should_stop=lambda: False,
-            on_delta=events.append,
-        )
-        requests = list(gw.stream_requests)
-    assert (after, sub, completed) == (2, "", True)
-    # The reconnect resumed from the last DURABLE cursor (1), never from a
-    # delta seq, and sent no Last-Event-ID.
-    assert requests == [{"after": "0", "last_event_id": None}, {"after": "1", "last_event_id": None}]
-    kinds = [e["type"] for e in events]
-    assert kinds == [
-        "assistant_delta_reset", "record", "assistant_delta", "assistant_delta",
-        "assistant_delta_reset", "assistant_delta", "assistant_delta", "record", "assistant_delta_end",
-    ]
-    snap = events[5]
-    assert snap["snapshot"] is True and snap["text"] == "Hello" and snap["run_id"] == "run-1"
-    assert snap["subagent"] is False
-
-
-@pytest.mark.basic
-def test_a_failing_delta_handler_never_ends_the_follow(monkeypatch) -> None:
-    from abstractassistant.gateway.run_controller import GatewayRunController
-
-    records: List[str] = []
-
-    def _boom(ev):
-        if ev["type"] == "assistant_delta":
-            raise RuntimeError("ui exploded")
-
-    with _FakeGateway([[_delta("c", 1, "x"), _step(1)]], ["completed"]) as gw:
-        controller = GatewayRunController(gateway=_client(gw.url))
-        with pytest.warns(UserWarning, match="live reply handler failed"):
-            result = controller.stream_run(
-                run_id="run-1", after=0, seen_sub_runs=set(),
-                on_record=lambda rid, rec: records.append(rec["step_id"]),
-                should_stop=lambda: False, on_delta=_boom,
-            )
-    assert result == (1, "", True)
-    assert records == ["step-1"]
-
-
 # ------------------------------------------------------------------ parsing
 
 
@@ -251,31 +196,6 @@ def test_live_reply_snapshot_replaces_and_duplicates_are_ignored() -> None:
 
 
 # ------------------------------------------------------------------- worker
-
-
-@pytest.mark.basic
-def test_worker_drops_deltas_for_a_call_whose_record_it_holds() -> None:
-    from abstractassistant.ui.gateway_worker import GatewayWorker
-
-    class _Signal:
-        def __init__(self):
-            self.items = []
-
-        def emit(self, item):
-            self.items.append(item)
-
-    worker = GatewayWorker.__new__(GatewayWorker)
-    worker.event_emitted = _Signal()
-    worker._handle_delta({"type": "assistant_delta", "call_id": "c1", "run_id": "child", "text": "a"})
-    worker._note_finished_llm_call({"step_id": "c1", "status": "completed", "effect": {"type": "llm_call"}})
-    worker._handle_delta({"type": "assistant_delta", "call_id": "c1", "run_id": "child", "text": "late"})
-    worker._handle_delta({"type": "assistant_delta_end", "call_id": "c1", "reason": "completed"})
-    worker._handle_delta({"type": "assistant_delta", "call_id": "c2", "run_id": "child", "text": "b"})
-    assert [(e["type"], e.get("text")) for e in worker.event_emitted.items] == [
-        ("assistant_delta", "a"),
-        ("assistant_delta_end", None),
-        ("assistant_delta", "b"),
-    ]
 
 
 # ------------------------------------------------------------------ run input
@@ -358,7 +278,7 @@ def test_cli_prints_content_deltas_once_and_notes_outcomes() -> None:
     p({"type": "assistant_delta", "call_id": "d", "seq": 1, "text": "bad", "channel": "content"})
     p({"type": "assistant_delta_end", "call_id": "d", "reason": "failed"})
     p({"type": "assistant_delta_end", "call_id": "e", "reason": "unavailable", "detail": "structured_output"})
-    p.note_record({"step_id": "f", "status": "completed", "effect": {"type": "llm_call"}})
+    p.note_finished({"f"})
     p({"type": "assistant_delta", "call_id": "f", "seq": 9, "text": "late", "channel": "content"})
     p.final_seen = True
     p({"type": "assistant_delta", "call_id": "g", "seq": 1, "text": "after final", "channel": "content"})
@@ -381,81 +301,6 @@ def test_cli_stream_flag_wins_over_the_saved_choice() -> None:
     assert _stream_choice("off", {}) is False
     assert _stream_choice(None, {"stream": True}) is True
     assert _stream_choice(None, {}) is True  # the switch is on by default
-
-
-@pytest.mark.basic
-def test_cli_run_streams_to_stderr_and_prints_the_final_once(monkeypatch, capsys) -> None:
-    from abstractassistant import cli
-
-    started: List[Dict[str, Any]] = []
-
-    class _Gateway:
-        def start_run(self, **kwargs):
-            started.append(kwargs)
-            return "run-1"
-
-        def get_run_history_bundle(self, **kwargs):
-            raise RuntimeError("no history in unit test")
-
-    class _LLM:
-        active_session_id = "s"
-
-        def append_message(self, **kwargs):
-            pass
-
-        def set_last_run_id(self, run_id):
-            pass
-
-    class _Controller:
-        def __init__(self, **kwargs):
-            self.gateway = _Gateway()
-            self.llm_manager = _LLM()
-
-        def current_workflow(self):
-            return type("W", (), {"bundle_id": "b", "flow_id": "f", "bundle_version": "", "registry_scope": "",
-                                   "is_gateway_default": False})()
-
-        def allowed_tools_for_run(self):
-            return None
-
-        def tool_policy_for_run(self):
-            return None
-
-        def latest_image_artifact(self):
-            return None
-
-        def run_scope(self):
-            return {"stream": False}  # saved "off" — the flag overrides it
-
-        def live_replies_advertised(self):
-            return True
-
-    class _RunController:
-        def __init__(self, gateway, debug=False):
-            pass
-
-        def follow_run(self, *, root_run_id, on_record, should_stop, on_delta):
-            on_delta({"type": "assistant_delta", "call_id": "c", "seq": 1, "text": "Bon", "channel": "content"})
-            on_delta({"type": "assistant_delta", "call_id": "c", "seq": 2, "text": "jour", "channel": "content"})
-            on_delta({"type": "assistant_delta_end", "call_id": "c", "reason": "completed"})
-            on_record(root_run_id, {"step_id": "c", "status": "completed", "effect": {"type": "llm_call"}})
-            on_record(root_run_id, {"step_id": "end", "status": "completed", "result": {"output": {"response": "Bonjour"}}})
-
-        def get_run_status(self, *, run_id):
-            return "completed"
-
-    import abstractassistant.controller as controller_module
-    import abstractassistant.gateway.run_controller as rc_module
-
-    monkeypatch.setattr(controller_module, "AssistantController", _Controller)
-    monkeypatch.setattr(rc_module, "GatewayRunController", _RunController)
-    monkeypatch.setattr(cli, "_build_config_from_args", lambda args: object())
-    args = cli.create_parser().parse_args(["run", "--prompt", "salut", "--stream", "on"])
-    assert cli._run_gateway_command(args) == 0
-    captured = capsys.readouterr()
-    assert captured.err == "Bonjour\n"
-    assert captured.out.count("Bonjour") == 1
-    assert started[0]["input_data"]["_runtime"]["stream"] is True
 
 
 # ------------------------------------------------------------------ palette
@@ -805,44 +650,6 @@ def test_on_without_deltas_is_noted_once_per_session(palette, qapp, monkeypatch)
 
 
 # --------------------------------------------------------- malformed frames
-
-
-@pytest.mark.basic
-def test_malformed_delta_frames_are_skipped_reported_once_and_the_stream_goes_on() -> None:
-    import warnings as _warnings
-
-    from abstractassistant.gateway.run_controller import GatewayRunController
-
-    body = [
-        "event: llm.delta\ndata: {not json\n\n",
-        "event: llm.delta\ndata: also not json\n\n",
-        _delta("c", 1, "ok"),
-        "event: llm.delta\ndata: [1, 2]\n\n",
-        "event: llm.delta\ndata: " + json.dumps({"call_id": "c", "seq": 2, "text": "x", "channel": "bogus"}) + "\n\n",
-        "event: llm.delta_end\ndata: " + json.dumps({"call_id": "c"}) + "\n\n",
-        _step(1),
-        _delta("c", 3, " still here"),
-        _delta_end("c", 4),
-    ]
-    events: List[Dict[str, Any]] = []
-    records: List[str] = []
-    with _FakeGateway([body], ["completed"]) as gw:
-        controller = GatewayRunController(gateway=_client(gw.url))
-        with _warnings.catch_warnings(record=True) as caught:
-            _warnings.simplefilter("always")
-            result = controller.stream_run(
-                run_id="run-1", after=0, seen_sub_runs=set(),
-                on_record=lambda rid, rec: records.append(rec["step_id"]),
-                should_stop=lambda: False, on_delta=events.append,
-            )
-    assert result == (1, "", True)
-    assert records == ["step-1"]
-    assert [(e["type"], e.get("text")) for e in events if e["type"] != "assistant_delta_reset"] == [
-        ("assistant_delta", "ok"), ("assistant_delta", " still here"), ("assistant_delta_end", None),
-    ]
-    messages = [str(w.message) for w in caught]
-    assert sum("not JSON" in m for m in messages) == 1
-    assert sum("skipping malformed live reply frame" in m for m in messages) == 1
 
 
 # ------------------------------------------------------- model text is data

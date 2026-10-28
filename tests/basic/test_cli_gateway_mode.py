@@ -118,18 +118,15 @@ def test_run_command_uses_catalog_workflow_without_client_prompt_cache(monkeypat
         def latest_image_artifact(self):
             return None
 
-    class _RunController:
-        def __init__(self, gateway, debug: bool = False) -> None:
-            self._gateway = gateway
+    def _follow_run(**kwargs):
+        from abstractassistant.gateway.replay_view import ViewFold
 
-        def follow_run(self, *, root_run_id, on_record, should_stop, on_delta=None) -> None:
-            return None
+        fold = ViewFold()
+        fold.view = {"status": "completed"}
+        return fold
 
-        def get_run_status(self, *, run_id: str) -> str:
-            return "completed"
-
-    run_controller_module = __import__("abstractassistant.gateway.run_controller", fromlist=["GatewayRunController"])
-    monkeypatch.setattr(run_controller_module, "GatewayRunController", _RunController)
+    replay_view_module = __import__("abstractassistant.gateway.replay_view", fromlist=["follow_run"])
+    monkeypatch.setattr(replay_view_module, "follow_run", _follow_run)
     monkeypatch.setattr(cli, "_build_config_from_args", lambda args: object())
     controller_module = __import__("abstractassistant.controller", fromlist=["AssistantController"])
     monkeypatch.setattr(controller_module, "AssistantController", _Controller)

@@ -1036,6 +1036,22 @@ class ToolApprovalSheet(QDialog):
         self._clear_host()
         self.hide()
 
+    def withdraw(self, wait_key: str) -> bool:
+        """The wait was answered elsewhere (another client, the session policy): take its batch
+        off the sheet without a decision. True when a batch was removed."""
+        key = str(wait_key or "").strip()
+        if not key:
+            return False
+        before = len(self._queue)
+        self._queue = type(self._queue)(b for b in self._queue if str(b.get("wait_key") or "") != key)
+        removed = len(self._queue) != before
+        if str((self.current_batch or {}).get("wait_key") or "") == key:
+            self._decided = True
+            self._advance()
+            removed = True
+        self._refresh_queue_note()
+        return removed
+
     def _defer_all(self) -> None:
         """Esc / close: every batch on screen or queued keeps waiting."""
         pending: List[Dict[str, Any]] = []

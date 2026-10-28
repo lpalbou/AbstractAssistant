@@ -158,14 +158,9 @@ class LiveDeltaPrinter:
         self._finished: set = set()
         self.final_seen = False
 
-    def note_record(self, rec: Dict[str, Any]) -> None:
-        """Remember llm_call steps whose durable record arrived."""
-        effect = rec.get("effect") if isinstance(rec.get("effect"), dict) else {}
-        if str(effect.get("type") or "").strip().lower() != "llm_call":
-            return
-        status = str(rec.get("status") or "").strip().lower()
-        if status in {"completed", "failed", "cancelled"}:
-            self._finished.add(str(rec.get("step_id") or ""))
+    def note_finished(self, call_ids) -> None:
+        """Remember llm calls the replay view holds as finished (their durable record arrived)."""
+        self._finished.update(str(c) for c in call_ids or () if c)
 
     def _write(self, text: str) -> None:
         self._out.write(text)
@@ -223,9 +218,11 @@ class LiveDeltaPrinter:
 
 
 def _run_gateway_command(args: argparse.Namespace) -> int:
-    from .gateway import GatewayEventAdapter, build_run_input_data
+    import threading
+
+    from .gateway import build_run_input_data
     from .gateway.history_seed import seed_messages_from_history_bundle
-    from .gateway.run_controller import GatewayRunController
+    from .gateway.replay_view import ViewProjector, finished_llm_calls, follow_run
     from .controller import AssistantController
 
     config = _build_config_from_args(args)
@@ -293,28 +290,31 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
         )
     llm_manager.set_last_run_id(run_id)
 
-    adapter = GatewayEventAdapter()
-    controller = GatewayRunController(gateway=gateway, debug=False)
+    projector = ViewProjector()
     live_printer = LiveDeltaPrinter(sys.stderr)
+    live_lock = threading.Lock()
     final = ""
 
-    def _submit_resume(*, active_run_id: str, wait_key: str, payload: Dict[str, Any]) -> None:
+    def _answer(ev: Dict[str, Any], payload: Dict[str, Any]) -> None:
+        # The view's interaction names the resume to send (`command`); the answer goes through
+        # the gateway's commands, and the view then says the wait is closed.
+        command = ev.get("command") if isinstance(ev.get("command"), dict) else {}
+        target = str(command.get("run_id") or ev.get("run_id") or run_id)
         gateway.submit_command(
             command={
                 "command_id": f"resume_{int(time.time() * 1000)}",
-                "run_id": str(active_run_id),
+                "run_id": target,
                 "type": "resume",
-                "payload": {"wait_key": wait_key, "payload": payload},
+                "payload": {"wait_key": str(ev.get("wait_key") or ""), "payload": payload},
                 "client_id": "abstractassistant-cli",
             }
         )
 
-    def _on_record(active_run_id: str, rec: Dict[str, object]) -> None:
+    def _on_view(view: Dict[str, Any]) -> None:
         nonlocal final
-        live_printer.note_record(rec)  # type: ignore[arg-type]
-        for ev in adapter.handle_record(rec):
-            if not isinstance(ev, dict):
-                continue
+        with live_lock:
+            live_printer.note_finished(finished_llm_calls(view))
+        for ev in projector.project(view):
             typ = str(ev.get("type") or "").strip()
             if typ == "assistant":
                 content = str(ev.get("content") or "")
@@ -323,35 +323,42 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
                     live_printer.final_seen = True
                 continue
             if typ == "tool_request":
-                wait_key = str(ev.get("wait_key") or "").strip()
-                if not wait_key:
-                    continue
                 tool_calls = ev.get("tool_calls")
                 approved = _approve_tool_batch(tool_calls if isinstance(tool_calls, list) else [])
                 payload: Dict[str, Any] = {"approved": approved}
                 if not approved:
                     payload["reason"] = "Denied by user"
-                _submit_resume(active_run_id=active_run_id, wait_key=wait_key, payload=payload)
+                _answer(ev, payload)
                 continue
             if typ == "ask_user":
-                wait_key = str(ev.get("wait_key") or "").strip()
-                if not wait_key:
-                    continue
                 prompt = str(ev.get("prompt") or "Input required:").strip() or "Input required:"
                 response = input(f"\n{prompt}\n> ").strip()
-                _submit_resume(active_run_id=active_run_id, wait_key=wait_key, payload={"response": response})
+                _answer(ev, {"response": response})
                 continue
             if typ == "error":
                 raise RuntimeError(str(ev.get("error") or "Gateway run failed"))
 
-    controller.follow_run(
-        root_run_id=run_id,
-        on_record=_on_record,
+    def _on_live(ev: Dict[str, Any]) -> None:
+        with live_lock:
+            live_printer(ev)
+
+    def _on_mode(mode: str) -> None:
+        if mode != "view":
+            sys.stderr.write(
+                "[this gateway has no replay view (before AbstractGateway 0.17.0): "
+                "folding the run's ledger here with AbstractRuntime's reducer]\n"
+            )
+
+    fold = follow_run(
+        gateway=gateway,
+        run_id=run_id,
+        on_view=_on_view,
         should_stop=lambda: False,
-        on_delta=live_printer,
+        on_live=_on_live,
+        on_mode=_on_mode,
     )
 
-    status = str(controller.get_run_status(run_id=run_id) or "").strip().lower()
+    status = str((fold.view or {}).get("status") or "").strip().lower()
     if status in {"failed", "cancelled"} and not final:
         raise RuntimeError(f"Gateway run ended with status '{status}'")
 

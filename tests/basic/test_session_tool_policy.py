@@ -21,7 +21,6 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from abstractassistant.app import AssistantPalette
 from abstractassistant.controller import AssistantController
 from abstractassistant.gateway import client as client_mod
-from abstractassistant.gateway.adapter import GatewayEventAdapter
 from abstractassistant.gateway.capabilities import AssistantCapabilities
 from abstractassistant.gateway.client import GatewayClient, GatewayClientConfig
 from abstractassistant.ui.activity import RunActivityModel
@@ -369,9 +368,20 @@ def _decision_record(decision: str = "auto_approved") -> Dict[str, Any]:
     }
 
 
+def _project(record: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The record folded by AbstractRuntime's reducer, projected as the desktop does."""
+    from abstractruntime.replay import replay
+
+    from abstractassistant.gateway.replay_view import ViewProjector
+
+    rec = dict(record, run_id="run-1", node_id="agent", seq=1)
+    view = replay({"run-1": [rec]}, root_run_id="run-1").to_json()
+    return [e for e in ViewProjector().project(view) if e["type"] != "status"]
+
+
 @pytest.mark.basic
 def test_policy_decision_record_is_an_activity_line_not_a_wait() -> None:
-    events = GatewayEventAdapter().handle_record(_decision_record())
+    events = _project(_decision_record())
     assert [e["type"] for e in events] == ["tool_policy_decision"]
     model = RunActivityModel(run_id="run-1")
     for event in events:
@@ -386,7 +396,7 @@ def test_policy_decision_record_is_an_activity_line_not_a_wait() -> None:
 
 @pytest.mark.basic
 def test_denied_policy_decision_reads_as_denied() -> None:
-    events = GatewayEventAdapter().handle_record(_decision_record("denied"))
+    events = _project(_decision_record("denied"))
     model = RunActivityModel(run_id="run-1")
     model.apply_event(events[0])
     assert (model.steps[0].status, model.steps[0].title_plain) == (
