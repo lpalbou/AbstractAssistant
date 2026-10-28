@@ -19,7 +19,8 @@ as the tools (Off / Auto / Ask), not only All auto / All ask."
   "N tools here stay as it is: names.") shown when the panel is open; rows Off / Ask / Auto with tooltips "Not offered
   to the run" / "Asks before each call" / "Runs without asking" (+ " · gateway default"); a "Default: X" chip on a row
   that differs from the gateway default; a tool the gateway does not offer: shown Off, read-only, tooltip and a
-  warning line "Not offered by the gateway: <why>." ("switched off on the gateway" when none is served), never stored;
+  warning line "Not offered by the gateway: <why>." ("switched off on the gateway" when none is served; superseded
+  below), its stored choice kept aside (cleared by Use gateway defaults);
   group logic `_bulk_auto_reaches` (rank <= 2, unknown rank = 4, not `model_controlled_destination`), group acts on the
   shown offered rows, group state follows the filter; selection_only gets an Off / On group control (no persist).
 - `controller.py` `_compute_tool_inventory`: `available` also honours `available: false`; passes `why_disabled`
@@ -54,3 +55,24 @@ as the tools (Off / Auto / Ask), not only All auto / All ask."
   control; `tests/basic/test_tool_approval_sheet.py` (the chip's words; old words → red).
 - Screenshots: `untracked/release-closing/design/tools/tools-{before,after}-{light,dark}.png` (the agora panel open;
   `tools-full-*` are the inner list only, the dark one without its window background).
+
+## Adversarial review (fresh reviewer, 2026-10-29) and what was fixed
+
+1. "Use gateway defaults" kept a stored Auto on a tool not offered (it would come back pre-approved) → the reset
+   clears this app's whole layer, as the kit's.
+2. The automation picker lost any sign on a tool not offered → the "Not offered by the gateway…" line shows there too.
+3. The gateway's reasons carry internal references ("per dm#177", "(c4211)", "(backlog 0220)") and the fallback
+   `enable_gate` is an environment variable's name → `enable_gate` is no longer shown (ADR 0043; the kit still falls
+   back to it: raised to the kit). The reason texts are a **gateway gap** for the gateway seat (`tool_catalog.py`
+   `_WHY_BY_TOOLSET`), shown verbatim here, never rewritten client-side.
+4. The group acted on rows by "enabled" (the picker re-selected a tool not offered) → by "offered", as the kit.
+5. A missing rank was derived from the tier → the gateway's `risk_rank`, else its `risk.rank`, else 4 (the kit).
+6. A refused reset left the Default chips and group states stale → resynced on every refused save.
+7. The kit's line "The gateway did not say whether this tool asks first; Ask is assumed." on such a row (and its
+   chip says so).
+8. Docs claimed "nothing is stored" → corrected. 9. A filtered capped group Auto now gives both notes, in words
+   ("1 tool shown", not "tool(s)"). 10. Each rule pinned by a test, mutation-checked red (12 mutants: cap
+   destination, unranked = 4, reset clears the layer, Default chip, refused-save resync, group follows the filter,
+   default-unserved line, picker group on offered rows, picker saves nothing, controller destination / reason /
+   availability). 11. The group update no longer rescans the rows per row.
+- Also: the chat toolbar's tools summary is in the kit's words ("Tools & permissions: 5 tools on, 2 without asking").

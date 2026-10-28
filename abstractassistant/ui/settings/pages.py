@@ -1619,6 +1619,12 @@ class ToolsPage(SettingsPage):
             default_chip.hide()
             head_row.addWidget(default_chip)
             why = ""
+            if not available:
+                # The kit's words (tool_mode_editor.tsx), with the gateway's
+                # reason when it serves one (`why_disabled`), in the settings
+                # page and the automation picker alike.
+                served = str(item.get("why_disabled") or "").strip()
+                why = f"Not offered by the gateway: {served}" if served else "Not offered by the gateway."
             if self.selection_only:
                 control = SegmentedControl(TOOL_ALLOW_LIST_MODES)
                 control.set_tooltips(_ALLOW_LIST_TIPS)
@@ -1638,10 +1644,6 @@ class ToolsPage(SettingsPage):
                 else:
                     # Read-only, visible, with the gateway's reason: a tool the
                     # gateway does not offer is Off whatever this Mac stored.
-                    # The kit's words (tool_mode_editor.tsx), with the gateway's
-                    # reason when it serves one (`why_disabled`, else `enable_gate`).
-                    served = str(item.get("why_disabled") or "").strip()
-                    why = f"Not offered by the gateway: {served}" if served else "Not offered by the gateway."
                     control.set_value("disabled")
                     control.setEnabled(False)
                     control.setToolTip(why)
@@ -1650,6 +1652,14 @@ class ToolsPage(SettingsPage):
             control.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
             head_row.addWidget(control, 0)
             lines = [head]
+            if available and not self.selection_only and not str(item.get("approval_default") or "").strip():
+                # The kit's line when the gateway did not say (the row's default is the fallback Ask).
+                unserved = QLabel("The gateway did not say whether this tool asks first; Ask is assumed.")
+                unserved.setObjectName("cardHelp")
+                unserved.setProperty("defaultUnserved", name)
+                unserved.setWordWrap(True)
+                lines.append(unserved)
+                default_chip.setToolTip("Ask is assumed: the gateway did not say whether this tool asks first")
             if why:
                 why_label = QLabel(why)
                 why_label.setObjectName("statusNote")
@@ -1682,7 +1692,10 @@ class ToolsPage(SettingsPage):
             help_label = getattr(row, "help_label", None)
             if help_label is not None and full_description != description:
                 help_label.setToolTip(full_description)
-            rank = item.get("risk_rank") if isinstance(item.get("risk_rank"), int) else int(risk.get("rank") or 0)
+            # The kit (tool_plan.ts): the gateway's `risk_rank`, else its `risk.rank`, else 4 — never a
+            # rank derived here from the tier.
+            served_risk = item.get("risk") if isinstance(item.get("risk"), dict) else {}
+            rank = item.get("risk_rank") if isinstance(item.get("risk_rank"), int) else served_risk.get("rank")
             self._rows[name] = {
                 "row": row,
                 "control": control,
@@ -1694,7 +1707,7 @@ class ToolsPage(SettingsPage):
                 "why": why,
                 "match": True,
                 # Unclassified counts as the highest risk (the kit: a missing rank is 4).
-                "rank": int(rank) if int(rank or 0) > 0 else 4,
+                "rank": int(rank) if isinstance(rank, int) and rank > 0 else 4,
                 "model_controlled_destination": item.get("model_controlled_destination") is True,
                 "search": f"{name}\n{full_description}\n{toolset}".lower(),
             }
@@ -1758,7 +1771,7 @@ class ToolsPage(SettingsPage):
         return [
             info
             for info in self._rows.values()
-            if info["toolset"] == toolset and info["control"].isEnabled() and info.get("match", True)
+            if info["toolset"] == toolset and info["available"] and info.get("match", True)
         ]
 
     def _sync_group_state(self, toolset: str) -> None:
@@ -1769,7 +1782,10 @@ class ToolsPage(SettingsPage):
         rows = self._group_rows(toolset)
         modes = {info["control"].value() for info in rows}
         uniform = next(iter(modes)) if len(modes) == 1 else ""
-        capped = [] if self.selection_only else [name for name, info in self._rows.items() if info in rows and not self._bulk_auto_reaches(info)]
+        shown = {id(info) for info in rows}
+        capped = [] if self.selection_only else [
+            name for name, info in self._rows.items() if id(info) in shown and not self._bulk_auto_reaches(info)
+        ]
         group.set_group_state(
             uniform,
             enabled=bool(rows),
@@ -1783,10 +1799,11 @@ class ToolsPage(SettingsPage):
         hidden = sum(
             1
             for info in self._rows.values()
-            if info["toolset"] == toolset and info["control"].isEnabled() and not info.get("match", True)
+            if info["toolset"] == toolset and info["available"] and not info.get("match", True)
         )
+        reachable = {id(info) for info in self._group_rows(toolset)}
         for name, info in self._rows.items():
-            if info not in self._group_rows(toolset):
+            if id(info) not in reachable:
                 continue
             # Only what the filter shows: with a filter applied this used to
             # pre-approve mutating tools that were not on screen.
@@ -1806,14 +1823,17 @@ class ToolsPage(SettingsPage):
         self._sync_group_state(toolset)
         if not saved:
             return
+        notes = []
         if skipped and mode == "approve":
-            self.say(_bulk_cap_text(skipped), tone="warning")
-        elif hidden:
-            self.say(
-                f"Applied to the {len(self._group_rows(toolset))} tool(s) shown; "
-                f"{hidden} hidden by the filter were left alone.",
-                tone="info",
+            notes.append(_bulk_cap_text(skipped))
+        if hidden:
+            shown_count = len(reachable)
+            notes.append(
+                f"Applied to the {shown_count} {'tool' if shown_count == 1 else 'tools'} shown; "
+                f"{hidden} hidden by the filter {'was' if hidden == 1 else 'were'} left alone."
             )
+        if notes:
+            self.say(" ".join(notes), tone="warning" if skipped and mode == "approve" else "info")
         elif changed:
             self.say("Saved on this device.")
 
@@ -1860,7 +1880,10 @@ class ToolsPage(SettingsPage):
             self._sync_default_chip(name)
         if self.selection_only:
             return
-        if changed and not self._persist(changed):
+        # The whole layer is cleared (the kit's reset): a choice stored for a
+        # tool the gateway does not offer now is dropped too, so it never comes
+        # back pre-approved when the gateway offers it again.
+        if not self._persist(changed, clear=True):
             return
         for toolset in self.groups:
             self._sync_group_state(toolset)
@@ -1885,19 +1908,24 @@ class ToolsPage(SettingsPage):
                 statuses.pop(name, None)
         return statuses
 
-    def _persist(self, names: List[str]) -> bool:
-        """Apply on change. A failed save puts the changed rows back and says
-        "Not saved." with the reason."""
+    def _persist(self, names: List[str], *, clear: bool = False) -> bool:
+        """Apply on change. A failed save puts the changed rows back (their
+        Default chips and the groups' states with them) and says "Not saved."
+        with the reason. ``clear``: this app's whole layer is emptied (Use
+        gateway defaults, as the kit's reset)."""
         saver = getattr(self.controller, "save_tool_preferences", None)
         try:
             if not callable(saver):
                 raise RuntimeError("this build cannot store tool permissions")
-            saver(self._statuses())
+            saver({} if clear else self._statuses())
         except Exception as exc:
             for name in names:
                 info = self._rows.get(name)
                 if info is not None:
                     info["control"].set_value(info["saved_mode"])
+                    self._sync_default_chip(name)
+            for toolset in self.groups:
+                self._sync_group_state(toolset)
             self.say(f"Not saved. {exc}", tone="error")
             return False
         for name in names:

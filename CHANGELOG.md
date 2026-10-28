@@ -13,8 +13,12 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   Auto reaches only the tools of risk 2 or lower whose destination the assistant does not choose, and says so in the
   kit's sentence, naming the tools that stay. A tool the gateway does not offer is Off and read-only with "Not
   offered by the gateway: <reason>" (the approval sheet's chip says the same, not "Disabled on gateway"); a row set
-  differently from the gateway's default shows "Default: Ask". Rebuilding the list no longer paints the old panels
-  under the new ones.
+  differently from the gateway's default shows "Default: Ask"; a tool whose default the gateway did not say reads
+  "The gateway did not say whether this tool asks first; Ask is assumed." **Use gateway defaults** clears this
+  app's whole layer (a choice stored for a tool the gateway does not offer no longer survives it). The automation
+  tool picker (Off / On) shows the same "Not offered" line and its group acts only on offered tools. The chat
+  toolbar's tools button says "Tools & permissions: N tools on, M without asking". Rebuilding the list no longer
+  paints the old panels under the new ones.
 
 - **An automation opens as the chat** (operator, 2026-10-28; backlog 1070). Its runs read as the chat's exchanges: a
   compact system line in words ("Scheduled run 1 · Oct 9 at 11:06 PM", "Run now · run 4 · Today at 7:12 AM"), the

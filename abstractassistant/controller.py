@@ -1727,10 +1727,13 @@ class AssistantController:
                 ):
                     if isinstance(raw.get(flag), bool):
                         item[flag] = bool(raw.get(flag))
-                # Why the gateway does not offer a tool, in its words
-                # (gateway tool_catalog.py: `why_disabled`, else `enable_gate`).
+                # Why the gateway does not offer a tool, in its words (gateway
+                # tool_catalog.py `why_disabled`). Its `enable_gate` (an
+                # environment variable's name) is not words for a person (ADR
+                # 0043): without a served reason the row reads "Not offered by
+                # the gateway." (the kit falls back to the gate; raised to the kit).
                 if item["available"] is False:
-                    why = str(raw.get("why_disabled") or raw.get("enable_gate") or "").strip()
+                    why = str(raw.get("why_disabled") or "").strip()
                     if why:
                         item["why_disabled"] = why
                 if isinstance(raw.get("risk_rank"), int):

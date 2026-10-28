@@ -38,9 +38,10 @@ def test_revoke_session_grant_restores_policy_and_preserves_other_chat():
 
 @pytest.mark.basic
 @pytest.mark.parametrize("modes,trust,label", [
-    (["ask", "ask"], False, "Ask before every"),
-    (["approve", "approve"], False, "Auto-approve"),
-    (["ask", "approve"], False, "Mixed"),
+    # The kit's summary words (tool_mode_editor.tsx "N tools on, M without asking").
+    (["ask", "ask"], False, "Tools & permissions: 2 tools on, 0 without asking"),
+    (["approve", "approve"], False, "Tools & permissions: 2 tools on, 2 without asking"),
+    (["ask", "approve"], False, "Tools & permissions: 2 tools on, 1 without asking"),
     (["disabled"], False, "Tools & permissions"),
     (["ask"], True, "Session approval active"),
 ])

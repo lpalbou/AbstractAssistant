@@ -7,6 +7,7 @@ permission calls are injected — no real prompt, no System Settings.
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import sys
 from types import SimpleNamespace
@@ -536,3 +537,141 @@ def test_reasoning_note_is_elided_with_an_ellipsis_at_its_laid_out_width() -> No
         assert fits, (width, shown)
         assert shown == full or shown.endswith("…"), (width, shown)
         dlg.close()
+
+
+# ------------------------------------- 1077 review: the rules each pinned
+
+
+def _inv(*rows):
+    ctl = _Ctl()
+    ctl.tool_inventory = lambda: {"tool_mode": "approval", "items": list(rows)}  # type: ignore[method-assign]
+    dlg, _ = _dialog(ctl)
+    dlg.show_section("tools")
+    _KEEP.append(dlg)  # the dialog owns the page: keep it alive for the test
+    return ctl, dlg.page_tools
+
+
+_KEEP: list = []
+
+
+def _row(name, toolset="t", *, rank=1, default="ask", selected=None, available=True, **extra):
+    row = {"name": name, "toolset": toolset, "available": available, "risk_tier": "observe", "policy_default": default,
+           "selected_mode": selected or default, "approval_default": "auto" if default == "approve" else "ask"}
+    if rank is not None:
+        row["risk_rank"] = rank
+    row.update(extra)
+    return row
+
+
+@pytest.mark.basic
+def test_group_auto_leaves_a_tool_whose_destination_the_model_chooses_and_an_unranked_one() -> None:
+    ctl, page = _inv(_row("read"), _row("post", model_controlled_destination=True), _row("mystery", rank=None))
+    page.groups["t"].mode._buttons[AUTO].click()
+    assert page._rows["read"]["control"].value() == "approve"
+    assert page._rows["post"]["control"].value() == "ask", "the model picks where it reaches"
+    assert page._rows["mystery"]["control"].value() == "ask", "no served rank counts as 4 (never derived from the tier)"
+    assert page.groups["t"].cap_note.text().endswith("2 tools here stay as it is: mystery, post.")
+
+
+@pytest.mark.basic
+def test_use_gateway_defaults_clears_the_whole_layer_even_for_a_tool_not_offered() -> None:
+    ctl, page = _inv(_row("on_tool", selected="approve"), _row("off_tool", available=False, why_disabled="needs a key"))
+    ctl.preferences = dataclasses.replace(ctl.preferences, tool_preferences={"on_tool": "approve", "off_tool": "approve"})
+    page._reset_defaults()
+    assert ctl.saved_tool_prefs == {}, "it would come back pre-approved when the gateway offers it again"
+    assert page._rows["on_tool"]["control"].value() == "ask"
+
+
+@pytest.mark.basic
+def test_the_default_chip_names_the_gateways_default_on_a_row_set_differently() -> None:
+    ctl, page = _inv(_row("a"), _row("b", selected="approve"))
+    page.groups["t"].toggle.click()  # open: the chips are on screen
+    chip_a, chip_b = page._rows["a"]["default_chip"], page._rows["b"]["default_chip"]
+    assert chip_b.isVisibleTo(page.groups["t"])
+    assert not chip_a.isVisibleTo(page.groups["t"]) and chip_b.text() == "Default: Ask"
+    page._rows["a"]["control"]._buttons[OFF].click()
+    assert chip_a.text() == "Default: Ask" and chip_a.isVisibleTo(page.groups["t"])
+    page._rows["b"]["control"]._buttons[ASK].click()
+    assert chip_b.text() == "" and not chip_b.isVisibleTo(page.groups["t"])
+
+
+@pytest.mark.basic
+def test_a_failed_save_puts_rows_chips_and_state_back() -> None:
+    ctl, page = _inv(_row("a"), _row("b"))
+    ctl.save_fails = True
+    page.groups["t"].mode._buttons[AUTO].click()
+    assert [page._rows[n]["control"].value() for n in ("a", "b")] == ["ask", "ask"]
+    assert page._rows["a"]["default_chip"].text() == "" and page.groups["t"].state_label.text() == "Ask"
+    assert page.feedback.text().startswith("Not saved.")
+    # A refused reset: the row is back on Auto, with its chip and the group's state.
+    ctl2, page2 = _inv(_row("c"), _row("d", selected="approve"))
+    ctl2.save_fails = True
+    page2._reset_defaults()
+    assert page2._rows["d"]["control"].value() == "approve"
+    assert page2._rows["d"]["default_chip"].text() == "Default: Ask"
+    assert page2.groups["t"].state_label.text() == "Mixed"
+
+
+@pytest.mark.basic
+def test_the_group_state_follows_the_filter() -> None:
+    ctl, page = _inv(_row("alpha"), _row("beta", selected="approve"))
+    group = page.groups["t"]
+    assert group.state_label.text() == "Mixed"
+    page.search_edit.setText("beta")
+    assert group.state_label.text() == "Auto", "the control speaks for the rows it would set"
+    page.search_edit.setText("")
+    assert group.state_label.text() == "Mixed"
+
+
+@pytest.mark.basic
+def test_a_tool_whose_default_the_gateway_did_not_say_reads_the_kits_line() -> None:
+    ctl, page = _inv(_row("said"), dict(_row("unsaid"), approval_default=""))
+    lines = [w for w in page.findChildren(QLabel) if w.property("defaultUnserved")]
+    assert [w.property("defaultUnserved") for w in lines] == ["unsaid"]
+    assert lines[0].text() == "The gateway did not say whether this tool asks first; Ask is assumed."
+
+
+@pytest.mark.basic
+def test_the_automation_picker_is_off_on_saves_nothing_until_use_selection_and_shows_why() -> None:
+    from PyQt5.QtWidgets import QApplication
+
+    from abstractassistant.ui.settings.pages import ToolsPage
+
+    _app = QApplication.instance() or QApplication([])  # noqa: F841 (a widget needs the app)
+    inv = {"items": [_row("a"), _row("b"), _row("gone", available=False, why_disabled="needs a key", selected="ask")]}
+    saved = []
+    page = ToolsPage(SimpleNamespace(tool_inventory=lambda: inv, save_tool_preferences=lambda s: saved.append(s)), None, selection_only=True)
+    page.refresh()
+    group = page.groups["t"]
+    assert _segments(group.mode) == ["Off", "On"]
+    assert [w.text() for w in page.findChildren(QLabel) if w.property("whyDisabled")] == ["Not offered by the gateway: needs a key"]
+    group.mode._buttons[0].click()  # Off
+    assert page._rows["a"]["control"].value() == "disabled" and page._rows["b"]["control"].value() == "disabled"
+    group.mode._buttons[1].click()  # On
+    assert page._rows["a"]["control"].value() == "ask"
+    assert page._rows["gone"]["control"].value() == "ask", "a tool the gateway does not offer is never switched by the group"
+    group.mode._buttons[0].click()
+    assert page._rows["gone"]["control"].value() == "ask"
+    assert saved == [], "the picker applies on Use selection only"
+
+
+@pytest.mark.basic
+def test_the_inventory_maps_the_gateways_offer_reason_rank_and_destination() -> None:
+    from abstractassistant.controller import AssistantController
+    from abstractassistant.preferences import AssistantPreferences
+
+    ctl = AssistantController.__new__(AssistantController)
+    ctl.gateway = SimpleNamespace(discovery_tools=lambda: {"items": [
+        {"name": "post", "toolset": "agora", "enabled": False, "why_disabled": "needs a credential",
+         "enable_gate": "ABSTRACT_ENABLE_AGORA", "risk_rank": 3, "model_controlled_destination": True},
+        {"name": "gated", "toolset": "comms", "enabled": False, "enable_gate": "ABSTRACT_ENABLE_COMMS"},
+        {"name": "absent", "toolset": "x", "available": False},
+        {"name": "read", "toolset": "files", "risk_rank": 1, "approval_default": "auto"},
+    ]})
+    ctl.preferences = AssistantPreferences()
+    items = {i["name"]: i for i in ctl._compute_tool_inventory()["items"]}
+    assert items["post"]["available"] is False and items["post"]["why_disabled"] == "needs a credential"
+    assert items["post"]["model_controlled_destination"] is True and items["post"]["risk_rank"] == 3
+    assert "why_disabled" not in items["gated"], "an environment variable's name is not a reason for a person"
+    assert items["absent"]["available"] is False
+    assert items["read"]["available"] is True and items["read"]["risk_rank"] == 1
