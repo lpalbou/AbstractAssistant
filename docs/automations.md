@@ -303,7 +303,9 @@ exactly where it stopped. With the stream connected:
 - a line above the transcript says what is waiting for you across every conversation and
   automation ("A conversation is waiting for you · 2 new results from your automations"), with
   **Open**. Open first asks the gateway whether that run still waits; it opens the conversation
-  when it does, and says so when it no longer does. For results it opens the Automations tab;
+  when it does, and says so when it no longer does. For results it opens the automation that has
+  them (several: the Automations tab with the first of them selected); the runs whose results you
+  have not seen are marked **New result** and the automation opens on the first of them;
 - the menu bar icon shows the amber "needs you" badge while a run elsewhere waits for you, and its
   tooltip repeats the line.
 

@@ -831,6 +831,50 @@ def attention_ack_cursor(summary: Mapping[str, Any]) -> Optional[str]:
     return None
 
 
+def new_failure_indices(summary: Mapping[str, Any]) -> List[int]:
+    """The unseen runs among ``new_result_indices`` that failed (``kind == "failure"``)."""
+    attention = summary.get("attention") if isinstance(summary, Mapping) else None
+    out: List[int] = []
+    for item in (attention.get("items") if isinstance(attention, Mapping) else None) or []:
+        if isinstance(item, Mapping) and item.get("kind") == "failure":
+            try:
+                out.append(int(item.get("index")))
+            except (TypeError, ValueError):
+                continue
+    return out
+
+
+def new_result_indices(summary: Mapping[str, Any]) -> List[int]:
+    """The run indices of the unseen results (``attention.items``) — the runs the
+    "N new results" notice is about, marked "New result" when the automation opens."""
+    attention = summary.get("attention") if isinstance(summary, Mapping) else None
+    items = attention.get("items") if isinstance(attention, Mapping) else None
+    out: List[int] = []
+    for item in items or []:
+        if not isinstance(item, Mapping):
+            continue
+        try:
+            index = int(item.get("index"))
+        except (TypeError, ValueError):
+            continue
+        if index not in out:
+            out.append(index)
+    return out
+
+
+def automations_with_new_results(summaries: Iterable[Mapping[str, Any]]) -> List[str]:
+    """The ids of the automations with unseen results, in list order (one id once)."""
+    out: List[str] = []
+    for summary in summaries or []:
+        if not isinstance(summary, Mapping):
+            continue
+        attention = summary.get("attention") if isinstance(summary.get("attention"), Mapping) else {}
+        aid = str(summary.get("automation_id") or "").strip()
+        if aid and aid not in out and int(attention.get("unseen_count") or 0) > 0:
+            out.append(aid)
+    return out
+
+
 def attention_total(summaries: Iterable[Mapping[str, Any]]) -> int:
     """Unread count for the tray and the section: unseen items + pending waits."""
     total = 0

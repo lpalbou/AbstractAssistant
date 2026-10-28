@@ -830,3 +830,21 @@ def test_a_profile_set_beside_a_voice_still_travels() -> None:
 def test_an_environment_voice_travels_as_voice(monkeypatch: pytest.MonkeyPatch) -> None:
     vm = GatewayVoiceManager(llm_manager=_ManagerStub(_GatewayStub()), debug_mode=False)
     assert vm._selected_tts_voice_mode() == "voice"
+
+
+@pytest.mark.basic
+def test_single_shot_playback_announces_its_start_once_even_if_the_player_does_not(monkeypatch: pytest.MonkeyPatch) -> None:
+    """QA 2026-10-28 (h), single-shot lane: the card leaves its spinner when the audio is handed over."""
+    vm = GatewayVoiceManager(llm_manager=_ManagerStub(_GatewayStub()), debug_mode=False)
+    player = _InProcessPlayerStub()
+    player.play_audio = lambda audio_array, *, sample_rate=None: player.play_calls.append((audio_array, sample_rate))
+    monkeypatch.setattr(vm, "_ensure_inprocess_audio_player", lambda: player)
+    vm._inprocess_player = player
+    starts: list[int] = []
+    vm.on_speech_start = lambda: starts.append(1)
+
+    assert vm._play_audio_bytes_inprocess(_wav_bytes(), callback=None) is True
+    assert starts == [1]
+    player.on_audio_start()  # the player's own hook, late: no second start
+    assert starts == [1]
+    vm.stop_speaking()

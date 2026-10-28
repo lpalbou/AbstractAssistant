@@ -18,9 +18,9 @@ import json
 import threading
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set
 
-from PyQt5.QtCore import QEvent, QObject, QSize, Qt, QTime, QTimer, pyqtSignal
+from PyQt5.QtCore import QEvent, QObject, QPoint, QSize, Qt, QTime, QTimer, pyqtSignal
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
     QButtonGroup,
@@ -365,6 +365,11 @@ def automation_row_qss() -> str:
     QLabel#autoTurnBadge {{ color: {THEME.attention_text}; font-size: 10px; font-weight: 800; }}
     QLabel#autoTurnBadge[tone="failed"] {{ color: {THEME.danger_text}; }}
     QLabel#autoTurnBadge[tone="notified"] {{ color: {THEME.accent_text}; }}
+    QLabel#autoNewBadge {{
+        color: {THEME.attention_text}; background: {THEME.attention_bg};
+        border: 1px solid {THEME.attention_border}; border-radius: 7px;
+        padding: 1px 7px; font-size: 10px; font-weight: 800;
+    }}
     QPushButton#autoControl, QPushButton#autoSmall {{
         color: {THEME.text_secondary};
         background: {THEME.overlay_faint};
@@ -551,11 +556,16 @@ class OccurrencePair(QWidget):
         render_turn: "TurnRenderer",
         bubble_width: "BubbleWidth",
         viewport_width: int,
+        is_new: bool = False,
+        is_failure: bool = False,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("autoOccurrence")
         self.view = view
+        # An unseen result (the "N new results" the person clicked Open on): marked,
+        # and the view opens on it (QA 2026-10-28 (g)).
+        self.is_new = bool(is_new)
         self._bubble_width = bubble_width
         # The turns are rendered by the palette's own chat message widget
         # (markdown, tables, code, JSON) — never by a second renderer here.
@@ -600,6 +610,10 @@ class OccurrencePair(QWidget):
         self.badge.setObjectName("autoTurnBadge")
         self.badge.setProperty("tone", view.tone)
         self.badge.setVisible(bool(view.badge))
+        self.new_badge = QLabel("New failure" if is_failure else "New result", self.answer)
+        self.new_badge.setObjectName("autoNewBadge")
+        self.new_badge.setVisible(self.is_new)
+        head.addWidget(self.new_badge, 0)
         head.addWidget(self.badge, 0)
         finished = row.get("finished_at")
         self.status_meta = _text_label(
@@ -658,7 +672,8 @@ class OccurrencePair(QWidget):
 
         artifacts = row.get("artifacts") if isinstance(row.get("artifacts"), list) else []
         if artifacts:
-            names = ", ".join(str(a.get("name") or a.get("artifact_id")) for a in artifacts if isinstance(a, Mapping))
+            # Names only: an artifact id is not for people (QA 2026-10-28 rule).
+            names = ", ".join(str(a.get("name") or "a file") for a in artifacts if isinstance(a, Mapping))
             al.addWidget(_text_label(f"Files: {names}", "autoTurnMeta", parent=self.answer))
 
         # -- Discuss: a compact action under the card, right-aligned --------
@@ -864,6 +879,10 @@ class AutomationView(QFrame):
         self.next_cursor: Optional[str] = None
         self.busy = False
         self.pairs: List[OccurrencePair] = []
+        # Run indices with an unseen result, captured when the view opens
+        # (before they are acknowledged): marked "New result".
+        self.new_indices: Set[int] = set()
+        self.new_failures: Set[int] = set()
 
         # The list spans the history card's full inner width, exactly like the
         # chat's transcript (same x-edges for the bubbles); only the header is
@@ -1220,6 +1239,8 @@ class AutomationView(QFrame):
                 render_turn=self._render_turn,
                 bubble_width=self._bubble_width,
                 viewport_width=self.list_width(),
+                is_new=int(view.row.get("index") or 0) in self.new_indices,
+                is_failure=int(view.row.get("index") or 0) in self.new_failures,
                 parent=self.list_host,
             )
             pair.discuss_requested.connect(self.discuss_requested.emit)
@@ -1250,6 +1271,37 @@ class AutomationView(QFrame):
 
         bar = self.scroll.verticalScrollBar()
         QTimer.singleShot(0, lambda: bar.setValue(bar.maximum()))
+
+    def set_new_runs(self, indices: Iterable[int], failures: Iterable[int] = ()) -> None:
+        """The runs whose results the person has not seen yet (attention items);
+        ``failures``: those of them that failed (marked "New failure")."""
+        self.new_indices = {int(i) for i in indices if str(i).strip().lstrip("-").isdigit()}
+        self.new_failures = {int(i) for i in failures if str(i).strip().lstrip("-").isdigit()}
+        for pair in self.pairs:
+            pair.is_new = pair.index in self.new_indices
+            pair.new_badge.setText("New failure" if pair.index in self.new_failures else "New result")
+            pair.new_badge.setVisible(pair.is_new)
+
+    def first_new_pair(self) -> Optional["OccurrencePair"]:
+        return next((pair for pair in self.pairs if pair.is_new), None)
+
+    def scroll_to_first_new(self) -> bool:
+        """Open on the oldest unseen result (its top in view); False when none is listed."""
+        from PyQt5.QtCore import QTimer
+
+        pair = self.first_new_pair()
+        if pair is None:
+            return False
+        def _show_top() -> None:
+            host = self.scroll.widget()
+            try:
+                y = pair.mapTo(host, QPoint(0, 0)).y() if host is not None else pair.y()
+            except RuntimeError:  # rebuilt meanwhile
+                return
+            self.scroll.verticalScrollBar().setValue(max(0, int(y) - 12))
+
+        QTimer.singleShot(0, _show_top)
+        return True
 
     # ------------------------------------------------------------ actions
 

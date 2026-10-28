@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import re
 import threading
 from typing import Any, Callable, Dict, List, Optional
 
@@ -121,6 +122,19 @@ _ROUTE_HELP = {
 _BASE_URL_ROUTES = {"output.text"}
 
 
+
+# A stored voice's id (a clone or designed voice): 32 hex characters, meaningless to a person.
+_OPAQUE_VOICE_ID = re.compile(r"^[0-9a-f]{24,}$", re.IGNORECASE)
+
+
+def _voice_name_only(choice: Any) -> str:
+    """The voice's own name (the record's `name`, else its label without the list's suffixes)."""
+    meta = getattr(choice, "meta", None) or {}
+    name = str(meta.get("name") or meta.get("display_name") or "").strip() if isinstance(meta, dict) else ""
+    if name:
+        return name
+    return str(getattr(choice, "label", "") or "").split(" · ")[0].split("  (")[0].strip()
+
 class _CatalogCombo(QComboBox):
     """A list that retries its own fetch when the user opens it — but only when
     the last fetch came back empty.
@@ -205,7 +219,11 @@ class RouteOverrideEditor(QWidget):
         self.route_state = QLabel("")
         self.route_state.setWordWrap(True)
         self.route_state.setObjectName("statusNote")
+        # A statement of fact, not a warning: neutral, never the accent (amber in some themes).
+        self.route_state.setProperty("tone", "neutral")
         right.addWidget(self.route_state)
+        # Voice id -> its readable name, from the voice lists read so far (QA 2026-10-28 (i)).
+        self._voice_labels: Dict[str, str] = {}
 
         form = QGridLayout()
         form.setHorizontalSpacing(12)
@@ -525,8 +543,17 @@ class RouteOverrideEditor(QWidget):
         value = " / ".join(part for part in (provider, model) if part)
         voice = str((row.options or {}).get("voice") or (row.options or {}).get("profile") or "").strip()
         if voice:
-            value += f" · voice {voice}"
+            value += f" · voice {self._voice_display_name(voice)}"
         return value
+
+    def _voice_display_name(self, voice_id: str) -> str:
+        """The voice's name as the voice list shows it; never a stored voice's raw id."""
+        known = str(getattr(self, "_voice_labels", {}).get(voice_id) or "").strip()
+        if known:
+            return known
+        if _OPAQUE_VOICE_ID.match(voice_id):
+            return "a saved voice"
+        return voice_id
 
     def _route_state_text(self, row: CapabilityRouteRow) -> str:
         """Two honest lines: the gateway's own default, then what THIS app uses."""
@@ -806,15 +833,25 @@ class RouteOverrideEditor(QWidget):
                     choices = []
             for choice in choices or []:
                 self.voice_combo.addItem(choice.label, choice.id)
+                self._voice_labels[str(choice.id)] = _voice_name_only(choice)
             saved_voice = str((row.options or {}).get("voice") or (row.options or {}).get("profile") or "").strip()
             if saved_voice and provider and provider == str(row.provider or "").strip():
                 if self.voice_combo.findData(saved_voice) < 0:
-                    self.voice_combo.addItem(f"{saved_voice} (saved)", saved_voice)
+                    self.voice_combo.addItem(
+                        f"{self._voice_display_name(saved_voice)} (saved, not listed now)", saved_voice
+                    )
                 self._set_combo_value(self.voice_combo, saved_voice)
             else:
                 self.voice_combo.setCurrentIndex(0)
         finally:
             self.voice_combo.blockSignals(False)
+        if choices:
+            # The state line and the route's tooltip were written before the names were known.
+            state = self._route_state_text(row)
+            self.route_state.setText(state)
+            item = self.route_list.currentItem()
+            if item is not None:
+                item.setToolTip(state)
 
     def _sync_reasoning_options(self) -> None:
         """Build the level buttons once per refresh.

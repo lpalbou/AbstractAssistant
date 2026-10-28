@@ -1007,7 +1007,15 @@ class AssistantGatewayService:
             value = payload.get(key)
             if isinstance(value, list):
                 for item in value:
-                    choice = _choice(item, fallback_id=str(item), fallback_label=str(item))
+                    if isinstance(item, dict) and str(item.get("model") or "").strip():
+                        # `provider_models` rows are {provider, model, id: "<provider>/<model>"};
+                        # the model is the id every other list uses, so a row is the same choice
+                        # as its `items`/`models` twin (QA 2026-10-28 (i): every Qwen3-TTS model
+                        # was listed twice), and the model is what the override stores.
+                        model_id = str(item["model"]).strip()
+                        choice = _choice({**item, "id": model_id}, fallback_label=model_id)
+                    else:
+                        choice = _choice(item, fallback_id=str(item), fallback_label=str(item))
                     if choice is not None:
                         items.append(choice)
         for key in ("models_by_provider", "tts_models_by_provider", "stt_models_by_provider", "music_models_by_provider"):

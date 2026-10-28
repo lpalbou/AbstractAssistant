@@ -414,3 +414,33 @@ def test_unpinned_retry_tells_the_user_the_chosen_voice_was_not_used(monkeypatch
     assert "default voice" in notices[0]
     # The pin came from the environment here, not from Settings.
     assert "environment variables" in notices[0] and "Settings" not in notices[0]
+
+
+class _SilentStartPlayer(_PlayerStub):
+    """A player whose own start hook never fires (AbstractVoice's player after an
+    interrupted reply: `stop_stream()` leaves its started flag set)."""
+
+    def play_audio(self, audio_array, *, sample_rate: int | None = None):
+        first = float(audio_array[0]) if len(audio_array) else 0.0
+        self.play_calls.append((len(audio_array), first))
+
+
+@pytest.mark.basic
+def test_speech_start_is_announced_when_audio_reaches_the_player(monkeypatch: pytest.MonkeyPatch) -> None:
+    """QA 2026-10-28 (h): the card's spinner kept spinning for the whole reply."""
+    gateway = _StreamingGateway()
+    vm = GatewayVoiceManager(llm_manager=_ManagerStub(gateway), debug_mode=False)
+    player = _SilentStartPlayer()
+    monkeypatch.setattr(vm, "_audio_player_available", lambda: True)
+    monkeypatch.setattr(vm, "_supports_inprocess_audio_player", lambda: True)
+    monkeypatch.setattr(vm, "_ensure_inprocess_audio_player", lambda: player)
+    starts: list[int] = []
+    vm.on_speech_start = lambda: starts.append(1)
+
+    assert vm.speak("hello spinner") is True
+    assert gateway.stream_done.wait(timeout=2.0)
+    assert _wait_for(lambda: len(player.play_calls) >= 1)
+    assert _wait_for(lambda: starts == [1])
+    time.sleep(0.1)
+    assert starts == [1], "announced once, not per chunk"
+    vm.stop_speaking()

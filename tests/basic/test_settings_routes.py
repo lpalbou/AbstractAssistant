@@ -180,6 +180,7 @@ class _StubController:
             "faster-whisper": ["base", "large-v3"],
             "supertonic": ["supertonic-3"],
             "piper": ["en_US-amy-medium"],
+            "qwen3-tts": ["Qwen/Qwen3-TTS-12Hz-0.6B-Base"],
             "lmstudio": ["ornith-1.0-35b", "gemma-3-1b-it"],
             "endpoint:ovh-provider": ["Meta-Llama-3_3-70B-Instruct"],
         }
@@ -189,6 +190,9 @@ class _StubController:
         self._offline_guard()
         if provider == "supertonic":
             return [ChoiceItem(id="M1", label="M1"), ChoiceItem(id="M3", label="M3")]
+        if provider == "qwen3-tts":
+            return [ChoiceItem(id=_CLONE_ID, label="hal9000-qwen2 · English  (yours)",
+                               meta={"name": "hal9000-qwen2", "kind": "clone"})]
         return []
 
     @staticmethod
@@ -204,6 +208,9 @@ class _StubController:
     @staticmethod
     def save_preferences(prefs):
         return None
+
+
+_CLONE_ID = "41576236cd5f4a9a8399fa6cf07399e5"
 
 
 def _dialog(controller: _StubController | None = None):
@@ -588,3 +595,26 @@ def test_the_route_row_parser_reads_route_hint_sentence() -> None:
                        "route_hint": {"code": "apple_gpu_engine", "sentence": HINT, "route": None}})
     assert row.hint == HINT
     assert parse(None, {"key": "input.voice", "provider": "faster-whisper"}).hint == ""
+
+
+@pytest.mark.basic
+def test_the_route_state_names_the_voice_and_is_not_a_warning() -> None:
+    """QA 2026-10-28 (i): the state line read "voice 41576236…" in a warning-looking box."""
+
+    class _WithQwen(_StubController):
+        def provider_choices(self, *, route_key: str, base_url: str = ""):
+            out = super().provider_choices(route_key=route_key, base_url=base_url)
+            return out + ([ChoiceItem(id="qwen3-tts", label="qwen3-tts")] if route_key == "output.voice" else [])
+
+    ctl = _WithQwen()
+    ctl.overrides["output.voice"] = {
+        "provider": "qwen3-tts", "model": "Qwen/Qwen3-TTS-12Hz-0.6B-Base", "options": {"voice": _CLONE_ID},
+    }
+    dlg = _dialog(ctl)
+    _select(dlg, "output.voice")
+    text = dlg.route_state.text()
+    assert "hal9000-qwen2" in text
+    assert _CLONE_ID not in text and _CLONE_ID[:8] not in text
+    assert dlg.route_state.property("tone") == "neutral"
+    # Before the voice list is read (or when the voice is gone), never the raw id either.
+    assert dlg.route_editor._voice_display_name("0062331440204fe7b77988ae42e80e1d") == "a saved voice"

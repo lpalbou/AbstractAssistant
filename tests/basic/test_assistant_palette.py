@@ -716,12 +716,7 @@ def test_message_card_timestamp_sits_in_header_next_to_actions() -> None:
     card.close()
 
 
-@pytest.mark.basic
-def test_message_card_actions_reveal_on_hover_without_layout_shift() -> None:
-    """Speaker/copy fade in on card hover (opacity, never show/hide) so the
-    card cannot reflow under the cursor; hidden buttons are unclickable."""
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    app = QApplication.instance() or QApplication([])
+def _action_card(app):
     card = MessageCard(
         message={"role": "assistant", "message_id": "m1", "content": "hello"},
         message_key="id:m1",
@@ -733,58 +728,51 @@ def test_message_card_actions_reveal_on_hover_without_layout_shift() -> None:
     )
     card.show()
     app.processEvents()
-
     buttons = [
         button
         for button in card.findChildren(app_module.QPushButton)
         if button.objectName() == "messageActionButton"
     ]
+    return card, buttons
+
+
+def _shown(button) -> bool:
+    effect = button.graphicsEffect()
+    return button.isVisibleTo(button.parentWidget()) and (effect is None or effect.opacity() == 1.0)
+
+
+@pytest.mark.basic
+def test_message_card_speaker_and_copy_are_always_visible() -> None:
+    """QA 2026-10-28 (h): speaker and copy are shown at all times, not on hover only."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    card, buttons = _action_card(app)
     assert len(buttons) == 2
     for button in buttons:
-        assert button.isVisibleTo(card)  # keeps its layout slot
-        assert button.graphicsEffect().opacity() == 0.0
-        assert not button.isEnabled()
-
-    card.enterEvent(QEvent(QEvent.Enter))
-    for button in buttons:
-        assert button.graphicsEffect().opacity() == 1.0
-        assert button.isEnabled()
-
+        assert _shown(button) and button.isEnabled()
     card.leaveEvent(QEvent(QEvent.Leave))
     for button in buttons:
-        assert button.graphicsEffect().opacity() == 0.0
-        assert not button.isEnabled()
+        assert _shown(button) and button.isEnabled()
     card.close()
 
 
 @pytest.mark.basic
-def test_message_card_actions_stay_pinned_while_voice_is_active() -> None:
-    """An active voice button is a playback indicator: it must not vanish
-    when the mouse leaves the card."""
+def test_message_card_spinner_only_while_loading_then_play_pause() -> None:
+    """The speaker shows a spinner (not clickable) only while the audio loads; once
+    audio plays it is pause, then play; idle again at the end."""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     app = QApplication.instance() or QApplication([])
-    card = MessageCard(
-        message={"role": "assistant", "message_id": "m1", "content": "hello"},
-        message_key="id:m1",
-        renderer=app_module.MarkdownRenderer(theme="friendly_grayscale"),
-        on_open_artifact=lambda *_args, **_kwargs: None,
-        bubble_width=320,
-        on_toggle_voice=lambda _message: None,
-        voice_state="idle",
-    )
-    card.show()
-    app.processEvents()
-
+    card, buttons = _action_card(app)
+    voice = card._voice_button
+    card.set_voice_state("synthesizing")
+    assert card._voice_spinner is not None and not voice.isEnabled()
     card.set_voice_state("speaking")
-    buttons = [
-        button
-        for button in card.findChildren(app_module.QPushButton)
-        if button.objectName() == "messageActionButton"
-    ]
-    assert all(button.graphicsEffect().opacity() == 1.0 for button in buttons)
-
+    assert card._voice_spinner is None and voice.isEnabled()
+    assert voice.toolTip() == "Pause reply audio"
+    card.set_voice_state("paused")
+    assert voice.toolTip() == "Resume reply audio"
     card.set_voice_state("idle")
-    assert all(button.graphicsEffect().opacity() == 0.0 for button in buttons)
+    assert all(_shown(button) for button in buttons)
     card.close()
 
 
