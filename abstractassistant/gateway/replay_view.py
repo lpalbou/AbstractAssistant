@@ -215,25 +215,33 @@ def _view_artifacts(view: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     return {str(a.get("id") or ""): a for a in view.get("artifacts") or [] if isinstance(a, dict) and a.get("id")}
 
 
-def _media_meta(meta: Dict[str, Any], artifact_ids: Any, arts: Dict[str, Dict[str, Any]]) -> None:
+def _media_meta(meta: Dict[str, Any], artifact_ids: Any, arts: Dict[str, Dict[str, Any]], *, source: str = "") -> None:
     """Name each artifact by the output field that held it (`image_artifact` -> an image tile);
     the palette reads these keys for the answer's media.
 
-    Only what the person can use is attached: a ref the view does not list (no path, no run:
-    it can be neither named nor opened) or one under the run's bookkeeping
-    (`_is_internal_path`) is left out. Each ref carries the run that owns it, which is the run
-    the gateway serves it through (a child run's artifact is not visible through the root)."""
+    Only what the person can use is attached. A listed ref under the run's bookkeeping
+    (`_is_internal_path`) is left out; a kept ref carries the run that owns it, which is the
+    run the gateway serves it through (a child run's artifact is not visible through the root).
+
+    A ref the view does not list has no path: for a final message folded from the ledger
+    (`source == "ledger"`) that only happens to a ref deeper than the runtime's listing walk,
+    i.e. inside the bookkeeping (AbstractRuntime backlog 0862), so it is left out; for a final
+    built from the run snapshot (`run_output`: no completion record was folded, nothing of the
+    output is listed) it is kept as before, opened through the message's run."""
     for art in artifact_ids or []:
         entry = arts.get(str(art))
-        if entry is None:
-            warnings.warn(f"#REPLAY: message artifact {art!r} is not listed by the replay view; not shown")
-            continue
-        path = str(entry.get("path") or "")
-        if _is_internal_path(path):
-            continue
         ref: Dict[str, Any] = {"$artifact": str(art)}
-        if entry.get("run_id"):
-            ref["run_id"] = str(entry["run_id"])
+        if entry is None:
+            if source == "ledger":
+                warnings.warn(f"#REPLAY: final message artifact {art!r} is not listed by the replay view; not shown")
+                continue
+            path = ""
+        else:
+            path = str(entry.get("path") or "")
+            if _is_internal_path(path):
+                continue
+            if entry.get("run_id"):
+                ref["run_id"] = str(entry["run_id"])
         parts = re.split(r"[.\[\]]", path)
         field = next((k for k in reversed(parts) if k and not k.isdigit()), "")
         if field in _MEDIA_KEYS and field not in meta:
@@ -406,7 +414,7 @@ class ViewProjector:
             return None
         rid = str(m.get("run_id") or root)
         meta: Dict[str, Any] = {"run_id": rid, "message_id": mid}
-        _media_meta(meta, m.get("artifact_ids"), arts)
+        _media_meta(meta, m.get("artifact_ids"), arts, source=str(m.get("source") or ""))
         ev_extra: Dict[str, Any] = {}
         if final and m.get("repeats"):
             meta["repeats"] = m.get("repeats")

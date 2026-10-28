@@ -432,7 +432,10 @@ class GatewayWorker(QThread):
             return ""
 
         preferred_run_ids: List[str] = []
+        owner = meta.get("artifact") if isinstance(meta.get("artifact"), dict) else {}
         for candidate in (
+            # The run that owns the artifact (the replay view says which) serves it.
+            str(owner.get("run_id") or "").strip(),
             str(meta.get("sub_run_id") or "").strip(),
             str(meta.get("artifact_run_id") or "").strip(),
             str(run_id or "").strip(),

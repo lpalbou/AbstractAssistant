@@ -19,7 +19,7 @@ ROOT = "68c30dd3-root"
 CHILD = "d072afe8-child"
 
 
-def _view(artifact_ids, artifacts):
+def _view(artifact_ids, artifacts, source="ledger"):
     return {
         "root_run_id": ROOT,
         "status": "completed",
@@ -28,7 +28,8 @@ def _view(artifact_ids, artifacts):
         "artifacts": artifacts,
         "messages": [
             {"id": f"{ROOT}:final", "role": "assistant", "kind": "final", "text": "Daily news.",
-             "run_id": ROOT, "order": ["2026-10-28T13:15:49+00:00", ROOT, 6], "artifact_ids": artifact_ids},
+             "run_id": ROOT, "order": ["2026-10-28T13:15:49+00:00", ROOT, 6], "artifact_ids": artifact_ids,
+             "source": source},
         ],
     }
 
@@ -70,6 +71,13 @@ def test_a_real_output_artifact_is_kept_with_its_owner_run_and_a_readable_label(
     labels = [_artifact_label(a) for a in shown]
     assert labels == ["Image", "Attachment"]
     assert all("aa11" not in label and "bb22" not in label for label in labels)
+
+
+def test_a_final_built_from_the_run_snapshot_keeps_its_unlisted_refs():
+    """No completion record folded (legacy or windowed ledger): the view lists nothing of the
+    output, so an unlisted ref may be the answer's image; it is kept, opened through the run."""
+    meta = _final_meta(_view(["img9"], [], source="run_output"))
+    assert meta["artifact"] == {"$artifact": "img9"}
 
 
 def test_final_fallback_skips_bookkeeping_refs():
