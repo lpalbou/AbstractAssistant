@@ -133,6 +133,15 @@ class ReleaseTests(unittest.TestCase):
         self.assertFalse(options['testFlightInternalTestingOnly'])
         self.assertFalse(options['manageAppVersionAndBuildNumber'])
 
+    def test_signed_candidate_exports_an_app_store_ipa_without_uploading(self):
+        path = self.root / 'ExportOptions.plist'
+        release.export_options(path, 'K3R4D6HP2A', destination='export')
+        options = plistlib.loads(path.read_bytes())
+        self.assertEqual((options['method'], options['destination'], options['signingStyle'], options['teamID']),
+                         ('app-store-connect', 'export', 'automatic', 'K3R4D6HP2A'))
+        with self.assertRaises(ValueError):
+            release.export_options(path, 'K3R4D6HP2A', destination='ad-hoc')
+
     def test_private_key_is_removed_on_success_or_export_failure(self):
         self.candidate()
         tools = self.root / 'bin'; tools.mkdir()
