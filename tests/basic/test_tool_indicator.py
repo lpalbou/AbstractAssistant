@@ -8,11 +8,19 @@ from abstractassistant.app import AssistantPalette
 from abstractassistant.controller import AssistantController
 
 
+def _older_gateway_caps(**_kwargs):
+    """Discovery from a gateway WITHOUT the session tool policy: the in-app
+    chat grant is the (explicit) local fallback these tests exercise."""
+    from abstractassistant.gateway.capabilities import AssistantCapabilities
+
+    return AssistantCapabilities.from_discovery_response({"capabilities": {}})
+
+
 @pytest.mark.basic
 def test_revoke_session_grant_restores_policy_and_preserves_other_chat():
     controller = AssistantController.__new__(AssistantController)
     controller._session_auto_approve_all = set()
-    controller.llm_manager = SimpleNamespace(active_session_id="a")
+    controller.llm_manager = SimpleNamespace(active_session_id="a", gateway_capabilities=_older_gateway_caps)
     controller.tool_inventory = lambda: {"items": [
         {"name": "read", "selected_mode": "ask"},
         {"name": "auto", "selected_mode": "approve"},
@@ -58,7 +66,7 @@ def test_session_reset_confirmation_captures_original_chat(accept):
     app = QApplication.instance() or QApplication([])
     controller = AssistantController.__new__(AssistantController)
     controller._session_auto_approve_all = set()
-    controller.llm_manager = SimpleNamespace(active_session_id="a")
+    controller.llm_manager = SimpleNamespace(active_session_id="a", gateway_capabilities=_older_gateway_caps)
     controller.grant_session_tool_auto_approval(session_id="a")
     controller.grant_session_tool_auto_approval(session_id="b")
     host = QWidget()

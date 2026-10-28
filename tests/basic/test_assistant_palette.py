@@ -64,6 +64,14 @@ from abstractassistant.preferences import (
 from abstractassistant.ui.gateway_worker import GatewayWorker
 
 
+def _older_gateway_caps(**_kwargs):
+    """Discovery from a gateway WITHOUT the session tool policy: the in-app
+    chat grant is the (explicit) local fallback these tests exercise."""
+    from abstractassistant.gateway.capabilities import AssistantCapabilities
+
+    return AssistantCapabilities.from_discovery_response({"capabilities": {}})
+
+
 def _alpha_bbox(pixmap, *, threshold: int = 128) -> tuple[int, int, int, int] | None:
     image = pixmap.toImage()
     min_x = image.width()
@@ -1700,7 +1708,7 @@ def test_assistant_palette_controller_build_chat_worker_passes_media_overrides(
 def test_assistant_palette_controller_session_tool_auto_approval_is_chat_scoped() -> None:
     controller = AssistantController.__new__(AssistantController)
     controller._session_auto_approve_all = set()
-    controller.llm_manager = SimpleNamespace(active_session_id="chat-a")
+    controller.llm_manager = SimpleNamespace(active_session_id="chat-a", gateway_capabilities=_older_gateway_caps)
     controller.tool_inventory = lambda: {  # type: ignore[method-assign]
         "items": [
             {"name": "execute_command", "selected_mode": "ask"},

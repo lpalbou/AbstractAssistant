@@ -7,6 +7,18 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Added
 
+- **"Allow all enabled tools in this chat" is kept by the gateway** (session tool policy, contract v1; needs
+  AbstractGateway/AbstractRuntime with `feat/session-tool-policy`). When the gateway advertises
+  `capabilities.session_tool_policy.supported`, the approval sheet's chat-wide grant is written FIRST as the
+  conversation's policy (`POST /api/gateway/sessions/{id}/tool-policy` with `approve.all` up to the risk rank you saw,
+  your tools set to Ask by name kept asking), and only then is the shown request answered. Later covered calls run
+  with no approval request at all, so the gate no longer flashes; the grant survives a restart (the shield reads it
+  back) and "Restore defaults" resets it on the gateway (`DELETE`). Tools the gateway would not cover are named in a
+  notice; a grant the gateway refuses, or one made while its capabilities cannot be read, is said, nothing is
+  granted, and the shown call is approved once. A second "allow all" never narrows the chat's rank. The activity shows the runtime's
+  `abstract.tool_policy_decision` records as "Allowed by this chat's policy: <tool>" (or "Denied …"), never as a
+  question. On an older gateway the previous in-app grant stays, named as the local fallback in a
+  notice and the log (`AssistantController.session_tool_policy_mode`). Gateway client: `get/put/post/delete_session_tool_policy`.
 - **Create a voice** (desktop, AbstractGateway 0.16.0): Settings → the speech route's **Create…** next to Voice opens
   **Create a voice**, from a description (Qwen3-TTS voice design on the gateway, with a language) or from a recording
   file (its language **Detect from the recording** by default: the gateway identifies it; or chosen), with a name.

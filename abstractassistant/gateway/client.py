@@ -1292,6 +1292,44 @@ class GatewayClient:
             label="chat workspaces not saved",
         )
 
+    def _session_tool_policy_url(self, session_id: str) -> str:
+        sid = str(session_id or "").strip()
+        if not sid:
+            raise ValueError("session tool policy needs a session id")
+        return self._url(f"/api/gateway/sessions/{urllib.parse.quote(sid, safe='')}/tool-policy")
+
+    def get_session_tool_policy(self, session_id: str) -> Dict[str, Any]:
+        """``GET /sessions/{id}/tool-policy``: ``{session_id, policy}`` (policy
+        null when the chat has none)."""
+        return self._request_json(
+            method="GET", url=self._session_tool_policy_url(session_id), label="chat tool policy failed"
+        )
+
+    def put_session_tool_policy(self, session_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        """``PUT /sessions/{id}/tool-policy``: REPLACE the chat's policy."""
+        return self._request_json(
+            method="PUT",
+            url=self._session_tool_policy_url(session_id),
+            body=dict(body or {}),
+            label="chat tool policy not saved",
+        )
+
+    def post_session_tool_policy(self, session_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        """``POST /sessions/{id}/tool-policy``: MERGE into the chat's policy.
+        The answer is the stored policy, with any ``clamped`` selectors."""
+        return self._request_json(
+            method="POST",
+            url=self._session_tool_policy_url(session_id),
+            body=dict(body or {}),
+            label="chat tool policy not saved",
+        )
+
+    def delete_session_tool_policy(self, session_id: str) -> Dict[str, Any]:
+        """``DELETE /sessions/{id}/tool-policy``: reset (no chat policy)."""
+        return self._request_json(
+            method="DELETE", url=self._session_tool_policy_url(session_id), label="chat tool policy not reset"
+        )
+
     def workspace_effective(self, account: str = "me", session_id: str = "") -> Dict[str, Any]:
         """``GET /workspace/effective/{account}[?session=<id>]``: what applies,
         with each row's cap, ``summary`` and ``gateway_summary``."""

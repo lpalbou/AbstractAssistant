@@ -10,6 +10,8 @@ from typing import Any, Dict, List, Optional
 from .events import (
     event_name_from_wait_key,
     extract_emit_event,
+    TOOL_POLICY_DECISION_EVENT,
+    tool_policy_decision_event,
     extract_flow_end_output,
     extract_tool_calls_from_wait,
     extract_wait_from_record,
@@ -217,6 +219,12 @@ class GatewayEventAdapter:
                 text = str(parsed.get("text") or "").strip()
                 if text and text.lower() not in {"ready", "completed"}:
                     events.append({"type": "status", "status": text})
+            elif name == TOOL_POLICY_DECISION_EVENT:
+                # Allowed/denied by the chat's session tool policy with NO
+                # wait: an activity line, never an approval prompt.
+                decision = tool_policy_decision_event(payload, ts=record_ts)
+                if decision:
+                    events.append(decision)
             elif name == "abstract.message":
                 text = ""
                 if isinstance(payload, str):

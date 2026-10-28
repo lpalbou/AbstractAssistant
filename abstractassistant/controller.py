@@ -225,6 +225,13 @@ class AssistantController:
         self.voice_manager.set_quality_preset(getattr(self.preferences, "voice_quality", "standard"))
         self.voice_manager.set_output_device(getattr(self.preferences, "audio_output_device", ""))
         self._session_auto_approve_all: set[str] = set()
+        # Which path holds each chat's "allow all" grant: "server" (the
+        # gateway's session tool policy; the runtime never emits those waits)
+        # or "local" (the fallback for a gateway without the capability: the
+        # wait is shown and answered here). See session_tool_policy_path().
+        self._session_trust_path: Dict[str, str] = {}
+        self.session_tool_policy_mode: Optional[str] = None
+        self.session_tool_policy_reason = ""
         # Short-lived caches so the send path and startup don't re-fetch the
         # workflow catalog + tool inventory on the GUI thread every time
         # (each was up to a 30s blocking round trip). Invalidated explicitly on
@@ -1831,7 +1838,12 @@ class AssistantController:
         inventory = self.tool_inventory()
         auto: List[str] = []
         require: List[str] = []
+        # Only a LOCAL grant widens the run-start auto list; a server-held
+        # grant is applied by the runtime at decision time (and is live for
+        # runs already in flight), so the run keeps asking for the rest.
         trust_ceiling = self.session_trust_rank()
+        if trust_ceiling and self.session_trust_path() != "local":
+            trust_ceiling = 0
         for item in inventory.get("items") or []:
             if not isinstance(item, dict):
                 continue
@@ -1850,35 +1862,185 @@ class AssistantController:
             "require_approval_tools": require,
         }
 
+    # Provenance label the gateway records on the session tool policy.
+    SESSION_TOOL_POLICY_CLIENT = "abstractassistant-desktop"
+
+    def session_tool_policy_path(self) -> str:
+        """Where a NEW chat-wide grant goes:
+
+        - ``"server"``: the gateway advertises
+          ``capabilities.session_tool_policy.supported`` — the grant is the
+          gateway's session tool policy; covered calls never produce a wait.
+        - ``"local"``: the gateway ANSWERED discovery without the capability
+          (an older gateway, or ``supported`` not true) — the explicit
+          fallback: the wait arrives and this app answers it.
+        - ``"unavailable"``: discovery could not be read (an error or no
+          gateway). Nothing is known, so no grant is made at all (never a
+          silent local grant in place of the server one).
+
+        The resolved path is kept in ``session_tool_policy_mode`` (its reason
+        in ``session_tool_policy_reason``) and logged whenever it changes."""
+        try:
+            caps = self.llm_manager.gateway_capabilities(stale_ok=True)
+        except Exception as exc:  # noqa: BLE001 - "unknown", reported as such
+            caps, error = None, f"{type(exc).__name__}: {exc}"
+        else:
+            error = str(getattr(caps, "error", "") or "") if caps is not None else "no gateway"
+        if caps is None or error:
+            path, reason = "unavailable", f"gateway capabilities unavailable ({error or 'no answer'})"
+        elif caps.session_tool_policy_supported():
+            path, reason = "server", ""
+        else:
+            path, reason = "local", "this gateway does not offer a chat tool policy"
+        if path != getattr(self, "session_tool_policy_mode", None):
+            if path == "server":
+                logger.info("Chat-wide tool approval: gateway session tool policy (server path)")
+            elif path == "local":
+                logger.warning(
+                    "Chat-wide tool approval: LOCAL fallback (%s) — waits are shown and answered by this app",
+                    reason,
+                )
+            else:
+                logger.warning("Chat-wide tool approval: %s — no chat-wide grant can be made", reason)
+        self.session_tool_policy_mode = path
+        self.session_tool_policy_reason = reason
+        return path
+
+    def session_trust_path(self, *, session_id: Optional[str] = None) -> str:
+        """Which path holds this chat's grant ("server" / "local"), or "" when
+        the chat has none."""
+        sid = str(session_id or self.active_session_id or "").strip()
+        if not self.session_tool_auto_approval_active(session_id=sid):
+            return ""
+        paths = getattr(self, "_session_trust_path", None) or {}
+        return str(paths.get(sid) or "local")
+
+    def _explicit_ask_tools(self) -> List[str]:
+        """Tools the person set to Ask BY NAME (a saved per-tool mode, not the
+        gateway's default): they keep asking under a chat-wide grant."""
+        prefs = getattr(getattr(self, "preferences", None), "tool_preferences", None) or {}
+        return sorted(str(name).strip() for name, mode in dict(prefs).items() if str(name).strip() and str(mode).strip().lower() == "ask")[:512]
+
+    def session_tool_policy_grant_body(self, *, max_rank: int) -> Dict[str, Any]:
+        """The POST body for "allow all enabled tools in this chat" up to the
+        risk rank the person saw (contract v1 §3)."""
+        body: Dict[str, Any] = {
+            "approve": {"all": True, "max_risk_rank": max(1, min(4, int(max_rank)))},
+            "client": self.SESSION_TOOL_POLICY_CLIENT,
+        }
+        ask = self._explicit_ask_tools()
+        if ask:
+            body["ask"] = ask
+        return body
+
+    def _mirror_session_trust(self, sid: str, rank: int, path: str) -> None:
+        self._session_auto_approve_all.add(sid)
+        ranks = getattr(self, "_session_trust_rank", None)
+        if not isinstance(ranks, dict):
+            ranks = {}
+            self._session_trust_rank = ranks
+        ranks[sid] = max(int(ranks.get(sid, 0)), int(rank))
+        paths = getattr(self, "_session_trust_path", None)
+        if not isinstance(paths, dict):
+            paths = {}
+            self._session_trust_path = paths
+        paths[sid] = path
+
+    def _forget_session_trust(self, sid: str) -> None:
+        self._session_auto_approve_all.discard(sid)
+        for attr in ("_session_trust_rank", "_session_trust_path"):
+            table = getattr(self, attr, None)
+            if isinstance(table, dict):
+                table.pop(sid, None)
+
     def grant_session_tool_auto_approval(
         self, *, session_id: Optional[str] = None, max_rank: Optional[int] = None
-    ) -> None:
+    ) -> Dict[str, Any]:
         """Trust this chat's enabled tools up to ``max_rank``.
 
         The ceiling is the loudest risk tier the user actually saw when they
         granted it: approving a batch of file reads never buys blanket trust
         for a later destructive call, but granting it ON a destructive batch
         does — the sheet says so on the item they clicked.
+
+        Server path: POSTs ``{approve: {all, max_risk_rank}, ask, client}`` to
+        the gateway's session tool policy; a refusal RAISES (no silent local
+        grant). Local path (older gateway): the in-memory grant this app
+        answers waits with. Returns ``{path, session_id, max_risk_rank,
+        clamped, policy}`` — ``clamped`` lists what the gateway dropped.
         """
         sid = str(session_id or self.active_session_id or "").strip()
         if not sid:
-            return
-        self._session_auto_approve_all.add(sid)
-        ranks = getattr(self, "_session_trust_rank", None)
-        if not isinstance(ranks, dict):
-            ranks = {}
-            self._session_trust_rank = ranks
+            return {"path": "", "session_id": "", "max_risk_rank": 0, "clamped": [], "policy": None}
         wanted = self.TRUST_MAX_RISK_RANK if max_rank is None else int(max_rank)
         wanted = max(1, min(4, wanted))
-        ranks[sid] = max(int(ranks.get(sid, 0)), wanted)
+        # A grant never narrows: "allow all" on a quieter batch later keeps
+        # the wider rank this chat already has (the gateway's POST merges the
+        # same way), so the body always matches the local mirror.
+        wanted = max(wanted, self.session_trust_rank(session_id=sid))
+        path = self.session_tool_policy_path()
+        if path == "unavailable":
+            raise RuntimeError(self.session_tool_policy_reason)
+        policy: Optional[Dict[str, Any]] = None
+        clamped: List[Dict[str, Any]] = []
+        if path == "server":
+            answer = self.gateway.post_session_tool_policy(sid, self.session_tool_policy_grant_body(max_rank=wanted))
+            policy = answer.get("policy") if isinstance(answer, dict) else None
+            if not isinstance(policy, dict):
+                raise RuntimeError("the gateway did not return the chat's tool policy")
+            clamped = [dict(c) for c in (policy.get("clamped") or []) if isinstance(c, dict)]
+            logger.info(
+                "Chat-wide tool approval saved on the gateway for %s (revision %s, max_risk_rank %s, %d tools)",
+                sid,
+                policy.get("revision"),
+                wanted,
+                len(policy.get("approve") or {}),
+            )
+            if clamped:
+                logger.warning("The gateway did not cover %d requested tool selector(s) for %s: %s", len(clamped), sid, clamped)
+        self._mirror_session_trust(sid, wanted, path)
+        return {
+            "path": path,
+            "reason": self.session_tool_policy_reason,
+            "session_id": sid,
+            "max_risk_rank": wanted,
+            "clamped": clamped,
+            "policy": policy,
+        }
 
     def revoke_session_tool_auto_approval(self, *, session_id: Optional[str] = None) -> None:
-        """Remove this chat's temporary grant; keep saved tool defaults intact."""
+        """Remove this chat's temporary grant; keep saved tool defaults intact.
+        A server-held grant is reset with DELETE first; a refusal raises and
+        the grant stays shown (it is still in force on the gateway)."""
         sid = str(session_id or self.active_session_id or "").strip()
-        self._session_auto_approve_all.discard(sid)
-        ranks = getattr(self, "_session_trust_rank", None)
-        if isinstance(ranks, dict):
-            ranks.pop(sid, None)
+        if sid and self.session_trust_path(session_id=sid) == "server":
+            self.gateway.delete_session_tool_policy(sid)
+            logger.info("Chat-wide tool approval reset on the gateway for %s", sid)
+        self._forget_session_trust(sid)
+
+    def sync_session_tool_policy(self, *, session_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Mirror the gateway's stored policy for this chat into the local
+        grant state, so a grant made before a restart (or by this account in
+        another session of the app) is shown and can be reset. Blocking (one
+        GET): call it off the GUI thread. Returns the stored policy (None when
+        the chat has none, or on the local path)."""
+        sid = str(session_id or self.active_session_id or "").strip()
+        if not sid or self.session_tool_policy_path() != "server":
+            return None
+        answer = self.gateway.get_session_tool_policy(sid)
+        policy = answer.get("policy") if isinstance(answer, dict) else None
+        if isinstance(policy, dict) and policy.get("approve"):
+            request = policy.get("request") if isinstance(policy.get("request"), dict) else {}
+            approve = request.get("approve") if isinstance(request.get("approve"), dict) else {}
+            try:
+                rank = int(approve.get("max_risk_rank") or 4)
+            except Exception:
+                rank = 4
+            self._mirror_session_trust(sid, max(1, min(4, rank)), "server")
+            return policy
+        if self.session_trust_path(session_id=sid) == "server":
+            self._forget_session_trust(sid)
+        return policy if isinstance(policy, dict) else None
 
     def session_tool_auto_approval_active(self, *, session_id: Optional[str] = None) -> bool:
         sid = str(session_id or self.active_session_id or "").strip()
@@ -1898,7 +2060,13 @@ class AssistantController:
         """A per-chat trust grant auto-approves a batch only when every call is
         an enabled tool the grant may cover: a tool set to Auto by name, or one
         at or below the tier the grant was made on. A batch louder than the
-        grant still asks."""
+        grant still asks.
+
+        LOCAL fallback only: when the grant is held by the gateway's session
+        tool policy, the runtime never emits a wait for a covered call, so a
+        wait that does arrive is a genuine question and is shown."""
+        if self.session_trust_path(session_id=session_id) != "local":
+            return False
         ceiling = self.session_trust_rank(session_id=session_id)
         if not ceiling:
             return False

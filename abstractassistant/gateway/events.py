@@ -70,6 +70,50 @@ def parse_status_payload(payload: Any) -> Dict[str, Any]:
     return {"text": text, "duration_s": duration_s}
 
 
+TOOL_POLICY_DECISION_EVENT = "abstract.tool_policy_decision"
+
+
+def tool_policy_decision_event(payload: Any, *, ts: str = "") -> Optional[Dict[str, Any]]:
+    """The UI event for an ``abstract.tool_policy_decision`` record (session
+    tool policy contract v1 §5): a call the chat's policy allowed or denied
+    with NO wait. An activity line, never a question."""
+    if not isinstance(payload, dict):
+        return None
+    decision = str(payload.get("decision") or "").strip().lower()
+    if decision not in {"auto_approved", "denied"}:
+        return None
+    tools: List[Dict[str, str]] = []
+    for call in payload.get("tool_calls") or []:
+        if isinstance(call, dict) and str(call.get("name") or "").strip():
+            tools.append(
+                {
+                    "name": str(call.get("name")).strip(),
+                    "call_id": str(call.get("call_id") or "").strip(),
+                    "matched": str(call.get("matched") or "").strip(),
+                }
+            )
+    policy = payload.get("policy") if isinstance(payload.get("policy"), dict) else {}
+    set_by = policy.get("set_by") if isinstance(policy.get("set_by"), dict) else {}
+    return {
+        "type": "tool_policy_decision",
+        "decision": decision,
+        "source": str(payload.get("source") or "").strip(),
+        "session_id": str(payload.get("session_id") or "").strip(),
+        "tools": tools,
+        "set_by": str(set_by.get("user_id") or "").strip(),
+        "set_at": str(policy.get("set_at") or "").strip(),
+        "ts": str(ts or ""),
+    }
+
+
+def tool_policy_decision_text(event: Dict[str, Any]) -> str:
+    """``Allowed by this chat's policy: fetch_url`` / ``Denied by …``."""
+    names = [str(t.get("name") or "") for t in (event.get("tools") or []) if isinstance(t, dict) and t.get("name")]
+    verb = "Denied" if str(event.get("decision") or "") == "denied" else "Allowed"
+    text = f"{verb} by this chat's policy"
+    return f"{text}: {', '.join(names)}" if names else text
+
+
 def extract_flow_end_output(rec: StepRecord | None) -> Optional[Dict[str, Any]]:
     """Extract the flow end response from a ledger record."""
     if not rec or not isinstance(rec, dict):

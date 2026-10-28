@@ -76,6 +76,16 @@ class AssistantCapabilities:
         no Automations surface in this app."""
         return _as_dict(self.common.get("automations")).get("available") is True
 
+    def session_tool_policy(self) -> Dict[str, Any]:
+        """``capabilities.session_tool_policy`` (session tool policy contract
+        v1): the server-side per-chat approval store. ``{}`` on an older
+        gateway."""
+        return _as_dict(self.raw.get("session_tool_policy"))
+
+    def session_tool_policy_supported(self) -> bool:
+        """Feature gate: only ``supported is true`` counts."""
+        return self.session_tool_policy().get("supported") is True
+
     def tts(self) -> Dict[str, Any]:
         return _as_dict(_dig(self.assistant, "voice", "tts"))
 
