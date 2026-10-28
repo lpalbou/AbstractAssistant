@@ -33,7 +33,9 @@ dependencies = [
     # with the [voice] extra for anyone who also wants local transcription.)
     # abstractruntime supplies the session-memory run-id contract shared with
     # the gateway (session_attachments); execution itself stays on the gateway.
-    "abstractruntime>=0.8.4",
+    # 0.15.0: `abstractruntime.replay.apply_delta` keeps the client copy of the gateway's
+    # replay view (one reducer, the runtime's; backlog 1063).
+    "abstractruntime>=0.15.0",
     # 0.11.4 is the first abstractvoice whose voice extras install `webrtcvad-wheels`
     # (0.11.2/0.11.3 required the old `webrtcvad`); the macOS bundle's PyInstaller hook
     # (packaging/macos/hooks/hook-webrtcvad.py) copies webrtcvad-wheels' metadata.

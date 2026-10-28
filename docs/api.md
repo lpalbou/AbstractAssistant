@@ -190,6 +190,15 @@ the stream. Whether the gateway offers live replies is read from
 
 ## Gateway routes used
 
+- Replay view (AbstractGateway 0.17.0+; detected from `/openapi.json` paths, once per client):
+  `GET /api/gateway/runs/{run_id}/view` (`If-None-Match` with the cursor ETag -> 304) and
+  `GET /api/gateway/runs/{run_id}/view/stream` (SSE `view`, `delta`, `done`; reconnects send
+  `Last-Event-ID`). The client copy is kept with `abstractruntime.replay.apply_delta`; a delta that
+  is not newer than the copy is dropped. Python: `GatewayClient.supports_replay_view()`,
+  `get_run_view()`, `stream_run_view()`; `abstractassistant.gateway.replay_view`
+  (`ViewFold`, `ViewProjector`, `follow_run_view`). Without these routes the ledger routes below
+  are used and the run status line says so.
+
 - Sign-in and identity: `/api/gateway/apps/desktop-handover` (console hand-over, loopback),
   `/api/gateway/session/login`, `/api/gateway/session/logout`, `/api/gateway/about` (version rows
   for Settings → About; `/api/gateway/discovery/capabilities` is read when it is absent)

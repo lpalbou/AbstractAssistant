@@ -5,6 +5,15 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+### Changed (in progress, backlog 1063; not released)
+
+- On AbstractGateway 0.17.0 the desktop renders a run from the gateway's replay view
+  (`GET /runs/{id}/view` + `/view/stream`, `replay_view_v1`) instead of rebuilding it from ledger
+  records: status, the approval or question (wherever in the run tree it waits), replies, tool rows
+  and policy decisions. An approval or question answered on another client now closes here. On an
+  older gateway the app says "This gateway has no replay view" and keeps the ledger path.
+  Requires `abstractruntime>=0.15.0` (its `apply_delta`).
+
 ## [0.15.0] - 2026-10-28
 
 Needs AbstractGateway 0.16.0 for the voice library (Create a voice, grouped voices) and the chat-wide tool policy; on an older gateway the chat-wide grant falls back to the labeled local grant this app answers, and the voice library's requests are refused by the gateway.

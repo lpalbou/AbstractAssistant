@@ -717,6 +717,134 @@ class GatewayClient:
                 raise GatewayStreamIdle("stream_ledger socket timeout")
             raise
 
+    # The replay view (AbstractGateway 0.17.0, AbstractRuntime `replay_view_v1`).
+    REPLAY_VIEW_PATH = "/api/gateway/runs/{run_id}/view"
+    REPLAY_VIEW_STREAM_PATH = "/api/gateway/runs/{run_id}/view/stream"
+
+    def supports_replay_view(self) -> bool:
+        """Whether this gateway serves the replay view routes (discovery: its OpenAPI paths).
+
+        Gateways before 0.17.0 do not; the caller then takes the legacy ledger path and says so
+        (never a silent fallback). The answer is remembered per client. A failed discovery
+        raises: it is not read as "no"."""
+        cached = getattr(self, "_replay_view_supported", None)
+        if cached is not None:
+            return bool(cached)
+        doc = self.openapi_document()
+        paths = doc.get("paths") if isinstance(doc, dict) else None
+        if not isinstance(paths, dict):
+            raise GatewayHttpError("openapi_document has no paths: cannot tell whether the replay view is served", status=0)
+        ok = self.REPLAY_VIEW_PATH in paths and self.REPLAY_VIEW_STREAM_PATH in paths
+        self._replay_view_supported = ok
+        return ok
+
+    def get_run_view(
+        self,
+        *,
+        run_id: str,
+        etag: Optional[str] = None,
+        at: Optional[str] = None,
+        timeout_s: Optional[float] = None,
+    ) -> Tuple[int, str, Optional[Dict[str, Any]]]:
+        """``GET /runs/{run_id}/view``: ``(status, etag, view)``.
+
+        ``etag`` (the view's cursor token, quoted as the gateway sends it) is sent as
+        ``If-None-Match``: an unchanged view answers ``(304, etag, None)``. ``at`` asks for the
+        view as the ledger stood at that cursor token."""
+        rid = str(run_id or "").strip()
+        if not rid:
+            raise ValueError("get_run_view: run_id is required")
+        query = {"at": str(at)} if at else None
+        url = self._url(self.REPLAY_VIEW_PATH.format(run_id=rid), query=query)
+        extra = {"Accept": "application/json"}
+        if etag:
+            extra["If-None-Match"] = str(etag)
+        req = urllib.request.Request(url, headers=self._headers(extra=extra), method="GET")
+        timeout = self._cfg.timeout_s if timeout_s is None else float(timeout_s)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                tag = str(resp.headers.get("ETag") or "")
+                raw = resp.read()
+                try:
+                    body = json.loads(_decode_bytes(raw, label="get_run_view"))
+                except Exception as exc:
+                    raise GatewayHttpError(f"get_run_view failed: the view is not JSON ({exc})", status=int(resp.status or 0))
+                if not isinstance(body, dict):
+                    raise GatewayHttpError("get_run_view failed: the view is not a JSON object", status=int(resp.status or 0))
+                return int(resp.status or 200), tag, body
+        except urllib.error.HTTPError as e:
+            if int(getattr(e, "code", 0) or 0) == 304:
+                return 304, str(e.headers.get("ETag") or etag or ""), None
+            body_text = _read_error(e, label="get_run_view failed")
+            raise GatewayHttpError(
+                f"get_run_view failed: {body_text}",
+                status=int(getattr(e, "code", 0) or 0),
+                retry_after_s=_retry_after_s(dict(e.headers)),
+                body_text=body_text,
+            )
+
+    def stream_run_view(
+        self,
+        *,
+        run_id: str,
+        on_frame: Callable[[str, str, Dict[str, Any]], Optional[bool]],
+        last_event_id: Optional[str] = None,
+        stop_signal: Optional[Any] = None,
+        timeout_s: Optional[float] = None,
+        max_idle_s: Optional[float] = None,
+    ) -> None:
+        """Follow ``GET /runs/{run_id}/view/stream`` (SSE).
+
+        ``on_frame(event, id, data)`` receives ``view`` (the whole view), ``delta`` (``id`` =
+        the cursor token after it) and ``done``; returning False stops. ``last_event_id`` is
+        sent as ``Last-Event-ID`` (resume: the gateway sends nothing, one delta, or the whole
+        view). Keep-alive comments count as activity for ``max_idle_s``."""
+        rid = str(run_id or "").strip()
+        if not rid:
+            raise ValueError("stream_run_view: run_id is required")
+        url = self._url(self.REPLAY_VIEW_STREAM_PATH.format(run_id=rid))
+        extra = {"Accept": "text/event-stream"}
+        if last_event_id:
+            extra["Last-Event-ID"] = str(last_event_id)
+        req = urllib.request.Request(url, headers=self._headers(extra=extra), method="GET")
+        timeout = self._cfg.timeout_s if timeout_s is None else float(timeout_s)
+        last_activity = time.monotonic()
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                parser = SseParser()
+                for raw in resp:
+                    if stop_signal is not None and bool(getattr(stop_signal, "is_set", lambda: False)()):
+                        return
+                    last_activity = time.monotonic()
+                    text = _decode_bytes(raw, label="stream_run_view")
+                    for ev in parser.push(text):
+                        if ev.event not in {"view", "delta", "done"}:
+                            continue
+                        try:
+                            data = json.loads(ev.data) if ev.data else {}
+                        except Exception as exc:
+                            # A frame we cannot read leaves the client's copy behind the
+                            # gateway's: stop, and let the follower reconnect from its cursor.
+                            raise GatewayHttpError(f"stream_run_view: {ev.event} frame is not JSON ({exc})", status=0)
+                        if on_frame(ev.event, ev.id, data if isinstance(data, dict) else {}) is False:
+                            return
+                    if max_idle_s is not None and (time.monotonic() - last_activity) >= max_idle_s:
+                        raise GatewayStreamIdle(f"stream_run_view idle for {max_idle_s:.0f}s")
+        except socket.timeout:
+            raise GatewayStreamIdle("stream_run_view socket timeout")
+        except urllib.error.HTTPError as e:
+            body_text = _read_error(e, label="stream_run_view failed")
+            raise GatewayHttpError(
+                f"stream_run_view failed: {body_text}",
+                status=int(getattr(e, "code", 0) or 0),
+                retry_after_s=_retry_after_s(dict(e.headers)),
+                body_text=body_text,
+            )
+        except urllib.error.URLError as e:
+            if isinstance(getattr(e, "reason", None), socket.timeout):
+                raise GatewayStreamIdle("stream_run_view socket timeout")
+            raise
+
     def list_bundles(self) -> Dict[str, Any]:
         return self._request_json(method="GET", url=self._url("/api/gateway/bundles"), label="list_bundles failed")
 

@@ -30,6 +30,7 @@ from ..gateway.events import extract_wait_from_record
 from ..gateway.history_seed import seed_messages_from_history_bundle
 from ..gateway.live_deltas import ASSISTANT_DELTA
 from ..gateway.run_controller import GatewayRunController
+from ..gateway.replay_view import ViewProjector, follow_run_view
 from ..gateway.run_stats import aggregate_run_stats, observe_record
 
 
@@ -837,13 +838,19 @@ class GatewayWorker(QThread):
         self._update_follow_run_id_from_record(run_id=run_id, rec=rec)
         self._record_output_artifact_candidates(run_id=run_id, rec=rec)
         self._record_run_stats(run_id=run_id, rec=rec)
-        events = self._adapter.handle_record(rec)
+        self._emit_ui_events(run_id=run_id, events=self._adapter.handle_record(rec))
+
+    def _emit_ui_events(self, *, run_id: str, events: List[Dict[str, Any]], view_mode: bool = False) -> None:
+        """Hand UI events to the palette (assistant/tool messages also go to the transcript).
+
+        ``view_mode``: the events come from the replay view, which already decided which
+        messages belong to the conversation (no foreground-run filter)."""
         for ev in events:
             if isinstance(ev, dict) and run_id:
                 ev.setdefault("run_id", run_id)
             typ = ev.get("type") if isinstance(ev, dict) else None
             if typ == "assistant":
-                if not self._is_foreground_run(run_id):
+                if not view_mode and not self._is_foreground_run(run_id):
                     continue
                 history_changed = False
                 try:
@@ -914,6 +921,55 @@ class GatewayWorker(QThread):
                 continue
 
             self.event_emitted.emit(ev)
+
+    def _gateway_serves_replay_view(self) -> bool:
+        """Discovery: does this gateway serve `/runs/{id}/view` (AbstractGateway 0.17.0+)?
+
+        Asked once per worker. A gateway whose discovery fails is an error, not "no"."""
+        cached = self.__dict__.get("_replay_view_supported")
+        if cached is None:
+            probe = getattr(self._gateway, "supports_replay_view", None)
+            cached = bool(probe()) if callable(probe) else False
+            self.__dict__["_replay_view_supported"] = cached
+        return bool(cached)
+
+    def _follow_view(self, *, run_id: str, attach: bool) -> str:
+        """Render the run from the gateway's replay view until it is done; return its status.
+
+        The view is AbstractRuntime's reconstruction; this worker only projects its changes
+        onto the palette (`ViewProjector`). An attach shows the transcript from the session
+        seed and asks only what is still open."""
+        projector = ViewProjector()
+        state = {"first": True, "view": None}
+
+        def _on_view(view: Dict[str, Any]) -> None:
+            if state["first"] and attach:
+                projector.suppress_history(view)
+            state["first"] = False
+            state["view"] = view
+            for act in view.get("activities") or []:
+                if act.get("kind") == "llm" and isinstance(act.get("usage"), dict):
+                    self._stats_by_run.setdefault(str(act.get("run_id") or ""), {})["usage"] = act["usage"]
+            events = projector.project(view)
+            if events:
+                self._emit_ui_events(run_id=str(view.get("root_run_id") or run_id), events=events, view_mode=True)
+
+        fold = follow_run_view(
+            gateway=self._gateway,
+            run_id=run_id,
+            on_view=_on_view,
+            should_stop=self.isInterruptionRequested,
+            on_offline=self._mark_offline,
+            on_online=self._mark_online,
+        )
+        status = str((fold.view or {}).get("status") or "").strip().lower()
+        if status in {"completed", "failed", "cancelled"}:
+            return status
+        if self.isInterruptionRequested():
+            return "cancelled"
+        # The stream ended on a tree that is still open (it never says so without `done`):
+        # report what the view says instead of inventing "completed".
+        return status or "running"
 
     _FINAL_LLM_CALL_STATUSES = frozenset({"completed", "failed", "cancelled"})
 
@@ -1147,6 +1203,13 @@ class GatewayWorker(QThread):
                 self._follow_run_id = ""
                 # Reattach replays the whole ledger from the start; suppress
                 # already-resolved waits so answered dialogs don't re-open.
+                if self._gateway_serves_replay_view():
+                    # The view says which waits are open: no resolved-wait bookkeeping.
+                    self._seed_history_from_gateway(run_id=run_id)
+                    self.event_emitted.emit({"type": "status", "status": "thinking"})
+                    final_status = self._follow_view(run_id=run_id, attach=True)
+                    self.event_emitted.emit({"type": "status", "status": final_status})
+                    return
                 self._suppress_resolved_waits_for_attach(run_id)
                 status = controller.get_run_status(run_id=run_id)
                 if status in {"completed", "failed", "cancelled"}:
@@ -1238,6 +1301,19 @@ class GatewayWorker(QThread):
 
             self.event_emitted.emit({"type": "status", "status": "thinking"})
             self._offline = False
+
+            if self._gateway_serves_replay_view():
+                final_status = self._follow_view(run_id=run_id, attach=bool(self._attach_run_id))
+                self.event_emitted.emit({"type": "status", "status": final_status})
+                return
+            self.event_emitted.emit(
+                {
+                    "type": "replay_mode",
+                    "mode": "legacy",
+                    "message": "This gateway has no replay view (AbstractGateway before 0.17.0): "
+                    "the app rebuilds the run from its ledger.",
+                }
+            )
 
             controller.follow_run(
                 root_run_id=run_id,
