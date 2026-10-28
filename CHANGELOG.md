@@ -5,6 +5,26 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+### Fixed
+
+- **Settings stack from the top on every tab** (operator QA 2026-10-28; backlog 1076). On Models → Voice output
+  (TTS), Voice input and the media routes, the route form no longer opens a ~40 px gap under its title, help and
+  state lines: the route list beside it is as tall as its ten routes and the form column now ends in a stretch
+  instead of handing the surplus to its labels. `test_no_settings_section_claims_empty_height` checks every tab and
+  every route.
+- **Message stamps in the kit's words** (backlog 1076): "Yesterday · 10:52 PM", "Oct 1 · 10:52 PM" (no zero-padded
+  day), "Oct 21, 2025 · 10:52 PM" for another year, a bare date as its day alone, and no stamp at all (never the raw
+  text) for a malformed timestamp (AbstractUIC panel-chat `formatMessageStamp`).
+
+### Added
+
+- **Choosing a voice plays it** (backlog 1076). Settings → Models → Voice output: picking a voice plays a short
+  sample through the desktop's own speech path with the voice just chosen; a play/stop button beside the list
+  replays or stops it; a newer choice stops the older sample; "Synthesizing a sample…", "Playing a sample…" and
+  "The sample did not play: <reason>." say what happens. Nothing plays when Settings opens, and a reply being read
+  aloud is never cut by a sample (the kit's voice picker, AbstractUIC `AfVoiceSection`).
+- **Apple Watch: Run on an automation's details answers the tap** (backlog 1072; `watch/apple/CHANGELOG.md`).
+
 ### Changed
 
 - **An automation opens as the chat** (operator, 2026-10-28; backlog 1070). Its runs read as the chat's exchanges: a
