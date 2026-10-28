@@ -803,6 +803,8 @@ def test_settings_clone_voice_travels_as_voice_on_the_stream_lane(monkeypatch: p
     monkeypatch.setattr(vm, "_audio_player_available", lambda: True)
     monkeypatch.setattr(vm, "_gateway_tts_streaming_available", lambda: True)
     monkeypatch.setattr(vm, "_supports_inprocess_audio_player", lambda: True)
+    # Only wav streams; the negotiated format is mp3 off macOS (CI runs Linux).
+    monkeypatch.setattr(vm, "_preferred_tts_format", lambda: "wav")
     player = SimpleNamespace(is_playing=False, on_audio_start=None, on_audio_end=None, on_audio_chunk=None,
                              playback_complete_callback=None, play_audio=lambda *a, **k: None,
                              pause=lambda: True, resume=lambda: True, stop_stream=lambda: None)
