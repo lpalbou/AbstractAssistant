@@ -393,3 +393,23 @@ def test_stream_chunks_reach_the_device_in_order(monkeypatch: pytest.MonkeyPatch
     assert [n for n, _ in player.play_calls] == [240, 480, 720]
     # Chunk N carries sample value N+1 (scaled int16) — proves no reordering.
     assert [round(v * 32768.0) for _, v in player.play_calls] == [1, 2, 3]
+
+
+@pytest.mark.basic
+def test_unpinned_retry_tells_the_user_the_chosen_voice_was_not_used(monkeypatch: pytest.MonkeyPatch) -> None:
+    """QA 2026-10-28 (a): the reply was read in another voice with no word why."""
+    gateway = _PinRejectingGateway()
+    vm = GatewayVoiceManager(llm_manager=_ManagerStub(gateway), debug_mode=False)
+    _wire_player(vm, monkeypatch)
+    monkeypatch.setenv("ABSTRACTASSISTANT_GATEWAY_TTS_MODEL", "unresolvable-model")
+    notices: list[str] = []
+    vm.on_speech_notice = notices.append
+
+    with pytest.warns(UserWarning):
+        assert vm.speak("hello rejected pin") is True
+        assert gateway.stream_done.wait(timeout=2.0)
+        assert _wait_for(lambda: bool(notices))
+
+    assert len(notices) == 1
+    assert "could not be used" in notices[0]
+    assert "default voice" in notices[0]

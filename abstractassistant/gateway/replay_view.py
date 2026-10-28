@@ -198,12 +198,43 @@ def finished_llm_calls(view: Dict[str, Any]) -> Set[str]:
     return out
 
 
-def _media_meta(meta: Dict[str, Any], artifact_ids: Any, paths: Dict[str, str]) -> None:
+# Output fields that hold the run's own bookkeeping, never something to show the person: the
+# agent scratchpad and node traces carry the offloaded system prompt, provider request and step
+# list (`{"$artifact"}` refs the runtime offloads by size). QA 2026-10-28 (b): two such refs
+# showed as raw-id chips under an automation's answer and could not be opened.
+_INTERNAL_PATH_PARTS = frozenset({"scratchpad", "node_traces", "node_trace", "trace", "traces"})
+
+
+def _is_internal_path(path: str) -> bool:
+    parts = [p for p in re.split(r"[.\[\]]", str(path or "")) if p and not p.isdigit()]
+    return any(p in _INTERNAL_PATH_PARTS or p.startswith("_") for p in parts)
+
+
+def _view_artifacts(view: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """The view's artifact entries by id (`path`: where it was first referenced, `run_id`: its run)."""
+    return {str(a.get("id") or ""): a for a in view.get("artifacts") or [] if isinstance(a, dict) and a.get("id")}
+
+
+def _media_meta(meta: Dict[str, Any], artifact_ids: Any, arts: Dict[str, Dict[str, Any]]) -> None:
     """Name each artifact by the output field that held it (`image_artifact` -> an image tile);
-    the palette reads these keys for the answer's media."""
+    the palette reads these keys for the answer's media.
+
+    Only what the person can use is attached: a ref the view does not list (no path, no run:
+    it can be neither named nor opened) or one under the run's bookkeeping
+    (`_is_internal_path`) is left out. Each ref carries the run that owns it, which is the run
+    the gateway serves it through (a child run's artifact is not visible through the root)."""
     for art in artifact_ids or []:
-        ref = {"$artifact": str(art)}
-        parts = re.split(r"[.\[\]]", paths.get(str(art), ""))
+        entry = arts.get(str(art))
+        if entry is None:
+            warnings.warn(f"#REPLAY: message artifact {art!r} is not listed by the replay view; not shown")
+            continue
+        path = str(entry.get("path") or "")
+        if _is_internal_path(path):
+            continue
+        ref: Dict[str, Any] = {"$artifact": str(art)}
+        if entry.get("run_id"):
+            ref["run_id"] = str(entry["run_id"])
+        parts = re.split(r"[.\[\]]", path)
         field = next((k for k in reversed(parts) if k and not k.isdigit()), "")
         if field in _MEDIA_KEYS and field not in meta:
             meta[field] = ref
@@ -233,11 +264,11 @@ def final_fallback_event(view: Dict[str, Any], output: Any = None) -> Dict[str, 
             meta0.setdefault("artifact_id", str(meta0["artifact"]["$artifact"]))
         if len(meta0) > 1:
             return {"type": "assistant", "content": "", "final": True, "ts": "", "run_id": root, "meta": meta0}
-    paths = {str(a.get("id") or ""): str(a.get("path") or "") for a in view.get("artifacts") or []}
-    ids = [a for a, p in paths.items() if p.split(".", 1)[0].split("[", 1)[0] == "output"
-           and any(str(x.get("id")) == a and str(x.get("run_id") or "") == root for x in view.get("artifacts") or [])]
+    arts = _view_artifacts(view)
+    ids = [a for a, e in arts.items() if str(e.get("path") or "").split(".", 1)[0].split("[", 1)[0] == "output"
+           and str(e.get("run_id") or "") == root]
     meta: Dict[str, Any] = {"run_id": root}
-    _media_meta(meta, ids, paths)
+    _media_meta(meta, ids, arts)
     return {"type": "assistant", "content": "", "final": True, "ts": "", "run_id": root, "meta": meta}
 
 
@@ -300,9 +331,9 @@ class ViewProjector:
             self._display[rid] = text
         for act in view.get("activities") or []:
             events.extend(self._activity_events(act))
-        paths = {str(a.get("id") or ""): str(a.get("path") or "") for a in view.get("artifacts") or []}
+        arts = _view_artifacts(view)
         for m in view.get("messages") or []:
-            ev = self._message_event(m, root, paths)
+            ev = self._message_event(m, root, arts)
             if ev is not None:
                 events.append(ev)
         events.extend(self._interaction_events(view.get("interaction"), view.get("open_waits")))
@@ -357,7 +388,7 @@ class ViewProjector:
             out.append({"type": "error", "error": str(act.get("error") or f"{act.get('name') or kind} failed"), "run_id": rid})
         return out
 
-    def _message_event(self, m: Dict[str, Any], root: str, paths: Dict[str, str]) -> Optional[Dict[str, Any]]:
+    def _message_event(self, m: Dict[str, Any], root: str, arts: Dict[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         mid = str(m.get("id") or "")
         if not mid or mid in self._messages:
             return None
@@ -375,7 +406,7 @@ class ViewProjector:
             return None
         rid = str(m.get("run_id") or root)
         meta: Dict[str, Any] = {"run_id": rid, "message_id": mid}
-        _media_meta(meta, m.get("artifact_ids"), paths)
+        _media_meta(meta, m.get("artifact_ids"), arts)
         ev_extra: Dict[str, Any] = {}
         if final and m.get("repeats"):
             meta["repeats"] = m.get("repeats")

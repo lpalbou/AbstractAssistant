@@ -1596,17 +1596,31 @@ def _artifact_media_kind(artifact: Dict[str, Any]) -> str:
     return "other"
 
 
+_ARTIFACT_KIND_NOUNS = {"image": "Image", "video": "Video", "audio": "Audio"}
+
+
 def _artifact_label(artifact: Dict[str, Any]) -> str:
+    """A readable name for an attachment chip: its file name, else what it is
+    ("Image", "Document", "Attachment") and its size when known. Never the
+    artifact id (QA 2026-10-28 (b): ids are for diagnostics, not for people)."""
     filename = str(artifact.get("filename") or "").strip()
     if filename:
         return filename
     local_path = str(artifact.get("local_path") or artifact.get("path") or "").strip()
     if local_path:
         return Path(local_path).name or local_path
-    artifact_id = str(
-        artifact.get("$artifact") or artifact.get("artifact_id") or ""
-    ).strip()
-    return artifact_id or "artifact"
+    content_type = str(artifact.get("content_type") or "").strip().lower()
+    noun = _ARTIFACT_KIND_NOUNS.get(_artifact_media_kind(artifact))
+    if noun is None:
+        if content_type.startswith("text/") or content_type in {"application/pdf", "application/json"}:
+            noun = "Document"
+        else:
+            noun = "Attachment"
+    try:
+        size = int(artifact.get("size_bytes") or 0)
+    except (TypeError, ValueError):
+        size = 0
+    return f"{noun} · {_human_file_size(size)}" if size > 0 else noun
 
 
 def _message_media_artifacts(message: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -5742,6 +5756,7 @@ class AssistantPalette(QMainWindow):
     # the GUI thread so a refusal/abort becomes a banner instead of a
     # `warnings.warn` nobody can see (2026-08-02).
     message_speech_failed = pyqtSignal(str)
+    message_speech_notice = pyqtSignal(str)
     connection_status_updated = pyqtSignal(object)
     # Startup work that touches the gateway runs off the GUI thread and lands
     # via these signals (bootstrap warms caches; reattach probes the last run).
@@ -5900,6 +5915,7 @@ class AssistantPalette(QMainWindow):
         self.message_speech_started.connect(self._on_message_speech_started)
         self.message_speech_finished.connect(self._on_message_speech_finished)
         self.message_speech_failed.connect(self._on_message_speech_failed)
+        self.message_speech_notice.connect(self._on_message_speech_notice)
         self.connection_status_updated.connect(self._apply_connection_status)
         self.bootstrap_ready.connect(self._on_bootstrap_ready)
         self.reattach_candidate.connect(self._on_reattach_candidate)
@@ -5948,6 +5964,9 @@ class AssistantPalette(QMainWindow):
         self._controller.voice_manager.on_speech_end = self._on_voice_speech_activity
         self._controller.voice_manager.on_speech_error = (
             self.message_speech_failed.emit
+        )
+        self._controller.voice_manager.on_speech_notice = (
+            self.message_speech_notice.emit
         )
         self._install_speech_meter()
         # Settings reaches the theme switch through the controller rather than
@@ -10446,6 +10465,12 @@ class AssistantPalette(QMainWindow):
         if conversation is not None and conversation.state == "speaking":
             conversation.speech_finished()
 
+    def _on_message_speech_notice(self, text: str) -> None:
+        """Speech plays, but not in the voice chosen in Settings: say so."""
+        message = str(text or "").strip()
+        if message:
+            self._set_banner(f"{message}.", tone="warning", key="voice-substitute")
+
     def _on_message_speech_finished(self, key: str) -> None:
         if str(self._state("_active_spoken_message_key", "") or "") == str(key or ""):
             self._active_spoken_message_key = ""
@@ -12903,7 +12928,7 @@ def _redeem_launch_handover(controller: AssistantController, *, base_url: str, h
     """Redeem the gateway console's hand-over file.
 
     Returns ``(banner_text, tone)``: ``("", "")`` when there is nothing to say,
-    an ``info`` notice when an existing sign-in was kept or replaced, an
+    an ``info`` notice when an existing sign-in was replaced, an
     ``error`` when the hand-over failed. Runs before the palette exists so its
     first gateway calls already carry the new session."""
     path = str(handover_file or "").strip()

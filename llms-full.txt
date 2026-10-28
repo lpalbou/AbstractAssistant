@@ -3148,6 +3148,26 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+## [0.16.3] - 2026-10-28
+
+Desktop fixes from the operator's QA of the 2026-10-28 release (backlog 1067).
+
+### Fixed
+
+- **Read aloud uses the voice chosen in Settings.** A cloned voice (for example a Qwen3-TTS clone on a Base
+  checkpoint) saved as the Voice output override was sent to the gateway as a voice *profile*; the engine refused
+  it before any audio and the reply was read in the gateway's default voice (Supertonic). The chosen voice now
+  travels as the request's `voice` (the gateway resolves a clone or an engine voice), an explicit profile as
+  `profile`. When the gateway still refuses the chosen voice and the reply is read in its default voice, a banner
+  says so.
+- **An answer no longer shows the run's bookkeeping as attachments.** Automation answers showed two chips named by
+  raw ids that could not be opened ("artifact not found"): they were the agent's offloaded system prompt and step
+  list, which the replay view lists with the answer (AbstractRuntime backlog 0862). The palette shows only what the
+  run produced, opens each attachment through the run that owns it, and names a chip by its file name or its kind
+  and size ("Document · 4.2 KB"), never by its id.
+- The "Already connected to … as …; kept that sign-in." banner is gone: the connection status at the top right
+  already says it.
+
 ## [0.16.2] - 2026-10-28
 
 The web Assistant on AbstractUIC 0.8.2. The Python package is unchanged from 0.16.1 apart from its version.
@@ -3161,9 +3181,9 @@ The web Assistant on AbstractUIC 0.8.2. The Python package is unchanged from 0.1
 - The web Assistant builds with `@abstractframework/panel-chat` 0.6.2, `@abstractframework/ui-kit` 0.9.4 and
   `@abstractframework/app-server` 0.1.13 (were 0.6.0, 0.9.2, 0.1.12). From the kit: the tool approval card makes
   "Allow once" its primary and keeps one visible scope line; a gateway that does not answer reads "Gateway … did not
-  answer" instead of "Session rejected — sign in again"; "Create a voice" and "Manage voices" are styled; the voice
-  picker lists each Qwen3-TTS voice once; one duration format in the chat, and a tool time that includes an approval
-  wait says so; tool-row badges and the model picker's "Custom" are no longer cut.
+  answer" instead of "Session rejected — sign in again"; the voice picker lists each Qwen3-TTS voice once; one duration
+  format in the chat, and a tool time that includes an approval wait says so; the voice settings' model picker no
+  longer cuts "Custom".
 - Tests: the transport test reopens a two-turn conversation (both turns, oldest first, one small listing, no ledger
   pages); the layout check counts the turn listing apart from the ledger fold's bundle.
 
@@ -7258,7 +7278,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.16.2"
+version = "0.16.3"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -9992,8 +10012,8 @@ class AssistantController:
         another sign-in:
 
         * a saved session for the SAME gateway AND the SAME user (the file's
-          ``user_id``) that still works is kept and the code is not redeemed
-          ("already connected as …");
+          ``user_id``) that still works is kept and the code is not redeemed,
+          with no notice (the connection status already shows it);
         * a saved sign-in for another gateway or another user is replaced, its
           session logged out (best effort), and the notice says who is signed
           in now and that the previous user was signed out.
@@ -10016,8 +10036,10 @@ class AssistantController:
         ):
             if previous != self.connection:
                 self._save_connection(previous)
-            who = previous.user_id or "your account"
-            return previous, f"Already connected to {target} as {who}; kept that sign-in."
+            # Nothing to say: the window's connection status already shows the
+            # gateway and the signed-in user (QA 2026-10-28 (f): the banner
+            # only repeated it).
+            return previous, ""
         other_user_session = bool(
             previous is not None
             and str(previous.auth_mode or "") == "session"
@@ -11401,11 +11423,22 @@ class AssistantController:
         tts_provider = str(tts_override.get("provider") or "").strip()
         tts_model = str(tts_override.get("model") or "").strip()
         tts_options = tts_override.get("options") if isinstance(tts_override.get("options"), dict) else {}
-        tts_voice = str(tts_options.get("voice") or tts_options.get("profile") or "").strip()
+        # `options.voice` (what Settings saves) travels as the request's
+        # `voice`: the gateway resolves it as a stored clone OR an engine
+        # profile (abstractvoice api.md: "voice: base voice/profile id or
+        # cloned voice id"). Sending it as `profile` broke every clone: a
+        # Qwen3-TTS Base clone sent as a profile is refused before any audio
+        # ("model type 'base' is a cloning checkpoint"), and the stream lane's
+        # unpinned retry then read the reply in the gateway's default voice
+        # (operator QA 2026-10-28: supertonic instead of hal9000-qwen2).
+        # Only an explicit `options.profile` is sent as a profile.
+        voice_id = str(tts_options.get("voice") or "").strip()
+        profile_id = str(tts_options.get("profile") or "").strip()
+        tts_voice = voice_id or profile_id
         setattr(self.llm_manager, "current_tts_provider", tts_provider)
         setattr(self.llm_manager, "current_tts_model", tts_model)
         setattr(self.llm_manager, "current_tts_voice", tts_voice)
-        setattr(self.llm_manager, "current_tts_voice_mode", "profile")
+        setattr(self.llm_manager, "current_tts_voice_mode", "voice" if voice_id else "profile")
         setattr(self.llm_manager, "current_stt_model", str(stt_override.get("model") or "").strip())
         setattr(self.llm_manager, "current_stt_provider", str(stt_override.get("provider") or "").strip())
 
@@ -14502,12 +14535,43 @@ def finished_llm_calls(view: Dict[str, Any]) -> Set[str]:
     return out
 
 
-def _media_meta(meta: Dict[str, Any], artifact_ids: Any, paths: Dict[str, str]) -> None:
+# Output fields that hold the run's own bookkeeping, never something to show the person: the
+# agent scratchpad and node traces carry the offloaded system prompt, provider request and step
+# list (`{"$artifact"}` refs the runtime offloads by size). QA 2026-10-28 (b): two such refs
+# showed as raw-id chips under an automation's answer and could not be opened.
+_INTERNAL_PATH_PARTS = frozenset({"scratchpad", "node_traces", "node_trace", "trace", "traces"})
+
+
+def _is_internal_path(path: str) -> bool:
+    parts = [p for p in re.split(r"[.\[\]]", str(path or "")) if p and not p.isdigit()]
+    return any(p in _INTERNAL_PATH_PARTS or p.startswith("_") for p in parts)
+
+
+def _view_artifacts(view: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """The view's artifact entries by id (`path`: where it was first referenced, `run_id`: its run)."""
+    return {str(a.get("id") or ""): a for a in view.get("artifacts") or [] if isinstance(a, dict) and a.get("id")}
+
+
+def _media_meta(meta: Dict[str, Any], artifact_ids: Any, arts: Dict[str, Dict[str, Any]]) -> None:
     """Name each artifact by the output field that held it (`image_artifact` -> an image tile);
-    the palette reads these keys for the answer's media."""
+    the palette reads these keys for the answer's media.
+
+    Only what the person can use is attached: a ref the view does not list (no path, no run:
+    it can be neither named nor opened) or one under the run's bookkeeping
+    (`_is_internal_path`) is left out. Each ref carries the run that owns it, which is the run
+    the gateway serves it through (a child run's artifact is not visible through the root)."""
     for art in artifact_ids or []:
-        ref = {"$artifact": str(art)}
-        parts = re.split(r"[.\[\]]", paths.get(str(art), ""))
+        entry = arts.get(str(art))
+        if entry is None:
+            warnings.warn(f"#REPLAY: message artifact {art!r} is not listed by the replay view; not shown")
+            continue
+        path = str(entry.get("path") or "")
+        if _is_internal_path(path):
+            continue
+        ref: Dict[str, Any] = {"$artifact": str(art)}
+        if entry.get("run_id"):
+            ref["run_id"] = str(entry["run_id"])
+        parts = re.split(r"[.\[\]]", path)
         field = next((k for k in reversed(parts) if k and not k.isdigit()), "")
         if field in _MEDIA_KEYS and field not in meta:
             meta[field] = ref
@@ -14537,11 +14601,11 @@ def final_fallback_event(view: Dict[str, Any], output: Any = None) -> Dict[str, 
             meta0.setdefault("artifact_id", str(meta0["artifact"]["$artifact"]))
         if len(meta0) > 1:
             return {"type": "assistant", "content": "", "final": True, "ts": "", "run_id": root, "meta": meta0}
-    paths = {str(a.get("id") or ""): str(a.get("path") or "") for a in view.get("artifacts") or []}
-    ids = [a for a, p in paths.items() if p.split(".", 1)[0].split("[", 1)[0] == "output"
-           and any(str(x.get("id")) == a and str(x.get("run_id") or "") == root for x in view.get("artifacts") or [])]
+    arts = _view_artifacts(view)
+    ids = [a for a, e in arts.items() if str(e.get("path") or "").split(".", 1)[0].split("[", 1)[0] == "output"
+           and str(e.get("run_id") or "") == root]
     meta: Dict[str, Any] = {"run_id": root}
-    _media_meta(meta, ids, paths)
+    _media_meta(meta, ids, arts)
     return {"type": "assistant", "content": "", "final": True, "ts": "", "run_id": root, "meta": meta}
 
 
@@ -14604,9 +14668,9 @@ class ViewProjector:
             self._display[rid] = text
         for act in view.get("activities") or []:
             events.extend(self._activity_events(act))
-        paths = {str(a.get("id") or ""): str(a.get("path") or "") for a in view.get("artifacts") or []}
+        arts = _view_artifacts(view)
         for m in view.get("messages") or []:
-            ev = self._message_event(m, root, paths)
+            ev = self._message_event(m, root, arts)
             if ev is not None:
                 events.append(ev)
         events.extend(self._interaction_events(view.get("interaction"), view.get("open_waits")))
@@ -14661,7 +14725,7 @@ class ViewProjector:
             out.append({"type": "error", "error": str(act.get("error") or f"{act.get('name') or kind} failed"), "run_id": rid})
         return out
 
-    def _message_event(self, m: Dict[str, Any], root: str, paths: Dict[str, str]) -> Optional[Dict[str, Any]]:
+    def _message_event(self, m: Dict[str, Any], root: str, arts: Dict[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         mid = str(m.get("id") or "")
         if not mid or mid in self._messages:
             return None
@@ -14679,7 +14743,7 @@ class ViewProjector:
             return None
         rid = str(m.get("run_id") or root)
         meta: Dict[str, Any] = {"run_id": rid, "message_id": mid}
-        _media_meta(meta, m.get("artifact_ids"), paths)
+        _media_meta(meta, m.get("artifact_ids"), arts)
         ev_extra: Dict[str, Any] = {}
         if final and m.get("repeats"):
             meta["repeats"] = m.get("repeats")
@@ -16556,6 +16620,11 @@ class GatewayVoiceManager:
         # went back to idle. Every abort now travels this callback so the UI
         # can say why. Fires at most once per speak() dispatch.
         self.on_speech_error: Optional[Callable[[str], None]] = None
+        # Speech that plays, but NOT as the user chose (the stream route
+        # refused the chosen engine/model/voice and the reply is read in the
+        # gateway's default voice). Never silent: the operator heard another
+        # voice with no word why (QA 2026-10-28).
+        self.on_speech_notice: Optional[Callable[[str], None]] = None
         self._speech_failure_causes: list[str] = []
         self._speech_failure_reported = False
 
@@ -17493,6 +17562,10 @@ class GatewayVoiceManager:
                 f"(provider={provider!r} model={model!r} voice={voice!r} profile={profile!r}): "
                 f"{reason}; retrying the stream with gateway defaults"
             )
+            self._report_speech_notice(
+                f"The voice chosen in Settings could not be used ({str(reason or '').strip()[:200]}); "
+                "reading with the gateway's default voice instead"
+            )
             result = self._run_gateway_stream_playback(
                 stream_id=stream_id,
                 pause_gate=pause_gate,
@@ -17751,8 +17824,8 @@ class GatewayVoiceManager:
                 "run_id": run_id,
                 "text": text,
                 "provider": selected_provider,
-                "voice": selected_voice if selected_voice_mode == "clone" else None,
-                "profile": selected_voice if selected_voice_mode != "clone" else None,
+                "voice": selected_voice if selected_voice_mode == "voice" else None,
+                "profile": selected_voice if selected_voice_mode != "voice" else None,
                 "fmt": preferred_format,
                 "request_id": request_id,
                 "model": selected_model,
@@ -17922,6 +17995,16 @@ class GatewayVoiceManager:
             return
         try:
             cb(text)
+        except Exception:
+            pass
+
+    def _report_speech_notice(self, text: str) -> None:
+        """Tell the UI that speech plays, but not as the user chose."""
+        cb = self.on_speech_notice
+        if cb is None:
+            return
+        try:
+            cb(str(text or "").strip())
         except Exception:
             pass
 
@@ -18984,10 +19067,12 @@ class GatewayVoiceManager:
             return preferred or None
 
     def _selected_tts_voice_mode(self) -> str:
+        """How the selected voice id travels: `voice` (a clone or an engine
+        voice, resolved by the gateway) or `profile` (an engine profile only).
+
+        "clone" is the older name of "voice"."""
         selected = str(getattr(self._llm_manager, "current_tts_voice_mode", "") or "").strip().lower()
-        if selected in {"clone", "profile"}:
-            return selected
-        return "profile"
+        return "voice" if selected in {"voice", "clone"} else "profile"
 
     def _selected_tts_model(self) -> Optional[str]:
         """Explicit TTS model pin, or None to let the gateway resolve its own.

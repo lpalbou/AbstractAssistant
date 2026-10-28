@@ -1157,8 +1157,8 @@ class AssistantController:
         another sign-in:
 
         * a saved session for the SAME gateway AND the SAME user (the file's
-          ``user_id``) that still works is kept and the code is not redeemed
-          ("already connected as …");
+          ``user_id``) that still works is kept and the code is not redeemed,
+          with no notice (the connection status already shows it);
         * a saved sign-in for another gateway or another user is replaced, its
           session logged out (best effort), and the notice says who is signed
           in now and that the previous user was signed out.
@@ -1181,8 +1181,10 @@ class AssistantController:
         ):
             if previous != self.connection:
                 self._save_connection(previous)
-            who = previous.user_id or "your account"
-            return previous, f"Already connected to {target} as {who}; kept that sign-in."
+            # Nothing to say: the window's connection status already shows the
+            # gateway and the signed-in user (QA 2026-10-28 (f): the banner
+            # only repeated it).
+            return previous, ""
         other_user_session = bool(
             previous is not None
             and str(previous.auth_mode or "") == "session"
@@ -2566,11 +2568,22 @@ class AssistantController:
         tts_provider = str(tts_override.get("provider") or "").strip()
         tts_model = str(tts_override.get("model") or "").strip()
         tts_options = tts_override.get("options") if isinstance(tts_override.get("options"), dict) else {}
-        tts_voice = str(tts_options.get("voice") or tts_options.get("profile") or "").strip()
+        # `options.voice` (what Settings saves) travels as the request's
+        # `voice`: the gateway resolves it as a stored clone OR an engine
+        # profile (abstractvoice api.md: "voice: base voice/profile id or
+        # cloned voice id"). Sending it as `profile` broke every clone: a
+        # Qwen3-TTS Base clone sent as a profile is refused before any audio
+        # ("model type 'base' is a cloning checkpoint"), and the stream lane's
+        # unpinned retry then read the reply in the gateway's default voice
+        # (operator QA 2026-10-28: supertonic instead of hal9000-qwen2).
+        # Only an explicit `options.profile` is sent as a profile.
+        voice_id = str(tts_options.get("voice") or "").strip()
+        profile_id = str(tts_options.get("profile") or "").strip()
+        tts_voice = voice_id or profile_id
         setattr(self.llm_manager, "current_tts_provider", tts_provider)
         setattr(self.llm_manager, "current_tts_model", tts_model)
         setattr(self.llm_manager, "current_tts_voice", tts_voice)
-        setattr(self.llm_manager, "current_tts_voice_mode", "profile")
+        setattr(self.llm_manager, "current_tts_voice_mode", "voice" if voice_id else "profile")
         setattr(self.llm_manager, "current_stt_model", str(stt_override.get("model") or "").strip())
         setattr(self.llm_manager, "current_stt_provider", str(stt_override.get("provider") or "").strip())
 

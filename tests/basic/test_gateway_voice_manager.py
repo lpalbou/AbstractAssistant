@@ -721,3 +721,53 @@ def test_gateway_voice_manager_stream_success_fires_completion_exactly_once(monk
     time.sleep(0.2)
     assert ends == [1], f"on_speech_end must fire exactly once, got {ends}"
     assert completions == [1], f"callback must fire exactly once, got {completions}"
+
+
+def _settings_voice_override(options: dict):
+    """The real controller code that applies a Settings voice override."""
+    from abstractassistant.controller import AssistantController
+
+    llm = SimpleNamespace()
+    fake = SimpleNamespace(
+        llm_manager=llm,
+        route_override=lambda key: (
+            {"provider": "qwen3-tts", "model": "Qwen/Qwen3-TTS-12Hz-0.6B-Base", "options": options}
+            if key == "output.voice"
+            else {}
+        ),
+    )
+    AssistantController._sync_gateway_voice_defaults(fake)
+    return llm
+
+
+@pytest.mark.basic
+def test_settings_clone_voice_travels_as_voice_not_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    """QA 2026-10-28 (a): Settings saves a Qwen3-TTS clone as `options.voice`.
+
+    Sent as `profile`, the gateway refuses it before any audio ("model type
+    'base' is a cloning checkpoint") and the reply was read in the gateway's
+    default voice (supertonic). It must travel as the request's `voice`.
+    """
+    clone_id = "41576236cd5f4a9a8399fa6cf07399e5"
+    llm = _settings_voice_override({"voice": clone_id})
+    gateway = _CapabilityGatewayStub()
+    manager = _ManagerStub(gateway)
+    for name in ("current_tts_provider", "current_tts_model", "current_tts_voice", "current_tts_voice_mode"):
+        setattr(manager, name, getattr(llm, name))
+    vm = GatewayVoiceManager(llm_manager=manager, debug_mode=False)
+    monkeypatch.setattr(vm, "_audio_player_available", lambda: True)
+    monkeypatch.setattr(vm, "_play_audio_bytes", lambda audio_bytes, content_type, callback=None: True)
+
+    assert vm.speak("hello in the cloned voice") is True
+    assert _wait_for(lambda: bool(gateway.tts_kwargs))
+    assert gateway.tts_kwargs["provider"] == "qwen3-tts"
+    assert gateway.tts_kwargs["model"] == "Qwen/Qwen3-TTS-12Hz-0.6B-Base"
+    assert gateway.tts_kwargs["voice"] == clone_id
+    assert gateway.tts_kwargs["profile"] is None
+
+
+@pytest.mark.basic
+def test_settings_explicit_profile_still_travels_as_profile() -> None:
+    llm = _settings_voice_override({"profile": "dylan"})
+    assert llm.current_tts_voice == "dylan"
+    assert llm.current_tts_voice_mode == "profile"
