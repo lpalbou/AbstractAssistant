@@ -168,6 +168,25 @@ describe("the replay view (panel-chat 0.6.0, AbstractGateway >= 0.17.0)", () => 
     vi.unstubAllGlobals();
   });
 
+  it("the kit's abort signal reaches the view requests (dispose aborts them)", async () => {
+    const view = replayView();
+    const signals: Array<[string, AbortSignal | undefined]> = [];
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      if (url.includes("/view")) signals.push([url, init.signal ?? undefined]);
+      if (url.endsWith("/view")) return new Response(JSON.stringify(view), { status: 200, headers: { ETag: `"${view.cursor.token}"` } });
+      if (url.includes("/stream")) return new Response(new ReadableStream({ start(c) { init.signal?.addEventListener("abort", () => { try { c.close(); } catch { /* closed */ } }); } }), { status: 200 });
+      return new Response(JSON.stringify({ run_id: "root0000-run", status: "waiting" }), { status: 200 });
+    });
+    const ctl = new WorkflowSessionController(createAssistantTransport(new GatewayClient(host()), { onDeltaError: () => {} }));
+    await ctl.load("root0000-run");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(signals.map(([u]) => u)).toEqual(["api/gateway/runs/root0000-run/view", "api/gateway/runs/root0000-run/view/stream"]);
+    expect(signals.every(([, s]) => s instanceof AbortSignal && !s.aborted)).toBe(true);
+    ctl.dispose();
+    expect(signals.every(([, s]) => s?.aborted)).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
   it("an older gateway (no view route) keeps the ledger fold, labeled", async () => {
     vi.stubGlobal("fetch", async (url: string) => {
       if (url.endsWith("/view")) return new Response(JSON.stringify({ detail: "Not Found" }), { status: 404 });

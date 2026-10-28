@@ -13,7 +13,7 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   pending approval or question wherever in the run tree it waits (a sub-agent's included), the messages and the tool
   rows come from the gateway's one reconstruction instead of this page folding the history bundle and ledger pages,
   and there is no timed run poll. The ledger stream stays open only for live reply text. On an older gateway the page
-  keeps folding the ledger itself (the controller labels it, `snapshot.source: "ledger_fold"`). `GatewayClient.replayFetch`
+  keeps folding the ledger itself, and the conversation header says so ("Rebuilt in this browser", with the reason on hover). `GatewayClient.replayFetch`
   is the view routes' authenticated fetch; `createAssistantTransport` adds `replayView`.
 
 ## [0.15.0] - 2026-10-28

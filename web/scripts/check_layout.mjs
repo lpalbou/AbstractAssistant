@@ -37,15 +37,35 @@ const bundle = {
   },
 };
 const json = (body, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(body) });
-function answer(path) {
+/** A small replay_view_v1 of a finished turn (AbstractGateway >= 0.17.0 serves it). */
+function viewFor(runId) {
+  const order = (ts, seq) => [ts, runId, seq];
+  return {
+    version: "replay_view_v1", root_run_id: runId, workflow: { id: "basic-agent@0.0.5:main", bundle_id: "basic-agent", bundle_version: "0.0.5", flow_id: "main", entrypoint: "main" },
+    session_id: "s1", status: "completed", display_status: null,
+    cursor: { token: `${runId}:2~d1`, records: 2, runs: { [runId]: 2 } },
+    runs: [{ run_id: runId, parent_run_id: null, status: "completed", depth: 0, order: ["", "", 0, runId], waiting: null, holds_interaction: false }],
+    interaction: null, open_waits: [],
+    messages: [
+      { id: `${runId}:input`, role: "user", kind: "prompt", text: titles[runId] || "Hello", run_id: runId, step_ids: [], seqs: [], source: "run_input", artifact_ids: [], order: order("2026-10-26T08:00:00Z", 0) },
+      { id: `${runId}:final`, role: "assistant", kind: "final", text: "Here is the list:\n\n```\n" + "x".repeat(300) + "\n```\n\nDone.", run_id: runId, step_ids: ["done"], seqs: [2], source: "ledger", artifact_ids: [], order: order("2026-10-26T09:00:00Z", 2) },
+    ],
+    activities: [{ id: `${runId}:t1`, run_id: runId, execution_id: "t1", node_id: "act", kind: "tool", effect_type: "tool_calls", name: "fetch_url", status: "completed", started_at: "2026-10-26T08:30:00Z", ended_at: "2026-10-26T08:31:00Z", seqs: [1], step_ids: ["t1"], order: order("2026-10-26T08:30:00Z", 1), tool_calls: [{ id: "c1", name: "fetch_url", arguments: { url: "https://example.org/a/very/long/path/that/does/not/break/anywhere/at/all" }, status: "completed", output: "ok" }] }],
+    artifacts: [], usage: { input_tokens: 10, output_tokens: 20, total_tokens: 30, llm_calls: 1 }, warnings: [],
+  };
+}
+const seen = { history: 0, view: 0 };
+function answer(path, mode) {
   if (path === "api/connection/gateway") return json({ ok: true, has_session: true, gateway_url: "http://fake", gateway: { ok: true, principal: { user_id: "demo" } } });
   if (path.startsWith("api/gateway/runs?")) return json({ items: sessions, has_more: false });
   let m = /^api\/gateway\/runs\/([^/?]+)\/input_data/.exec(path);
   if (m) return json({ input_data: { prompt: titles[m[1]] || "" } });
-  // A gateway before 0.17.0: no replay view route (FastAPI's unmatched-route answer), so the
-  // chat keeps the ledger fold below, labeled. The view path is covered by src/gateway/transport.test.ts.
-  if (/^api\/gateway\/runs\/[^/?]+\/view(\/stream)?$/.test(path)) return json({ detail: "Not Found" }, 404);
-  if (/^api\/gateway\/runs\/[^/?]+\/history_bundle/.test(path)) return json(bundle);
+  // "ledger_fold": a gateway before 0.17.0 (no view route: FastAPI's unmatched-route answer), so
+  // the chat folds the ledger, labeled. "replay_view": AbstractGateway >= 0.17.0 serves the view.
+  m = /^api\/gateway\/runs\/([^/?]+)\/view$/.exec(path);
+  if (m) { seen.view += 1; return mode === "replay_view" ? json(viewFor(m[1])) : json({ detail: "Not Found" }, 404); }
+  if (/^api\/gateway\/runs\/[^/?]+\/view\/stream$/.test(path)) return mode === "replay_view" ? { status: 200, contentType: "text/event-stream", body: "event: done\ndata: {}\n\n" } : json({ detail: "Not Found" }, 404);
+  if (/^api\/gateway\/runs\/[^/?]+\/history_bundle/.test(path)) { seen.history += 1; return json(bundle); }
   if (/^api\/gateway\/runs\/[^/?]+\/ledger\/stream/.test(path)) return { status: 200, contentType: "text/event-stream", body: "" };
   if (/^api\/gateway\/runs\/[^/?]+\/ledger/.test(path)) return json({ items: [], next_after: 0 });
   m = /^api\/gateway\/runs\/([^/?]+)$/.exec(path);
@@ -65,8 +85,10 @@ const base = `http://127.0.0.1:${server.address().port}/`;
 const browser = await chromium.launch();
 const failures = [];
 try {
+  for (const mode of ["ledger_fold", "replay_view"]) {
   for (const [w, h] of [[420, 700], [760, 700], [1024, 768], [1280, 900]]) {
     for (const scheme of ["light", "dark"]) {
+      seen.history = 0; seen.view = 0;
       // Below 1024 px: a touch device (coarse pointer), where every target must reach 44 px.
       // From 1024 px: a mouse; the kit sizes its own controls for a fine pointer there, and
       // the 44 px rule covers the app's own controls (.aa-*).
@@ -74,7 +96,7 @@ try {
       const ctx = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: scheme, hasTouch: touch, isMobile: touch });
       await ctx.route("**/api/**", (route) => {
         const u = new URL(route.request().url());
-        return route.fulfill(answer(u.pathname.slice(1) + u.search));
+        return route.fulfill(answer(u.pathname.slice(1) + u.search, mode));
       });
       const page = await ctx.newPage();
       const errors = [];
@@ -119,7 +141,12 @@ try {
           coarse,
         };
       });
-      const tag = `${w}x${h}-${scheme}`;
+      const tag = `${mode}-${w}x${h}-${scheme}`;
+      // The conversation came from where the mode says, and the fallback is labeled.
+      const hint = await page.locator(".aa-chat__source").count();
+      if (mode === "replay_view" && (seen.history > 0 || seen.view === 0)) failures.push(`${tag}: not rendered from the replay view (history ${seen.history}, view ${seen.view})`);
+      if (mode === "replay_view" && hint) failures.push(`${tag}: the ledger-fold label shows while the view is used`);
+      if (mode === "ledger_fold" && !hint) failures.push(`${tag}: the ledger fold is not labeled`);
       if (touch && !m.coarse) failures.push(`${tag}: the touch emulation did not give a coarse pointer`);
       if (m.scrollWidth > m.clientWidth) failures.push(`${tag}: the page scrolls sideways (scrollWidth ${m.scrollWidth} > clientWidth ${m.clientWidth})`);
       for (const b of m.blocks) failures.push(`${tag}: ${b.t} is outside the viewport (${b.left}..${b.right})`);
@@ -146,6 +173,7 @@ try {
       console.log(`${tag}: scrollWidth ${m.scrollWidth}/${m.clientWidth}, off screen ${m.offscreen.length}, under 44 px ${m.small.length}`);
       await ctx.close();
     }
+  }
   }
 } finally {
   await browser.close();

@@ -3132,7 +3132,7 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   pending approval or question wherever in the run tree it waits (a sub-agent's included), the messages and the tool
   rows come from the gateway's one reconstruction instead of this page folding the history bundle and ledger pages,
   and there is no timed run poll. The ledger stream stays open only for live reply text. On an older gateway the page
-  keeps folding the ledger itself (the controller labels it, `snapshot.source: "ledger_fold"`). `GatewayClient.replayFetch`
+  keeps folding the ledger itself, and the conversation header says so ("Rebuilt in this browser", with the reason on hover). `GatewayClient.replayFetch`
   is the view routes' authenticated fetch; `createAssistantTransport` adds `replayView`.
 
 ## [0.15.0] - 2026-10-28
@@ -4618,10 +4618,6 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ### Changed
 
-- **The voice list is read compact** (`GET /voice/voices?compact=true`, the same voices, about a
-  fifth of the bytes). A UI test against a real gateway (`TEST_RUNNER_GW_URL`, `TEST_RUNNER_GW_TOKEN`)
-  opens a conversation with its messages and plays a chosen voice's sample.
-
 - **The sign-in lives in the Keychain, shared through the app group.** A Keychain item of the
   app's service, readable after the first unlock (the notification extension reads it while the
   device is locked), bound to this device, never in a backup, never synced; the app group doubles
@@ -6103,10 +6099,6 @@ iPhone app); the Python package's history is in
   first.
 
 ### Changed
-
-- **The voice list is read compact.** Settings → Voice asks `GET /voice/voices?compact=true`: the
-  same voices without the engines' duplicated source catalogs (1.4 MB → 250 KB on a gateway with the
-  shared voice pack), so the list loads within the watch's read timeout over the iPhone's link.
 
 - **Finer schedule choices.** Every 30 seconds, minute, 5, 15 and 30 minutes, then every hour, 2,
   4, 6, 8 and 12 hours, day, 2 days and week, when editing an automation and when creating one. An
