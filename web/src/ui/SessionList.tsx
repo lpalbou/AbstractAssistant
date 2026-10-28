@@ -2,6 +2,13 @@ import { formatRelativeTime } from "@abstractframework/ui-kit";
 
 import { STATE_WORDS, type SessionRow } from "../lib/session_fold";
 
+/**
+ * The conversations, as the shell's navigation (AfAppShell `nav`: docked from 1024 px, a
+ * drawer below it). Sign-out lives in the top bar's identity menu and pill.
+ *
+ * Kit gap (backlog 0030 item 6, "sessions" / ChatSessionList, not built yet): this list stays
+ * the app's until the kit has a session list.
+ */
 export function SessionList(props: {
   rows: SessionRow[];
   titles: Record<string, string>;
@@ -13,23 +20,15 @@ export function SessionList(props: {
   onOpen: (row: SessionRow) => void;
   onNew: () => void;
   onRefresh: () => void;
-  /** Closes the list where it is a sheet (below 1024 px). */
-  onClose: () => void;
-  onSignOut: () => void;
 }) {
   const now = Date.now();
   return (
-    <nav className="aa-sidebar" aria-label="Conversations">
+    <div className="aa-sidebar">
       <div className="aa-sidebar__top">
-        <span className="aa-brand">Assistant</span>
-        <span className="aa-sidebar__actions">
-          <button type="button" className="aa-button aa-button--primary" onClick={props.onNew}>
-            New
-          </button>
-          <button type="button" className="aa-button aa-only-compact" onClick={props.onClose}>
-            Close
-          </button>
-        </span>
+        <span className="aa-sidebar__heading">Conversations</span>
+        <button type="button" className="aa-button aa-button--primary" onClick={props.onNew}>
+          New
+        </button>
       </div>
       {props.error ? (
         <p className="aa-sidebar__error" role="alert">
@@ -65,11 +64,6 @@ export function SessionList(props: {
         })}
       </ul>
       {props.truncated ? <p className="aa-sidebar__more">Older conversations are not listed yet.</p> : null}
-      <div className="aa-sidebar__bottom">
-        <button type="button" className="aa-link" onClick={props.onSignOut}>
-          Sign out
-        </button>
-      </div>
-    </nav>
+    </div>
   );
 }

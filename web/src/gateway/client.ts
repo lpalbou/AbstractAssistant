@@ -10,8 +10,9 @@
  * retried here (a failed run start is NEVER retried: the user checks the
  * conversation before resending, as on the iPhone).
  */
+import { sseFrames } from "@abstractframework/panel-chat";
+
 import type { AssistantHost } from "../host";
-import { SseParser } from "./sse";
 
 export class GatewayHttpError extends Error {
   readonly status: number;
@@ -68,8 +69,10 @@ export type LedgerStep = { cursor: number; record: Json };
 
 export type StreamHandlers = {
   onStep: (step: LedgerStep) => void;
-  /** llm.delta / llm.delta_end frames (no cursor; never move the resume point). */
-  onDelta?: (event: "llm.delta" | "llm.delta_end", data: Json) => void;
+  /** llm.delta / llm.delta_end frames, raw `data:` text (no cursor; never move the resume point).
+   * The caller validates them (panel-chat `llmDeltaFromSse`): a malformed frame is reported and
+   * skipped, it never breaks the ledger stream. */
+  onDelta?: (event: "llm.delta" | "llm.delta_end", data: string) => void;
   /** The stream connected: drop live text, snapshots follow (api.md "Snapshots"). */
   onOpen?: () => void;
 };
@@ -92,6 +95,45 @@ export function resumeWaitCommand(runId: string, waitKey: string, payload: Json)
 
 export class GatewayClient {
   constructor(private readonly host: AssistantHost) {}
+
+  /**
+   * The kit's `GatewayFetch` (About, the docs assistant): `path` is the kit's own
+   * `api/gateway/...` path, relative to the page like every other call here, sent with the
+   * host's credentials and its CSRF header on a mutation. A signed-out mutation rejects
+   * (the host's `auth.headers` throws) instead of going out unauthenticated.
+   */
+  readonly fetchGateway = (path: string, init: RequestInit = {}): Promise<Response> => {
+    const method = String(init.method || "GET").toUpperCase();
+    const mutating = method !== "GET" && method !== "HEAD";
+    try {
+      const headers = { ...(init.headers as Record<string, string> | undefined), ...this.host.auth.headers(mutating) };
+      return fetch(path, { ...init, headers, credentials: this.host.auth.credentials });
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  };
+
+  /**
+   * The kit's `SessionToolPolicyRequest` (ui-kit `createSessionToolPolicyClient`): resolves
+   * with the parsed JSON body, rejects on a non-2xx answer with `{status, body}` so the kit
+   * can tell a 409 revision conflict from any other failure.
+   */
+  readonly policyRequest = async (path: string, init: { method: "GET" | "PUT" | "POST" | "DELETE"; body?: unknown }): Promise<unknown> => {
+    const resp = await this.fetchGateway(path, {
+      method: init.method,
+      headers: { Accept: "application/json", ...(init.body === undefined ? {} : { "Content-Type": "application/json" }) },
+      ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+    });
+    const text = await resp.text();
+    let body: unknown = null;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch {
+      body = text;
+    }
+    if (!resp.ok) throw Object.assign(new GatewayHttpError(`The chat's tool policy: HTTP ${resp.status}`, resp.status), { body });
+    return body;
+  };
 
   private async request(method: string, route: string, body?: unknown, label?: string): Promise<Json> {
     const mutating = method !== "GET" && method !== "HEAD";
@@ -206,44 +248,30 @@ export class GatewayClient {
     return { ref: ref as AttachmentRef, ownerRunId: String((isObject(out) && out.run_id) || ref.run_id || "") };
   }
 
-  /** Gateway STT on an uploaded recording (phone GatewayClient.swift transcribe). */
-  async transcribe(ownerRunId: string, artifactId: string): Promise<string> {
+  /** Gateway STT on an uploaded recording (phone GatewayClient.swift transcribe); `route` = the
+   * person's transcription override (ui-kit `voiceSttRequest`), empty = the gateway default. */
+  async transcribe(ownerRunId: string, artifactId: string, route: Record<string, string> = {}): Promise<string> {
     const out = await this.request(
       "POST",
       `runs/${encodeURIComponent(ownerRunId)}/audio/transcribe`,
-      { audio_artifact: { $artifact: artifactId } },
+      { audio_artifact: { $artifact: artifactId }, ...route },
       "Dictation failed",
     );
     if (typeof out.text !== "string") throw new Error("Dictation: the gateway returned no text.");
     return out.text.trim();
   }
 
-  /** `POST runs/{id}/voice/tts/stream`: JSON Lines, one object per line. */
-  async *speechStream(runId: string, text: string, signal?: AbortSignal): AsyncGenerator<Json> {
-    const resp = await fetch(this.host.gatewayUrl(`runs/${encodeURIComponent(runId)}/voice/tts/stream`), {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...this.host.auth.headers(true) },
-      credentials: this.host.auth.credentials,
-      body: JSON.stringify({ text }),
-      signal,
-    });
-    if (!resp.ok) throw await errorFrom(resp, "Read aloud failed");
-    if (!resp.body) throw new Error("Read aloud: the gateway sent no stream.");
-    const reader = resp.body.getReader();
-    const dec = new TextDecoder();
-    let buf = "";
-    for (;;) {
-      const { value, done } = await reader.read();
-      buf += dec.decode(value || new Uint8Array(), { stream: !done });
-      let nl: number;
-      while ((nl = buf.indexOf("\n")) >= 0) {
-        const line = buf.slice(0, nl).trim();
-        buf = buf.slice(nl + 1);
-        if (line) yield JSON.parse(line) as Json;
-      }
-      if (done) break;
-    }
-    if (buf.trim()) yield JSON.parse(buf.trim()) as Json;
+  /** `GET voice/voices?compact=true[&provider&model]`: the engines, models and voices (AfVoiceSection). */
+  voiceCatalog(provider?: string, model?: string) {
+    const q = new URLSearchParams({ compact: "true" });
+    if (provider) q.set("provider", provider);
+    if (model) q.set("model", model);
+    return this.request("GET", `voice/voices?${q.toString()}`, undefined, "Voices");
+  }
+
+  /** `GET voice/defaults`: the gateway's default voice routes ("Gateway default · …"). */
+  voiceDefaults() {
+    return this.request("GET", "voice/defaults", undefined, "Voice defaults");
   }
 
   /**
@@ -266,7 +294,7 @@ export class GatewayClient {
         return false;
       }
       if ((ev.event === "llm.delta" || ev.event === "llm.delta_end") && handlers.onDelta) {
-        handlers.onDelta(ev.event, JSON.parse(ev.data) as Json);
+        handlers.onDelta(ev.event, ev.data);
         return false;
       }
       return ev.event === "done";
@@ -289,6 +317,8 @@ export class GatewayClient {
     }).then(() => undefined);
   }
 
+  /** SSE over fetch (headers: a desktop host authenticates with one), framed by the kit's
+   * `sseFrames`. Resolves `true` when `onEvent` asked to stop, `false` when the server closed. */
   private async sse(
     route: string,
     signal: AbortSignal,
@@ -303,19 +333,19 @@ export class GatewayClient {
     if (!resp.ok) throw await errorFrom(resp, "Live updates");
     if (!resp.body) throw new Error("Live updates: the gateway sent no stream.");
     onOpen?.();
-    const reader = resp.body.getReader();
-    const dec = new TextDecoder();
-    const parser = new SseParser();
-    for (;;) {
-      const { value, done } = await reader.read();
-      // Closed by the server: `false` = no terminating event was seen.
-      if (done) return false;
-      for (const ev of parser.push(dec.decode(value, { stream: true }))) {
+    const stop = new AbortController();
+    const onAbort = () => stop.abort();
+    signal.addEventListener("abort", onAbort, { once: true });
+    try {
+      for await (const ev of sseFrames(resp.body, stop.signal)) {
         if (onEvent(ev)) {
-          await reader.cancel();
+          stop.abort();
           return true;
         }
       }
+      return false;
+    } finally {
+      signal.removeEventListener("abort", onAbort);
     }
   }
 }

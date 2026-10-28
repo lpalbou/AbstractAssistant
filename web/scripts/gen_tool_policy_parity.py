@@ -1,5 +1,8 @@
 """Write src/lib/__fixtures__/tool_policy_parity.json FROM the desktop's controller.
 
+The web's tool lists are the kit's plan (ui-kit `planRunTools`, backlog 0033);
+src/lib/tool_plan.test.ts checks it against these cases (tools and the auto / ask split).
+
 Each case is a `GET /discovery/tools` answer and what the desktop sends for it
 with no local per-tool settings and no chat trust grant:
 `allowed_tools_for_run()` and `tool_policy_for_run()` (abstractassistant/controller.py).

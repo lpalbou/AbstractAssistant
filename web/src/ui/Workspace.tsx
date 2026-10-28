@@ -1,383 +1,361 @@
 /**
- * The Assistant space (ADR 0007, v1): conversations on the left, the open
- * conversation on the right. Everything comes from the gateway; the page
- * keeps nothing between visits (no localStorage, no token).
+ * The open conversation, composed from the kit (ADR 0001; backlog 0030, 0032):
+ * - `useWorkflowSession` + this app's transport (src/gateway/transport.ts) fold the ledger,
+ *   follow child runs, stream live replies and hold the pending question;
+ * - `WorkflowChat` is the thread and the composer (typed attachment chips through
+ *   `useAttachmentUploads`, Stop, a transcript toolbar);
+ * - `presentInteraction` is the approval / question panel, with the ONE wording set and the
+ *   chat's tool policy on the gateway when it advertises `session_tool_policy`;
+ * - `useGatewayVoice` + `AfVoiceMicButton` read replies aloud and dictate.
+ * Everything comes from the gateway; this page keeps no conversation and no token.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  WorkflowChat,
+  presentInteraction,
+  useAttachmentUploads,
+  useWorkflowSession,
+  workflowPendingInteraction,
+  type ChatMessage,
+} from "@abstractframework/panel-chat";
+import {
+  AfVoiceMicButton,
+  createSessionToolPolicyClient,
+  normalizeToolCatalog,
+  planRunTools,
+  sessionToolPolicyCapability,
+  streamTtsJsonl,
+  gatewayVoiceOptions,
+  useGatewayVoice,
+  voiceSttRequest,
+  voiceTtsRequest,
+  withRunTools,
+  type VoiceCaptureMode,
+  type VoiceClientPreferences,
+} from "@abstractframework/ui-kit";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { followTurn } from "../gateway/follow";
-import { GatewayClient, resumeWaitCommand, type AttachmentRef } from "../gateway/client";
+import { GatewayClient, type AttachmentRef } from "../gateway/client";
+import { createAssistantTransport } from "../gateway/transport";
 import type { AssistantHost } from "../host";
-import { messagesFromHistoryBundle } from "../lib/history";
-import { liveAnswerText, waitStillMatches } from "../lib/run_events";
 import { buildRunInputData } from "../lib/run_input";
-import { runToolsFromDiscovery } from "../lib/tool_policy";
-import { foldSessionRows, STATE_WORDS, type SessionRow } from "../lib/session_fold";
-import { eventTouchesList, loadTitles } from "../lib/titles";
-import { createTurnStore, type TurnStore } from "../lib/turn_store";
-import type { ChatMessage, PendingWait } from "../lib/types";
-import { ChunkPlayer, base64ToBytes, extensionFor, interpretTtsLine, startRecording } from "../lib/voice";
+import { STATE_WORDS, type SessionState } from "../lib/session_fold";
 import { selectWorkflow } from "../lib/workflow_selection";
-import { Composer } from "./Composer";
-import { Conversation } from "./Conversation";
-import { SessionList } from "./SessionList";
+import type { AttentionSeen } from "./useConversations";
 
-const SESSION_PAGE_RUNS = 200; // core/gateway_sessions.py SESSION_PAGE_RUNS
-
-function mintSessionId(): string {
-  // The desktop mints `sess_<uuid hex>` (core/session_index.py); the gateway
-  // learns the id with the first run.
+export function mintSessionId(): string {
+  // The desktop mints `sess_<uuid hex>` (core/session_index.py); the gateway learns the id
+  // with the first run.
   return `sess_${crypto.randomUUID().replace(/-/g, "")}`;
 }
 
-const EMPTY_STORE: TurnStore = createTurnStore("");
+const TERMINAL = new Set(["completed", "failed", "cancelled"]);
 
-export function Workspace(props: { client: GatewayClient; host: AssistantHost; onSignedOut: () => void; onSignOut: () => void }) {
+/** The served `toolset` of each tool (`GET discovery/tools` rows), for the approval panel's
+ * "Allow all <toolset> tools for this chat". A row without a served toolset gets none: the
+ * panel never guesses a kind. */
+export function toolsetsFromDiscovery(payload: unknown): Map<string, string> {
+  const out = new Map<string, string>();
+  const items = payload && typeof payload === "object" && Array.isArray((payload as { items?: unknown }).items) ? (payload as { items: unknown[] }).items : [];
+  for (const row of items) {
+    if (!row || typeof row !== "object") continue;
+    const r = row as Record<string, unknown>;
+    const name = typeof r.name === "string" ? r.name.trim() : "";
+    const toolset = typeof r.toolset === "string" ? r.toolset.trim() : "";
+    if (name && toolset) out.set(name, toolset);
+  }
+  return out;
+}
+
+/**
+ * What the ended turn says when the transcript cannot: a failure's reason, or no written reply.
+ * (Kit gap: the controller adds no line for a root run that ended failed or without an answer.)
+ * A stop is the kit's own Stop state ("Stopped"), not repeated here.
+ */
+export function turnOutcome(runId: string, status: string, run: Record<string, unknown> | null, messages: ReadonlyArray<{ id?: string; role: string }>): string {
+  if (!runId || !TERMINAL.has(status) || status === "cancelled") return "";
+  if (status === "failed") {
+    const why = typeof run?.error === "string" ? run.error.trim() : "";
+    return why ? `The run failed: ${why}` : "The run failed (the gateway gave no reason).";
+  }
+  const answered = messages.some((m) => m.role === "assistant" && (m.id === `final:${runId}` || String(m.id || "").startsWith(`answer:${runId}:`)));
+  return answered ? "" : "The run ended without a written reply.";
+}
+
+/** Whether a `me/events` `attention.seen` names the wait shown here. */
+export function seenMatches(seen: AttentionSeen | null, wait: { runId: string; waitKey: string; stepId?: string } | null): boolean {
+  if (!seen || !wait) return false;
+  if (seen.run_id !== wait.runId || seen.wait_key !== wait.waitKey) return false;
+  return !seen.step_id || !wait.stepId || seen.step_id === wait.stepId;
+}
+
+export function Workspace(props: {
+  client: GatewayClient;
+  host: AssistantHost;
+  /** The conversation's session (""= a new conversation, minted on the first upload or send). */
+  sessionId: string;
+  /** The root run to follow (the session's latest turn, or the turn just started). */
+  runId: string;
+  title: string;
+  listState?: SessionState;
+  /** The latest `me/events` `attention.seen`: a wait answered or dismissed on another device. */
+  seen: AttentionSeen | null;
+  /** Why updates from other devices are off ("" = on). */
+  eventsNotice: string;
+  /** The person's voice preferences (Settings → Voice; `useVoicePreferences`). */
+  voicePrefs: VoiceClientPreferences;
+  /** The microphone button's mode (the preference, else this app's default: tap to talk). */
+  captureMode: VoiceCaptureMode;
+  /** Send what was said at once (`auto_send`), else the transcript joins the draft for review. */
+  autoSend: boolean;
+  onStarted: (runId: string, sessionId: string) => void;
+  onNewChat: () => void;
+  onTurnEnded: () => void;
+  onSignedOut: () => void;
+}) {
   const { client, host } = props;
-  const [rows, setRows] = useState<SessionRow[]>([]);
-  const [truncated, setTruncated] = useState(false);
-  const [titles, setTitles] = useState<Record<string, string>>({});
-  const [listError, setListError] = useState("");
-  const [sessionId, setSessionId] = useState<string>("");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [banner, setBanner] = useState<{ tone: "info" | "warn" | "error"; text: string } | null>(null);
-  const [turn, setTurn] = useState<TurnStore>(EMPTY_STORE);
-  const [speaking, setSpeaking] = useState<string>("");
-  // Below 1024 px the conversation list is a full-screen sheet (CSS); this opens it.
-  const [listOpen, setListOpen] = useState(false);
-  const stopFollow = useRef<() => void>(() => {});
-  const playerRef = useRef<ChunkPlayer | null>(null);
-  const titleCache = useRef(new Map<string, string>());
-  const [titleError, setTitleError] = useState("");
-  const visibleIds = useRef(new Set<string>());
-  // Callbacks from the parent are read through a ref: a new function on a
-  // parent render must not re-run the list fetch or re-open the event stream.
-  const signedOutRef = useRef(props.onSignedOut);
-  signedOutRef.current = props.onSignedOut;
+  const [draft, setDraft] = useState("");
+  const [notice, setNotice] = useState("");
+  // A new conversation gets its session id on its first upload or send.
+  const newSession = useRef("");
+  const ensureSession = useCallback(() => {
+    if (props.sessionId) return props.sessionId;
+    if (!newSession.current) newSession.current = mintSessionId();
+    return newSession.current;
+  }, [props.sessionId]);
+  useEffect(() => {
+    if (!props.sessionId && !props.runId) newSession.current = "";
+  }, [props.sessionId, props.runId]);
 
-  const turnState = useSyncExternalStore(turn.subscribe, turn.getState);
-  const turnRef = useRef(turn);
-  turnRef.current = turn;
-
-  const fail = useCallback(
-    (err: unknown, prefix = "") => {
-      const status = (err as { status?: number })?.status;
-      if (status === 401) signedOutRef.current();
-      setBanner({ tone: "error", text: `${prefix}${err instanceof Error ? err.message : String(err)}` });
-    },
-    [],
+  const signedOut = useRef(props.onSignedOut);
+  signedOut.current = props.onSignedOut;
+  const onAuthError = useCallback(() => signedOut.current(), []);
+  const transport = useMemo(
+    () => createAssistantTransport(client, { onDeltaError: (m) => setNotice(`A live reply frame was malformed and skipped: ${m}`) }),
+    [client],
   );
+  const { controller, snapshot } = useWorkflowSession({ transport, runId: props.runId, clientId: "abstractassistant-web", onAuthError });
 
-  const refreshSessions = useCallback(async () => {
-    try {
-      const page = await client.listSessionRuns(SESSION_PAGE_RUNS);
-      const folded = foldSessionRows(page);
-      setRows(folded.rows);
-      visibleIds.current = new Set(folded.rows.map((r) => r.session_id));
-      setTruncated(folded.truncated);
-      setListError("");
-      // Opening prompts name the rows: a few at a time, cached, failures retried next refresh.
-      const load = await loadTitles(folded.rows, titleCache.current, (rid) => client.inputData(rid));
-      setTitleError(load.failed ? `${load.failed} conversation title${load.failed === 1 ? "" : "s"} could not be loaded; they will be asked again.` : "");
-      setTitles(Object.fromEntries(titleCache.current));
-    } catch (err) {
-      setListError(err instanceof Error ? err.message : String(err));
-      if ((err as { status?: number })?.status === 401) signedOutRef.current();
+  // The chat's tool policy on the gateway (capability-gated). Absent capability = the local
+  // grant, labeled; a failed capability read = "unavailable", with the reason.
+  const capabilities = useRef<Promise<unknown> | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const sid = props.sessionId;
+    if (!sid) {
+      controller.setSessionToolPolicyClient(null);
+      return;
     }
+    capabilities.current ??= client.capabilities();
+    capabilities.current.then(
+      (caps) => {
+        if (cancelled) return;
+        const cap = sessionToolPolicyCapability(caps);
+        controller.setSessionToolPolicyClient(cap ? createSessionToolPolicyClient(client.policyRequest, sid, cap, { client: "abstractassistant-web" }) : null);
+      },
+      (err) => {
+        capabilities.current = null;
+        if (!cancelled) controller.setSessionToolPolicyClient(null, { reason: `Could not read the gateway's capabilities (${err instanceof Error ? err.message : String(err)}).` });
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [controller, client, props.sessionId]);
+
+  // Toolsets for "Allow all <toolset> tools for this chat" (the served `toolset`, never guessed).
+  const [toolsets, setToolsets] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    let cancelled = false;
+    client.discoveryTools().then(
+      (payload) => !cancelled && setToolsets(toolsetsFromDiscovery(payload)),
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
   }, [client]);
 
+  // When a turn ends, the list refreshes (its state and recency changed).
+  const ended = useRef("");
   useEffect(() => {
-    void refreshSessions();
-  }, [refreshSessions]);
-
-  // The person's event stream: a run started or finished anywhere (another
-  // device, an automation's discussion) refreshes the list; a wait answered
-  // elsewhere closes its card here (api.md "Your event stream").
-  useEffect(() => {
-    const abort = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    (async () => {
-      try {
-        const page = await client.meEvents(0, 1);
-        const head = typeof page.head === "number" ? page.head : 0;
-        await client.followMeEvents(head, (ev) => {
-          const type = String(ev.type || "");
-          const data = (ev.data || {}) as Record<string, unknown>;
-          if ((type === "run.started" || type === "run.finished") && eventTouchesList(data, visibleIds.current)) {
-            clearTimeout(timer);
-            timer = setTimeout(() => void refreshSessions(), 500);
-          }
-          if (type === "attention.seen" && typeof data.wait_key === "string" && typeof data.run_id === "string") {
-            turnRef.current.dispatch({
-              type: "wait_closed",
-              run_id: data.run_id,
-              wait_key: data.wait_key,
-              step_id: typeof data.step_id === "string" ? data.step_id : undefined,
-              note: `Answered (${String(data.outcome || "answered")}).`,
-            });
-          }
-        }, abort.signal);
-      } catch (err) {
-        if (!abort.signal.aborted) setBanner({ tone: "warn", text: `Updates from your other devices are off: ${err instanceof Error ? err.message : String(err)}` });
-      }
-    })();
-    return () => {
-      abort.abort();
-      clearTimeout(timer);
-    };
-  }, [client, refreshSessions]);
-
-  const attach = useCallback(
-    (rootRunId: string) => {
-      stopFollow.current();
-      const store = createTurnStore(rootRunId);
-      setTurn(store);
-      stopFollow.current = followTurn({
-        client,
-        rootRunId,
-        dispatch: store.dispatch,
-        getState: store.getState,
-        onError: (m) => setBanner({ tone: "warn", text: m }),
-      });
-    },
-    [client],
-  );
-
-  // When a turn ends, its answer joins the transcript and the list refreshes.
-  useEffect(() => {
-    const s = turnState;
-    if (!s.root_run_id || !["completed", "failed", "cancelled"].includes(s.status)) return;
-    setMessages((prev) => {
-      if (prev.some((m) => m.id === `${s.root_run_id}:answer`)) return prev;
-      const extra: ChatMessage[] = [];
-      if (s.answer) extra.push({ id: `${s.root_run_id}:answer`, role: "assistant", text: s.answer, run_id: s.root_run_id, ts: new Date().toISOString() });
-      else
-        extra.push({
-          id: `${s.root_run_id}:answer`,
-          role: "notice",
-          text: s.status === "cancelled" ? "Stopped." : s.error ? `The run failed: ${s.error}` : "The run ended without a written reply.",
-          run_id: s.root_run_id,
-          ts: new Date().toISOString(),
-        });
-      return [...prev, ...extra];
-    });
-    void refreshSessions();
-  }, [turnState, refreshSessions]);
-
-  const openSession = useCallback(
-    async (row: SessionRow) => {
-      stopFollow.current();
-      setTurn(EMPTY_STORE);
-      setSessionId(row.session_id);
-      setMessages([]);
-      setBanner(null);
-      try {
-        const seed = messagesFromHistoryBundle(await client.historyBundle(row.latest_run_id));
-        const live = row.state === "running" || row.state === "waiting";
-        setMessages(live ? seed.messages.filter((m) => m.id !== `${row.latest_run_id}:answer`) : seed.messages);
-        if (seed.warnings.length) setBanner({ tone: "warn", text: `The gateway's history is incomplete: ${seed.warnings.join("; ")}` });
-        if (live) attach(row.latest_run_id);
-      } catch (err) {
-        fail(err, "This conversation could not be opened: ");
-      }
-    },
-    [client, attach, fail],
-  );
-
-  const newChat = useCallback(() => {
-    stopFollow.current();
-    setTurn(EMPTY_STORE);
-    setSessionId("");
-    setMessages([]);
-    setBanner(null);
-  }, []);
-
-  const busy = Boolean(turnState.root_run_id) && !["completed", "failed", "cancelled"].includes(turnState.status);
-
-  const send = useCallback(
-    async (text: string, files: File[]): Promise<boolean> => {
-      const sid = sessionId || mintSessionId();
-      try {
-        const refs: AttachmentRef[] = [];
-        for (const f of files) refs.push((await client.uploadAttachment(sid, f, f.name, f.type ? { content_type: f.type } : {})).ref);
-        const [bundles, prefs, tools] = await Promise.all([
-          client.executableBundles("abstractassistant.agent.v1"),
-          client.accountPreferences(),
-          client.discoveryTools(),
-        ]);
-        const start = selectWorkflow(bundles, prefs);
-        const image = refs.find((r) => String(r.content_type || "").startsWith("image/"));
-        // Explicit tool lists, as the desktop sends them (ADR 0007 §6).
-        const input_data = buildRunInputData({ prompt: text, attachments: refs, primary_image_artifact: image ?? null, stream: true, ...runToolsFromDiscovery(tools) });
-        const { run_id } = await client.startRun(
-          start.source === "gateway_default"
-            ? { flow_id: "@default", interface: start.interface, session_id: sid, input_data }
-            : { flow_id: start.flow_id, bundle_id: start.bundle_id, bundle_version: start.bundle_version, registry_scope: start.registry_scope, session_id: sid, input_data },
-        );
-        setSessionId(sid);
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `${run_id}:user`,
-            role: "user",
-            text,
-            run_id,
-            ts: new Date().toISOString(),
-            ...(refs.length ? { attachments: refs.map((r) => ({ $artifact: String(r.$artifact), filename: String(r.filename || ""), content_type: String(r.content_type || "") })) } : {}),
-          },
-        ]);
-        attach(run_id);
-        return true;
-      } catch (err) {
-        // Never retried: the person checks the conversation, then resends.
-        fail(err, "Not sent: ");
-        return false;
-      }
-    },
-    [sessionId, client, attach, fail],
-  );
-
-  const answerWait = useCallback(
-    async (w: PendingWait, answer: { approved: boolean } | { response: string }) => {
-      const store = turnRef.current;
-      store.dispatch({ type: "wait_sending", run_id: w.run_id, wait_key: w.wait_key, step_id: w.step_id });
-      try {
-        if (store.getState().follow === "lost") throw new Error("Live updates stopped: reopen the conversation before answering.");
-        // Re-read the run first, as the iPhone does: another device may have
-        // answered, and a NEWER batch may wait on the same reused key.
-        const check = waitStillMatches(w, await client.getRun(w.run_id));
-        if (!check.ok) {
-          store.dispatch({ type: "wait_closed", run_id: w.run_id, wait_key: w.wait_key, step_id: w.step_id, stale: true, note: check.why });
-          return;
-        }
-        const payload = "approved" in answer ? (answer.approved ? { approved: true } : { approved: false, reason: "Denied by user" }) : { response: answer.response };
-        await client.submitCommand(resumeWaitCommand(w.run_id, w.wait_key, payload));
-        store.dispatch({ type: "wait_closed", run_id: w.run_id, wait_key: w.wait_key, step_id: w.step_id, note: "approved" in answer ? (answer.approved ? "Approved." : "Denied.") : "Answered." });
-      } catch (err) {
-        store.dispatch({ type: "wait_failed", run_id: w.run_id, wait_key: w.wait_key, step_id: w.step_id, note: err instanceof Error ? err.message : String(err) });
-      }
-    },
-    [client],
-  );
-
-  const stop = useCallback(async () => {
-    const root = turnRef.current.getState().root_run_id;
-    if (!root) return;
-    try {
-      await client.cancelRun(root);
-      setBanner({ tone: "info", text: "Stopping…" });
-    } catch (err) {
-      fail(err, "Could not stop: ");
+    if (props.runId && TERMINAL.has(snapshot.status) && ended.current !== props.runId) {
+      ended.current = props.runId;
+      props.onTurnEnded();
     }
-  }, [client, fail]);
+  }, [props.runId, snapshot.status, props]);
 
-  const readAloud = useCallback(
-    async (m: ChatMessage) => {
-      playerRef.current?.stop();
-      playerRef.current = null;
-      if (speaking === m.id) {
-        setSpeaking("");
-        return;
-      }
-      if (!host.capabilities.audioPlayback.available) {
-        setBanner({ tone: "warn", text: host.capabilities.audioPlayback.reason });
-        return;
-      }
-      const player = new ChunkPlayer();
-      playerRef.current = player;
-      setSpeaking(m.id);
-      try {
-        for await (const line of client.speechStream(m.run_id, m.text)) {
-          const ev = interpretTtsLine(line);
-          if (playerRef.current !== player) return;
-          if (ev.kind === "audio") await player.enqueue(base64ToBytes(ev.wav_b64));
-          else if (ev.kind === "queued") setBanner({ tone: "info", text: ev.message });
-          else if (ev.kind === "error") throw new Error(ev.message);
-          else if (ev.kind === "done" || ev.kind === "cancelled") break;
+  // ---- the pending question ------------------------------------------------------------
+  const pending = workflowPendingInteraction(snapshot);
+  const pendingTarget = pending ? { runId: pending.runId, waitKey: String(pending.wait.wait_key || ""), stepId: pending.stepId } : null;
+  const pendingKey = pendingTarget ? `${pendingTarget.runId}|${pendingTarget.waitKey}|${pendingTarget.stepId || ""}` : "";
+  const [deferred, setDeferred] = useState("");
+  const answeredElsewhere = seenMatches(props.seen, pendingTarget);
+  const interaction = useMemo(() => {
+    if (!pending) return null;
+    return presentInteraction(pending, controller, {
+      records: snapshot.records,
+      currentRun: snapshot.run,
+      allowSkip: true,
+      onDefer: () => setDeferred(pendingKey),
+      sessionPolicy: { toolsetOf: (name) => toolsets.get(name) },
+    });
+    // The policy mode, reason and clamped list are the controller's: re-present when they change.
+  }, [pending, controller, snapshot.records, snapshot.run, snapshot.sessionPolicyMode, snapshot.sessionPolicyReason, snapshot.sessionPolicyClamped, snapshot.sessionPolicy, toolsets, pendingKey]);
+  const shown = interaction && deferred !== pendingKey && !answeredElsewhere ? interaction : null;
+
+  // ---- voice: read aloud and dictation, on the gateway's engines ----------------------
+  const runIdRef = useRef(props.runId);
+  runIdRef.current = props.runId;
+  const voicePrefs = useRef(props.voicePrefs);
+  voicePrefs.current = props.voicePrefs;
+  const voice = useGatewayVoice({
+    ...gatewayVoiceOptions(props.voicePrefs),
+    capture_mode: props.captureMode,
+    tts_stream: host.capabilities.audioPlayback.available
+      ? async function* (text, signal) {
+          const run = runIdRef.current;
+          if (!run) throw new Error("Read aloud needs a conversation turn on the gateway");
+          yield* streamTtsJsonl({
+            path: host.gatewayUrl(`runs/${encodeURIComponent(run)}/voice/tts/stream`),
+            headers: host.auth.headers(true),
+            // The person's speech override (empty = the gateway default voice).
+            body: { text, ...voiceTtsRequest(voicePrefs.current) },
+            ...(signal ? { signal } : {}),
+          });
         }
-        await player.drained();
-      } catch (err) {
-        fail(err, "Read aloud: ");
-      } finally {
-        if (playerRef.current === player) {
-          playerRef.current = null;
-          setSpeaking("");
+      : undefined,
+    transcribe: host.capabilities.microphone.available
+      ? async (blob, mime) => {
+          const sid = ensureSession();
+          const type = (mime || "audio/webm").split(";")[0];
+          const ext = type.includes("mp4") ? "m4a" : type.includes("ogg") ? "ogg" : "webm";
+          const up = await client.uploadAttachment(sid, blob, `ask.${ext}`, { content_type: type, source_path: `voice/dictation/${crypto.randomUUID()}.${ext}` });
+          const route = Object.fromEntries(Object.entries(voiceSttRequest(voicePrefs.current)).filter(([, v]) => typeof v === "string" && v)) as Record<string, string>;
+          return client.transcribe(up.ownerRunId || `session_memory_${sid}`, String(up.ref.$artifact), route);
         }
-      }
+      : undefined,
+    on_error: (message) => setNotice(message),
+  });
+
+  // ---- attachments -----------------------------------------------------------------------
+  const uploads = useAttachmentUploads<AttachmentRef>({
+    upload: async (file) => (await client.uploadAttachment(ensureSession(), file, file.name, file.type ? { content_type: file.type } : {})).ref,
+  });
+
+  // ---- send ---------------------------------------------------------------------------------
+  const send = useCallback(
+    async (text: string) => {
+      const sid = ensureSession();
+      const refs = uploads.attached;
+      const [bundles, prefs, tools] = await Promise.all([
+        client.executableBundles("abstractassistant.agent.v1"),
+        client.accountPreferences(),
+        client.discoveryTools(),
+      ]);
+      const start = selectWorkflow(bundles, prefs);
+      const image = refs.find((r) => String(r.content_type || "").startsWith("image/"));
+      // The tools the gateway offers (the kit's plan, backlog 0033). No layer of the person's
+      // own yet, so approvals follow the gateway's defaults (its grant at run start).
+      const input_data = withRunTools(buildRunInputData({ prompt: text, attachments: refs, primary_image_artifact: image ?? null, stream: true }), planRunTools(normalizeToolCatalog(tools)));
+      // Never retried here: a failure keeps the draft and says why; the person resends.
+      const { run_id } = await client.startRun(
+        start.source === "gateway_default"
+          ? { flow_id: "@default", interface: start.interface, session_id: sid, input_data }
+          : { flow_id: start.flow_id, bundle_id: start.bundle_id, bundle_version: start.bundle_version, registry_scope: start.registry_scope, session_id: sid, input_data },
+      );
+      uploads.clear();
+      setDraft("");
+      setNotice("");
+      props.onStarted(run_id, sid);
     },
-    [client, host, speaking, fail],
+    [client, ensureSession, uploads, props],
   );
 
-  const dictate = useMemo(() => {
-    if (!host.capabilities.microphone.available) return { available: false as const, reason: host.capabilities.microphone.reason };
-    return {
-      available: true as const,
-      start: async () => {
-        const rec = await startRecording();
-        return {
-          cancel: rec.cancel,
-          finish: async (): Promise<string> => {
-            const { blob, type } = await rec.stop();
-            const sid = sessionId || mintSessionId();
-            if (!sessionId) setSessionId(sid);
-            const name = `ask.${extensionFor(type)}`;
-            const up = await client.uploadAttachment(sid, blob, name, { content_type: type, source_path: `voice/dictation/${crypto.randomUUID()}.${extensionFor(type)}` });
-            return client.transcribe(up.ownerRunId || `session_memory_${sid}`, String(up.ref.$artifact));
-          },
-        };
-      },
-    };
-  }, [host, client, sessionId]);
+  const busy = Boolean(props.runId) && !TERMINAL.has(snapshot.status) && !(snapshot.error && !snapshot.run);
+  // The Assistant speaks as "Assistant" (the card's default is "Agent").
+  const messages = useMemo<ChatMessage[]>(
+    () => snapshot.messages.map((m) => (m.role === "assistant" && !m.title ? { ...m, title: "Assistant" } : m)),
+    [snapshot.messages],
+  );
+  const listWords = props.listState ? STATE_WORDS[props.listState] : "";
+  const outcome = turnOutcome(props.runId, snapshot.status, snapshot.run, snapshot.messages);
 
-  const current = rows.find((r) => r.session_id === sessionId);
   return (
-    <div className={`aa-shell${listOpen ? " aa-shell--list" : ""}`}>
-      <SessionList
-        rows={rows}
-        titles={titles}
-        truncated={truncated}
-        error={listError}
-        notice={titleError}
-        activeId={sessionId}
-        onOpen={(r) => {
-          setListOpen(false);
-          void openSession(r);
-        }}
-        onNew={() => {
-          setListOpen(false);
-          newChat();
-        }}
-        onClose={() => setListOpen(false)}
-        onRefresh={() => void refreshSessions()}
-        onSignOut={props.onSignOut}
-      />
-      <main className="aa-main">
-        <header className="aa-main__header">
-          <button type="button" className="aa-button aa-only-compact" aria-label="Conversations" onClick={() => setListOpen(true)}>
-            Conversations
-          </button>
-          <h1 className="aa-main__title">{sessionId ? titles[sessionId] || "Conversation" : "New conversation"}</h1>
-          {current && STATE_WORDS[current.state] ? <span className={`aa-state aa-state--${current.state}`}>{STATE_WORDS[current.state]}</span> : null}
-        </header>
-        {banner ? (
-          <div className={`aa-banner aa-banner--${banner.tone}`} role={banner.tone === "error" ? "alert" : "status"}>
-            <span>{banner.text}</span>
-            <button type="button" className="aa-link" onClick={() => setBanner(null)}>
-              Dismiss
-            </button>
+    <WorkflowChat
+      className="aa-chat"
+      messages={messages}
+      draft={draft}
+      onDraftChange={setDraft}
+      onSend={send}
+      busy={busy}
+      onCancel={() => controller.cancel()}
+      stopState={snapshot.stop || null}
+      placeholder="Message the Assistant"
+      emptyState={<p className="aa-empty">Ask anything. Your conversations are kept on your gateway and follow you on every device.</p>}
+      header={
+        <div className="aa-chat__header">
+          <h1 className="aa-chat__title">{props.title}</h1>
+          {listWords ? <span className={`aa-state aa-state--${props.listState}`}>{listWords}</span> : null}
+          {snapshot.connection === "reconnecting" ? <span className="aa-chat__status" role="status">Reconnecting…</span> : null}
+          {snapshot.displayStatus ? <span className="aa-chat__status" role="status">{snapshot.displayStatus}</span> : null}
+        </div>
+      }
+      toolbar={{ onNewSession: props.onNewChat, copyTranscript: true, exportTranscript: { filename: "conversation.md", heading: props.title } }}
+      footer={
+        snapshot.error || outcome || notice || props.eventsNotice || answeredElsewhere || (interaction && deferred === pendingKey) ? (
+          <div className="aa-chat__notes">
+            {outcome ? <p className={`aa-note${snapshot.status === "failed" ? " aa-note--error" : ""}`} role="status">{outcome}</p> : null}
+            {snapshot.error ? <p className="aa-note aa-note--error" role="alert">{snapshot.error}</p> : null}
+            {notice ? (
+              <p className="aa-note" role="status">
+                {notice}{" "}
+                <button type="button" className="aa-link" onClick={() => setNotice("")}>
+                  Dismiss
+                </button>
+              </p>
+            ) : null}
+            {props.eventsNotice ? <p className="aa-note" role="status">{props.eventsNotice}</p> : null}
+            {answeredElsewhere && props.seen ? <p className="aa-note" role="status">Answered ({props.seen.outcome}).</p> : null}
+            {interaction && deferred === pendingKey && !answeredElsewhere ? (
+              <p className="aa-note" role="status">
+                A request is waiting for you.{" "}
+                <button type="button" className="aa-link" onClick={() => setDeferred("")}>
+                  Review
+                </button>
+              </p>
+            ) : null}
           </div>
-        ) : null}
-        <Conversation
-          messages={messages}
-          turn={turnState}
-          liveText={liveAnswerText(turnState)}
-          speakingId={speaking}
-          canSpeak={host.capabilities.audioPlayback.available}
-          onReadAloud={(m) => void readAloud(m)}
-          onAnswer={(w, a) => void answerWait(w, a)}
+        ) : null
+      }
+      interaction={shown}
+      onFiles={(files) => void uploads.add(files)}
+      attachmentItems={uploads.items}
+      onRemoveAttachment={uploads.remove}
+      onRetryAttachment={uploads.retry}
+      composerExtras={
+        <AfVoiceMicButton
+          voice={voice}
+          mode={props.captureMode}
+          unavailableReason={host.capabilities.microphone.available ? null : host.capabilities.microphone.reason}
+          // Review before sending (the iPhone's default, backlog 1048): the transcript joins the
+          // draft, unless the person chose "Send what you say automatically".
+          onTranscript={(said) => {
+            const next = draft.trim() ? `${draft.trim()}\n${said}` : said;
+            setDraft(next);
+            if (props.autoSend && !busy) void send(next).catch((err) => setNotice(`Not sent: ${err instanceof Error ? err.message : String(err)}`));
+          }}
         />
-        <Composer busy={busy} onSend={send} onStop={() => void stop()} dictation={dictate} />
-      </main>
-    </div>
+      }
+      messageProps={{
+        // "link": a model's text cannot make the browser fetch a remote image.
+        images: "link",
+        ...(voice.tts_supported
+          ? {
+              onSpeakToggle: (m: ChatMessage) => void voice.toggle_tts(String(m.id || ""), m.content),
+              getSpeakState: (m: ChatMessage) => (voice.tts_playback.key === String(m.id || "") ? voice.tts_playback.status : "idle"),
+            }
+          : {}),
+      }}
+    />
   );
 }

@@ -23,13 +23,13 @@
 export type ChatMessageIn = { role?: unknown; content?: unknown };
 export type ArtifactRef = Record<string, unknown> & { $artifact?: unknown };
 
+/** The tool part (`tools`, `_runtime.allowed_tools`, `_runtime.tool_policy`) is NOT built here:
+ * the kit's `planRunTools` + `withRunTools` (ui-kit tool_plan, backlog 0033) add it to this input. */
 export type RunInputArgs = {
   prompt: string;
   system?: string;
   messages?: ChatMessageIn[];
   attachments?: ArtifactRef[];
-  allowed_tools?: string[] | null;
-  tool_policy?: Record<string, unknown> | null;
   temperature?: number | null;
   seed?: number | null;
   max_iterations?: number;
@@ -55,13 +55,6 @@ function toChatMessages(messages: ChatMessageIn[], keep: number): Array<{ role: 
     out.push({ role, content });
   }
   return keep <= 0 ? out : out.slice(-keep);
-}
-
-function coerceList(raw: unknown): string[] {
-  if (raw === null || raw === undefined) return [];
-  if (typeof raw === "string") return raw.split(",").map((s) => s.trim()).filter(Boolean);
-  if (Array.isArray(raw)) return raw.map((i) => String(i ?? "").trim()).filter(Boolean);
-  return [];
 }
 
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
@@ -91,9 +84,6 @@ export function buildRunInputData(args: RunInputArgs): Record<string, unknown> {
   const runtime: Record<string, unknown> = {};
   if (isNum(args.temperature)) runtime.temperature = args.temperature;
   if (isNum(args.seed) && Number.isInteger(args.seed)) runtime.seed = args.seed;
-  if (args.allowed_tools !== undefined && args.allowed_tools !== null) {
-    runtime.allowed_tools = args.allowed_tools.map((t) => String(t).trim()).filter(Boolean);
-  }
 
   const provider = String(args.provider ?? "").trim();
   const model = String(args.model ?? "").trim();
@@ -110,13 +100,6 @@ export function buildRunInputData(args: RunInputArgs): Record<string, unknown> {
   if (args.stream !== undefined && args.stream !== null) {
     if (typeof args.stream !== "boolean") throw new Error(`stream must be null, true or false, not ${JSON.stringify(args.stream)}`);
     runtime.stream = args.stream;
-  }
-
-  if (args.tool_policy && typeof args.tool_policy === "object") {
-    const tp = args.tool_policy;
-    const auto = coerceList(tp.auto_approve_tools || tp.autoApproveTools || tp.autoApprove);
-    const req = coerceList(tp.require_approval_tools || tp.requireApprovalTools || tp.requireApproval);
-    if (auto.length || req.length) runtime.tool_policy = { auto_approve_tools: auto, require_approval_tools: req };
   }
 
   const out: Record<string, unknown> = {
@@ -136,7 +119,6 @@ export function buildRunInputData(args: RunInputArgs): Record<string, unknown> {
   if (system) out.system = system;
   if (attachments.length) out.attachments = attachments;
   if (primary) out.primary_image_artifact = primary;
-  if (args.allowed_tools !== undefined && args.allowed_tools !== null) out.tools = runtime.allowed_tools ?? [];
   if (isNum(args.temperature)) out.temperature = args.temperature;
   if (isNum(args.seed) && Number.isInteger(args.seed)) out.seed = args.seed;
   const root = String(args.workspace_root ?? "").trim();
