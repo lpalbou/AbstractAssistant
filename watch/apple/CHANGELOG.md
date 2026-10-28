@@ -7,10 +7,6 @@ iPhone app); the Python package's history is in
 
 ## [Unreleased]
 
-## [0.16.1] - 2026-10-28
-
-Build 40, shared with the iPhone app (`MARKETING_VERSION` 0.16.1, `CURRENT_PROJECT_VERSION` 40).
-
 ### Added
 
 - **Voices in groups, with their language (AbstractGateway 0.16.0 voice library).** Settings → Voice

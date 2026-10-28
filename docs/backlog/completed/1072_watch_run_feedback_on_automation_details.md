@@ -1,10 +1,12 @@
 # 1072: Apple Watch: Run on an automation's details answers the tap
 
-**Status**: completed in the Apple apps 0.16.1 (build 40) (branch `fix/watch-run-feedback`); shipped to testers
-by the operator's TestFlight upload (`watch/apple/scripts/testflight.sh`).
+**Status**: completed on `main` under `## [Unreleased]` of `watch/apple/CHANGELOG.md` (branch `fix/watch-run-feedback`,
+brought onto main without its version bump: the lead sets the Apple apps' next `MARKETING_VERSION` / build); reaches
+testers with the operator's next TestFlight upload (`watch/apple/scripts/testflight.sh`). Not deployed to the operator's
+devices by this change (`phone/iphone/scripts/deploy-phone.sh` needs them).
 **Source**: release-closing QA 2026-10-28, item (m).
 **Scope**: the watch app (`watch/apple`); the shared client package only for a test delay (`MockGatewayClient`
-`runDelay`); the shared version in `phone/iphone/project.yml`.
+`runDelay`).
 
 ## Problem
 
