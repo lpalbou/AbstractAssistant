@@ -16,7 +16,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QComboBox, QLineEdit, QPushButton
+from PyQt5.QtWidgets import QComboBox, QLabel, QLineEdit, QPushButton
 
 from abstractassistant import hotkey as hotkey_module
 from abstractassistant.gateway.run_input import build_run_input_data
@@ -217,34 +217,120 @@ def test_tool_categories_are_the_gateway_toolsets_all_collapsed() -> None:
     assert page.groups["web"].toggle.toolTip() == "Show the web tools"
 
 
+OFF, ASK, AUTO = 0, 1, 2  # the kit's segment order: Off / Ask / Auto (ui-kit tool_mode_editor.tsx)
+
+
+def _segments(control) -> list:
+    return [b.text() for b in control._buttons]
+
+
 @pytest.mark.basic
-def test_all_auto_and_all_ask_are_pressed_state_controls_that_apply_at_once() -> None:
+def test_the_tool_vocabulary_is_the_kits() -> None:
+    """Operator 2026-10-28: "use the vocabulary we decided" — ui-kit TOOL_MODE_LABELS
+    (Off / Ask / Auto, in that order), the group head with the same control."""
+    from abstractassistant.ui.settings import pages
+
+    assert pages.TOOL_MODE_LABELS == {"off": "Off", "ask": "Ask", "auto": "Auto", "on": "On"}
+    assert pages.BULK_AUTO_CAP_SENTENCE == (
+        "Auto for a whole group reaches the tools that read or make changes (risk 2 or lower) and whose "
+        "destination the assistant does not choose. Set the others to Auto one at a time."
+    )
+    dlg, ctl, page = _tools()
+    for info in page._rows.values():
+        assert _segments(info["control"]) == ["Off", "Ask", "Auto"]
+    for group in page.groups.values():
+        assert _segments(group.mode) == ["Off", "Ask", "Auto"], "the group has the tools' states"
+        assert group.mode.accessibleName() == f"All {group.toolset} tools"
+    texts = " ".join(w.text() + " " + w.toolTip() for w in page.findChildren(QLabel) + page.findChildren(QPushButton))
+    for gone in ("All auto", "All ask", "Disabled on gateway"):
+        assert gone not in texts, gone
+    # The stored dialect (disabled / ask / approve) is never a label.
+    labels = {b.text() for b in page.findChildren(QPushButton)}
+    assert not labels & {"approve", "disabled", "Approve", "Disabled"}
+    # A refresh leaves one set of panels (the old ones are not painted under the new).
+    page.refresh()
+    assert len([g for g in page.findChildren(type(page.groups["web"])) if g.parent() is not None]) == len(page.groups)
+
+
+@pytest.mark.basic
+def test_the_group_control_has_the_rows_states_and_shows_mixed() -> None:
     dlg, ctl, page = _tools()
     web = page.groups["web"]
-    # Pressed state = the rows' truth: every web tool is on Auto.
-    assert web.all_auto.isCheckable() and web.all_auto.isChecked() and not web.all_ask.isChecked()
+    # The rows' truth: every web tool is on Auto.
+    assert web.mode.value() == "approve" and web.state_label.text() == "Auto"
     files = page.groups["files"]
-    assert not files.all_auto.isChecked() and not files.all_ask.isChecked()  # mixed
-    # All ask on web: applied and saved at once (no Save button).
-    web.all_ask.click()
+    assert files.state_label.text() == "Mixed" and not any(b.isChecked() for b in files.mode._buttons)
+    # Ask on the web group: applied and saved at once (no Save button).
+    web.mode._buttons[ASK].click()
     assert all(page._rows[n]["control"].value() == "ask" for n in ("web_search", "fetch_url"))
     assert ctl.saved_tool_prefs == {"web_search": "ask", "fetch_url": "ask", "camera_capture_photo": "approve"}
-    assert web.all_ask.isChecked() and not web.all_auto.isChecked()
-    # Clicking the pressed one again keeps it pressed (it is a state, not a verb).
-    web.all_ask.click()
-    assert web.all_ask.isChecked()
-    # All auto on files: destructive delete_file stays on Ask; the state shows
-    # "All auto" pressed (every tool it may reach is on Auto).
-    files.all_auto.click()
-    assert page._rows["write_file"]["control"].value() == "approve"
-    assert page._rows["delete_file"]["control"].value() == "ask"
-    assert files.all_auto.isChecked()
-    assert "delete_file" in page.feedback.text()
-    # One row changed by hand flips the panel back to "mixed".
-    page._rows["read_file"]["control"]._buttons[2].click()  # Ask
-    assert ctl.saved_tool_prefs["read_file"] == "ask"
-    assert not files.all_auto.isChecked() and not files.all_ask.isChecked()
+    assert web.state_label.text() == "Ask" and web.mode.value() == "ask"
+    # Off on the web group: every reachable row Off.
+    web.mode._buttons[OFF].click()
+    assert all(page._rows[n]["control"].value() == "disabled" for n in ("web_search", "fetch_url"))
+    assert web.state_label.text() == "Off"
+    # One row changed by hand: the group reads "Mixed" again.
+    page._rows["fetch_url"]["control"]._buttons[AUTO].click()
+    assert web.state_label.text() == "Mixed" and not any(b.isChecked() for b in web.mode._buttons)
     assert page.actions() and [b.text() for b in page.actions()] == ["Use gateway defaults"]
+
+
+@pytest.mark.basic
+def test_group_auto_honours_the_kits_cap_and_says_which_tools_stay() -> None:
+    dlg, ctl, page = _tools()
+    files = page.groups["files"]
+    files.toggle.click()
+    # The cap, before acting: the sentence and the tool it leaves, by name.
+    assert files.cap_note.isVisibleTo(page)
+    assert files.cap_note.text().endswith("1 tool here stays as it is: delete_file.")
+    assert "risk 2 or lower" in files.mode._buttons[AUTO].toolTip()
+    files.mode._buttons[AUTO].click()
+    assert page._rows["write_file"]["control"].value() == "approve"
+    assert page._rows["delete_file"]["control"].value() == "ask", "rank 4: group Auto never reaches it"
+    assert "delete_file" in page.feedback.text() and "risk 2 or lower" in page.feedback.text()
+    # Every comms tool it could reach is... only list_emails (send_email is rank 3).
+    comms = page.groups["comms"]
+    comms.mode._buttons[AUTO].click()
+    assert page._rows["send_email"]["control"].value() == "ask"
+    # A group where Auto reaches nothing: its Auto is unavailable.
+    ctl2 = _Ctl()
+    ctl2.tool_inventory = lambda: {"items": [{"name": "rm_rf", "toolset": "danger", "available": True, "risk_tier": "destroy",
+                                              "risk_rank": 4, "policy_default": "ask", "selected_mode": "ask"}]}  # type: ignore[method-assign]
+    dlg2, _ = _dialog(ctl2)
+    dlg2.show_section("tools")
+    assert not dlg2.page_tools.groups["danger"].mode._buttons[AUTO].isEnabled()
+
+
+@pytest.mark.basic
+def test_a_tool_the_gateway_does_not_offer_is_read_only_with_the_why() -> None:
+    ctl = _Ctl()
+    base = ctl.tool_inventory()
+    base["items"] += [
+        {"name": "agora_post", "toolset": "agora", "available": False, "why_disabled": "the agora connector is not configured",
+         "risk_tier": "outreach", "risk_rank": 3, "policy_default": "ask", "selected_mode": "approve"},
+        {"name": "agora_read", "toolset": "agora", "available": False, "risk_tier": "observe", "risk_rank": 1,
+         "policy_default": "ask", "selected_mode": "ask"},
+        {"name": "agora_list", "toolset": "agora", "available": True, "risk_tier": "observe", "risk_rank": 1,
+         "policy_default": "ask", "selected_mode": "ask"},
+    ]
+    ctl.tool_inventory = lambda: base  # type: ignore[method-assign]
+    dlg, _ = _dialog(ctl)
+    dlg.show_section("tools")
+    page = dlg.page_tools
+    post = page._rows["agora_post"]
+    assert post["control"].value() == "disabled" and not post["control"].isEnabled()
+    assert post["why"] == "Not offered by the gateway: the agora connector is not configured"
+    assert post["control"].toolTip() == post["why"]
+    assert page._rows["agora_read"]["why"] == "Not offered by the gateway."
+    whys = [w.text() for w in page.findChildren(QLabel) if w.property("whyDisabled")]
+    assert sorted(whys) == ["Not offered by the gateway.", "Not offered by the gateway: the agora connector is not configured"]
+    # The group acts on the offered tool only, and never stores a mode for the others.
+    agora = page.groups["agora"]
+    assert agora.state_label.text() == "Ask"
+    agora.mode._buttons[OFF].click()
+    assert page._rows["agora_list"]["control"].value() == "disabled"
+    assert post["control"].value() == "disabled" and "agora_post" not in ctl.saved_tool_prefs
+    assert "agora_read" not in ctl.saved_tool_prefs
 
 
 @pytest.mark.basic
@@ -254,8 +340,8 @@ def test_a_refused_tool_save_says_not_saved_and_puts_the_row_back() -> None:
     dlg, _ = _dialog(ctl)
     dlg.show_section("tools")
     page = dlg.page_tools
-    page._rows["web_search"]["control"]._buttons[2].click()
-    assert page._rows["web_search"]["control"].value() == "approve"
+    page._rows["web_search"]["control"]._buttons[ASK].click()
+    assert page._rows["web_search"]["control"].value() == "approve", "put back"
     assert page.feedback.text() == "Not saved. the preferences file is read-only"
 
 
@@ -270,9 +356,9 @@ def test_the_filter_searches_every_category_and_opens_the_ones_with_hits() -> No
     page.search_edit.setText("file")
     assert page.groups["files"].is_open()
     assert page.groups["files"].count_chip.text() == "4 of 4"
-    # A filtered "All auto" only touches what is shown.
+    # A filtered group control only touches what is shown.
     page.search_edit.setText("read_file")
-    page.groups["files"].all_auto.click()
+    page.groups["files"].mode._buttons[AUTO].click()
     assert page._rows["write_file"]["control"].value() == "ask"
     # Cleared: every panel back, all collapsed again (R11.5).
     page.search_edit.setText("")

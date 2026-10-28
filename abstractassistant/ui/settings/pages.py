@@ -1553,6 +1553,11 @@ class ToolsPage(SettingsPage):
             item = self._groups.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                # Hidden and unparented first: a panel only scheduled for
+                # deletion kept painting under the rebuilt ones (two control
+                # rows drawn over each other until the event loop ran).
+                widget.hide()
+                widget.setParent(None)
                 widget.deleteLater()
         self._rows = {}
         self._sandbox_chips: Dict[str, Chip] = {}
@@ -1633,8 +1638,10 @@ class ToolsPage(SettingsPage):
                 else:
                     # Read-only, visible, with the gateway's reason: a tool the
                     # gateway does not offer is Off whatever this Mac stored.
-                    served = str(item.get("why_disabled") or "").strip().rstrip(".")
-                    why = f"Not offered by the gateway: {served or 'switched off on the gateway'}."
+                    # The kit's words (tool_mode_editor.tsx), with the gateway's
+                    # reason when it serves one (`why_disabled`, else `enable_gate`).
+                    served = str(item.get("why_disabled") or "").strip()
+                    why = f"Not offered by the gateway: {served}" if served else "Not offered by the gateway."
                     control.set_value("disabled")
                     control.setEnabled(False)
                     control.setToolTip(why)

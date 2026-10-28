@@ -460,7 +460,7 @@ def test_approval_mode_card_has_risk_chips_headline_and_no_status_chip() -> None
 def test_card_marks_disabled_and_unknown_tools_honestly() -> None:
     disabled = ToolCallCard(call={"name": "send_email", "arguments": {"to": "a@b"}}, index=0, risk=SEND_EMAIL)
     chips = [c.text() for c in disabled.findChildren(QLabel, "chip")]
-    assert "Disabled on gateway" in chips
+    assert "Not offered by the gateway" in chips  # the kit's words (tool_mode_editor.tsx)
     captions = [label.text() for label in disabled.findChildren(QLabel, "cardHelp")]
     assert "Approval cannot run it." in captions
     assert disabled.property("unavailable") == "true"

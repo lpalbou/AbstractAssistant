@@ -170,7 +170,7 @@ default applies:
 | `_runtime.stream` | Stream replies, ALWAYS sent: `true` when the switch is on and the cached `/discovery/capabilities` answer advertises `streaming.deltas: true`, `false` otherwise (the gateway's `streaming.default` never decides for this app) |
 | `workspace_root` | the chat's private workspace, once the gateway gave it on the chat's first run (blank before); which other workspaces the run may use is resolved by the gateway at run start — the chat's subset (`/sessions/{id}/workspaces`) > the account default (`/workspace/policy/me`) > the gateway policy — never sent per run |
 | `image_provider/image_model`, `image_edit_*`, `image_upscale_*`, `video_*`, `image_to_video_*`, `music_*`, `sound_output` | media route overrides |
-| `_runtime.allowed_tools`, `_runtime.tool_policy` | per-tool modes (Off / Auto / Ask) |
+| `_runtime.allowed_tools`, `_runtime.tool_policy` | per-tool modes (Off / Ask / Auto) |
 | `system` | the workflow's base prompt plus an addendum (voice conversation) when one applies |
 
 ## Live reply events
