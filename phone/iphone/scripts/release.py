@@ -114,10 +114,13 @@ def validate_settings(path: Path) -> None:
             raise ValueError("Explicit entitlements require signing the archive; unsigned candidate creation is disabled")
 
 
-def export_options(path: Path, team: str) -> None:
+def export_options(path: Path, team: str, destination: str = "upload") -> None:
+    """App Store Connect export: "upload" sends the build to App Store Connect, "export" writes the .ipa."""
     if not re.fullmatch(r"[A-Z0-9]{10}", team):
         raise ValueError("A valid Apple team identifier is required")
-    path.write_bytes(plistlib.dumps({"method": "app-store-connect", "destination": "upload",
+    if destination not in {"upload", "export"}:
+        raise ValueError("Export destination must be upload or export")
+    path.write_bytes(plistlib.dumps({"method": "app-store-connect", "destination": destination,
         "teamID": team, "signingStyle": "automatic", "manageAppVersionAndBuildNumber": False,
         "uploadSymbols": True, "testFlightInternalTestingOnly": False}))
 
@@ -137,6 +140,7 @@ def main() -> None:
     check.add_argument("--destination", type=Path, required=True); check.add_argument("--sha", required=True)
     settings = sub.add_parser("settings"); settings.add_argument("path", type=Path)
     export = sub.add_parser("export-options"); export.add_argument("path", type=Path); export.add_argument("--team", required=True)
+    export.add_argument("--destination", choices=["upload", "export"], default="upload")
     args = vars(parser.parse_args()); command = args.pop("command")
     if command == "metadata":
         result = metadata(**args)

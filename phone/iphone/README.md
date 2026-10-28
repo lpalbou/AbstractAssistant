@@ -96,7 +96,20 @@ do not appear.
 automatic reading of new replies, the gateway’s
 speaking voices and its transcription models. Voice choices stay on this iPhone, scoped
 to your account and gateway. **Gateway default** sends no override; entities retain their
-own speaking voice. Tap a voice to select and hear it automatically. Speed choices
+own speaking voice. Tap a voice to select and hear it automatically. The voices come in
+three groups, each voice with its language: **Your voices** (cloned or designed by you),
+**Engine voices** and **Shared voices** (the gateway's built-in voices and the ones its
+administrator shares); **Voices that speak…** keeps one language's voices, and the chosen
+voice shows its description. Swipe left on one of your voices to rename or delete it.
+
+**Create a voice** (Voice & reading, or the end of the voice list) makes one **from a
+description** (words, a name, a language) or **from a recording**: 5 to 20 seconds recorded
+with the microphone, or a WAV, FLAC, OGG, MP3, M4A or WEBM file, with an optional transcript,
+a name and its language (**Detect from the recording** by default). The gateway does the work
+(a first design can take a minute) while the app stays usable. The new voice becomes your
+assistant's voice when it speaks on your assistant's engine; otherwise the screen says where it
+is. On a gateway with one shared voice store only an administrator creates voices, and the
+gateway's refusal is shown as it says it. Speed choices
 **1×, 1.15×, 1.3× and 1.5×** also play a sample and apply to all read-aloud playback.
 Restored history is never read automatically.
 

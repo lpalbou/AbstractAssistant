@@ -83,7 +83,9 @@ its complications in one tint shows the orb's light in that tint (its picture as
 style keeps its shape and texture there); faces such as Infograph and Modular Duo keep its colours.
 
 **Make it yours.** Settings has Connection (the gateway and account you use), Tools (the defaults
-for new conversations), Voice (the speaking voice, its speed and the transcription model), Read
+for new conversations), Voice (the speaking voice, its speed and the transcription model; the voices in
+groups, Your voices, Engine voices and Shared voices, each with its language and a "Voices that speak"
+filter; voices are created on the iPhone or the desktop), Read
 aloud, Orb style (thirty-four styles in six families: Orbs, Forms, Cosmos, Nature, Faces and Machines, each previewed live through listening, thinking, working and speaking) and About.
 
 ## Sign in

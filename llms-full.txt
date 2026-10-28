@@ -4263,7 +4263,20 @@ do not appear.
 automatic reading of new replies, the gateway’s
 speaking voices and its transcription models. Voice choices stay on this iPhone, scoped
 to your account and gateway. **Gateway default** sends no override; entities retain their
-own speaking voice. Tap a voice to select and hear it automatically. Speed choices
+own speaking voice. Tap a voice to select and hear it automatically. The voices come in
+three groups, each voice with its language: **Your voices** (cloned or designed by you),
+**Engine voices** and **Shared voices** (the gateway's built-in voices and the ones its
+administrator shares); **Voices that speak…** keeps one language's voices, and the chosen
+voice shows its description. Swipe left on one of your voices to rename or delete it.
+
+**Create a voice** (Voice & reading, or the end of the voice list) makes one **from a
+description** (words, a name, a language) or **from a recording**: 5 to 20 seconds recorded
+with the microphone, or a WAV, FLAC, OGG, MP3, M4A or WEBM file, with an optional transcript,
+a name and its language (**Detect from the recording** by default). The gateway does the work
+(a first design can take a minute) while the app stays usable. The new voice becomes your
+assistant's voice when it speaks on your assistant's engine; otherwise the screen says where it
+is. On a gateway with one shared voice store only an administrator creates voices, and the
+gateway's refusal is shown as it says it. Speed choices
 **1×, 1.15×, 1.3× and 1.5×** also play a sample and apply to all read-aloud playback.
 Restored history is never read automatically.
 
@@ -4545,6 +4558,27 @@ The iPhone app and its Apple Watch companion share one version and build number 
 listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
+
+### Added
+
+- **Your voices, the engine's and the shared ones (AbstractGateway 0.16.0 voice library).**
+  Settings → Voice & reading → Voice lists the speaking voices in three groups: **Your voices**
+  (the ones you cloned or designed), **Engine voices** and **Shared voices** (the gateway's
+  built-in voices and the ones its administrator shares), each with its language. **Voices that
+  speak…** keeps the voices of one language when the gateway offers several (a voice with no
+  language restriction always stays), and the chosen voice shows its description.
+- **Create a voice on the iPhone.** **Create a voice** (in Voice & reading and at the end of the
+  voice list) makes one **from a description** (words, a name and a language; the gateway designs it
+  with Qwen3-TTS, the first one can take a minute) or **from a recording**: record 5 to 20 seconds
+  with the microphone, or choose a WAV, FLAC, OGG, MP3, M4A or WEBM file, with an optional
+  transcript, a name and the language (**Detect from the recording** by default). The request runs
+  with its progress shown and the app stays usable. The new voice becomes your assistant's voice
+  when it speaks on the engine your assistant uses; otherwise the screen says which engine it was
+  made on and where to choose it. When the assistant's voice is on a cloning engine (qwen3-tts,
+  omnivoice, f5_tts, chroma, audiodit), the recording is cloned with that engine.
+- **Rename and delete your voices.** Swipe left on one of Your voices to rename or delete it.
+  Shared voices are read-only; a gateway that refuses (one shared voice store: an administrator's
+  act; a read-only voice) says why in its own words.
 
 ### Changed
 
@@ -4926,6 +4960,22 @@ player generations suppress obsolete completions. Speed is one of 1, 1.15, 1.3 o
 stored per gateway/account and applied locally through AVAudioPlayer.enableRate/rate before
 playback. It applies to Assistant and entity speech while entity voice overrides remain
 entity-owned. Invalid persisted speeds restore to 1. No speed is sent to TTS providers.
+
+The voice list follows the gateway's voice library (AbstractGateway 0.16.0). `VoiceCatalog.parse`
+(AbstractGatewayClient, shared with the watch) turns `GET /voice/voices` `items[]` into
+`VoiceEntry` values: the `VoiceChoice` that is stored and sent with speech, its group, language,
+listed languages and description. The group follows the desktop and web rule: a record is a clone
+by its `kind` before `voice_kind` (the gateway's catalog merge sends clones as `voice_kind:
+"voice"`); `tags.builtin` or `params.meta.scope == "library"` is shared, any other clone is the
+person's own. A clone is spoken by its `voice_id` on its engine, with the engine's first listed
+model. `VoiceLibrary.grouped` filters by language (an unrestricted voice always passes; the chosen
+voice always stays). Creation goes through `designVoice` (`POST /voice/design`) and `cloneVoice`
+(multipart `POST /voice/clones`: `file`, then `name`, `language`, `reference_text`, `provider`
+when given), rename and delete through `PATCH`/`DELETE /voice/clones/{id}`; a refusal surfaces as
+the gateway's `detail` sentence. AssistantKit's `VoiceDesignForm`/`VoiceRecordingForm` build the
+requests (5 to 20 s recordings, accepted formats, language detected unless chosen, the selected
+cloning engine sent), and `VoiceCreationOutcome` decides whether the new voice is selected (same
+engine as the assistant's voice, or the gateway default's) or reported as made elsewhere.
 
 The labelled responder chooser sits below the chat toolbar. Its bounded width lets long names
 truncate while retaining their full accessible value. Who answers lists Assistant and searchable
@@ -5880,7 +5930,9 @@ its complications in one tint shows the orb's light in that tint (its picture as
 style keeps its shape and texture there); faces such as Infograph and Modular Duo keep its colours.
 
 **Make it yours.** Settings has Connection (the gateway and account you use), Tools (the defaults
-for new conversations), Voice (the speaking voice, its speed and the transcription model), Read
+for new conversations), Voice (the speaking voice, its speed and the transcription model; the voices in
+groups, Your voices, Engine voices and Shared voices, each with its language and a "Voices that speak"
+filter; voices are created on the iPhone or the desktop), Read
 aloud, Orb style (thirty-four styles in six families: Orbs, Forms, Cosmos, Nature, Faces and Machines, each previewed live through listening, thinking, working and speaking) and About.
 
 ## Sign in
@@ -5972,6 +6024,14 @@ iPhone app); the Python package's history is in
 [../../CHANGELOG.md](../../CHANGELOG.md).
 
 ## [Unreleased]
+
+### Added
+
+- **Voices in groups, with their language (AbstractGateway 0.16.0 voice library).** Settings → Voice
+  lists **Your voices** (cloned or designed on the iPhone or the desktop), **Engine voices** and
+  **Shared voices** (the gateway's built-in voices and the ones its administrator shares), each with
+  its language, and **Voices that speak** keeps one language's voices when the gateway offers
+  several. Voices are created on the iPhone or the desktop; the watch says so.
 
 ### Fixed
 
@@ -6642,6 +6702,7 @@ sequenceDiagram
 | Ask an entity | `GET /api/gateway/entities`, `POST /api/gateway/entities/{name}/chat/open`, `POST .../chat/{id}/turn`; the entity row's `appearance` gives its orb |
 | Voice in | `POST /api/gateway/attachments/upload` (multipart, `session_id`), `POST /api/gateway/runs/{session owner}/audio/transcribe` |
 | Voice out | `POST /api/gateway/runs/{id}/voice/tts/stream` (an entity: `POST /api/gateway/entities/{name}/voice/tts/stream`); the whole text in one request (the gateway speaks it in whole sentences); playback starts once 1.5 s of speech is queued and plays at the speed chosen on the watch |
+| Voices | `GET /api/gateway/voice/voices` and `GET /api/gateway/audio/transcriptions/models`; voices grouped Your voices / Engine voices / Shared voices with their language (`VoiceCatalog.parse`, `VoiceLibrary`, shared with the iPhone) and a "Voices that speak" filter; no creation on the watch (the iPhone and the desktop create voices) |
 | Tools | `GET /api/gateway/discovery/tools` (group `toolset`, `description`, `risk_tier`, `enabled`, `approval_default`); each run sends the tools on Auto or Ask as `tools` and `_runtime.allowed_tools`, and `_runtime.tool_policy {auto_approve_tools, require_approval_tools}`; choices are kept on the watch (defaults, then each conversation's changes) |
 | Workflow | `GET /api/gateway/bundles?executable_for=abstractcode.agent.v1` and `…=abstractassistant.agent.v1` (newest version per bundle); a chosen one starts as `bundle_id`, `bundle_version`, `flow_id`, `interface`, `registry_scope`; none chosen: `flow_id: "@default"` of `abstractcode.agent.v1`; kept on the watch per conversation (defaults in Settings → Tools) |
 | New answers | a conversation is new when its newest turn ended after the watch started counting and is not the turn last seen there (kept on the watch, `sessions.seen`); automations: the gateway's `attention.unseen_count` |

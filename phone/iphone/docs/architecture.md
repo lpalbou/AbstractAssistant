@@ -212,6 +212,22 @@ stored per gateway/account and applied locally through AVAudioPlayer.enableRate/
 playback. It applies to Assistant and entity speech while entity voice overrides remain
 entity-owned. Invalid persisted speeds restore to 1. No speed is sent to TTS providers.
 
+The voice list follows the gateway's voice library (AbstractGateway 0.16.0). `VoiceCatalog.parse`
+(AbstractGatewayClient, shared with the watch) turns `GET /voice/voices` `items[]` into
+`VoiceEntry` values: the `VoiceChoice` that is stored and sent with speech, its group, language,
+listed languages and description. The group follows the desktop and web rule: a record is a clone
+by its `kind` before `voice_kind` (the gateway's catalog merge sends clones as `voice_kind:
+"voice"`); `tags.builtin` or `params.meta.scope == "library"` is shared, any other clone is the
+person's own. A clone is spoken by its `voice_id` on its engine, with the engine's first listed
+model. `VoiceLibrary.grouped` filters by language (an unrestricted voice always passes; the chosen
+voice always stays). Creation goes through `designVoice` (`POST /voice/design`) and `cloneVoice`
+(multipart `POST /voice/clones`: `file`, then `name`, `language`, `reference_text`, `provider`
+when given), rename and delete through `PATCH`/`DELETE /voice/clones/{id}`; a refusal surfaces as
+the gateway's `detail` sentence. AssistantKit's `VoiceDesignForm`/`VoiceRecordingForm` build the
+requests (5 to 20 s recordings, accepted formats, language detected unless chosen, the selected
+cloning engine sent), and `VoiceCreationOutcome` decides whether the new voice is selected (same
+engine as the assistant's voice, or the gateway default's) or reported as made elsewhere.
+
 The labelled responder chooser sits below the chat toolbar. Its bounded width lets long names
 truncate while retaining their full accessible value. Who answers lists Assistant and searchable
 entities with explicit loading/error/retry. Entity discovery can load independently of the

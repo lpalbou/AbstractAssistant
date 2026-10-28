@@ -755,6 +755,88 @@ final class PhoneUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Save workflow"].waitForExistence(timeout: 10))
         capture(app, "Workflow settings")
     }
+    /// The gateway's voice library (sample gateway): voices in groups with their language, the
+    /// "Voices that speak…" filter, the chosen voice's description, rename and delete on one's own
+    /// voices only, and Create a voice from a description and from a recording.
+    @MainActor func testVoiceLibraryGroupsFilterManageAndCreate() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test"]; app.launch()
+        openSettings(app)
+        app.buttons["Voice & reading"].tap()
+        XCTAssertTrue(app.buttons["voice.choices"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["voice.create"].exists, "Create a voice is reachable from Voice settings")
+        app.buttons["voice.choices"].tap()
+        let header = { (title: String) in app.staticTexts.matching(NSPredicate(format: "label ==[c] %@", title)).firstMatch }
+        for title in ["Your voices", "Engine voices", "Shared voices"] {
+            XCTAssertTrue(header(title).waitForExistence(timeout: 5), "no \(title) section:\n\(app.debugDescription)")
+        }
+        let row = { (title: String) in app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch }
+        XCTAssertTrue(row("My narrator").exists && row("Camille").exists)
+        XCTAssertTrue(row("Camille").label.contains("French"), "a voice shows its language: \(row("Camille").label)")
+        capture(app, "Voice library — groups")
+
+        // Voices that speak French: the shared French voice stays, the English ones go.
+        app.buttons["voice.language"].tap()
+        app.buttons["French"].firstMatch.tap()
+        XCTAssertTrue(row("Camille").waitForExistence(timeout: 5))
+        XCTAssertFalse(row("Supertonic · M1").exists, "the filter keeps only the voices that speak French")
+        capture(app, "Voice library — French voices")
+        app.buttons["voice.language"].tap()
+        app.buttons["Any language"].firstMatch.tap()
+        XCTAssertTrue(row("Supertonic · M1").waitForExistence(timeout: 5))
+
+        // The chosen voice shows its description.
+        row("Camille").tap()
+        XCTAssertTrue(app.staticTexts["voice.choice.description"].waitForExistence(timeout: 5))
+        if app.buttons["Stop sample"].waitForExistence(timeout: 3) { app.buttons["Stop sample"].tap() }
+
+        // Shared voices are read-only: no swipe actions.
+        row("Camille").swipeLeft()
+        XCTAssertFalse(app.buttons["Delete"].waitForExistence(timeout: 1.5), "a shared voice offers Delete")
+        XCTAssertTrue(row("Camille").exists, "still on the voice list")
+
+        // One's own voice: rename, then delete (back at the top of the list first).
+        for _ in 0..<3 where !(row("My narrator").exists && row("My narrator").isHittable) { app.swipeDown() }
+        XCTAssertTrue(row("My narrator").waitForExistence(timeout: 3), app.debugDescription)
+        row("My narrator").swipeLeft()
+        XCTAssertTrue(app.buttons["Rename"].waitForExistence(timeout: 3)); app.buttons["Rename"].tap()
+        let field = app.alerts.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 3), app.debugDescription)
+        XCTAssertEqual(field.value as? String, "My narrator", "the field starts from the current name")
+        field.tap(); field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 14) + "Story voice")
+        app.alerts.buttons["Save"].tap()
+        XCTAssertTrue(row("Story voice").waitForExistence(timeout: 5), app.debugDescription)
+        row("Story voice").swipeLeft()
+        XCTAssertTrue(app.buttons["Delete"].waitForExistence(timeout: 3)); app.buttons["Delete"].tap()
+        XCTAssertTrue(app.buttons["Delete voice"].waitForExistence(timeout: 3)); app.buttons["Delete voice"].tap()
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: row("Story voice"))
+        XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: 5), .completed)
+
+        for _ in 0..<4 where !app.buttons["voice.choices.create"].isHittable { app.swipeUp() }
+        // Create a voice from a description: progress, then the voice in Your voices. The assistant
+        // speaks with Camille (qwen3-tts), the engine the design uses: the new voice is selected.
+        app.buttons["voice.choices.create"].tap()
+        let description = app.textViews["voice.create.description"].exists ? app.textViews["voice.create.description"] : app.textFields["voice.create.description"]
+        XCTAssertTrue(description.waitForExistence(timeout: 5)); description.tap(); description.typeText("A calm, warm adult voice")
+        app.textFields["voice.create.name"].tap(); app.textFields["voice.create.name"].typeText("Calm narrator")
+        app.buttons["voice.create.submit"].tap()
+        let designing = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label BEGINSWITH 'Designing the voice'"), object: app.buttons["voice.create.submit"])
+        XCTAssertEqual(XCTWaiter.wait(for: [designing], timeout: 3), .completed, "no progress while the voice is made:\n\(app.debugDescription)")
+        let outcome = app.staticTexts["voice.create.outcome"].firstMatch
+        XCTAssertTrue(outcome.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(outcome.label.contains("Calm narrator"), outcome.label)
+        XCTAssertTrue(outcome.label.contains("is now your assistant’s voice"), outcome.label)
+        capture(app, "Create a voice — from a description")
+        // From a recording: the language is detected unless chosen.
+        app.buttons["From a recording"].tap()
+        XCTAssertTrue(app.buttons["voice.create.cloneLanguage"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["voice.create.cloneLanguage"].label.contains("Detect from the recording"), app.buttons["voice.create.cloneLanguage"].label)
+        XCTAssertFalse(app.buttons["voice.create.submit"].isEnabled, "nothing to send before a recording")
+        capture(app, "Create a voice — from a recording")
+        app.navigationBars.buttons.firstMatch.tap()
+        for _ in 0..<3 where !row("Calm narrator").exists { app.swipeDown() }
+        XCTAssertTrue(row("Calm narrator").waitForExistence(timeout: 5), "the new voice is listed")
+        XCTAssertTrue(row("Calm narrator").isSelected, "the new voice is the assistant's voice")
+    }
     @MainActor func testCreateAutomationOnThePhone() throws {
         let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--screen", "automations"]; app.launch()
         XCTAssertTrue(app.buttons["New automation"].waitForExistence(timeout: 10)); app.buttons["New automation"].tap()
