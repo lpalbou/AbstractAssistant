@@ -46,11 +46,12 @@ ADR 0039 (word states), AbstractUIC panel-chat `stat_detail.tsx` (the footer's s
   - plus `test_discuss_here_picks_the_run_the_composer_continues_from`,
     `test_leaving_the_automation_while_its_session_is_created_loses_nothing`,
     `test_choosing_a_chat_leaves_the_automation_and_its_draft_stays_the_chats`,
-    `test_a_chosen_run_that_can_no_longer_be_discussed_is_let_go_visibly`, `test_runs_loading_reads_as_loading_not_as_no_run`,
+    `test_a_chosen_run_that_can_no_longer_be_discussed_is_let_go_visibly`, `test_a_send_queued_for_the_chat_never_lands_in_another_session`
+    (red when the queued send fires on a session change), `test_runs_loading_reads_as_loading_not_as_no_run`,
     `test_the_automation_links_the_session_it_was_continued_as`, `tests/basic/test_automation_chat_surface.py`
     (the Qt-free words: envelope and email/event input-frame split, system line, chips, overflow lines, continued
     sessions, the Tokens card, a non-button chip reachable by keyboard).
-- **Suite**: `tests/basic` 1419 passed, 10 skipped (offscreen, Python 3.12); CI on PR #18.
+- **Suite**: `tests/basic` 1420 passed, 10 skipped (offscreen, Python 3.12); CI on PR #18.
 - **Screenshots** (offscreen grabs, fixture: 1 automation + 3 runs, one failed): 
   `untracked/release-closing/design/automation/automation-{before,after}-{light,dark}.png`,
   `footer-tooltip-after-light.png` (framework root).
@@ -98,3 +99,18 @@ ADR 0039 (word states), AbstractUIC panel-chat `stat_detail.tsx` (the footer's s
 12. "Continued as a session on …" missed the session just created → the sessions this app created are listed
     until the gateway's list names them. Nits: a raw exception in user text replaced by a sentence; a disabled icon
     control's tooltip starts with its name.
+
+### Second review round (same reviewer, on the fix commits)
+
+9 of 13 fixed, 4 partly; 3 new defects, all fixed:
+- A. Leaving an automation with unsent text dropped the chat's draft → each automation keeps its own unsent text
+  (back when it reopens; one automation to another included), the chat's draft always comes back; a refused
+  continuation after leaving waits in that automation, never in the chat's composer.
+- B. Switch / + New chat fired a send queued for the previous chat into the target session → a session change
+  never fires it (its text stays in the composer).
+- C. A legacy schedule's composer said "Loading runs…" forever → it says why it cannot be continued.
+- A failure without a reason reads "This run failed; the gateway gave no reason." (not "failed").
+
+Left as is (noted): the "Continued as a session on …" line is computed when the automation opens (not refreshed
+while it is open); the banner shown when a session is created while a chat reply is live names the session list
+without a link; choosing a session leaves the automation even when the switch is then refused.

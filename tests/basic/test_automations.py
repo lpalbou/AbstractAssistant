@@ -1103,8 +1103,12 @@ def test_leaving_the_automation_while_its_session_is_created_loses_nothing(palet
     window._close_automation_view()  # ← while the session is being created
     assert not window.prompt_edit.isReadOnly() and window.attach_button.isEnabled()
     held[0](False, AutomationApiError(status=0, reason_code="unreachable", message="refused"))
-    assert window.prompt_edit.toPlainText() == "First question", "the refused text comes back"
     assert "Could not continue the automation as a session" in window.banner_label.text()
+    assert window.prompt_edit.toPlainText() == "", "never put into the chat's composer"
+    window._open_automation(TRIAGE)
+    assert window.prompt_edit.toPlainText() == "First question", "the refused text waits in the automation"
+    window.prompt_edit.clear()
+    window._close_automation_view()
     # A success after leaving still opens the session the person asked for.
     window._open_automation(TRIAGE)
     window.prompt_edit.setPlainText("Second question")
@@ -1130,16 +1134,33 @@ def test_choosing_a_chat_leaves_the_automation_and_its_draft_stays_the_chats(pal
     before = len(stub.calls("POST", f"{AUTOMATIONS_PATH}/{TRIAGE}/discuss"))
     window._continue_automation()
     assert len(stub.calls("POST", f"{AUTOMATIONS_PATH}/{TRIAGE}/discuss")) == before
-    # Text typed for the automation stays in the composer; an empty composer gets the chat draft back.
-    assert window.prompt_edit.toPlainText() == "for the automation"
+    # The chat's draft is back; the text typed for the automation waits in the automation.
+    assert window.prompt_edit.toPlainText() == "half-written chat message"
     window._open_automation(TRIAGE)
-    assert window.prompt_edit.toPlainText() == "", "kept aside as the chat's draft"
-    window._close_automation_view()
     assert window.prompt_edit.toPlainText() == "for the automation"
-    window.prompt_edit.setPlainText("draft 2")
+    window._open_automation(NEWS)  # another automation: its own (empty) composer
+    assert window.prompt_edit.toPlainText() == ""
     window._open_automation(TRIAGE)
+    assert window.prompt_edit.toPlainText() == "for the automation"
     window._close_automation_view()
-    assert window.prompt_edit.toPlainText() == "draft 2"
+    assert window.prompt_edit.toPlainText() == "half-written chat message", "nothing lost either way"
+
+
+@pytest.mark.basic
+def test_a_send_queued_for_the_chat_never_lands_in_another_session(palette, stub) -> None:
+    window, controller = palette
+    window._poll_automations()
+    window.prompt_edit.setPlainText("queued for chat A")
+    window._pending_submit = True  # typed while a stopped run was closing
+    window._open_automation(TRIAGE)
+    assert window._pending_submit is False
+    sent: List[str] = []
+    window._submit = lambda: sent.append(window.prompt_edit.toPlainText())
+    controller.create_session = lambda: None
+    window._create_session()  # + New chat while the automation is open
+    _settle()
+    assert sent == [], "the queued text is not sent into the new chat"
+    assert window.prompt_edit.toPlainText() == "queued for chat A"
 
 
 @pytest.mark.basic

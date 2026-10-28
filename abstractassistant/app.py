@@ -6112,6 +6112,8 @@ class AssistantPalette(QMainWindow):
         # place (its runs read as the chat's exchanges) and keeps the chat's
         # composer under it; "←" brings the conversation back.
         self._automation_cards_by_key: Dict[str, Any] = {}
+        # Unsent text typed under an automation, per automation (never the chat's).
+        self._automation_drafts: Dict[str, str] = {}
         self.automation_view = AutomationView(
             render_turn=self._automation_turn_card,
             bubble_width=_message_bubble_width,
@@ -6970,6 +6972,7 @@ class AssistantPalette(QMainWindow):
         if summary is None:
             self._set_banner("That automation is not in the list any more.", tone="info", key="automation")
             return
+        previous = self._state("_automation_view_id", "")
         self._automation_view_id = aid
         view = self.automation_view
         view.set_error("")
@@ -6978,6 +6981,10 @@ class AssistantPalette(QMainWindow):
         # automation opens like a conversation whose new exchange is marked and
         # in view (QA 2026-10-28 (g)).
         view.set_new_runs(new_result_indices(summary), new_failure_indices(summary))
+        if previous and previous != aid and not self._state("_continuing_automation"):
+            # From one automation to another: each keeps its own unsent text.
+            self._automation_drafts[previous] = self.prompt_edit.toPlainText()
+            self.prompt_edit.setPlainText(self._automation_drafts.pop(aid, ""))
         if self._state("_chat_draft") is None:
             # The chat's draft (and a send queued while a stopped run winds
             # down) is the chat's: kept aside while the automation is open, so
@@ -6989,7 +6996,8 @@ class AssistantPalette(QMainWindow):
             }
             self._pending_submit = False
             if not self._state("_continuing_automation"):
-                self.prompt_edit.clear()
+                # What was typed for this automation earlier and not sent.
+                self.prompt_edit.setPlainText(self._automation_drafts.pop(aid, ""))
         view.discuss_from = None
         view.selection_bar.hide()
         self._automation_cards_by_key = {}
@@ -7020,6 +7028,8 @@ class AssistantPalette(QMainWindow):
                 "This is an older scheduled run, kept with its own controls. Manage it from the Observer, "
                 "or recreate it as an automation."
             )
+            view.runs_loaded = True  # nothing to load: the composer says why it cannot continue
+            view.target_changed.emit()
             return
 
         def loaded(ok: bool, value: Any) -> None:
@@ -7042,7 +7052,19 @@ class AssistantPalette(QMainWindow):
         self._automations.load_occurrences(aid, loaded)
         self._automations.detail(aid, lambda ok, detail: self._on_automation_detail(aid, ok, detail))
 
-    def _close_automation_view(self) -> None:
+    def _close_automation_view(self, *, leaving_for_session: bool = False) -> None:
+        """Back to the chat. ``leaving_for_session``: another session is about
+        to be shown (switch, new chat): a send queued for the chat on screen
+        before the automation opened is not fired into it (its text stays)."""
+        aid = self._state("_automation_view_id", "")
+        if aid and not self._state("_continuing_automation"):
+            # Unsent text typed for the automation stays the automation's.
+            text = self.prompt_edit.toPlainText()
+            if text.strip():
+                self._automation_drafts[aid] = text
+            else:
+                self._automation_drafts.pop(aid, None)
+            self.prompt_edit.clear()
         self._automation_view_id = ""
         self.automation_view.set_new_runs([])
         self.automation_view.hide()
@@ -7051,9 +7073,10 @@ class AssistantPalette(QMainWindow):
         draft = self._state("_chat_draft")
         self._chat_draft = None
         if isinstance(draft, dict):
-            if not self.prompt_edit.toPlainText().strip():
-                self.prompt_edit.setPlainText(str(draft.get("text") or ""))
-            if draft.get("pending") and draft.get("session_id") == self._active_session_id():
+            text = str(draft.get("text") or "")
+            later = self.prompt_edit.toPlainText().strip()  # a refused / in-flight continuation's text
+            self.prompt_edit.setPlainText(f"{text}\n{later}" if text.strip() and later else (text or later))
+            if draft.get("pending") and not leaving_for_session and draft.get("session_id") == self._active_session_id():
                 # The send queued before the automation opened goes now (or
                 # once the stopped run has closed), to the chat it was typed in.
                 if self._state("_worker") is None:
@@ -7152,12 +7175,18 @@ class AssistantPalette(QMainWindow):
                 if still_open:
                     self._set_composer_automation_mode(True)
                     view.set_error(error, retry=False)
+                    # Nothing typed is lost: the refused text comes back, ahead
+                    # of anything a transcript added meanwhile.
+                    later = self.prompt_edit.toPlainText().strip()
+                    self.prompt_edit.setPlainText(f"{prompt}\n{later}" if later and later != prompt else prompt)
                 else:
-                    self._set_banner(f"Could not continue the automation as a session: {error}", tone="warn", key="automation")
-                # Nothing typed is lost: the refused text comes back, ahead of
-                # anything a transcript added meanwhile.
-                later = self.prompt_edit.toPlainText().strip()
-                self.prompt_edit.setPlainText(f"{prompt}\n{later}" if later and later != prompt else prompt)
+                    # The person left: the text waits in that automation's composer.
+                    kept = self._automation_drafts.get(aid, "").strip()
+                    self._automation_drafts[aid] = f"{prompt}\n{kept}" if kept else prompt
+                    self._set_banner(
+                        f"Could not continue the automation as a session: {error} Your message is kept in the automation.",
+                        tone="warn", key="automation",
+                    )
                 return
             if still_open:
                 self._set_composer_automation_mode(True)
@@ -7178,7 +7207,7 @@ class AssistantPalette(QMainWindow):
         if self._state("_worker") is not None:
             self.automation_view.set_error("Wait for the current reply to finish (or stop it) before switching sessions.")
             return
-        self._close_automation_view()
+        self._close_automation_view(leaving_for_session=True)
         self._switch_to_session(target)
 
     def _show_continued_banner(self, *, session_id: str, automation_id: str, text: str, tone: str, tooltip: str) -> None:
@@ -7624,7 +7653,7 @@ class AssistantPalette(QMainWindow):
         if self._state("_automation_view_id", ""):
             # Choosing a chat leaves the automation: the composer is the
             # chat's again (never a discussion of the automation).
-            self._close_automation_view()
+            self._close_automation_view(leaving_for_session=True)
         current = self._active_session_id()
         if target == current:
             return
@@ -11176,7 +11205,7 @@ class AssistantPalette(QMainWindow):
             )
             return
         if self._state("_automation_view_id", ""):
-            self._close_automation_view()  # a new chat leaves the automation
+            self._close_automation_view(leaving_for_session=True)  # a new chat leaves the automation
         self._controller.create_session()
         self._refresh_workflows()
         self.refresh_history()
