@@ -5,6 +5,26 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+## [0.16.3] - 2026-10-28
+
+Desktop fixes from the operator's QA of the 2026-10-28 release (backlog 1067).
+
+### Fixed
+
+- **Read aloud uses the voice chosen in Settings.** A cloned voice (for example a Qwen3-TTS clone on a Base
+  checkpoint) saved as the Voice output override was sent to the gateway as a voice *profile*; the engine refused
+  it before any audio and the reply was read in the gateway's default voice (Supertonic). The chosen voice now
+  travels as the request's `voice` (the gateway resolves a clone or an engine voice), an explicit profile as
+  `profile`. When the gateway still refuses the chosen voice and the reply is read in its default voice, a banner
+  says so.
+- **An answer no longer shows the run's bookkeeping as attachments.** Automation answers showed two chips named by
+  raw ids that could not be opened ("artifact not found"): they were the agent's offloaded system prompt and step
+  list, which the replay view lists with the answer (AbstractRuntime backlog 0862). The palette shows only what the
+  run produced, opens each attachment through the run that owns it, and names a chip by its file name or its kind
+  and size ("Document · 4.2 KB"), never by its id.
+- The "Already connected to … as …; kept that sign-in." banner is gone: the connection status at the top right
+  already says it.
+
 ## [0.16.2] - 2026-10-28
 
 The web Assistant on AbstractUIC 0.8.2. The Python package is unchanged from 0.16.1 apart from its version.

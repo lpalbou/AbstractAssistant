@@ -347,7 +347,8 @@ def test_a_working_session_for_the_same_gateway_is_kept_and_the_code_not_redeeme
         controller = _controller(gw.url, data_dir)
         connection, notice = controller.redeem_desktop_handover_file(str(path))
     assert connection.session_id == "sess-old"
-    assert "Already connected" in notice and "laurent" in notice
+    # QA 2026-10-28 (f): no banner; the connection status shows who is signed in.
+    assert notice == ""
     assert not [r for r in gw.requests if r["path"].endswith("desktop-handover")]
     assert not path.exists()
 

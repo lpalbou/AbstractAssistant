@@ -44,6 +44,11 @@ class GatewayVoiceManager:
         # went back to idle. Every abort now travels this callback so the UI
         # can say why. Fires at most once per speak() dispatch.
         self.on_speech_error: Optional[Callable[[str], None]] = None
+        # Speech that plays, but NOT as the user chose (the stream route
+        # refused the chosen engine/model/voice and the reply is read in the
+        # gateway's default voice). Never silent: the operator heard another
+        # voice with no word why (QA 2026-10-28).
+        self.on_speech_notice: Optional[Callable[[str], None]] = None
         self._speech_failure_causes: list[str] = []
         self._speech_failure_reported = False
 
@@ -981,6 +986,10 @@ class GatewayVoiceManager:
                 f"(provider={provider!r} model={model!r} voice={voice!r} profile={profile!r}): "
                 f"{reason}; retrying the stream with gateway defaults"
             )
+            self._report_speech_notice(
+                f"Reading in the gateway's default voice: {self._tts_pin_origin()} "
+                f"did not work ({str(reason or '').strip()[:200]})"
+            )
             result = self._run_gateway_stream_playback(
                 stream_id=stream_id,
                 pause_gate=pause_gate,
@@ -1239,8 +1248,9 @@ class GatewayVoiceManager:
                 "run_id": run_id,
                 "text": text,
                 "provider": selected_provider,
-                "voice": selected_voice if selected_voice_mode == "clone" else None,
-                "profile": selected_voice if selected_voice_mode != "clone" else None,
+                "voice": selected_voice if selected_voice_mode == "voice" else None,
+                "profile": (selected_voice if selected_voice_mode == "profile" else None)
+                or self._selected_tts_profile(),
                 "fmt": preferred_format,
                 "request_id": request_id,
                 "model": selected_model,
@@ -1410,6 +1420,26 @@ class GatewayVoiceManager:
             return
         try:
             cb(text)
+        except Exception:
+            pass
+
+    def _tts_pin_origin(self) -> str:
+        """Where the speech pins came from, in the user's terms."""
+        manager = self._llm_manager
+        if any(
+            str(getattr(manager, name, "") or "").strip()
+            for name in ("current_tts_provider", "current_tts_model", "current_tts_voice", "current_tts_profile")
+        ):
+            return "the voice chosen in Settings"
+        return "the voice set by the ABSTRACTASSISTANT_*_TTS_* environment variables"
+
+    def _report_speech_notice(self, text: str) -> None:
+        """Tell the UI that speech plays, but not as the user chose."""
+        cb = self.on_speech_notice
+        if cb is None:
+            return
+        try:
+            cb(str(text or "").strip())
         except Exception:
             pass
 
@@ -2472,10 +2502,16 @@ class GatewayVoiceManager:
             return preferred or None
 
     def _selected_tts_voice_mode(self) -> str:
+        """How the selected voice id travels: `voice` (a clone or an engine
+        voice, resolved by the gateway; the default, as the gateway's own
+        default voice travels) or `profile` (only when explicitly a profile)."""
         selected = str(getattr(self._llm_manager, "current_tts_voice_mode", "") or "").strip().lower()
-        if selected in {"clone", "profile"}:
-            return selected
-        return "profile"
+        return "profile" if selected == "profile" else "voice"
+
+    def _selected_tts_profile(self) -> Optional[str]:
+        """An explicit engine profile set beside a voice (Settings options), else None."""
+        value = str(getattr(self._llm_manager, "current_tts_profile", "") or "").strip()
+        return value or None
 
     def _selected_tts_model(self) -> Optional[str]:
         """Explicit TTS model pin, or None to let the gateway resolve its own.
