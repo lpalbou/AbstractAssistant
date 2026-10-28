@@ -8,10 +8,10 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 ## Current Counts
 
 - Planned: 13
-- Proposed: 21
+- Proposed: 22
 - Completed: 18
 
-Counts recomputed from disk on 2026-10-26 after adding 1053 (shared Swift client kit) and 1054 (offline capture queue), from the fusion decision of ADR 0004 (topic tracks included). Planned +1 the same day for 1056 (Apple lessons for the desktop). Planned +1 for 1055 (sign and notarize the macOS app, ADR 0006). Planned +1 for 1057 (the Assistant on the web, ADR 0007). Proposed +1 for 1059 (alert levels; recounted from disk 2026-10-26: planned 12, proposed 21, completed 16). Completed +2 on 2026-10-27 for 1060 (desktop voice library) and 1061 (iPhone and watch voice library), both under the framework release wave 1055 (recounted from disk: planned 12, proposed 21, completed 18). Proposed +1 on 2026-10-27 for 1062 (iPhone and watch chat trust through the gateway's session tool policy). 1062 promoted to Planned on 2026-10-28 (AbstractGateway 0.16.0 released): planned 13, proposed 21.
+Counts recomputed from disk on 2026-10-26 after adding 1053 (shared Swift client kit) and 1054 (offline capture queue), from the fusion decision of ADR 0004 (topic tracks included). Planned +1 the same day for 1056 (Apple lessons for the desktop). Planned +1 for 1055 (sign and notarize the macOS app, ADR 0006). Planned +1 for 1057 (the Assistant on the web, ADR 0007). Proposed +1 for 1059 (alert levels; recounted from disk 2026-10-26: planned 12, proposed 21, completed 16). Completed +2 on 2026-10-27 for 1060 (desktop voice library) and 1061 (iPhone and watch voice library), both under the framework release wave 1055 (recounted from disk: planned 12, proposed 21, completed 18). Proposed +1 on 2026-10-27 for 1062 (iPhone and watch chat trust through the gateway's session tool policy). 1062 promoted to Planned on 2026-10-28 (AbstractGateway 0.16.0 released): planned 13, proposed 21. Proposed +1 on 2026-10-28 for 1066 (Create a voice capability-gated on the gateway): planned 13, proposed 22.
 - Deprecated: 0
 - Recurrent: 0
 
@@ -59,6 +59,7 @@ Counts recomputed from disk on 2026-10-26 after adding 1053 (shared Swift client
 | ID | Item | Status | Promotion criteria |
 |---|---|---|---|
 | [1062](planned/1062_iphone_and_watch_chat_trust_through_the_session_tool_policy.md) | iPhone and watch: "Approve all" through the gateway's session tool policy | Planned | The desktop moved in `feat/session-tool-policy`; `AssistantStore.approveAll` / `applyConversationTrust` still answer each wait after it arrived (the gate flashes). Promoted 2026-10-28: AbstractGateway 0.16.0 serves the session tool policy and the desktop uses it from AbstractAssistant 0.15.0. |
+| [1066](proposed/1066_create_a_voice_capability_gated_on_the_gateway.md) | "Create a voice" offered only when the gateway serves the voice library (>= 0.16.0) | Proposed | The desktop's Create… button is always enabled; against an older gateway the dialog fails with a 404 after the person typed or recorded. Gate on the served capability; check the iPhone row too. |
 | [1059](proposed/1059_alert_levels_honoured_and_chosen_per_alert.md) | Alert levels: the apps honour the gateway's (results and "Notify me" arrive silent today), and an alert can choose its own | Proposed | Promote step 1 (apps render the gateway's `active` instead of `passive`) when the operator asks; step 2 (a level per alert) needs the gateway and flow seats. |
 | [1058](proposed/1058_assistant_in_the_shell.md) | The assistant in the shell: `assistant "find me file X"` | Proposed | `assistant run --prompt` exists; the bare-prompt form, a conversation loop, session choice and `--file` are the gap (operator ask 2026-10-26). Promote once the operator confirms the shape. |
 | [1053](proposed/1053_shared_swift_client_kit_for_apple_clients.md) | Shared Swift between the two Apple apps: one gateway client module, an honest credential file | Proposed | Steps 1-2 shipped 2026-10-26 (protected file, one module name; 24f47c9); step 3 converges files only when a fix touches both; ADR 0004, ADR 0005. |
