@@ -30,6 +30,10 @@ iPhone app); the Python package's history is in
 
 ### Changed
 
+- **The voice list is read compact.** Settings → Voice asks `GET /voice/voices?compact=true`: the
+  same voices without the engines' duplicated source catalogs (1.4 MB → 250 KB on a gateway with the
+  shared voice pack), so the list loads within the watch's read timeout over the iPhone's link.
+
 - **Finer schedule choices.** Every 30 seconds, minute, 5, 15 and 30 minutes, then every hour, 2,
   4, 6, 8 and 12 hours, day, 2 days and week, when editing an automation and when creating one. An
   interval written in seconds reads as minutes ("Every 60s" is "Every minute"). The gateway still
