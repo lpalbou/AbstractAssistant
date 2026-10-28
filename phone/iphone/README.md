@@ -3,7 +3,7 @@
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**iPhone · 0.16.1 · iOS 26+** · with the [Apple Watch app](../../watch/apple/README.md) inside
+**iPhone · 0.16.0 · iOS 26+** · with the [Apple Watch app](../../watch/apple/README.md) inside
 
 AbstractAssistant is one product for iPhone and Apple Watch: install it on the iPhone and the
 watch app comes with it. The iPhone and the watch are independent: each signs in on its own, and

@@ -2,7 +2,7 @@
 
 **Your AI, everywhere. On your wrist.** A voice-first Apple Watch app for your AbstractGateway.
 
-Version 0.16.1 · watchOS 26 or later · the companion of the [AbstractAssistant iPhone
+Version 0.16.0 · watchOS 26 or later · the companion of the [AbstractAssistant iPhone
 app](../../phone/iphone/README.md), and independent (it also works with no iPhone nearby) ·
 pre-release through TestFlight. See [CHANGELOG.md](CHANGELOG.md) for what changed.
 
