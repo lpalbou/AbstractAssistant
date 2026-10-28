@@ -411,8 +411,9 @@ def test_unpinned_retry_tells_the_user_the_chosen_voice_was_not_used(monkeypatch
         assert _wait_for(lambda: bool(notices))
 
     assert len(notices) == 1
-    assert "could not be used" in notices[0]
     assert "default voice" in notices[0]
+    # The pin came from the environment here, not from Settings.
+    assert "environment variables" in notices[0] and "Settings" not in notices[0]
 
 
 class _SilentStartPlayer(_PlayerStub):

@@ -18,8 +18,11 @@ and the voice manager's pre-audio "unpinned retry" then re-ran the stream with n
 silently. AbstractCode web sends a clone as `voice` (ui-kit `voice_settings.tsx`), which is why it worked.
 
 **Fix.** `options.voice` travels as `voice` (the gateway resolves it as a stored clone or an engine profile),
-an explicit `options.profile` as `profile`. When the unpinned retry does substitute the default voice, the
-palette says so (`GatewayVoiceManager.on_speech_notice` -> warning banner) instead of only `warnings.warn`.
+an explicit `options.profile` as `profile` (both when both are set); a voice from
+`ABSTRACTASSISTANT_GATEWAY_TTS_VOICE` also travels as `voice`, as the gateway's own default voice does. When the
+unpinned retry does substitute the default voice, the palette says so and names where the voice came from
+(Settings or the environment) (`GatewayVoiceManager.on_speech_notice` -> warning banner) instead of only
+`warnings.warn`.
 
 **Evidence** (scratch gateway, AbstractGateway 0.17.0 + AbstractVoice 0.19.2, the operator's override copied,
 real Qwen3-TTS weights): with the released code the stream request carried `profile=<clone>` and answered
@@ -39,9 +42,12 @@ The replay view's final message lists every `$artifact` under the run output in 
 them chips labelled with their ids. The first one could not open: the gateway serves an artifact through the run
 that owns it (`_assert_artifact_visible_to_run`), and the chip asked through the root run.
 
-**Fix.** `replay_view._media_meta` attaches only what a person can use: a ref the view does not list (no path, no
-owning run) or one under the run's bookkeeping (`scratchpad`, `node_traces`, `trace`, `_`-prefixed fields) is left
-out, and each kept ref carries its owning `run_id` (the download route then asks the right run). Chip labels never
+**Fix.** `replay_view._media_meta` attaches only what a person can use: a listed ref under the run's bookkeeping
+(`scratchpad`, `node_traces`, `trace`, `_`-prefixed fields) is left out, and each kept ref carries its owning
+`run_id` (the download route and the empty-answer text recovery then ask the right run). A ref the view does not
+list is left out when the final message was folded from the ledger (only a ref deeper than the runtime's listing
+walk, i.e. inside the bookkeeping, is unlisted there); a final built from the run snapshot (`source: run_output`,
+nothing of the output listed) keeps its refs as before. Chip labels never
 show an id: file name, else "Image" / "Audio" / "Document" / "Attachment" with the size when known.
 The runtime side (the view should not list bookkeeping as message artifacts; one ref missing from
 `view.artifacts`) is AbstractRuntime 0862.
@@ -53,3 +59,13 @@ The runtime side (the view should not list bookkeeping as message artifacts; one
 
 The hand-over notice repeated the connection status shown at the top right. A kept sign-in now raises no notice;
 a replaced sign-in still says who is signed in and who was signed out.
+
+## Review
+
+Adversarial review (opus, read-only) before merge. Fixed: unlisted refs were dropped for snapshot-built finals too
+(a real image would vanish; now only ledger-folded finals drop them); the substitution banner claimed "the voice
+chosen in Settings" for environment pins (now names the origin); an environment voice still travelled as `profile`;
+a profile set beside a voice was dropped; the empty-answer text recovery did not try the artifact's owning run first;
+a stream-lane test was added beside the artifact-lane one. Confirmed fine: a profile id sent as `voice` on piper,
+supertonic, openai, openai-compatible and the non-stream route; the owner run passes the gateway's visibility check;
+the notice crosses threads through a queued Qt signal.

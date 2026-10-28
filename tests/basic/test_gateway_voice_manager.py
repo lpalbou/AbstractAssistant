@@ -305,7 +305,7 @@ def test_gateway_voice_manager_uses_advertised_tts_format_and_voice(monkeypatch:
     # model stays None: the advertised active_model is the gateway's own
     # default, and echoing it back as a pin breaks the stream route
     # (see tests/basic/test_voice_stream_latency.py).
-    assert gateway.tts_kwargs == {"provider": None, "voice": None, "profile": "alloy", "fmt": expected_fmt, "model": None, "quality_preset": None}
+    assert gateway.tts_kwargs == {"provider": None, "voice": "alloy", "profile": None, "fmt": expected_fmt, "model": None, "quality_preset": None}
 
 
 @pytest.mark.basic
@@ -324,7 +324,7 @@ def test_gateway_voice_manager_prefers_advertised_streaming_tts(monkeypatch: pyt
     assert gateway.stream_done.wait(timeout=2.0)
     assert _wait_for(lambda: len(player.play_calls) == 1)
     assert gateway.calls == [("voice_tts_stream", 120.0)]
-    assert gateway.tts_kwargs == {"provider": None, "voice": None, "profile": "alloy", "fmt": "wav", "model": None, "quality_preset": None}
+    assert gateway.tts_kwargs == {"provider": None, "voice": "alloy", "profile": None, "fmt": "wav", "model": None, "quality_preset": None}
 
 
 @pytest.mark.basic
@@ -771,3 +771,62 @@ def test_settings_explicit_profile_still_travels_as_profile() -> None:
     llm = _settings_voice_override({"profile": "dylan"})
     assert llm.current_tts_voice == "dylan"
     assert llm.current_tts_voice_mode == "profile"
+
+
+class _StreamCapturingGateway(_CapabilityGatewayStub):
+    """Advertises the stream lane and records its request (the operator's failing lane)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.stream_kwargs: dict = {}
+        self.stream_done = threading.Event()
+
+    def voice_tts_stream(self, *, run_id, text, provider=None, voice=None, fmt=None, request_id=None,
+                         model=None, profile=None, quality_preset=None, timeout_s=None):
+        self.stream_kwargs = {"provider": provider, "model": model, "voice": voice, "profile": profile}
+        yield {"type": "runtime_start", "ok": True}
+        yield {"type": "audio", "sequence": 0, "content_type": "audio/wav",
+               "audio_b64": base64.b64encode(_wav_bytes()).decode("ascii")}
+        self.stream_done.set()
+        yield {"type": "done", "ok": True}
+
+
+@pytest.mark.basic
+def test_settings_clone_voice_travels_as_voice_on_the_stream_lane(monkeypatch: pytest.MonkeyPatch) -> None:
+    clone_id = "41576236cd5f4a9a8399fa6cf07399e5"
+    llm = _settings_voice_override({"voice": clone_id})
+    gateway = _StreamCapturingGateway()
+    manager = _ManagerStub(gateway)
+    for name in ("current_tts_provider", "current_tts_model", "current_tts_voice", "current_tts_voice_mode", "current_tts_profile"):
+        setattr(manager, name, getattr(llm, name))
+    vm = GatewayVoiceManager(llm_manager=manager, debug_mode=False)
+    monkeypatch.setattr(vm, "_audio_player_available", lambda: True)
+    monkeypatch.setattr(vm, "_gateway_tts_streaming_available", lambda: True)
+    monkeypatch.setattr(vm, "_supports_inprocess_audio_player", lambda: True)
+    # Only wav streams; the negotiated format is mp3 off macOS (CI runs Linux).
+    monkeypatch.setattr(vm, "_preferred_tts_format", lambda: "wav")
+    player = SimpleNamespace(is_playing=False, on_audio_start=None, on_audio_end=None, on_audio_chunk=None,
+                             playback_complete_callback=None, play_audio=lambda *a, **k: None,
+                             pause=lambda: True, resume=lambda: True, stop_stream=lambda: None)
+    monkeypatch.setattr(vm, "_ensure_inprocess_audio_player", lambda: player)
+
+    assert vm.speak("hello on the stream") is True
+    assert gateway.stream_done.wait(timeout=2.0)
+    assert gateway.stream_kwargs == {
+        "provider": "qwen3-tts", "model": "Qwen/Qwen3-TTS-12Hz-0.6B-Base", "voice": clone_id, "profile": None,
+    }
+    vm.stop_speaking()
+
+
+@pytest.mark.basic
+def test_a_profile_set_beside_a_voice_still_travels() -> None:
+    llm = _settings_voice_override({"voice": "41576236cd5f4a9a8399fa6cf07399e5", "profile": "dylan"})
+    vm = GatewayVoiceManager(llm_manager=llm, debug_mode=False)
+    assert vm._selected_tts_voice_mode() == "voice"
+    assert vm._selected_tts_profile() == "dylan"
+
+
+@pytest.mark.basic
+def test_an_environment_voice_travels_as_voice(monkeypatch: pytest.MonkeyPatch) -> None:
+    vm = GatewayVoiceManager(llm_manager=_ManagerStub(_GatewayStub()), debug_mode=False)
+    assert vm._selected_tts_voice_mode() == "voice"

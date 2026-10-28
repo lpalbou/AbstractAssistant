@@ -988,8 +988,8 @@ class GatewayVoiceManager:
                 f"{reason}; retrying the stream with gateway defaults"
             )
             self._report_speech_notice(
-                f"The voice chosen in Settings could not be used ({str(reason or '').strip()[:200]}); "
-                "reading with the gateway's default voice instead"
+                f"Reading in the gateway's default voice: {self._tts_pin_origin()} "
+                f"did not work ({str(reason or '').strip()[:200]})"
             )
             result = self._run_gateway_stream_playback(
                 stream_id=stream_id,
@@ -1252,7 +1252,8 @@ class GatewayVoiceManager:
                 "text": text,
                 "provider": selected_provider,
                 "voice": selected_voice if selected_voice_mode == "voice" else None,
-                "profile": selected_voice if selected_voice_mode != "voice" else None,
+                "profile": (selected_voice if selected_voice_mode == "profile" else None)
+                or self._selected_tts_profile(),
                 "fmt": preferred_format,
                 "request_id": request_id,
                 "model": selected_model,
@@ -1424,6 +1425,16 @@ class GatewayVoiceManager:
             cb(text)
         except Exception:
             pass
+
+    def _tts_pin_origin(self) -> str:
+        """Where the speech pins came from, in the user's terms."""
+        manager = self._llm_manager
+        if any(
+            str(getattr(manager, name, "") or "").strip()
+            for name in ("current_tts_provider", "current_tts_model", "current_tts_voice", "current_tts_profile")
+        ):
+            return "the voice chosen in Settings"
+        return "the voice set by the ABSTRACTASSISTANT_*_TTS_* environment variables"
 
     def _report_speech_notice(self, text: str) -> None:
         """Tell the UI that speech plays, but not as the user chose."""
@@ -2512,11 +2523,15 @@ class GatewayVoiceManager:
 
     def _selected_tts_voice_mode(self) -> str:
         """How the selected voice id travels: `voice` (a clone or an engine
-        voice, resolved by the gateway) or `profile` (an engine profile only).
-
-        "clone" is the older name of "voice"."""
+        voice, resolved by the gateway; the default, as the gateway's own
+        default voice travels) or `profile` (only when explicitly a profile)."""
         selected = str(getattr(self._llm_manager, "current_tts_voice_mode", "") or "").strip().lower()
-        return "voice" if selected in {"voice", "clone"} else "profile"
+        return "profile" if selected == "profile" else "voice"
+
+    def _selected_tts_profile(self) -> Optional[str]:
+        """An explicit engine profile set beside a voice (Settings options), else None."""
+        value = str(getattr(self._llm_manager, "current_tts_profile", "") or "").strip()
+        return value or None
 
     def _selected_tts_model(self) -> Optional[str]:
         """Explicit TTS model pin, or None to let the gateway resolve its own.

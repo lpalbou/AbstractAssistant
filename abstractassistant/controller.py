@@ -2579,11 +2579,12 @@ class AssistantController:
         # Only an explicit `options.profile` is sent as a profile.
         voice_id = str(tts_options.get("voice") or "").strip()
         profile_id = str(tts_options.get("profile") or "").strip()
-        tts_voice = voice_id or profile_id
         setattr(self.llm_manager, "current_tts_provider", tts_provider)
         setattr(self.llm_manager, "current_tts_model", tts_model)
-        setattr(self.llm_manager, "current_tts_voice", tts_voice)
+        setattr(self.llm_manager, "current_tts_voice", voice_id or profile_id)
         setattr(self.llm_manager, "current_tts_voice_mode", "voice" if voice_id else "profile")
+        # Both may be set (options edited by hand): the profile still travels.
+        setattr(self.llm_manager, "current_tts_profile", profile_id)
         setattr(self.llm_manager, "current_stt_model", str(stt_override.get("model") or "").strip())
         setattr(self.llm_manager, "current_stt_provider", str(stt_override.get("provider") or "").strip())
 
