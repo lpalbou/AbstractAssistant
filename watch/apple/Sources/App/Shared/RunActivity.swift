@@ -37,9 +37,10 @@ final class RunActivity: ObservableObject {
 
     var isFollowing: Bool { task != nil }
 
-    func start(runId id: String, client: any GatewayClient) {
+    /// `since`: when the work began, if earlier than now (a Run tapped on an automation's details).
+    func start(runId id: String, client: any GatewayClient, since begun: Date = Date()) {
         reset()
-        runId = id; since = Date()
+        runId = id; since = begun
         let interval: Duration = client.isMock ? .milliseconds(150) : .seconds(1)
         task = Task { [weak self] in
             var failures = 0

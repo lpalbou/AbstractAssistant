@@ -597,6 +597,12 @@ final class AppModel: ObservableObject {
         if let i = automations.firstIndex(where: { $0.id == a.id }) { automations[i] = a }
     }
 
+    /// A run that Run on an automation's details saw the gateway start (or already finish), handed to
+    /// its orb page, which follows it at once instead of finding it again; `since`: the tap.
+    struct StartedRun: Equatable { let runId: String; let since: Date }
+    /// By automation id; the orb page takes it (once) when it is back in front.
+    var startedRuns: [String: StartedRun] = [:]
+
     /// Returns false when polling must stop (401: the gateway locks out by address).
     @discardableResult
     func refresh() async -> Bool {
@@ -1286,12 +1292,14 @@ struct LaunchOptions {
             // `--slow-automations`: they answer 3 s after the conversations, as on a public gateway;
             // `--flaky-automations`: the first call fails (it times out), the retry answers;
             // `--slow-start`: the first 3 polls fail (a radio coming up); `--offline`: every poll fails;
-            // `--slow-definitions`: an automation's definition takes 3 s (Edit shows it at once once read).
+            // `--slow-definitions`: an automation's definition takes 3 s (Edit shows it at once once read);
+            // `--slow-run`: a Run now takes 4 s to be accepted (as a command over the watch's radio).
             let args = ProcessInfo.processInfo.arguments
             model = AppModel(client: MockGatewayClient(world: .watch, automationsDelay: args.contains("--slow-automations") ? .seconds(3) : .zero,
                                                        automationsFailures: args.contains("--flaky-automations") ? 1 : 0,
                                                        pollFailures: args.contains("--offline") ? .max : args.contains("--slow-start") ? 3 : 0,
-                                                       definitionDelay: args.contains("--slow-definitions") ? .seconds(3) : .zero), gatewayHost: "mbp")
+                                                       definitionDelay: args.contains("--slow-definitions") ? .seconds(3) : .zero,
+                                                       runDelay: args.contains("--slow-run") ? .seconds(4) : .zero), gatewayHost: "mbp")
         }
         model.needsSignIn = showSignIn
         model.testIdentify = testIdentify; model.testSecret = testSecret

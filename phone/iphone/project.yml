@@ -16,8 +16,8 @@ settings:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
     # The family's version: the iPhone app, the watch app and their extensions ship together.
-    MARKETING_VERSION: "0.16.0"
-    CURRENT_PROJECT_VERSION: "39"
+    MARKETING_VERSION: "0.16.1"
+    CURRENT_PROJECT_VERSION: "40"
     # Device installs: automatic signing with the developer's team. CLI/CI simulator builds pass
     # CODE_SIGNING_ALLOWED=NO (or CODE_SIGN_IDENTITY=-) and ignore this.
     CODE_SIGN_STYLE: Automatic
