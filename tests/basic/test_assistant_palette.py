@@ -3859,3 +3859,37 @@ def test_thinking_indicator_card_shows_and_elides_status_text() -> None:
     card.set_status(long_text)
     assert card._status.text().endswith("…")
     assert len(card._status.text()) < len(long_text)
+
+
+@pytest.mark.basic
+@pytest.mark.parametrize("run_live,spoken", [(False, []), (True, ["Rendered and ready."])])
+def test_auto_speak_reads_only_a_reply_produced_while_the_session_is_open(run_live, spoken) -> None:
+    """Operator 2026-10-29: with "Speak replies aloud" on, opening, switching to or
+    recovering a session (a reattach to a run that is already over) must not speak its
+    existing answer; a reply of a run seen live is spoken."""
+    from types import SimpleNamespace
+
+    class _AutoSpeak:
+        def isChecked(self) -> bool:
+            return True
+
+    said: list[str] = []
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._run_busy = run_live  # a send / a live reattach: True; a recovered (finished) run: False
+    palette._run_has_final_output = False
+    palette._tray_completion_unread = False
+    palette.auto_speak = _AutoSpeak()
+    palette._controller = SimpleNamespace(voice_manager=SimpleNamespace(speak=lambda text, **kw: said.append(text) or True))
+    palette.refresh_history = lambda request=None: None
+    palette._history_scroll_request = lambda **kwargs: HistoryScrollRequest(**kwargs)
+    palette._latest_visible_message_key = lambda role="": "assistant-1"
+    palette._set_history_status = lambda text="", tone="neutral", **kw: None
+    palette._set_status = lambda text, tone="neutral": None
+    palette._refresh_tray_feedback = lambda: None
+    palette._notify_completion_ready = lambda content: None
+    palette.isVisible = lambda: True
+
+    AssistantPalette._on_worker_event(
+        palette, {"type": "assistant", "final": True, "content": "Rendered and ready.", "history_changed": False}
+    )
+    assert said == spoken

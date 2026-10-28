@@ -9655,6 +9655,11 @@ class AssistantPalette(QMainWindow):
             # streamed from its agent subrun, so run ids do not pair up).
             self._discard_live_replies(close=True)
             is_final = bool(payload.get("final"))
+            # Spoken by itself only when the reply was produced while this
+            # conversation was open (a run seen live here): a session opened,
+            # switched to or recovered on launch never speaks its existing
+            # answer (operator 2026-10-29; AbstractUIC readAloudStep's rule).
+            produced_live = bool(self._state("_run_busy", False))
             if is_final:
                 self._run_has_final_output = True
                 self._run_busy = False
@@ -9682,7 +9687,7 @@ class AssistantPalette(QMainWindow):
             in_conversation = conversation is not None and bool(
                 self._state("_voice_conversation_active", False)
             )
-            if is_final and in_conversation:
+            if is_final and in_conversation and produced_live:
                 spoken = speech_plain_text(str(payload.get("content") or ""))
                 will_speak = bool(spoken) and self._controller.supports_tts()
                 # Nothing to speak: `_on_worker_finished` reopens the mic once
@@ -9695,7 +9700,7 @@ class AssistantPalette(QMainWindow):
                     )
                     if not started:
                         conversation.speech_finished()
-            elif self.auto_speak.isChecked() and is_final:
+            elif self.auto_speak.isChecked() and is_final and produced_live:
                 self._controller.voice_manager.speak(
                     speech_plain_text(str(payload.get("content") or ""))
                 )
