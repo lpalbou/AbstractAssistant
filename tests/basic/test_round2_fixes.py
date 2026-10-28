@@ -9,7 +9,6 @@ import pytest
 
 from abstractassistant.controller import AssistantController
 from abstractassistant.core.voice_conversation import VoiceConversation
-from abstractassistant.gateway.adapter import GatewayEventAdapter
 from abstractassistant.ui.activity import RunActivityModel
 
 
@@ -143,24 +142,6 @@ def test_resolve_wait_prefers_a_pending_deferred_step_and_clears_older_ones() ->
     assert answered == deferred
     step = next(s for s in model.steps if s.step_id == answered)
     assert step.payload.get("pending") is False
-
-
-@pytest.mark.basic
-def test_adapter_wait_events_carry_the_waiting_step_id() -> None:
-    adapter = GatewayEventAdapter()
-    rec = {
-        "step_id": "step-77",
-        "result": {
-            "wait": {
-                "reason": "job",
-                "wait_key": "tool:1",
-                "details": {"tool_calls": [{"name": "read_file", "arguments": {"path": "README.md"}}]},
-            }
-        },
-    }
-    events = adapter.handle_record(rec)
-    tool = [e for e in events if e["type"] == "tool_request"]
-    assert tool and tool[0].get("step_id") == "step-77"
 
 
 def _controller(items):

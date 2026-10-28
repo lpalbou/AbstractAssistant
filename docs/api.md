@@ -195,9 +195,10 @@ the stream. Whether the gateway offers live replies is read from
   `GET /api/gateway/runs/{run_id}/view/stream` (SSE `view`, `delta`, `done`; reconnects send
   `Last-Event-ID`). The client copy is kept with `abstractruntime.replay.apply_delta`; a delta that
   is not newer than the copy is dropped. Python: `GatewayClient.supports_replay_view()`,
-  `get_run_view()`, `stream_run_view()`; `abstractassistant.gateway.replay_view`
-  (`ViewFold`, `ViewProjector`, `follow_run_view`). Without these routes the ledger routes below
-  are used and the run status line says so.
+  `get_run_view()`, `stream_run_view()`; `abstractassistant.gateway.replay_view` (`follow_run`,
+  `ViewFold`, `ViewProjector`, `LiveText`). Without the routes the app folds the ledger routes
+  below with AbstractRuntime's reducer and the run status line says so. A failed discovery is an
+  error, not the older path.
 
 - Sign-in and identity: `/api/gateway/apps/desktop-handover` (console hand-over, loopback),
   `/api/gateway/session/login`, `/api/gateway/session/logout`, `/api/gateway/about` (version rows
@@ -216,8 +217,9 @@ the stream. Whether the gateway offers live replies is read from
   `input_data` and transcripts from its latest run's `history_bundle`
   ([architecture.md](architecture.md#sessions))
 - Runs: `/api/gateway/runs/start`, `/api/gateway/runs/{run_id}`,
-  `/api/gateway/runs/{run_id}/input_data`, `/api/gateway/runs/{run_id}/history_bundle`,
-  `/api/gateway/runs/{run_id}/ledger`, `/api/gateway/runs/{run_id}/ledger/stream`,
+  `/api/gateway/runs/{run_id}/input_data`, `/api/gateway/runs/{run_id}/history_bundle` (the
+  session transcript seed), `/api/gateway/runs/{run_id}/ledger` (older gateways only: folded here),
+  `/api/gateway/runs/{run_id}/ledger/stream` (live reply frames only),
   `/api/gateway/commands` (pause, resume, cancel, inject_guidance, resume of waits)
 - Discovery and configuration (read): `/api/gateway/me`, `/api/gateway/discovery/capabilities`,
   `/api/gateway/discovery/providers`, `/api/gateway/discovery/providers/{provider}/models`,

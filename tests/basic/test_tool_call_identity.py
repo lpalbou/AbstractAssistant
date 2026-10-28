@@ -22,7 +22,6 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from abstractassistant.controller import AssistantController
-from abstractassistant.gateway.adapter import GatewayEventAdapter
 from abstractassistant.gateway.history_seed import tool_messages_from_record
 from abstractassistant.gateway.tool_usage import (
     extract_tool_call_details_from_record,
@@ -157,10 +156,17 @@ def test_scratchpad_fallback_keeps_calls_that_share_a_call_id() -> None:
 
 
 def _replay(records: List[Dict[str, Any]]):
-    adapter, model = GatewayEventAdapter(), RunActivityModel()
+    """Fold the records one by one with AbstractRuntime's reducer (what the gateway serves) and
+    feed the projected events to the live card, as the worker does."""
+    from abstractruntime.replay import ReplayView
+
+    from abstractassistant.gateway.replay_view import ViewProjector
+
+    view, projector, model = ReplayView(RUN), ViewProjector(), RunActivityModel()
     delivered = 0
     for record in records:
-        for event in adapter.handle_record(record):
+        view.apply([record])
+        for event in projector.project(view.to_json()):
             if event.get("type") == "tool":
                 delivered += 1
             if event.get("type") in {"tool_started", "tool"}:
@@ -168,14 +174,19 @@ def _replay(records: List[Dict[str, Any]]):
     return delivered, [(s.payload.get("name"), s.status) for s in model.steps if s.kind == "tool"]
 
 
+# Through the view, an approved call's completion joins its execution by the waiting record it
+# answers (AbstractRuntime's conformance cases a/a2 cover that); these fixtures have no waiting
+# record, so each call is folded as one step (started + completed on the same step id).
+
+
 def test_the_live_card_shows_every_tool_finishing() -> None:
-    delivered, rows = _replay(_records())
+    delivered, rows = _replay(_records(approval=False))
     assert delivered == 3
     assert rows == [(name, "ok") for name in _TOOLS]
 
 
 def test_a_replayed_record_does_not_repeat_its_result() -> None:
-    records = _records()
+    records = _records(approval=False)
     delivered, rows = _replay(records + records[-1:])
     assert delivered == 3 and len(rows) == 3
 
@@ -183,6 +194,6 @@ def test_a_replayed_record_does_not_repeat_its_result() -> None:
 def test_the_live_card_survives_a_runtime_without_runtime_call_ids() -> None:
     """Older records: the model's number is all there is. A FINISHED row must not be
     taken over by the next call that happens to carry the same number."""
-    delivered, rows = _replay(_records(runtime_id=False))
+    delivered, rows = _replay(_records(runtime_id=False, approval=False))
     assert delivered == 3
     assert rows == [(name, "ok") for name in _TOOLS]

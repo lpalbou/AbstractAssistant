@@ -184,11 +184,10 @@ def test_worker_start_failure_emits_run_start_failed_instead_of_a_fatal_error(mo
 
     import abstractassistant.ui.gateway_worker as module
 
-    class _Controller:
-        def __init__(self, **kwargs) -> None:
-            pass
+    def _never(**kwargs):
+        raise AssertionError("a run that never started is not followed")
 
-    monkeypatch.setattr(module, "GatewayRunController", _Controller)
+    monkeypatch.setattr(module, "follow_run", _never)
     worker.run()
 
     types = [e.get("type") for e in worker.event_emitted.items]
@@ -206,17 +205,14 @@ def test_worker_reads_back_the_granted_workspace_and_pins_it_to_the_session(monk
 
     import abstractassistant.ui.gateway_worker as module
 
-    class _Controller:
-        def __init__(self, **kwargs) -> None:
-            pass
+    from abstractassistant.gateway.replay_view import ViewFold
 
-        def follow_run(self, **kwargs) -> None:
-            return None
+    def _done(**kwargs):
+        fold = ViewFold()
+        fold.view = {"status": "completed"}
+        return fold
 
-        def get_run_status(self, *, run_id: str) -> str:
-            return "completed"
-
-    monkeypatch.setattr(module, "GatewayRunController", _Controller)
+    monkeypatch.setattr(module, "follow_run", _done)
     worker.run()
 
     assert worker._llm_manager.workspace_root == "/gw/workspaces/minted"

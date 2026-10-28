@@ -3476,15 +3476,14 @@ def test_gateway_worker_starts_runs_with_catalog_scope_and_version(
     gateway = _GatewayWorkerStub()
     llm_manager = _LLMManagerStub(gateway)
 
-    def _no_follow(
-        self, *, root_run_id, on_record, should_stop, on_offline=None, on_online=None
-    ) -> None:
-        return None
+    def _no_follow(**kwargs):
+        from abstractassistant.gateway.replay_view import ViewFold
 
-    monkeypatch.setattr(
-        "abstractassistant.ui.gateway_worker.GatewayRunController.follow_run",
-        _no_follow,
-    )
+        fold = ViewFold()
+        fold.view = {"status": "completed"}
+        return fold
+
+    monkeypatch.setattr("abstractassistant.ui.gateway_worker.follow_run", _no_follow)
 
     worker = GatewayWorker(
         llm_manager=llm_manager,

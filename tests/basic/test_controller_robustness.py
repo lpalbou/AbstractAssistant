@@ -218,20 +218,3 @@ def test_reattach_probe_waiting_run_reattaches_even_when_stale() -> None:
     assert candidate is not None
     assert candidate["status"] == "waiting"
 
-
-@pytest.mark.basic
-def test_adapter_seed_seen_wait_keys_suppresses_replayed_waits() -> None:
-    from abstractassistant.gateway.adapter import GatewayEventAdapter
-
-    adapter = GatewayEventAdapter()
-    adapter.seed_seen_wait_keys(["approval:1", "", None])
-    rec = {
-        "result": {
-            "wait": {
-                "wait_key": "approval:1",
-                "reason": "tool_approval",
-                "tool_calls": [{"name": "write_file", "arguments": {}}],
-            }
-        }
-    }
-    assert adapter.handle_record(rec) == []  # already-seen historical wait suppressed

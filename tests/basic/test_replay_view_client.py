@@ -138,7 +138,8 @@ def test_final_answer_and_tools_project_once():
         assert proj.project(view) == [], name
         finals = [e for e in first if e["type"] == "assistant" and e["final"]]
         assert len(finals) <= 1, name
-        tool_rows = sum(1 for a in view["activities"] for r in a.get("tool_calls") or [] if r.get("status") not in ("running", "waiting"))
+        tool_rows = sum(1 for a in view["activities"] if a.get("kind") == "tool"
+                        for r in a.get("tool_calls") or [] if r.get("status") not in ("running", "waiting"))
         assert len([e for e in first if e["type"] == "tool"]) == tool_rows, name
 
 
@@ -147,6 +148,8 @@ def test_attach_shows_only_the_open_question():
     proj = ViewProjector()
     proj.suppress_history(view)
     events = proj.project(view)
-    assert not [e for e in events if e["type"] in ("assistant", "tool", "tool_started", "cycle")]
+    # Only the final answer passes (the worker appends it when the seeded transcript lacks it).
+    assert not [e for e in events if e["type"] in ("tool", "tool_started", "cycle")]
+    assert all(e["final"] for e in events if e["type"] == "assistant")
     if view.get("interaction"):
         assert [e for e in events if e["type"] in ("ask_user", "tool_request")]

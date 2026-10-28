@@ -59,7 +59,7 @@ INCLUDED_FILES: list[str] = [
     "abstractassistant/controller.py",
     "abstractassistant/gateway/client.py",
     "abstractassistant/gateway/run_input.py",
-    "abstractassistant/gateway/adapter.py",
+    "abstractassistant/gateway/replay_view.py",
     "abstractassistant/ui/gateway_worker.py",
     "abstractassistant/core/voice_conversation.py",
     "abstractassistant/core/tool_risk.py",

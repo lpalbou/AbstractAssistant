@@ -287,10 +287,18 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
   connection flags, including `--gateway-handover-file`.
 - `_version.py` — the single version source for `assistant --version`, Settings → About and the
   macOS app bundle.
-- `ui/gateway_worker.py` — one thread per run: uploads attachments, starts the run, follows the
-  ledger, materializes assistant and tool messages, submits wait answers, folds run statistics.
-- `gateway/adapter.py` — ledger records to UI events (`cycle`, `cycle_result`, `tool_started`,
-  `tool`, `tool_request`, `ask_user`, `assistant`, `status`).
+- `ui/gateway_worker.py` — one thread per run: uploads attachments, starts the run, follows its
+  replay view, materializes assistant and tool messages, submits wait answers through
+  `/commands`.
+- `gateway/replay_view.py` — the run as AbstractRuntime's replay view (`replay_view_v1`, ADR 0010
+  in AbstractRuntime): `follow_run` reads the gateway's `/runs/{id}/view` + `/view/stream`
+  (AbstractGateway 0.17.0+, found in `/openapi.json`) and keeps the copy with the runtime's
+  `apply_delta`; on an older gateway it folds `/runs/{id}/ledger` pages and `/runs/{id}` with the
+  runtime's own reducer and says so in the status line. `ViewProjector` turns each change into UI
+  events (`cycle`, `tool_started`, `tool`, `tool_request`, `ask_user`, `interaction_closed`,
+  `tool_policy_decision`, `assistant`, `status`); the app never parses ledger records.
+  `LiveText` reads the ledger stream's live reply frames only, beside the view, until the view
+  stream carries the reply being written.
 - `gateway/live_deltas.py` — the run stream's live reply events (`llm.delta`, `llm.delta_end`) as
   UI events (`assistant_delta`, `assistant_delta_end`, `assistant_delta_reset` on each
   reconnect) and the per-call text they build; the palette's live bubble and the CLI both use it.
