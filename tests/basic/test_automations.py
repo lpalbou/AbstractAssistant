@@ -1020,6 +1020,7 @@ def test_typing_in_the_automation_continues_its_latest_run_as_a_session(palette,
     context (discuss with the LATEST run) and continues there."""
     window, controller = palette
     window._poll_automations()
+    chat_placeholder = window.prompt_edit.placeholderText()
     window._open_automation(TRIAGE)
     view = window.automation_view
     # The chat's OWN composer stays under the automation (no second input).
@@ -1042,7 +1043,9 @@ def test_typing_in_the_automation_continues_its_latest_run_as_a_session(palette,
     assert "Continued as a session from “Inbox triage” (run 6)." in banner.text()
     assert "Back to the automation" in banner.text() and TRIAGE not in banner.text().split("href")[0]
     assert f"/data/automations/{TRIAGE}/workspace" in banner.toolTip()
-    assert window.prompt_edit.placeholderText() == "Ask anything or drop files here." and window.attach_button.isEnabled()
+    # The composer is the chat's again (its words, attach, Send).
+    assert window.prompt_edit.placeholderText() == chat_placeholder and window.attach_button.isEnabled()
+    assert not window.prompt_edit.isReadOnly() and window.send_button.isEnabled()
     # The link goes back to the automation.
     window._on_continued_banner_link("automation")
     assert view.isVisibleTo(window) and window._automation_view_id == TRIAGE
@@ -1086,6 +1089,30 @@ def test_continuing_says_so_in_words_and_a_refusal_keeps_the_text(palette, stub)
     assert window.prompt_edit.toPlainText() == "Summarise the week", "nothing typed is lost"
     assert not window.prompt_edit.isReadOnly() and window.send_button.isEnabled()
     assert "already in progress" in view.error_label.text()
+
+
+@pytest.mark.basic
+def test_leaving_the_automation_while_its_session_is_created_loses_nothing(palette, stub) -> None:
+    window, controller = palette
+    window._poll_automations()
+    window._open_automation(TRIAGE)
+    held: List[Any] = []
+    window._automations.discuss = lambda aid, index, prompt, done: held.append(done)
+    window.prompt_edit.setPlainText("First question")
+    window._submit()
+    window._close_automation_view()  # ← while the session is being created
+    assert not window.prompt_edit.isReadOnly() and window.attach_button.isEnabled()
+    held[0](False, AutomationApiError(status=0, reason_code="unreachable", message="refused"))
+    assert window.prompt_edit.toPlainText() == "First question", "the refused text comes back"
+    assert "Could not continue the automation as a session" in window.banner_label.text()
+    # A success after leaving still opens the session the person asked for.
+    window._open_automation(TRIAGE)
+    window.prompt_edit.setPlainText("Second question")
+    window._submit()
+    window._close_automation_view()
+    held[1](True, {"session_id": "s-late", "run_id": "r-late", "mounted_workspace": "/m", "workspace_root": "/w"})
+    assert controller.opened[-1] == {"session_id": "s-late", "run_id": "r-late"}
+    assert window.continued_banner.isVisibleTo(window)
 
 
 @pytest.mark.basic

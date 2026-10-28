@@ -7030,19 +7030,17 @@ class AssistantPalette(QMainWindow):
 
     # ------------------------------------- an automation continued as a session
 
-    _COMPOSER_PLACEHOLDER = "Ask anything or drop files here."
-
     def _set_composer_automation_mode(self, on: bool, *, pending: bool = False) -> None:
         """The palette's composer, while an automation is open: what is typed
         continues the automation as a session. ``pending``: the session is
         being created — the composer says so in words (ADR 0039), read-only."""
         edit = self.prompt_edit
         if not on:
+            # Back to the chat's own state (placeholder, readiness, Send/Stop).
             edit.setReadOnly(False)
-            edit.setPlaceholderText(self._COMPOSER_PLACEHOLDER)
-            self.attach_button.setEnabled(True)
             self.attach_button.setToolTip("Attach files, photos, or documents (Drag & Drop supported)")
-            self.send_button.setEnabled(True)
+            self._update_prompt_placeholder()
+            self._refresh_submission_state()
             self._set_send_button_busy(self._state("_worker") is not None)
             return
         self.composer_card.show()
@@ -7062,6 +7060,8 @@ class AssistantPalette(QMainWindow):
         # A continued session starts from text; files can be attached in it.
         self.attach_button.setEnabled(False)
         self.attach_button.setToolTip("Attach files once the conversation continues as a session.")
+        # The button sends here (never Stop: a live session run is not this view's).
+        self._set_send_button_busy(False)
         self.send_button.setEnabled(not pending)
         self.send_button.setToolTip(CONTINUE_PENDING if pending else "Continue as a session")
 
@@ -7109,14 +7109,19 @@ class AssistantPalette(QMainWindow):
             self._continuing_automation = False
             still_open = self._state("_automation_view_id") == aid
             if not ok:
+                error = self._automations.error_text(value)
                 if still_open:
                     self._set_composer_automation_mode(True)
+                    view.set_error(error, retry=False)
+                else:
+                    self._set_banner(f"Could not continue the automation as a session: {error}", tone="warn", key="automation")
+                if not self.prompt_edit.toPlainText().strip():
                     self.prompt_edit.setPlainText(prompt)  # nothing typed is lost
-                    view.set_error(self._automations.error_text(value), retry=False)
                 return
-            if not still_open:
-                return
-            self._set_composer_automation_mode(True)
+            if still_open:
+                self._set_composer_automation_mode(True)
+            # The person asked for this session (even if they left the view
+            # meanwhile): it opens, with the way back to the automation.
             self._open_discussion(
                 value if isinstance(value, dict) else {}, occurrence_index=int(index), automation_id=aid, title=title,
                 prompt=prompt,
@@ -7352,13 +7357,22 @@ class AssistantPalette(QMainWindow):
         "Continued as a session" with the way back to the automation."""
         session_id = str(result.get("session_id") or "").strip()
         run_id = str(result.get("run_id") or "").strip()
+
+        def failed(text: str) -> None:
+            if self._state("_automation_view_id"):
+                self.automation_view.set_error(text)
+            else:
+                self._set_banner(text, tone="warn", key="automation")
+            if prompt and not self.prompt_edit.toPlainText().strip():
+                self.prompt_edit.setPlainText(prompt)  # nothing typed is lost
+
         if not session_id or not run_id:
-            self.automation_view.set_error("The gateway did not return the discussion's session.")
+            failed("The gateway did not return the discussion's session.")
             return
         try:
             self._controller.open_gateway_session(session_id, run_id=run_id)
         except Exception as exc:
-            self.automation_view.set_error(f"Could not open the discussion: {exc}")
+            failed(f"Could not open the discussion: {exc}")
             return
         self._close_automation_view()
         self._tray_completion_unread = False
@@ -11730,6 +11744,8 @@ class AssistantPalette(QMainWindow):
         self._refresh_workspace_hint()
 
     def _update_prompt_placeholder(self) -> None:
+        if self._state("_automation_view_id", ""):
+            return  # the open automation's composer words (`_set_composer_automation_mode`)
         self.prompt_edit.setPlaceholderText("Ask anything, drop files, or press ⌘⇧V to talk")
 
     def _refresh_submission_state(self) -> None:
@@ -11750,6 +11766,9 @@ class AssistantPalette(QMainWindow):
         else:
             self.prompt_edit.setToolTip(tooltip)
             self.send_button.setToolTip(tooltip)
+        if ready and self._state("_automation_view_id", ""):
+            # An open automation keeps its composer state over a readiness refresh.
+            self._set_composer_automation_mode(True, pending=bool(self._state("_continuing_automation")))
 
     def _voice_is_speaking(self) -> bool:
         """Is the player putting audio on the speakers right now?
