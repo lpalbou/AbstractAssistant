@@ -18,7 +18,7 @@ bump, with no local twin of the card.
   detail panel.
 
 ## Evidence
-- The kit check `panel-chat/scripts/check_message_footer.mjs` (44 checks, mutation-checked) pins the behaviour.
+- The kit check `panel-chat/scripts/check_message_footer.mjs` (56 checks, mutation-checked) pins the behaviour.
 - This app: tests and build green on the bumped pin (see the PR).
 - The desktop mirrors the same spec in its Qt bubble (separate work item of the desktop worker); this item is the web
   pin only.
