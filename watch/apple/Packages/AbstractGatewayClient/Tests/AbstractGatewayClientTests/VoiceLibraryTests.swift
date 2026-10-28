@@ -120,6 +120,12 @@ private final class VoiceWireStub: URLProtocol, @unchecked Sendable {
         #expect(request.timeoutInterval >= 120)
     }
 
+    @Test func theCatalogIsReadCompact() async throws {
+        _ = try await client(reply: #"{"items":[]}"#).voiceCatalog()
+        let voices = try #require(VoiceWireStub.requests.map(\.0).first { $0.url?.path == "/api/gateway/voice/voices" })
+        #expect(URLComponents(url: try #require(voices.url), resolvingAgainstBaseURL: false)?.queryItems == [URLQueryItem(name: "compact", value: "true")])
+    }
+
     @Test func designWithoutNameOrLanguageSendsNeither() async throws {
         _ = try await client().designVoice(description: "A voice", name: nil, language: "")
         let (_, body) = try #require(VoiceWireStub.requests.first)

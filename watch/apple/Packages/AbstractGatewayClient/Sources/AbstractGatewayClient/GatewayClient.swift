@@ -964,7 +964,9 @@ public actor LiveGatewayClient: GatewayClient {
     public func emailStatus() async throws -> EmailStatus { try await get("api/gateway/me/email", as: EmailStatus.self) }
 
     public func voiceCatalog() async throws -> VoiceCatalog {
-        async let v = get("api/gateway/voice/voices", as: JSONValue.self)
+        // `compact`: the items without the engines' duplicated source catalogs (a shared voice pack
+        // made the full listing 1.4 MB, 250 KB compact, the same voices: measured on a 0.16.0 gateway).
+        async let v = get("api/gateway/voice/voices", query: [.init(name: "compact", value: "true")], as: JSONValue.self)
         async let t = get("api/gateway/audio/transcriptions/models", as: JSONValue.self)
         return VoiceCatalog.parse(voices: try await v, transcription: try await t)
     }

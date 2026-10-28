@@ -28,6 +28,10 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ### Changed
 
+- **The voice list is read compact** (`GET /voice/voices?compact=true`, the same voices, about a
+  fifth of the bytes). A UI test against a real gateway (`TEST_RUNNER_GW_URL`, `TEST_RUNNER_GW_TOKEN`)
+  opens a conversation with its messages and plays a chosen voice's sample.
+
 - **The sign-in lives in the Keychain, shared through the app group.** A Keychain item of the
   app's service, readable after the first unlock (the notification extension reads it while the
   device is locked), bound to this device, never in a backup, never synced; the app group doubles
