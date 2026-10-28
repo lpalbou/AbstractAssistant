@@ -5,6 +5,12 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-10-28
+
+Completes the replay-view migration of 0.16.0 on the web: the desktop app and the web Assistant now
+render a run from the same gateway reconstruction. The Python package is unchanged from 0.16.0
+apart from its version.
+
 ### Changed
 
 - **The web Assistant renders a conversation from the gateway's replay view** (`web/`; `@abstractframework/panel-chat`
@@ -15,6 +21,8 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   and there is no timed run poll. The ledger stream stays open only for live reply text. On an older gateway the page
   keeps folding the ledger itself, and the conversation header says so ("Rebuilt in this browser", with the reason on hover). `GatewayClient.replayFetch`
   is the view routes' authenticated fetch; `createAssistantTransport` adds `replayView`.
+- The web Assistant builds with `@abstractframework/panel-chat` 0.6.0 and `@abstractframework/ui-kit` 0.9.2
+  (was 0.9.0; the speech model list labels a cloning checkpoint "(clones)").
 
 ## [0.16.0] - 2026-10-28
 

@@ -44,6 +44,11 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 - Local, persistent overrides for every route the assistant drives (chat, voice, image, video,
   music, sound) that ride each request without touching the gateway's shared defaults.
 - Per-answer statistics (tokens, tools, files, duration, model) with clickable detail views.
+- One reconstruction of every run: on AbstractGateway 0.17.0 or later the desktop app, `assistant run`
+  and the web Assistant (`web/`) render a run from the gateway's replay view (`GET /runs/{id}/view`
+  and its stream): status, replies, tool rows and the approval or question wherever it waits come
+  from the gateway, so an approval answered on another client closes here too. On an older gateway
+  the app folds the run's ledger itself and says so.
 - Multi-attachment composer with an image gallery, drag and drop, and artifact previews.
 - In your pocket and on your wrist: **AbstractAssistant for iPhone and Apple Watch** is one app
   (0.16.0, pre-release through TestFlight): the iPhone app carries the watch app, each signs in
