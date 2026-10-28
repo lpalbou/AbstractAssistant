@@ -1,6 +1,6 @@
 # 1063: The desktop renders runs from the gateway's replay view
 
-**Status**: planned, in progress (branch `feat/replay-view-desktop`, draft PR). Not released.
+**Status**: completed in 0.16.0 (PR https://github.com/lpalbou/AbstractAssistant/pull/11; released by `release.yml` workflow_dispatch from main).
 **Cross-package**: framework root 0993 (`docs/backlog/planned/0993_one_ledger_replay_many_views.md`
 in the root repo); AbstractRuntime 0854 (`abstractruntime/docs/backlog/planned/0854_replay_view.md`,
 inventory of this app's private reconstruction: "AbstractAssistant (desktop Python/Qt, iPhone,
@@ -62,10 +62,20 @@ snapshots, rendering on a cursor change; empty/media-only answers and failed run
 reach the palette; a non-JSON frame and the first GET/discovery are retried as transient;
 `LiveText` has no idle limit, reconnects calmly, and emits nothing after `stop()`; a final that
 repeats a shown answer is not appended twice; cycles count per run; an attach shows a running
-tool's start. Not changed: ViewFold's guard and the live-text lock (the review found them correct).
+tool's start. Re-review (no blockers): a media-only answer takes its media from the run's
+output (`GET /runs/{id}`; the view names an artifact by its earliest reference, a tool step);
+the summary read is guarded; only a root-run failure hides the summary's reason. Left as
+notes: child `answer_user` messages enter the transcript (as the followed sub-run's did
+before); a snapshot-first wait can be re-asked once its record lands. Not changed: ViewFold's guard and the live-text lock (the review found them correct).
 
 ## Tests and evidence
 
-See the PR. Conformance: `tests/basic/test_replay_view_client.py` (15 cases); worker, CLI,
+Local suite 1385 passed, 8 skipped; CI (Python 3.10-3.12, web) green on the PR. Live against
+`abstractgateway==0.17.0` + `abstractruntime==0.15.0` (scratch venv, file stores): discovery true;
+GET 200 with ETag = cursor, `If-None-Match` -> 304; follow folded == GET; local fold == GET
+(cursor digest aside); an in-progress run streamed cycle -> approval opened -> answered elsewhere
+-> closed -> final; 3,000-record finished run, cold time to first render: view 57-63 ms, local
+fold 68-73 ms, 0.15.0 ledger path 418-431 ms (which never showed that run's answer).
+Conformance: `tests/basic/test_replay_view_client.py` (15 cases); worker, CLI,
 local fold, live text: `tests/basic/test_replay_view_live.py`; ported: tool identity, session tool
 policy, worker run/attach tests (folded by the runtime reducer).

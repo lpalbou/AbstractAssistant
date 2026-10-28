@@ -717,14 +717,20 @@ class GatewayWorker(QThread):
         )
         view = fold.view or {}
         status = str(view.get("status") or "").strip().lower()
+        summary: Dict[str, Any] = {}
+        if (status == "completed" and not projector.final_shown) or (status == "failed" and not projector.error_shown):
+            # The view has neither the run's output fields nor its error: the summary does.
+            try:
+                got = self._gateway.get_run(run_id=run_id)
+                summary = got if isinstance(got, dict) else {}
+            except Exception as exc:  # noqa: BLE001
+                warnings.warn(f"#FALLBACK: could not read the run summary of {run_id}: {exc}")
         if status == "completed" and not projector.final_shown:
             # No final message in the view (an output without text): the worker's own recovery
             # (an output artifact's text, a media notice, an empty-answer notice) decides.
-            self._emit_ui_events(run_id=run_id, events=[final_fallback_event(view)])
+            self._emit_ui_events(run_id=run_id, events=[final_fallback_event(view, summary.get("output"))])
         if status == "failed" and not projector.error_shown:
-            # The view has no run-level error: the run's summary says why it failed.
-            summary = self._gateway.get_run(run_id=run_id)
-            reason = str((summary or {}).get("error") or "").strip() if isinstance(summary, dict) else ""
+            reason = str(summary.get("error") or "").strip()
             self.event_emitted.emit({"type": "error", "error": reason or "The run failed.", "run_id": run_id})
         if status in {"completed", "failed", "cancelled"}:
             return status

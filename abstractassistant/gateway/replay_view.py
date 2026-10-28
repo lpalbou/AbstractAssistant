@@ -214,11 +214,25 @@ def _media_meta(meta: Dict[str, Any], artifact_ids: Any, paths: Dict[str, str]) 
             meta.setdefault("media", []).append(ref)
 
 
-def final_fallback_event(view: Dict[str, Any]) -> Dict[str, Any]:
+def final_fallback_event(view: Dict[str, Any], output: Any = None) -> Dict[str, Any]:
     """A completed run whose view has no final message (its output had no text: media only, or
     nothing): an empty final answer carrying the output's artifacts, so the worker's recovery
-    (an output artifact's text, "Generated image ready.", an empty-answer notice) runs."""
+    (an output artifact's text, "Generated image ready.", an empty-answer notice) runs.
+
+    `output` is the run's own output (`GET /runs/{id}`): its media fields are taken as they are
+    (with their content type). The view names an artifact by its EARLIEST reference, so an image
+    a tool made and the run then returned is not under `output` there."""
     root = str(view.get("root_run_id") or "")
+    if isinstance(output, dict):
+        meta0: Dict[str, Any] = {"run_id": root}
+        for key in (*sorted(_MEDIA_KEYS), "artifact", "artifact_ref"):
+            ref = output.get(key)
+            if isinstance(ref, dict) and str(ref.get("$artifact") or "").strip():
+                meta0["artifact" if key == "artifact_ref" else key] = dict(ref)
+        if isinstance(meta0.get("artifact"), dict):
+            meta0.setdefault("artifact_id", str(meta0["artifact"]["$artifact"]))
+        if len(meta0) > 1:
+            return {"type": "assistant", "content": "", "final": True, "ts": "", "run_id": root, "meta": meta0}
     paths = {str(a.get("id") or ""): str(a.get("path") or "") for a in view.get("artifacts") or []}
     ids = [a for a, p in paths.items() if p.split(".", 1)[0].split("[", 1)[0] == "output"
            and any(str(x.get("id")) == a and str(x.get("run_id") or "") == root for x in view.get("artifacts") or [])]
@@ -277,6 +291,7 @@ class ViewProjector:
     def project(self, view: Dict[str, Any]) -> List[Dict[str, Any]]:
         events: List[Dict[str, Any]] = []
         root = str(view.get("root_run_id") or "")
+        self._root = root
         for r in view.get("runs") or []:
             rid = str(r.get("run_id") or "")
             text = str(r.get("display_status") or "")
@@ -337,7 +352,8 @@ class ViewProjector:
             out.append({"type": "tool", "run_id": rid, "message": _tool_message(row, act)})
         if kind != "tool" and str(act.get("status") or "") == "failed" and f"{aid}|failed" not in self._tool_done:
             self._tool_done.add(f"{aid}|failed")
-            self.error_shown = True
+            if rid == getattr(self, "_root", ""):
+                self.error_shown = True  # a child's failed step may be recovered: not the run's reason
             out.append({"type": "error", "error": str(act.get("error") or f"{act.get('name') or kind} failed"), "run_id": rid})
         return out
 

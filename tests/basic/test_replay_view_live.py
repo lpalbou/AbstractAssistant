@@ -439,3 +439,27 @@ def test_a_failed_run_says_why():
     worker = _worker(_Gw([]))
     assert worker._follow_view(run_id=ROOT, attach=False) == "failed"
     assert [e["error"] for e in worker.event_emitted.items if e["type"] == "error"] == ["provider unreachable"]
+
+
+
+@pytest.mark.basic
+def test_an_image_made_by_a_tool_then_returned_still_shows():
+    """The view names the image by the tool step that made it; the run's output returns it."""
+    img = {"$artifact": "img7", "content_type": "image/png"}
+    recs = [
+        {"run_id": ROOT, "step_id": "t", "node_id": "act", "status": "completed",
+         "effect": {"type": "tool_calls", "payload": {"tool_calls": [{"name": "gen", "runtime_call_id": "rt"}]}},
+         "result": {"results": [{"runtime_call_id": "rt", "success": True, "output": {"image_artifact": img}}]}},
+        {"run_id": ROOT, "step_id": "e", "node_id": "end", "status": "completed",
+         "idempotency_key": "system:completion:end", "result": {"output": {"image_artifact": img}}},
+    ]
+
+    class _Gw(_OldGateway):
+        def get_run(self, run_id):
+            return {"run_id": run_id, "status": "completed", "output": {"image_artifact": img}}
+
+    worker = _worker(_Gw(recs))
+    assert worker._follow_view(run_id=ROOT, attach=False) == "completed"
+    finals = [e for e in worker.event_emitted.items if e["type"] == "assistant" and e["final"]]
+    assert [f["meta"].get("image_artifact") for f in finals] == [img]
+    assert finals[0]["content"] == "Generated image ready."
