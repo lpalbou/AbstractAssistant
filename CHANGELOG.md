@@ -9,13 +9,15 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 - **An automation opens as the chat** (operator, 2026-10-28; backlog 1070). Its runs read as the chat's exchanges: a
   compact system line in words ("Scheduled run 1 · Oct 9 at 11:06 PM", "Run now · run 4 · Today at 7:12 AM"), the
-  task as your bubble (the runtime's "[Trigger schedule@1 · occurrence 1 · fired …]" line is never shown) and the
+  task as your bubble (the runtime's "[Trigger schedule@1 · occurrence 1 · fired …]" line and, for an email, feed or
+  webhook run, its framed input are never shown; the line counts it: "Email received · run 3 · 2 new emails") and the
   result as the chat's reply card with its time, copy and **speaker**. The chat's composer stays underneath: what
   you write continues the automation as a new session from its latest finished run (or the run you chose with
   **Discuss here** in its ⋯ menu), the composer says "Continuing as a session…" meanwhile, and the session opens
   with "Continued as a session from “<title>” (run N)." and **Back to the automation**. The automation links the
   newest session it was continued as ("Continued as a session on Oct 27"). The per-run "Discuss this run" button
-  and its field are gone.
+  and its field are gone. The chat's draft is kept aside while an automation is open and comes back on leaving;
+  choosing a chat or + New chat leaves the automation.
 - **The automation header is chips and icons**: the title (one line, full title on hover), one status chip, one
   schedule chip ("Every 24 h"), one next-run chip ("Next in 3 h · 11:06 PM"), the Active switch and icon buttons
   for Run now / Stop / Edit / Archive (name and reason in the tooltip). The workflow ("basic-agent 0.0.5", no
@@ -24,7 +26,8 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 - **Message footer chips open a structured card** (the kit's stat detail): "Tokens · 7,586 total" with Usage
   (model calls, Input / Output / Total), Prompt cache ("not reported" when the ledger has none) and the footnote
   "From the run ledger; summed across this turn and its child runs."; Tools, Files, Time and Model cards likewise.
-  It opens on hover or keyboard focus and closes on Escape; the plain grey multi-line tooltips are gone.
+  It opens on hover or keyboard focus (every chip is reachable with Tab) and closes on Escape; the plain grey
+  multi-line tooltips are gone.
 
 ### Fixed
 

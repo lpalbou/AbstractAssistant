@@ -194,7 +194,9 @@ one (see [Limits](#limits)).
 
 Click a row in the Automations tab. The palette shows the automation in the chat's own surface, in
 place of the conversation: its runs as the chat's exchanges and the chat's composer underneath
-(see [Continue as a session](#continue-as-a-session)). The **←** button returns to the conversation.
+(see [Continue as a session](#continue-as-a-session)). The **←** button, choosing a chat or **+ New chat**
+returns to the conversation; a message you were writing there is kept aside while the automation is open
+and comes back.
 
 The header is two compact rows:
 
@@ -220,9 +222,9 @@ list names it.
 Each run reads as one exchange of the chat, oldest at the top:
 
 - **a system line** says what started it and when, in words: "Scheduled run 1 · Oct 9 at 11:06 PM",
-  "Run now · run 4 · Today at 7:12 AM", "Email received · run 3 · …" (hover it for the full date).
-  The runtime's bracketed trigger line in the task ("[Trigger schedule@1 · occurrence 1 · fired …]")
-  is never shown;
+  "Run now · run 4 · Today at 07:12 AM", "Email received · run 3 · 2 new emails · …" (hover it for the
+  full date). The runtime's bracketed trigger line in the task ("[Trigger schedule@1 · occurrence 1 ·
+  fired …]") and the framed input of an email, feed or webhook run are never shown;
 - **the task** is the chat's user bubble;
 - **the result** is the chat's reply card, with its time (and date when not today), **copy** and the
   **speaker** that reads it aloud, as in a conversation. A result the workflow marked as notable

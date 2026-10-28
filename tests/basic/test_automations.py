@@ -948,7 +948,7 @@ def test_a_disabled_run_now_says_why_first_then_the_hint(palette, stub) -> None:
     window._open_automation(TRIAGE)
     button = window.automation_view.control_buttons["run_now"]
     assert not button.isEnabled()
-    assert button.toolTip() == "A run is in progress.\n" + rules.control_hint("run_now", stub.summary(TRIAGE))
+    assert button.toolTip() == "Run now: A run is in progress.\n" + rules.control_hint("run_now", stub.summary(TRIAGE))
     assert button.toolTip().endswith("Growing context: later runs see this run in their history.")
 
 
@@ -1113,6 +1113,64 @@ def test_leaving_the_automation_while_its_session_is_created_loses_nothing(palet
     held[1](True, {"session_id": "s-late", "run_id": "r-late", "mounted_workspace": "/m", "workspace_root": "/w"})
     assert controller.opened[-1] == {"session_id": "s-late", "run_id": "r-late"}
     assert window.continued_banner.isVisibleTo(window)
+
+
+@pytest.mark.basic
+def test_choosing_a_chat_leaves_the_automation_and_its_draft_stays_the_chats(palette, stub) -> None:
+    window, controller = palette
+    window._poll_automations()
+    window.prompt_edit.setPlainText("half-written chat message")
+    window._open_automation(TRIAGE)
+    assert window.prompt_edit.toPlainText() == "", "the chat's draft is never sent as a discussion"
+    window.prompt_edit.setPlainText("for the automation")
+    # Picking a chat in the switcher (or + New chat) leaves the automation.
+    window._switch_to_session(window._active_session_id())
+    assert not window.automation_view.isVisibleTo(window) and not window._automation_view_id
+    assert window.prompt_edit.placeholderText() != "Write to continue as a session…"
+    before = len(stub.calls("POST", f"{AUTOMATIONS_PATH}/{TRIAGE}/discuss"))
+    window._continue_automation()
+    assert len(stub.calls("POST", f"{AUTOMATIONS_PATH}/{TRIAGE}/discuss")) == before
+    # Text typed for the automation stays in the composer; an empty composer gets the chat draft back.
+    assert window.prompt_edit.toPlainText() == "for the automation"
+    window._open_automation(TRIAGE)
+    assert window.prompt_edit.toPlainText() == "", "kept aside as the chat's draft"
+    window._close_automation_view()
+    assert window.prompt_edit.toPlainText() == "for the automation"
+    window.prompt_edit.setPlainText("draft 2")
+    window._open_automation(TRIAGE)
+    window._close_automation_view()
+    assert window.prompt_edit.toPlainText() == "draft 2"
+
+
+@pytest.mark.basic
+def test_a_chosen_run_that_can_no_longer_be_discussed_is_let_go_visibly(palette, stub) -> None:
+    window, _controller = palette
+    window._poll_automations()
+    window._open_automation(TRIAGE)
+    view = window.automation_view
+    next(p for p in view.pairs if p.index == 3).discuss_action.trigger()
+    assert view.discuss_target() == (3, "") and view.selection_bar.isVisibleTo(view)
+    rows = [r for r in view.occurrences if r["index"] != 3]
+    view.set_occurrences(rows, next_cursor=None)
+    assert view.discuss_from is None and not view.selection_bar.isVisibleTo(view)
+    assert window.prompt_edit.placeholderText() == "Write to continue as a session…"
+
+
+@pytest.mark.basic
+def test_runs_loading_reads_as_loading_not_as_no_run(palette, stub) -> None:
+    window, _controller = palette
+    window._poll_automations()
+    held: List[Any] = []
+    window._automations.load_occurrences = lambda aid, done, cursor=None: held.append(done)
+    window._open_automation(TRIAGE)
+    assert window.prompt_edit.placeholderText() == "Loading runs…"
+    view = window.automation_view
+    view.reset_details()
+    assert view.workflow_action.text() == "Workflow: loading…" and not view.workspaces_action.isEnabled()
+    view.set_workflow_detail(None)
+    assert view.workflow_action.text() == "Workflow: could not be read"
+    held[0](True, {"items": copy.deepcopy(_fixture("occurrences.json")["items"]), "next_cursor": None})
+    assert window.prompt_edit.placeholderText() == "Write to continue as a session…"
 
 
 @pytest.mark.basic

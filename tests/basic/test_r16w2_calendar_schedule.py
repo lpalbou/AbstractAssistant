@@ -304,7 +304,10 @@ def test_the_header_card_and_hint_show_the_served_next_run(palette, stub) -> Non
     assert view.schedule_chip.toolTip().startswith("Every day at 08:00 (Europe/Paris)")
     assert view.status_chip.text() == "Active"
     assert view.next_chip.toolTip() == "Next scheduled run: 2026-09-28 08:00 Europe/Paris"
-    assert view.next_chip.text().endswith("· 8:00 AM")
+    from datetime import datetime
+
+    local = datetime.fromisoformat(stub.summary(MORNING)["next_run_at"].replace("Z", "+00:00")).astimezone()
+    assert view.next_chip.text().endswith(f"· {local.hour % 12 or 12:02d}:{local.minute:02d} {'AM' if local.hour < 12 else 'PM'}")
     assert "Next scheduled run: 2026-09-28 08:00 Europe/Paris." in view.control_buttons["run_now"].toolTip()
     # A mutant gateway value moves every display: the client computes nothing.
     moved = dict(stub.summary(MORNING), next_run_at="2026-09-29T06:00:00+00:00", next_run_local="2026-09-29T08:00:00+02:00",

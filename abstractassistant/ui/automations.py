@@ -865,6 +865,9 @@ class AutomationView(QFrame):
         # The run the composer's next message continues from (a run's
         # "Discuss here"); None = the latest run that can be discussed.
         self.discuss_from: Optional[int] = None
+        # False while the palette is reading this automation's runs (the
+        # composer then says "Loading runs…", never "no run").
+        self.runs_loaded = True
         # The overflow menu's lines (readable; no id but the explicit copy action).
         self.workflow_text = ""
         self.workspaces_text = ""
@@ -1167,6 +1170,7 @@ class AutomationView(QFrame):
         self._apply_controls()
         if self.controls()["discuss"] != before:
             self._rebuild_pairs()
+        self._revalidate_selection()
         self.target_changed.emit()
 
     def set_occurrences(self, rows: Sequence[Mapping[str, Any]], *, next_cursor: Optional[str], append: bool = False) -> None:
@@ -1177,8 +1181,10 @@ class AutomationView(QFrame):
         else:
             self.occurrences = incoming
         self.next_cursor = next_cursor if isinstance(next_cursor, str) and next_cursor else None
+        self.runs_loaded = True
         self._apply_controls()
         self._rebuild_pairs()
+        self._revalidate_selection()
         self.target_changed.emit()
 
     def set_busy(self, busy: bool) -> None:
@@ -1202,8 +1208,8 @@ class AutomationView(QFrame):
         """``(run index, reason)``: the run the composer's next message continues
         from — the one chosen with "Discuss here", else the LATEST run that can
         be discussed (a run in progress cannot) — or ``(None, why not)``."""
-        if not self.summary:
-            return None, "The automation is still loading."
+        if not self.summary or not self.runs_loaded:
+            return None, "Loading runs…"
         enabled, reason = self.controls()["discuss"]
         if not enabled:
             return None, reason or "This automation cannot be continued as a session."
@@ -1214,6 +1220,16 @@ class AutomationView(QFrame):
         if not indices:
             return None, "No finished run to continue from yet."
         return max(indices), ""
+
+    def _revalidate_selection(self) -> None:
+        """A chosen run that can no longer be discussed (a refresh) is let go,
+        visibly: the bar hides and the composer goes back to the latest run."""
+        if self.discuss_from is None or not self.runs_loaded:
+            return
+        target, _reason = self.discuss_target()
+        if target != self.discuss_from:
+            self.discuss_from = None
+            self.selection_bar.hide()
 
     def select_discuss_run(self, index: Optional[int]) -> None:
         """A run's "Discuss here" (``None`` = back to the latest run)."""
@@ -1289,7 +1305,7 @@ class AutomationView(QFrame):
             # (the kit's hint, with the next scheduled time for Run now); a
             # disabled control first says why.
             hint = control_hint(control, self.summary)
-            button.setToolTip(f"{labels[control]}\n{hint}" if enabled else f"{reason}\n{hint}")
+            button.setToolTip(f"{labels[control]}\n{hint}" if enabled else f"{labels[control]}: {reason}\n{hint}")
             button.setAccessibleDescription(hint)
 
     def _rebuild_pairs(self) -> None:
@@ -1571,8 +1587,19 @@ class AutomationView(QFrame):
         self.workspaces_action.setEnabled(bool(self.workspaces_text))
         self.workspaces_action.setToolTip(self.workspaces_text)
 
-    def set_workflow_detail(self, detail: Mapping[str, Any]) -> None:
-        """The overflow menu's "Workflow: basic-agent 0.0.5" (no flow digest)."""
+    def reset_details(self) -> None:
+        """A newly opened automation: its ⋯ details are being read (ADR 0039)."""
+        self.workflow_text = ""
+        self.workflow_action.setText("Workflow: loading…")
+        self.set_workspaces_summary("")
+
+    def set_workflow_detail(self, detail: Optional[Mapping[str, Any]]) -> None:
+        """The overflow menu's "Workflow: basic-agent 0.0.5" (no flow digest);
+        ``None`` = the detail could not be read."""
+        if detail is None:
+            self.workflow_text = ""
+            self.workflow_action.setText("Workflow: could not be read")
+            return
         self.workflow_text = workflow_text(detail)
         self.workflow_action.setText(self.workflow_text or "Workflow: not reported")
 

@@ -102,6 +102,7 @@ __all__ = [
     "schedule_chip",
     "split_trigger_envelope",
     "status_chip",
+    "trigger_input_count",
     "workflow_text",
 ]
 
@@ -1392,6 +1393,12 @@ def revise_changes(
 # (abstractruntime automations/controller.py `_render_prompt`):
 # "[Trigger schedule@1 · occurrence 1 · fired 2026-10-09T23:06:22+00:00]".
 _TRIGGER_ENVELOPE_RE = re.compile(r"^\s*\[Trigger [^\]\n]*\][ \t]*(?:\r?\n|$)")
+# The untrusted-input frame the runtime appends after the task for an email,
+# feed or webhook run (abstractruntime email/frame.py `email_frame`,
+# triggers/event_frame.py `connection_events_frame`): "[Email trigger: 2 new
+# message(s). …boundary <hex>…]" then each item between boundary markers. It is
+# the run's input data, framed for the model — not words for a person.
+_INPUT_FRAME_RE = re.compile(r"^\[([^\]\n]{1,200}?) trigger: (\d+) new (message|event)\(s\)\.", re.M)
 
 # What started a run, in words (the envelope's / row's `trigger.source_id`).
 TRIGGER_RUN_WORDS = {
@@ -1405,16 +1412,31 @@ TRIGGER_RUN_WORDS = {
 
 def split_trigger_envelope(user_turn: Any) -> Tuple[str, str]:
     """``(envelope, task)``: the runtime's bracketed first line (``""`` when the
-    turn has none) and the task text people read, without it."""
+    turn has none) and the task text people read — without that line and
+    without the untrusted-input frame an email / feed / webhook run carries
+    after the task (its boundary token and raw ids are not for people)."""
     text = str(user_turn or "")
     m = _TRIGGER_ENVELOPE_RE.match(text)
-    if not m:
-        return "", text.strip()
-    return m.group(0).strip(), text[m.end():].strip()
+    envelope, rest = (m.group(0).strip(), text[m.end():]) if m else ("", text)
+    frame = _INPUT_FRAME_RE.search(rest)
+    if frame is not None:
+        rest = rest[: frame.start()]
+    return envelope, rest.strip()
+
+
+def trigger_input_count(user_turn: Any) -> str:
+    """ "2 new emails" / "1 new event" from the run's input frame; "" when none."""
+    m = _INPUT_FRAME_RE.search(str(user_turn or ""))
+    if m is None:
+        return ""
+    count = int(m.group(2))
+    noun = "email" if m.group(1) == "Email" else m.group(3)
+    return f"{count} new {noun}{'' if count == 1 else 's'}"
 
 
 def _clock_12h(dt: datetime) -> str:
-    return f"{dt.hour % 12 or 12}:{dt.minute:02d} {'AM' if dt.hour < 12 else 'PM'}"
+    # The chat cards' clock ("05:40 PM", `app._format_message_timestamp`).
+    return f"{dt.hour % 12 or 12:02d}:{dt.minute:02d} {'AM' if dt.hour < 12 else 'PM'}"
 
 
 def readable_when(ts: Any, *, now: Optional[datetime] = None) -> str:
@@ -1446,6 +1468,9 @@ def occurrence_system_line(row: Mapping[str, Any], *, now: Optional[datetime] = 
     index = int(row.get("index") or 0)
     word = TRIGGER_RUN_WORDS.get(source, "Triggered")
     head = f"Scheduled run {index}" if source == "schedule" else f"{word} · run {index}"
+    received = trigger_input_count(row.get("user_turn"))
+    if received:
+        head = f"{head} · {received}"
     when = readable_when(row.get("fired_at"), now=now)
     line = f"{head} · {when}" if when else head
     fired = _parse_ts(row.get("fired_at"))
@@ -1506,15 +1531,14 @@ def next_run_chip(summary: Mapping[str, Any], *, now: Optional[datetime] = None)
         # a schedule without one says so.
         trigger = summary.get("trigger") if isinstance(summary.get("trigger"), Mapping) else {}
         return ("", "") if is_event_trigger(trigger) else ("No next run", "The gateway reports no next scheduled run.")
-    local = summary.get("next_run_local")
-    m = _SERVED_LOCAL_RE.match(local) if isinstance(local, str) else None
-    clock = ""
-    if m:
-        hour, minute = (int(x) for x in m.group(2).split(":"))
-        clock = f"{hour % 12 or 12}:{minute:02d} {'AM' if hour < 12 else 'PM'}"
+    # The clock in YOUR time, like the run lines and the cards (the served
+    # instant shown in the local zone; nothing is computed). The tooltip keeps
+    # the gateway's wall time in the automation's own zone, cut as served.
+    when = _parse_ts(summary.get("next_run_at"))
+    clock = _clock_12h(when.astimezone()) if when is not None else ""
     head = "Due now" if relative == "next: now" else f"Next in {relative[len('next in '):]}"
     chip = f"{head} · {clock}" if clock else head
-    served = format_served_local(local, summary.get("time_zone"))
+    served = format_served_local(summary.get("next_run_local"), summary.get("time_zone"))
     return chip, (f"Next scheduled run: {served}" if served else "Next scheduled run")
 
 

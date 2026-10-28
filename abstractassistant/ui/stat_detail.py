@@ -258,6 +258,10 @@ def attach_stat_detail(chip: QWidget, detail: StatDetail) -> None:
     chip.setToolTip("")
     chip.setAccessibleDescription(stat_detail_text(detail))
     chip.setAttribute(Qt.WA_Hover, True)
+    if chip.focusPolicy() == Qt.NoFocus:
+        # Reachable from the keyboard like the kit's chip (tabIndex 0): focus
+        # opens the card, Escape or leaving closes it.
+        chip.setFocusPolicy(Qt.TabFocus)
     chip.installEventFilter(_hover())
 
 
