@@ -166,6 +166,16 @@ iPhone app); the Python package's history is in
   when the notification service extension does not replace them. The extension records why in the
   app group; `--dump-notify` prints it under "push extension".
 
+### Fixed
+
+- **Every voice you choose plays its sample, or says why it cannot** (operator 2026-10-29, backlog 1083). Choosing a
+  voice in Settings → Voice sometimes played nothing, silently.
+  - The watch's audio session now stays active from one sample to the next. It was deactivated between two taps,
+    which could leave the next one silent.
+  - A sample that ends with no sound and no error is a failure: "The gateway sent no sound for this voice."
+  - The tapped voice's row says "Playing the sample", or "The sample did not play: <reason>" in one line.
+  - Every tap plays, the same voice again included, and a newer tap replaces the older sample.
+
 ## [0.5.0] - 2026-10-25
 
 ### Added
