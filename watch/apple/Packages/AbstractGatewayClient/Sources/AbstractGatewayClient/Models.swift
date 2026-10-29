@@ -812,7 +812,9 @@ public struct NewAutomation: Sendable {
     /// The iPhone's: the tools as modes; the offered ones ride the target's inputs, who approves them
     /// rides `policy.tool_policy` (the definition's, not the caller's runtime vars).
     public var toolModes: ConversationTools?
-    /// The iPhone's `policy.tool_approval` (ask before any tool); nil: "ask" when the plan asks for one.
+    /// An explicit `policy.tool_approval` (ask before any tool). Nil (the iPhone's): derived from
+    /// the person's tool modes, "ask" only when one of them is on Ask, else "auto" (QA 2026-10-29: a
+    /// hard-coded "ask" parked every unattended run on a tool approval for hours).
     public var askBeforeTools: Bool?
     /// An explicit name (nil: the task's first line).
     public var customTitle: String?
@@ -822,7 +824,7 @@ public struct NewAutomation: Sendable {
         self.buildsOnEarlierRuns = buildsOnEarlierRuns; self.tools = tools
     }
 
-    public init(task: String, target: Target, when: When, buildsOnEarlierRuns: Bool, askBeforeTools: Bool, growingMaxTokens: Int? = nil,
+    public init(task: String, target: Target, when: When, buildsOnEarlierRuns: Bool, askBeforeTools: Bool? = nil, growingMaxTokens: Int? = nil,
                 tools: ConversationTools? = nil, title: String? = nil) {
         self.task = task; self.target = target; self.when = when; self.buildsOnEarlierRuns = buildsOnEarlierRuns
         self.askBeforeTools = askBeforeTools; self.growingMaxTokens = growingMaxTokens; self.toolModes = tools; self.customTitle = title
@@ -853,6 +855,14 @@ public struct NewAutomation: Sendable {
         return line.count <= 120 ? line : String(line.prefix(119)) + "…"
     }
 
+    /// `policy.tool_approval`: the explicit choice, else what the person's tool modes say.
+    public var toolApproval: String {
+        if let askBeforeTools { return askBeforeTools ? "ask" : "auto" }
+        if let toolModes { return toolModes.modes.values.contains(.ask) ? "ask" : "auto" }
+        if let tools { return tools.ask.isEmpty ? "auto" : "ask" }
+        return "auto"
+    }
+
     public var body: JSONValue {
         let t = task.trimmingCharacters(in: .whitespacesAndNewlines)
         var target: [String: JSONValue], input: [String: JSONValue]
@@ -866,7 +876,7 @@ public struct NewAutomation: Sendable {
         if let toolModes { input = toolModes.automationInput(input) }
         target["input_data"] = .object(input)
         // With the tools chosen, their policy decides (the runtime keeps it); "ask" when one asks.
-        var policy: [String: JSONValue] = ["tool_approval": .string(askBeforeTools.map { $0 ? "ask" : "auto" } ?? tools.map { $0.ask.isEmpty ? "auto" : "ask" } ?? "auto")]
+        var policy: [String: JSONValue] = ["tool_approval": .string(toolApproval)]
         if let toolModes { policy["tool_policy"] = toolModes.automationPolicy }
         let config: [String: JSONValue]
         switch when {

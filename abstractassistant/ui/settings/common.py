@@ -285,6 +285,19 @@ class SegmentedControl(QFrame):
             button.setChecked(False)
         self._group.setExclusive(True)
 
+    def set_icons(self, icons: dict, *, size: int = 14) -> None:
+        """An icon on each segment (by value). A segment with no text then reads by its icon and
+        its tooltip (the automation editor's Off / Ask / Auto)."""
+        from PyQt5.QtCore import QSize
+
+        for button in self._buttons:
+            icon = icons.get(str(button.property("value")))
+            if icon is not None:
+                button.setIcon(icon)
+                button.setIconSize(QSize(size, size))
+                if not button.text():
+                    button.setAccessibleName(str(button.property("value")))
+
     def set_tooltips(self, tips: dict) -> None:
         for button in self._buttons:
             tip = tips.get(str(button.property("value")))

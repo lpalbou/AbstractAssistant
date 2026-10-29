@@ -35,6 +35,41 @@ from ..styles import alpha, dialog_stylesheet
 from .pages import AboutPage, ConnectionPage, ModelsPage, ToolsPage, VoicePage, WindowPage, WorkflowPage, WorkspacePage
 
 
+def segmented_qss() -> str:
+    """The segmented control's look (Settings, and the automation editor's tool modes)."""
+    return f"""
+    QFrame#segmented {{ background: transparent; border: none; }}
+    QPushButton#segment {{
+        min-height: {METRICS.control_sm}px; max-height: {METRICS.control_sm}px;
+        padding: 0 12px;
+        border-radius: 0px;
+        border: 1px solid {THEME.border_strong};
+        background: {THEME.overlay_faint};
+        color: {THEME.text_secondary};
+        font-weight: 600;
+        font-size: {METRICS.font_caption}px;
+    }}
+    QPushButton#segment[segment="first"] {{
+        border-top-left-radius: {METRICS.radius_chip + 1}px;
+        border-bottom-left-radius: {METRICS.radius_chip + 1}px;
+    }}
+    QPushButton#segment[segment="last"] {{
+        border-top-right-radius: {METRICS.radius_chip + 1}px;
+        border-bottom-right-radius: {METRICS.radius_chip + 1}px;
+        border-left: none;
+    }}
+    QPushButton#segment[segment="mid"] {{ border-left: none; }}
+    QPushButton#segment[segment="only"] {{ border-radius: {METRICS.radius_chip + 1}px; }}
+    QPushButton#segment:hover {{ background: {THEME.overlay_hover}; color: {THEME.text_strong}; }}
+    QPushButton#segment:checked {{
+        background: {THEME.accent_bg};
+        border-color: {THEME.accent_border};
+        color: {THEME.text_strong};
+    }}
+    QPushButton#segment:disabled {{ color: {THEME.text_faint}; }}
+    """
+
+
 def build_settings_qss() -> str:
     """Rebuilt on demand: frozen at import, Settings kept the palette it was
     born with and never followed a theme switch."""
@@ -68,35 +103,7 @@ def build_settings_qss() -> str:
         border: none;
         border-top: 1px solid {THEME.border_subtle};
     }}
-    QFrame#segmented {{ background: transparent; border: none; }}
-    QPushButton#segment {{
-        min-height: {METRICS.control_sm}px; max-height: {METRICS.control_sm}px;
-        padding: 0 12px;
-        border-radius: 0px;
-        border: 1px solid {THEME.border_strong};
-        background: {THEME.overlay_faint};
-        color: {THEME.text_secondary};
-        font-weight: 600;
-        font-size: {METRICS.font_caption}px;
-    }}
-    QPushButton#segment[segment="first"] {{
-        border-top-left-radius: {METRICS.radius_chip + 1}px;
-        border-bottom-left-radius: {METRICS.radius_chip + 1}px;
-    }}
-    QPushButton#segment[segment="last"] {{
-        border-top-right-radius: {METRICS.radius_chip + 1}px;
-        border-bottom-right-radius: {METRICS.radius_chip + 1}px;
-        border-left: none;
-    }}
-    QPushButton#segment[segment="mid"] {{ border-left: none; }}
-    QPushButton#segment[segment="only"] {{ border-radius: {METRICS.radius_chip + 1}px; }}
-    QPushButton#segment:hover {{ background: {THEME.overlay_hover}; color: {THEME.text_strong}; }}
-    QPushButton#segment:checked {{
-        background: {THEME.accent_bg};
-        border-color: {THEME.accent_border};
-        color: {THEME.text_strong};
-    }}
-    QPushButton#segment:disabled {{ color: {THEME.text_faint}; }}
+    {segmented_qss()}
     QLabel#routeLabel {{ font-size: {METRICS.font_body}px; font-weight: 700; color: {THEME.text_strong}; }}
     QLabel#routeHelp {{ color: {THEME.text_muted}; font-size: {METRICS.font_caption}px; }}
     QListWidget#routeList {{ background: {alpha(THEME.text_strong, 0.025)}; }}
