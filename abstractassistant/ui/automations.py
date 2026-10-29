@@ -100,7 +100,7 @@ from ..core.automations import (
     tool_approval_line,
     tool_mode_changes,
 )
-from ..core.tool_call_words import describe_tool_call, group_tool_calls
+from ..core.tool_call_words import describe_tool_call
 from ..gateway.automations import AutomationApiError, AutomationsClient
 from ..gateway.client import WAIT_KINDS
 from ..icons import symbol_icon
@@ -534,6 +534,7 @@ def automation_row_qss() -> str:
     QLabel#autoTurnMeta[tone="failed"] {{ color: {THEME.danger_text}; }}
     QLabel#autoTurnMeta[tone="waiting"] {{ color: {THEME.attention_text}; }}
     QLabel#autoTurnText {{ color: {THEME.text_primary}; font-size: 12px; }}
+    QLabel#autoTurnHeading {{ color: {THEME.text_primary}; font-size: 12px; font-weight: 700; }}
     QLabel#autoTurnText[tone="quiet"] {{ color: {THEME.text_muted}; }}
     QLabel#autoTurnBadge {{ color: {THEME.attention_text}; font-size: 11px; font-weight: 700; }}
     QLabel#autoTurnBadge[tone="failed"] {{ color: {THEME.danger_text}; }}
@@ -624,30 +625,59 @@ def _button(text: str, name: str = "autoControl", *, parent: Optional[QWidget] =
 NOTIFY_UNAVAILABLE_REASON = "Connect a mailbox first."
 
 
-def _tool_call_label(call: Mapping[str, Any], *, parent: QWidget) -> QLabel:
-    """One tool call as a sentence (the kit's words): the verb as a tinted chip-like word, the key
-    argument bold, the options muted; a tool without a template shows "Key: value" lines."""
-    import html as _h
+TOOL_APPROVAL_HEADING = "The Assistant wants to use these tools:"
 
+
+def tool_call_line(call: Mapping[str, Any]) -> str:
+    """One call as the single line the approval card shows after its chip (the kit's
+    `toolCallLine`): the lead and the key argument, the options in parentheses; a tool without a
+    template reads "Key: value · Key: value"."""
     w = describe_tool_call(call)
-    verb = f'<span style="color:{THEME.accent_text}; font-weight:650">{_h.escape(w.verb)}</span>'
     if w.fallback is not None:
-        lines = "<br>".join(f'<span style="color:{THEME.text_muted}">{_h.escape(f["label"])}:</span> {_h.escape(f["value"])}' for f in w.fallback)
-        body = f"{verb}<br>{lines}" if lines else verb
-    else:
-        key = f"<b>{_h.escape(w.key)}</b>" if w.key else ""
-        opts = f' <span style="color:{THEME.text_muted}">({_h.escape(", ".join(w.details))})</span>' if w.details else ""
-        body = " ".join(x for x in (verb, _h.escape(w.lead), key) if x) + opts
-    label = QLabel(body, parent)
-    # The kit's standard text colour (operator 2026-10-29: the dimmed meta style read poorly on
-    # the dark approval card); the options stay muted inside it.
-    label.setObjectName("autoTurnText")
-    label.setTextFormat(Qt.RichText)
-    label.setWordWrap(True)
-    label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-    label.setToolTip(str(call.get("name") or ""))
-    label.setAccessibleName(w.sentence)
-    return label
+        return " · ".join(f"{f['label']}: {f['value']}" for f in w.fallback) if w.fallback else "no arguments"
+    head = " ".join(x for x in (w.lead, w.key) if x)
+    return f"{head} ({', '.join(w.details)})" if w.details else head
+
+
+class _ToolCallLine(QLabel):
+    """One bullet per call on ONE line (operator ruling 2026-10-29): the verb as the coloured chip
+    word, then plain text (no bold on the parameters), cut with an ellipsis to the width it has;
+    the whole call is its tooltip."""
+
+    def __init__(self, call: Mapping[str, Any], parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        w = describe_tool_call(call)
+        self.verb = w.verb
+        self.rest = tool_call_line(call)
+        self.setObjectName("autoTurnText")
+        self.setTextFormat(Qt.RichText)
+        self.setWordWrap(False)
+        self.setToolTip(f"{w.verb} {self.rest}  ({call.get('name') or ''})".replace("  ()", ""))
+        self.setAccessibleName(f"{w.verb} {self.rest}")
+        from PyQt5.QtWidgets import QSizePolicy
+
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self._render(10_000)
+
+    def shown_rest(self) -> str:
+        return self._shown
+
+    def _render(self, width: int) -> None:
+        fm = self.fontMetrics()
+        prefix = f"• {self.verb} "
+        room = max(20, int(width) - fm.horizontalAdvance(prefix) - 4)
+        self._shown = fm.elidedText(self.rest, Qt.ElideRight, room)
+        verb = f'<span style="color:{THEME.accent_text}; font-weight:650">{html.escape(self.verb)}</span>'
+        self.setText(f"• {verb} {html.escape(self._shown)}")
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(event)
+        self._render(self.width())
+
+
+def _tool_call_label(call: Mapping[str, Any], *, parent: QWidget) -> QLabel:
+    """One tool call of the approval card: one bullet, one line (see `_ToolCallLine`)."""
+    return _ToolCallLine(call, parent)
 
 
 def _text_label(text: str, name: str, *, parent: QWidget, tone: str = "") -> QLabel:
@@ -908,16 +938,16 @@ class OccurrencePair(QWidget):
                 "Answer it from the Observer.", "autoTurnText", parent=box))
             return box
         if kind == "tool_approval":
-            bl.addWidget(_text_label(str(wait.get("prompt") or "The run asks to use these tools:"), "autoTurnText", parent=box))
+            # Operator ruling 2026-10-29: the bold first line (the card's only bold), no count line,
+            # one bullet per call on one line; Approve / Deny unchanged.
+            heading = _text_label(TOOL_APPROVAL_HEADING, "autoTurnHeading", parent=box)
+            bl.addWidget(heading)
             # `details` = the tool calls this approval would run: [{name, arguments, call_id?}].
             calls = wait.get("details") if isinstance(wait.get("details"), list) else []
             if not calls:
                 bl.addWidget(_text_label("The gateway did not list the tool calls to approve.", "autoTurnText", parent=box))
-            # Each call in words (kit 0068, `tool_call_words.ts`): the verb, the key argument in
-            # bold, the options muted; never the raw JSON arguments (operator QA 2026-10-29).
+            # Each call in words (kit 0068/0073): the chip, then plain text; never the raw JSON.
             listed = [c for c in calls if isinstance(c, Mapping)]
-            if len(listed) > 1:
-                bl.addWidget(_text_label(group_tool_calls(listed), "autoTurnText", parent=box))
             for call in listed:
                 bl.addWidget(_tool_call_label(call, parent=box))
             buttons = QHBoxLayout()

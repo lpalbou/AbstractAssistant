@@ -8,6 +8,11 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Changed
 
+- **The automation's tool-approval card reads in one glance** (operator ruling 2026-10-29; the kit's card does the
+  same, AbstractUIC 0073). It opens with "The Assistant wants to use these tools:" in bold, the card's only bold.
+  The count line is gone. Each call is one bullet on one line: the coloured tool word, then plain text, cut with an
+  ellipsis to the card's width, with the whole call on its tooltip. Approve and Deny are unchanged.
+
 - **The web app's account is the kit's ONE account widget** (operator ruling 2026-10-29: the docs button, Appearance,
   About and the account are the same kit components in every app). The browser app already composed its header from
   the kit (`AfAppShell`: Docs assistant, Appearance, About, `identity: "menu"`); on ui-kit 0.9.5 the signed-in account
