@@ -36,7 +36,7 @@ skim_websearch +1". The operator said the authorizations had been given at setup
   Run in the automation's Tools." Revising the two definitions is the operator's decision.
 
 ## Evidence
-- `AutomationToolsTransportTests.toolApprovalFollowsTheToolModesWhenNotChosen`: with every tool on Run, the request
+- `AutomationToolsTransportTests.toolApprovalFollowsTheToolModesWhenNotChosen`: with every tool on Auto, the request
   says `tool_approval: "auto"` and lists the auto tools; one tool on Ask gives "ask"; an explicit choice wins; no
   tools at all gives "auto". It is red with the old rule (mutation-checked).
 - AbstractGatewayClient: 176 tests passed. AssistantKit: 205 tests passed.
