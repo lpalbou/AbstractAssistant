@@ -54,7 +54,7 @@ final class AudioSessionEvents: @unchecked Sendable {
     private(set) var secondsRemaining = 3
     private(set) var readingID: String?
     private(set) var preparing = false
-    var playbackRate: Float { player?.rate ?? 1 }
+    var playbackRate: Float { booked.last?.player.rate ?? player?.rate ?? 1 }
     private(set) var speaking = false
     private(set) var paused = false
     var recording: Bool { inputPhase == .recording || inputPhase == .countdown }
@@ -71,6 +71,13 @@ final class AudioSessionEvents: @unchecked Sendable {
     @ObservationIgnored private var captureTask: Task<Void, Never>?
     @ObservationIgnored private var recorder: (any VoiceRecording)?
     @ObservationIgnored private var player: AVAudioPlayer?
+    /// Every segment of the reading, booked on the device clock all players share: (player, start, wall seconds).
+    @ObservationIgnored private var booked: [(player: AVAudioPlayer, start: TimeInterval, wall: TimeInterval)] = []
+    @ObservationIgnored private var pausedIndex: Int?
+    /// The gateway is still sending the reading (a voice that ran dry waits for its next part).
+    @ObservationIgnored private var streaming = false
+    /// The largest silence between two segments of the last reading (ms; 0 back to back).
+    private(set) var maxGapMilliseconds: Double = 0
     @ObservationIgnored private var playback: Task<Void, Never>?
     @ObservationIgnored private var events: AudioSessionEvents?
     @ObservationIgnored private var generation = 0
@@ -136,6 +143,8 @@ final class AudioSessionEvents: @unchecked Sendable {
 
     /// Called by the sampler and deterministic lifecycle tests with the same monotonic clock.
     func sample() {
+        // Every booked part heard and more to come: the voice waits for the gateway again.
+        if speaking, streaming, !paused, !preparing, let last = booked.last, last.player.deviceCurrentTime >= last.start + last.wall { preparing = true }
         if let recorder, recording {
             if now() - recordingStarted >= 60 {
                 stop(); error = "One-minute recording limit reached. Please try a shorter message."; return
@@ -154,7 +163,7 @@ final class AudioSessionEvents: @unchecked Sendable {
                 meter.graceProgress = min(1, max(0, ((turn.deadline ?? now()) - now()) / VoiceTurn.grace))
             } else { meter.graceProgress = 0 }
             publishTurn()
-        } else if let player, player.isPlaying, !paused {
+        } else if let player = playing(), !paused {
             player.updateMeters()
             meter.level = envelope.sample(averageDB: player.averagePower(forChannel: 0), peakDB: player.peakPower(forChannel: 0))
         } else { meter.level = envelope.sample(averageDB: -160, peakDB: -160) }
@@ -177,13 +186,43 @@ final class AudioSessionEvents: @unchecked Sendable {
         }
     }
 
+    /// Reads a text with the gateway's voice (operator 2026-10-29: the voice was cut between the
+    /// gateway's segments). Each segment is BOOKED ON THE AUDIO CLOCK the moment it arrives
+    /// (`play(atTime:)` on the device clock), exactly where the previous one ends (`SpeechTimeline`),
+    /// or at once when the voice ran dry; the first start waits for 1.5 s of speech. Nothing waits for
+    /// a segment to finish before taking the next one from the stream.
     func read(_ text: String, client: any GatewayClient, scope: SpeechScope, choice: VoiceChoice? = nil, speed: Double = 1, messageID: String? = nil) {
         stop(); error = nil
         let text = SpeechText.plain(text).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        speaking = true; preparing = true; readingID = messageID; startSampling()
+        speaking = true; preparing = true; readingID = messageID; startSampling(); maxGapMilliseconds = 0; streaming = true
         let epoch = generation
+        let rate = Float(PhonePreferences.validSpeed(speed))
         playback = Task {
+            let unit = 1_000_000.0, lead = 0.05
+            var timeline = SpeechTimeline(sampleRate: unit, startBuffer: 1.5 / Double(rate))
+            var waiting: [AVAudioPlayer] = []
+            var clockStart: TimeInterval?
+            func rendered(_ p: AVAudioPlayer) -> Int64 { clockStart.map { Int64(max(0, p.deviceCurrentTime - $0) * unit) } ?? 0 }
+            @MainActor func book(_ bookings: [SpeechTimeline.Booking]) throws {
+                for booking in bookings where !waiting.isEmpty {
+                    let p = waiting.removeFirst()
+                    let now = p.deviceCurrentTime
+                    if clockStart == nil { clockStart = now + lead - Double(booking.start) / unit }
+                    let at = max((clockStart ?? now) + Double(booking.start) / unit, now + lead)
+                    if let prev = booked.last {                // the silence asked of the device clock
+                        let silence = at - (prev.start + prev.wall)
+                        if silence > 0.001 { maxGapMilliseconds = max(maxGapMilliseconds, silence * 1000) }
+                    }
+                    if !paused, !p.play(atTime: at) { throw CocoaError(.fileReadCorruptFile) }
+                    booked.append((p, at, p.duration / Double(rate)))
+                    preparing = false
+                }
+                maxGapMilliseconds = max(maxGapMilliseconds, timeline.maxGapMilliseconds)
+                #if DEBUG
+                startSilenceProbe(epoch)
+                #endif
+            }
             do {
                 if configureAudio {
                     let audio = AVAudioSession.sharedInstance()
@@ -191,17 +230,54 @@ final class AudioSessionEvents: @unchecked Sendable {
                 }
                 for try await chunk in client.speech(text: text, scope: scope, voice: { if case .run = scope { choice } else { nil } }()) {
                     try Task.checkCancellation(); guard epoch == generation else { return }
-                    let player = try AVAudioPlayer(data: chunk); player.isMeteringEnabled = true; self.player = player
-                    player.enableRate = true; player.rate = Float(PhonePreferences.validSpeed(speed)); preparing = false
-                    player.prepareToPlay(); if !paused, !player.play() { throw CocoaError(.fileReadCorruptFile) }
-                    while player.isPlaying || paused { try await Task.sleep(for: .milliseconds(30)) }
-                    // A streamed response can wait again between playable chunks.
-                    preparing = true
+                    let p = try AVAudioPlayer(data: chunk); p.isMeteringEnabled = true
+                    p.enableRate = true; p.rate = rate; p.prepareToPlay()
+                    waiting.append(p)
+                    try book(timeline.receive(frames: Int64(p.duration / Double(rate) * unit), rendered: rendered(p)))
+                }
+                if let p = waiting.first { try book(timeline.finish(rendered: rendered(p))) }
+                streaming = false
+                // The reading ends when its last booked segment has been heard (a pause holds it).
+                while epoch == generation, let last = booked.last, paused || last.player.isPlaying || last.player.deviceCurrentTime < last.start + last.wall {
+                    try await Task.sleep(for: .milliseconds(50))
                 }
             } catch { if epoch == generation, !(error is CancellationError) { self.error = error.localizedDescription; if error as? GatewayError == .unauthorized { onUnauthorized?() } } }
-            if epoch == generation { speaking = false; preparing = false; paused = false; readingID = nil; stopSampling(); player = nil; deactivateAudio() }
+            if epoch == generation { speaking = false; preparing = false; paused = false; streaming = false; readingID = nil; stopSampling(); booked.removeAll(); player = nil; deactivateAudio() }
         }
     }
+
+    #if DEBUG
+    /// DEBUG: the longest silence actually heard between two segments, from the players themselves:
+    /// every 10 ms, each sounding player tells where on the device clock it really started
+    /// (`deviceCurrentTime - currentTime / rate`, the earliest estimate kept, `currentTime` moving in
+    /// coarse steps), and the silence is the next one's real start minus this one's real end.
+    @ObservationIgnored private var silenceProbe: Task<Void, Never>?
+    private func startSilenceProbe(_ epoch: Int) {
+        guard silenceProbe == nil else { return }
+        silenceProbe = Task { [weak self] in
+            var starts: [ObjectIdentifier: TimeInterval] = [:]
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(10))
+                guard let self, self.generation == epoch else { self?.silenceProbe = nil; return }
+                // A pause re-books what follows: measure again after it.
+                guard !self.paused, let now = self.booked.first?.player.deviceCurrentTime else { starts.removeAll(); continue }
+                for b in self.booked where b.player.isPlaying && b.player.currentTime > 0.0005 {
+                    let id = ObjectIdentifier(b.player), start = now - b.player.currentTime / Double(b.player.rate)
+                    starts[id] = min(starts[id] ?? start, start)
+                }
+                var previousEnd: TimeInterval?
+                for b in self.booked {
+                    guard let start = starts[ObjectIdentifier(b.player)] else { previousEnd = nil; continue }
+                    if let end = previousEnd { self.maxGapMilliseconds = max(self.maxGapMilliseconds, (start - end) * 1000) }
+                    previousEnd = start + b.player.duration / Double(b.player.rate)
+                }
+            }
+        }
+    }
+    #endif
+
+    /// The booked player sounding now (for the meter and a pause).
+    private func playing() -> AVAudioPlayer? { booked.first(where: { $0.player.isPlaying })?.player }
 
     private func startSampling() {
         stopSampling(); let epoch = generation
@@ -215,12 +291,35 @@ final class AudioSessionEvents: @unchecked Sendable {
     }
     private func stopSampling() { sampler?.cancel(); sampler = nil; envelope.reset(); microphoneEnvelope.reset(); meter.level = 0; meter.graceProgress = 0 }
     private func deactivateAudio() { if configureAudio { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) } }
-    func togglePause() { if paused { player?.play(); paused = false } else { player?.pause(); paused = true } }
+    /// Pause holds the segment sounding now and unbooks the ones after it; resume books them again,
+    /// back to back, after what remains of it.
+    func togglePause() {
+        if paused {
+            guard let first = booked.first?.player.deviceCurrentTime else { paused = false; return }
+            var at = first + 0.05
+            for (i, b) in booked.enumerated() where i >= (pausedIndex ?? booked.count) {
+                b.player.play(atTime: at)
+                let wall = (b.player.duration - b.player.currentTime) / Double(b.player.rate)
+                booked[i] = (b.player, at, wall)
+                at += wall
+            }
+            pausedIndex = nil; paused = false
+        } else {
+            let now = booked.first?.player.deviceCurrentTime ?? 0
+            pausedIndex = booked.firstIndex(where: { $0.player.isPlaying || now < $0.start })
+            for b in booked { if b.player.isPlaying { b.player.pause() } else if now < b.start { b.player.stop(); b.player.currentTime = 0 } }
+            paused = true
+        }
+    }
     func stop() {
         generation += 1; stopSampling(); turn.cancel(); activity = SpeechActivity(); publishTurn(); readingID = nil
         captureTask?.cancel(); captureTask = nil; playback?.cancel(); playback = nil
         recorder?.stop(); recorder = nil; player?.stop(); player = nil
-        speaking = false; preparing = false; paused = false
+        for b in booked { b.player.stop() }; booked.removeAll(); pausedIndex = nil
+        #if DEBUG
+        silenceProbe?.cancel(); silenceProbe = nil
+        #endif
+        speaking = false; preparing = false; paused = false; streaming = false
         if let file { try? storage.discard(file) }; file = nil; deactivateAudio()
     }
 }
