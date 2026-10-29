@@ -5,6 +5,22 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+### Fixed
+
+- **Settings stack from the top on every tab** (operator QA 2026-10-28; backlog 1076). On Models → Voice output
+  (TTS), Voice input and the media routes, the route form no longer opens a ~40 px gap under its title, help and
+  state lines: the route list beside it is as tall as its ten routes and the form column now ends in a stretch
+  instead of handing the surplus to its labels. `test_no_settings_section_claims_empty_height` checks every tab and
+  every route.
+
+### Added
+
+- **Choosing a voice plays it** (backlog 1076). Settings → Models → Voice output: picking a voice plays a short
+  sample through the desktop's own speech path with the voice just chosen; a play/stop button beside the list
+  replays or stops it; a newer choice stops the older sample; "Synthesizing a sample…", "Playing a sample…" and
+  "The sample did not play: <reason>." say what happens. Nothing plays when Settings opens, and a reply being read
+  aloud is never cut by a sample (the kit's voice picker, AbstractUIC `AfVoiceSection`).
+
 ### Changed
 
 - **Tool approvals read as sentences, never JSON** (operator QA 2026-10-29, kit backlog 0068).
@@ -93,6 +109,13 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   of that run (else the first unresolved wait, else the first new result) and outlines it for a moment. The
   approval card's tool lines use the standard text colour instead of the dimmed one, so they read well on the dark
   card.
+- **Message stamps in the kit's words** (backlog 1076 §3, split from #20). The stamps follow AbstractUIC panel-chat's
+  `formatMessageStamp`, which the web Assistant uses since panel-chat 0.6.4:
+  - "Yesterday · 10:52 PM";
+  - "Oct 1 · 10:52 PM", with no zero-padded day;
+  - "Oct 21, 2025 · 10:52 PM" for another year;
+  - a bare date as its day alone;
+  - no stamp at all for a malformed timestamp, never the raw text.
 
 ## [0.16.5] - 2026-10-28
 

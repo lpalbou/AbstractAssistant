@@ -326,6 +326,61 @@ def test_no_settings_page_is_clipped_at_any_size() -> None:
     dlg.close()
 
 
+def _stretched_in_columns(page) -> list:
+    """Widgets placed in a vertical column that are taller than their content.
+
+    A column (QVBoxLayout) stacks its widgets; when the column is taller than
+    what it holds and nothing absorbs the surplus, Qt hands it to the labels,
+    which then claim empty height under their text.
+    """
+    from PyQt5.QtWidgets import QLayout, QVBoxLayout
+
+    host = page.scroll.widget()
+    found = []
+    for layout in [host.layout()] + [lay for lay in host.findChildren(QLayout) if type(lay) is QVBoxLayout]:
+        if layout is None:
+            continue
+        for index in range(layout.count()):
+            widget = layout.itemAt(index).widget()
+            if widget is None or not widget.isVisibleTo(host):
+                continue
+            want = widget.heightForWidth(widget.width()) if widget.hasHeightForWidth() else widget.sizeHint().height()
+            want = max(want, widget.minimumHeight())
+            if widget.height() - want > 2:
+                text = widget.text() if hasattr(widget, "text") else widget.objectName()
+                found.append(f"{type(widget).__name__} {str(text)[:40]!r}: {widget.height()}px for {want}px")
+    return found
+
+
+@pytest.mark.basic
+def test_no_settings_section_claims_empty_height() -> None:
+    """Operator QA 2026-10-28: "a huge loss of vertical space after 'Voice
+    output (TTS)' which pushes everything down; fix for all tabs." The route
+    list beside the route form is as tall as its ten routes, the form column
+    had no trailing stretch, so on a short route (voice, media) the surplus
+    went to the title, help and state lines: ~40px of nothing under each.
+    Every tab, and every route of the Models tab, stacks from the top."""
+    dlg, _ = _dialog()
+    dlg.show()
+    _app().processEvents()
+    problems = []
+    for name in ("connection", "models", "workflow", "voice", "workspace", "tools", "window", "about"):
+        dlg.show_section(name)
+        _app().processEvents()
+        problems += [f"{name}: {line}" for line in _stretched_in_columns(dlg.pages[name])]
+    editor = dlg.route_editor
+    for row in editor.rows():
+        dlg.show_section("models", row.key)
+        _app().processEvents()
+        problems += [f"models/{row.key}: {line}" for line in _stretched_in_columns(dlg.page_models)]
+        # The measured gap: the route's title, then its help line, one spacing apart.
+        gap = editor.route_help.geometry().top() - editor.route_label.geometry().bottom() - 1
+        if gap > 10:
+            problems.append(f"models/{row.key}: {gap}px between the route title and its help line")
+    dlg.close()
+    assert not problems, "\n".join(problems)
+
+
 @pytest.mark.basic
 def test_the_models_page_has_no_actions_to_host() -> None:
     """Reload / Reset to gateway / Apply were three buttons for one question.
