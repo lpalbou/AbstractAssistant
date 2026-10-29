@@ -102,6 +102,16 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   until the next layout pass.
 - The web Assistant builds with `@abstractframework/panel-chat` 0.6.4 (was 0.6.3; ui-kit stays 0.9.5, app-server 0.1.13). From the kit: a message's stamp carries the date when it is not from today ("Yesterday · 10:52 PM", "Oct 21 · 10:52 PM"; the full date on hover), the speaker stays on every assistant message while the voice is available (disabled with its reason while a reply is still being written), and the "files changed" chip opens the same structured detail as the tokens, tools and time chips (AbstractUIC backlog 0064, the message footer spec). The desktop mirrors the spec natively (alignment tracked separately).
 
+### Fixed
+
+- **Message stamps in the kit's words** (backlog 1076 §3, split from #20). The stamps follow AbstractUIC panel-chat's
+  `formatMessageStamp`, which the web Assistant uses since panel-chat 0.6.4:
+  - "Yesterday · 10:52 PM";
+  - "Oct 1 · 10:52 PM", with no zero-padded day;
+  - "Oct 21, 2025 · 10:52 PM" for another year;
+  - a bare date as its day alone;
+  - no stamp at all for a malformed timestamp, never the raw text.
+
 ## [0.16.5] - 2026-10-28
 
 The web Assistant on AbstractUIC 0.8.3, and the desktop's AbstractVoice floor raised. No other Python change.
