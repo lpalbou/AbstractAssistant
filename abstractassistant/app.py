@@ -1367,20 +1367,43 @@ def _format_metric_count(value: int) -> str:
         return "0"
 
 
-def _format_message_timestamp(raw: Any) -> str:
+_BARE_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _format_message_timestamp(raw: Any, now: Optional[datetime] = None) -> str:
+    """The message stamp, in the kit's words (panel-chat `formatMessageStamp`,
+    abstractuic panel-chat/src/message_footer.ts):
+
+    - today: the time only, "12:46 AM"
+    - yesterday: "Yesterday · 10:52 PM"
+    - earlier this year (or a future day): "Oct 21 · 10:52 PM" (no zero-padded day)
+    - another year: "Oct 21, 2025 · 10:52 PM"
+    - a bare date ("2026-10-27"): that local day without a time ("Yesterday", "Oct 27")
+    - missing or malformed: no stamp at all, never the raw text.
+    "Today" and "yesterday" are the reader's calendar days, not 24 h windows.
+    """
     text = str(raw or "").strip()
     if not text:
         return ""
+    bare = bool(_BARE_DAY.match(text))
     try:
-        dt = datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone()
+        if bare:
+            day = datetime.fromisoformat(text).date()
+            dt = None
+        else:
+            dt = datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone()
+            day = dt.date()
     except Exception:
-        return text
-    now = datetime.now(dt.tzinfo)
-    if dt.date() == now.date():
-        return dt.strftime("%I:%M %p")
-    if (now.date() - dt.date()).days == 1:
-        return f"Yesterday {dt.strftime('%I:%M %p')}"
-    return dt.strftime("%b %d · %I:%M %p")
+        return ""
+    current = (now or datetime.now()).astimezone()
+    today = current.date()
+    time_text = "" if dt is None else dt.strftime("%I:%M %p")
+    if day == today:
+        return time_text or "Today"
+    if (today - day).days == 1:
+        return f"Yesterday · {time_text}" if time_text else "Yesterday"
+    date_text = f"{day:%b} {day.day}" + ("" if day.year == today.year else f", {day.year}")
+    return f"{date_text} · {time_text}" if time_text else date_text
 
 
 def _message_bubble_width(viewport_width: int, *, role: str) -> int:
@@ -6868,7 +6891,9 @@ class AssistantPalette(QMainWindow):
         aid = target if kind == "result" else automation_of_session(target.session_id)
         if aid:
             self.show_palette()
-            self._open_automation(aid)
+            # Straight to what needs the person: the waiting card of that run, else the first
+            # unresolved wait or new result, scrolled into view and outlined (operator 2026-10-29).
+            self._open_automation(aid, where="attention", focus_run=(target.run_id if kind == "wait" else ""))
             return
         wait = target
         controller = self._state("_controller")
@@ -7005,9 +7030,11 @@ class AssistantPalette(QMainWindow):
 
         self._automations.command(str(automation_id), str(control), done)
 
-    def _open_automation(self, automation_id: str, where: str = "latest") -> None:
+    def _open_automation(self, automation_id: str, where: str = "latest", focus_run: str = "") -> None:
         """Open an automation in the palette; ``where`` = "latest" (scrolled to
-        the last run) or "top" (its first run)."""
+        the last run), "top" (its first run) or "attention" (the attention badge: the run
+        ``focus_run``'s waiting card, else the first unresolved wait or new result, in view
+        and outlined)."""
         aid = str(automation_id or "").strip()
         summary = self._automations.summary(aid)
         if summary is None:
@@ -7085,6 +7112,8 @@ class AssistantPalette(QMainWindow):
             view.set_occurrences(value.get("items") or [], next_cursor=value.get("next_cursor"))
             if where == "top":
                 view.scroll.verticalScrollBar().setValue(0)
+            elif where == "attention" and view.scroll_to_attention(focus_run):
+                pass
             elif not view.scroll_to_first_new():
                 view.scroll_to_latest()
             # Viewing acknowledges the attention items the view DISPLAYED.
