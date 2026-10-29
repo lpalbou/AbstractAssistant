@@ -5,6 +5,18 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- **An automation created on the iPhone runs unattended when its tools are set to Run** (operator QA 2026-10-29, backlog
+  1079).
+  - Every automation was created with "ask before each tool" (`policy.tool_approval: "ask"`, hard-coded), although
+    the screen offers no such choice and says the permissions "are saved with the automation so it can run while
+    this iPhone is closed". Its runs parked on a tool approval for hours.
+  - The approval now follows the tool modes you chose: "ask" only when a tool is on Ask. The per-tool modes still
+    ride `policy.tool_policy`.
+  - Automations created before this keep their "ask" setting. Their waiting runs say so; set their tools to Run in
+    the automation's Tools.
+
 ### Added
 
 - **Your voices, the engine's and the shared ones (AbstractGateway 0.16.0 voice library).**

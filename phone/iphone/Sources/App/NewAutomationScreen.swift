@@ -198,7 +198,7 @@ struct NewAutomationScreen: View {
                     }
                 } else if workflowID.isEmpty { target = .gatewayDefault(interface: "abstractassistant.agent.v1") }
                 else { error = "Choose an available workflow."; return }
-                pending = NewAutomation(task: text, target: target, when: frequency == "daily" ? .daily(at: String(format: "%02d:%02d", hour, minute)) : .every(frequency), buildsOnEarlierRuns: growing, askBeforeTools: true, growingMaxTokens: growing ? customHistoryBudget : nil, tools: snapshot, title: title)
+                pending = NewAutomation(task: text, target: target, when: frequency == "daily" ? .daily(at: String(format: "%02d:%02d", hour, minute)) : .every(frequency), buildsOnEarlierRuns: growing, growingMaxTokens: growing ? customHistoryBudget : nil, tools: snapshot, title: title)
             }
             guard context == store.contextID, let pending else { return }
             let created = try await client.createAutomation(pending); guard context == store.contextID else { return }

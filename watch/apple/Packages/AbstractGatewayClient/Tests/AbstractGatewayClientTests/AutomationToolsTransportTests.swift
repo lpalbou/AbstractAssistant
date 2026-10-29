@@ -109,6 +109,25 @@ private final class AutomationWireStub: URLProtocol, @unchecked Sendable {
         _ = try await client.createAutomation(.init(task: "Task", target: .workflow(.init(bundleId: "custom", bundleVersion: "1", flowId: "flow", name: "Custom"), inputData: ["custom": .number(42), "_runtime": .object(["model": .string("chosen"), "tool_policy": .object(["forged": .bool(true)])])]), when: .every("1h"), buildsOnEarlierRuns: false, askBeforeTools: true, tools: selection))
         #expect(AutomationWireStub.requests.count == 1)
     }
+    /// QA 2026-10-29: the iPhone created every automation with `tool_approval: "ask"` (hard-coded),
+    /// so an unattended run parked on a tool approval for hours although the person had set the
+    /// tools to run. Without an explicit choice the approval follows the person's tool modes.
+    @Test func toolApprovalFollowsTheToolModesWhenNotChosen() async throws {
+        func sent(_ modes: [String: ToolMode], ask: Bool? = nil) async throws -> JSONValue? {
+            let client = client()
+            AutomationWireStub.reply = { _ in (200, #"{"summary":{"automation_id":"a","status":"active"}}"#) }
+            _ = try await client.createAutomation(.init(task: "News", target: .gatewayDefault(interface: "abstractassistant.agent.v1"), when: .every("24h"),
+                                                        buildsOnEarlierRuns: true, askBeforeTools: ask, tools: ConversationTools(modes: modes)))
+            return Self.body(try #require(AutomationWireStub.requests.last))["policy"]
+        }
+        let unattended = try await sent(["fetch_url": .auto, "skim_websearch": .auto, "write_file": .off])
+        #expect(unattended?["tool_approval"] == .string("auto"))
+        #expect(unattended?["tool_policy"]?["auto_approve_tools"] == .array([.string("fetch_url"), .string("skim_websearch")]))
+        #expect(try await sent(["fetch_url": .auto, "execute_command": .ask])?["tool_approval"] == .string("ask"))
+        #expect(try await sent(["fetch_url": .auto], ask: true)?["tool_approval"] == .string("ask"), "an explicit choice still wins")
+        #expect(NewAutomation(task: "t", target: .gatewayDefault(interface: "i"), when: .every("1h"), buildsOnEarlierRuns: false).toolApproval == "auto")
+    }
+
     @Test func saveWaitsForCommittedRevisionBeforeCallerRuns() async throws {
         let client = client(), oldWire = oldWire, newWire = newWire
         let selection = ConversationTools(modes: ["read_file": .auto, "off": .off])
