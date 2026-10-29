@@ -109,9 +109,10 @@ def test_per_tool_modes_save_into_the_definition(palette, stub) -> None:
 
 
 @pytest.mark.basic
-def test_a_waiting_run_whose_tools_are_set_to_auto_continues(palette, stub) -> None:
-    """The operator's case: a run waits to approve fetch_url and skim_websearch; setting both to
-    Auto and saving continues it (setting them to Auto is the approval) with no click on its card."""
+def test_a_waiting_run_whose_tools_are_set_to_auto_is_left_to_the_gateway(palette, stub) -> None:
+    """The gateway resolves the waits a revision grants, for every client (AbstractGateway: one
+    rule, one place). The app sends the revision, sends NO answer of its own, and says the run
+    continues."""
     app = test_automations._APP
     window, _ = palette
     wait = {"run_id": "run-waiting", "wait_key": "tool_approval:run-waiting:act:k", "kind": "tool_approval", "reason": "user",
@@ -121,15 +122,11 @@ def test_a_waiting_run_whose_tools_are_set_to_auto_continues(palette, stub) -> N
         view.edit_tool_controls[name].set_value("auto")
         view._on_tool_mode(name, "auto")
     view.edit_save.click()
-    for _ in range(200):
+    for _ in range(100):
         app.processEvents()
-        if [c for c in stub.calls("POST", "/api/gateway/commands") if c["body"].get("run_id") == "run-waiting"]:
-            break
-        import time
-        time.sleep(0.01)
-    sent = [c["body"] for c in stub.calls("POST", "/api/gateway/commands") if c["body"].get("run_id") == "run-waiting"]
-    assert sent and sent[0]["type"] == "resume" and sent[0]["payload"]["wait_key"] == wait["wait_key"]
-    assert sent[0]["payload"]["payload"] == {"approved": True}
+    assert stub.calls("PATCH")[-1]["body"]["changes"]["policy"]["tool_approval"] == "auto"
+    assert not [c for c in stub.calls("POST", "/api/gateway/commands") if c["body"].get("run_id") == "run-waiting"]
+    assert "The waiting run continues." in view.notice_label.text()
 
 
 @pytest.mark.basic

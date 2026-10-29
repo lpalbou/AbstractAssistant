@@ -34,10 +34,10 @@ words); AbstractRuntime (`policy.tool_policy` named approvals, revisable); 1079 
   - `tool_mode_changes` produces the revision: the tools offered, `policy.tool_policy`, and `policy.tool_approval`
     ("ask" only when a tool asks).
   - `waits_cleared_by_modes` sorts the waits into those to resume and those still blocked.
-- `app.py` `_resume_waits_set_to_auto`, after a confirmed save:
-  - Each tool-approval wait whose every call is now Auto is answered "approved" through the existing wait answer;
-    setting them to Auto is the approval.
-  - A run still waiting is named in words: "1 run still waits: skim_websearch is on Ask."
+- `app.py` `_resume_waits_set_to_auto`, after a confirmed save: it says what follows ("The waiting run continues",
+  or "1 run still waits: skim_websearch is on Ask.") and refreshes. The GATEWAY answers the waits the revision
+  grants, for every client (AbstractGateway: a revised automation resolves the tool approvals it grants). The app
+  sends no answer of its own: one rule, one place (coordinator, 2026-10-29).
 - `settings/dialog.py` `segmented_qss()` holds the segmented control's look, shared with the sheet.
 - `docs/automations.md` covers the editor.
 
@@ -48,8 +48,8 @@ words); AbstractRuntime (`policy.tool_policy` named approvals, revisable); 1079 
   - waits are split by mode;
   - the sheet has its sections, its icons and tooltips, the readable workflow, and Save/Cancel;
   - the per-tool save carries `policy.tool_policy`;
-  - the operator's case: a run waiting on fetch_url and skim_websearch resumes with `{approved: true}` after both
-    are set to Auto, with no click;
+  - the operator's case: with every tool set to Auto, the revision carries `tool_approval: "auto"`, the app sends no
+    answer of its own (the gateway resolves it) and says the run continues;
   - a run still blocked is named.
   - Mutation-checked: red without the resume, red without the modes save.
 - The existing edit tests (title and interval, tool selection, workflow picker, workspaces, calendar) pass

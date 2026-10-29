@@ -15,7 +15,8 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
     **Tools** shows the automation-level state at a glance and each tool's **Off** / **Ask** / **Auto** as icons.
     **Delivery** has the email result. Each section has its icon, and **Cancel** / **Save** stay visible.
   - Saving stores the tools as the definition's own approvals. A run that was waiting to approve tools now all on
-    Auto continues without another click; one still waiting says which tools keep it waiting.
+    Auto continues without another click: the gateway resolves the waits a revision grants, for every client, and this
+    app only refreshes. A run still waiting says which tools keep it waiting.
 
 ### Fixed
 
