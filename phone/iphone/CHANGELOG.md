@@ -133,6 +133,11 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
   created "ask" by accident.
 - **Tool modes read Off / Ask / Auto**, as on the desktop, the watch and the web (was Off / Auto / Approve).
 
+- **The voice no longer stops between two sentences** (operator 2026-10-29, backlog 1084, as on the watch). Each part
+  of a reply is booked on the audio clock as soon as it arrives, right after the previous one. The app used to wait
+  for each part to finish before even taking the next one from the gateway. The first part waits until 1.5 s of
+  speech has arrived; a part that arrives late starts at once.
+
 ## [0.7.0] — 2026-10-25
 
 ### Added

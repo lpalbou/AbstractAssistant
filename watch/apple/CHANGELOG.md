@@ -176,6 +176,12 @@ iPhone app); the Python package's history is in
   - The tapped voice's row says "Playing the sample", or "The sample did not play: <reason>" in one line.
   - Every tap plays, the same voice again included, and a newer tap replaces the older sample.
 
+- **The voice no longer stops between two sentences** (operator 2026-10-29, backlog 1084). Each part of a reply the
+  gateway sends is now booked on the watch's audio clock the moment it arrives, exactly where the previous part
+  ends. The next part used to start only after the previous one had told the app it was done, which a busy or
+  lowered watch could delay by seconds. The first part waits until 1.5 s of speech has arrived. A part that arrives
+  after the voice has caught up starts at once. The audio session stays active for the whole reading.
+
 ## [0.5.0] - 2026-10-25
 
 ### Added

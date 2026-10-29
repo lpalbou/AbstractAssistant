@@ -905,6 +905,10 @@ public actor MockGatewayClient: GatewayClient {
                         continuation.yield(SyntheticSpeech.wav(seconds: 2.4, seed: 1))
                         if delay > 0 { try await Task.sleep(for: .seconds(2.4 + delay)) }
                         continuation.yield(SyntheticSpeech.wav(seconds: 2.0, seed: 2))
+                        // `--long-voice`: a long streamed reply (four more 8 s sentences, 1.5 s apart).
+                        if ProcessInfo.processInfo.arguments.contains("--long-voice") {
+                            for k in 3..<7 { try await Task.sleep(for: .milliseconds(1500)); continuation.yield(SyntheticSpeech.wav(seconds: 8.0, seed: k)) }
+                        }
                         continuation.finish()
                     } catch { continuation.finish(throwing: error) }
                 }

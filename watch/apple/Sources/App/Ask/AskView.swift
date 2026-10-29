@@ -180,8 +180,14 @@ struct AskView: View {
         // UI tests read the voice's position here (a rewind must move it back).
         .overlay(alignment: .bottomLeading) {
             if UITestHooks.on { TimelineView(.periodic(from: .now, by: 0.25)) { _ in
-                Text(String(format: "%.1f", speaker.position())).font(.system(size: 1)).opacity(0.01)
-                    .accessibilityIdentifier("debug.position")
+                VStack {
+                    Text(String(format: "%.1f", speaker.position())).font(.system(size: 1)).opacity(0.01)
+                        .accessibilityIdentifier("debug.position")
+                    // The largest silence between two voice segments (ms), and whether the reading ended.
+                    Text("\(Int(speaker.maxGapMilliseconds.rounded())) \(speaker.state == .finished ? "done" : "on")")
+                        .font(.system(size: 1)).opacity(0.01)
+                        .accessibilityIdentifier("debug.gaps")
+                }
             } }
         }
         #endif

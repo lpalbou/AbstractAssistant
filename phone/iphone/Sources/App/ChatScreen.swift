@@ -245,6 +245,12 @@ struct ChatScreen: View {
                         Button { if voice.speaking && voice.readingID == message.id { voice.togglePause() } else { cancelVoice(); media.stop(); voice.read(message.text, client: client, scope: scope, choice: store.preferences.voice, speed: store.preferences.speed, messageID: message.id) } } label: { Image(systemName: voice.speaking && voice.readingID == message.id ? (voice.paused ? "speaker.wave.2.fill" : "pause.fill") : "speaker.wave.2") }.accessibilityLabel(voice.speaking && voice.readingID == message.id ? "Pause or resume reading" : "Read answer aloud")
                     }
                     if voice.speaking && voice.readingID == message.id { Button { cancelVoice() } label: { Image(systemName: "stop.fill") }.accessibilityLabel("Stop reading") }
+                    #if DEBUG
+                    // UI tests: the largest silence between two voice segments (ms), and whether a reading is on.
+                    if ProcessInfo.processInfo.arguments.contains("--ui-test"), message.id == store.messages.last(where: { $0.role == .assistant })?.id {
+                        Text("\(Int(voice.maxGapMilliseconds.rounded())) \(voice.speaking ? "on" : "off")").font(.system(size: 1)).opacity(0.01).accessibilityIdentifier("debug.gaps")
+                    }
+                    #endif
                     }
                     if let id = message.runID { AnswerActivityButtons(runID: id, browseFiles: { typing = false; composing = false; cancelVoice(); showFiles = true }) }
                     else if store.answerActivities[message.id] != nil { AnswerActivityButtons(runID: message.id, cachedOnly: true, browseFiles: { typing = false; composing = false; cancelVoice(); showFiles = true }) }

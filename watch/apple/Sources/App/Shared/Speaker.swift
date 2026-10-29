@@ -2,14 +2,34 @@
 import AbstractGatewayClient
 import SwiftUI
 
-/// Reads a text aloud with the gateway's voice: the speech stream's WAV chunks play back to back
-/// through one AVAudioPlayer at a time; optional background analysis lets the orb
-/// follow the voice without delaying playback. An answer's recordings (the Assistant's workflow makes
-/// them) play after its text, at their own speed.
+/// Reads a text aloud with the gateway's voice (operator 2026-10-29: the watch cut the voice for 2–4 s
+/// between segments the gateway had sent with no gap). Every received segment gets its own player and
+/// is BOOKED ON THE AUDIO CLOCK the moment it arrives (`AVAudioPlayer.play(atTime:)` on the device
+/// clock all players share): exactly where the previous one ends (`SpeechTimeline`), or at once when
+/// the voice has run dry. Nothing waits for a "finished" callback to start the next segment, so a busy
+/// main thread or a lowered wrist no longer opens a silence. The first start waits for 1.5 s of speech.
+/// Each player keeps the speed chosen in Settings → Voice (time-stretched, not pitched); an answer's
+/// recordings play after its text, at their own speed. watchOS has no `AVAudioUnitTimePitch`, so the
+/// players stay `AVAudioPlayer`s.
 @MainActor
 final class Speaker: NSObject, ObservableObject {
-    /// `rate`: the speed chosen in Settings → Voice for speech; 1 for a recording.
-    typealias Chunk = (data: Data, duration: Double, frames: [VoiceFrame], rate: Float)
+    /// One received segment: `duration` in content seconds, `rate` its playback speed.
+    private struct Chunk {
+        let data: Data
+        let duration: Double
+        var frames: [VoiceFrame]
+        let rate: Float
+        var wall: Double { duration / Double(rate) }
+    }
+
+    /// A booked segment: its player, where it starts on the device clock, and from where in its chunk.
+    private struct Booked {
+        let index: Int
+        let player: AVAudioPlayer
+        let wallStart: TimeInterval
+        let from: TimeInterval
+        let wall: TimeInterval
+    }
 
     enum State: Equatable { case idle, preparing, speaking, paused, finished, failed(String) }
 
@@ -17,45 +37,47 @@ final class Speaker: NSObject, ObservableObject {
     /// Seconds of speech received so far and played so far (for the progress line).
     @Published private(set) var receivedSeconds: Double = 0
     @Published private(set) var playedSeconds: Double = 0
+    /// The largest silence between two segments of this reading, in ms (0 when back to back; a
+    /// segment that came late counts its lateness). DEBUG builds show it to the UI tests.
+    @Published private(set) var maxGapMilliseconds: Double = 0
 
-    /// Chunks to play; analysis is optional and may be cached when replaying a chunk.
-    private var queue: [Chunk] = []
-    /// Playback waits until this much speech is queued (or the stream is done): a gateway voice
-    /// before abstractvoice 0.15.2 sends two words first (1.3 s, "Ah oui,") and the rest seconds
-    /// later, so starting on that piece alone breaks the voice after it; from 0.15.2 the first piece
-    /// is a whole clause (2 s or more) and starts at once. Set again when the queue runs dry.
-    private var buffering = true
-    private static let startBuffer = 1.5, refillBuffer = 2.0
-    private var refilling = false
-    /// Chunks already spoken, in order (rewind reaches back into them), and the one playing now.
-    private var history: [Chunk] = []
-    private var currentData: Data?
-    private var currentRate: Float = 1
-    /// The chunk playing, analysed (60 frames per second of audio) for the orb.
-    private var frames: [VoiceFrame] = []
-    private let normalizer = VoiceNormalizer()
-    /// Where the next chunk starts (a rewind into the middle of an earlier chunk).
-    private var startAt: TimeInterval = 0
-    private var player: AVAudioPlayer?
+    private static let startBuffer = 1.5
+    /// How far ahead of "now" a segment that can start at once is booked (the player's own lead).
+    private static let lead: TimeInterval = 0.05
+    /// The timeline's unit: microseconds of wall time on the device clock.
+    private static let unit = 1_000_000.0
+
+    /// Every segment of this reading, in order (a rewind reaches back into them).
+    private var chunks: [Chunk] = []
+    private var booked: [Booked] = []
+    /// Received, not booked yet (before the first start).
+    private var unbooked: [Int] = []
+    private var timeline = SpeechTimeline(sampleRate: Speaker.unit, startBuffer: Speaker.startBuffer)
+    /// The device time of the timeline's 0 (set at the first start, and again by a rewind / resume).
+    private var clockStart: TimeInterval?
+    /// Where this epoch starts in the reading: chunk `epochFirst`, `epochFrom` seconds into it.
+    private var epochFirst = 0
+    private var epochFrom: TimeInterval = 0
+    /// Where the voice stands while paused (content seconds into the reading).
+    private var pausedAt: Double?
+    private var finishedPlayers = 0
     private var streamDone = false
+    private let normalizer = VoiceNormalizer()
     private var task: Task<Void, Never>?
-    private var analysisTask: Task<Void, Never>?
-    private var analysisWorker: Task<[VoiceFrame], Never>?
+    private var analysisTasks: [Task<Void, Never>] = []
+    /// This reading (`stop` starts a new one).
+    private var reading = 0
     /// This speaker's keep-awake hold (one per speaker: two screens never release each other's).
     private let holder = "speak-" + UUID().uuidString
-
-    /// A player dropped with its view (a page replaced under it) lets go of the watch too: a hold
-    /// left behind kept every later keep-awake session running its full ten minutes.
-    deinit {
-        analysisTask?.cancel()
-        analysisWorker?.cancel()
-        let holder = holder
-        Task { @MainActor in RuntimeKeeper.shared.release(holder) }
-    }
     /// The one voice playing: starting another stops it.
     private static weak var current: Speaker?
     /// The stream broke after some audio: once what arrived has played, the reading says so.
     private var streamError: String?
+    /// The text has been spoken; its recordings are still downloading (the orb waits, not speaks).
+    private var awaitingClips = false
+    private var pausedFromPreparing = false
+    /// A device clock for the timeline before any player exists (the first booking makes one).
+    private var clockPlayer: AVAudioPlayer?
 
     private func trace(_ s: String) {
         #if DEBUG
@@ -65,11 +87,9 @@ final class Speaker: NSObject, ObservableObject {
 
     override init() {
         super.init()
-        // The system can stop the player underneath (an interruption, the app suspended with the
-        // wrist down, the keep-awake session gone) and says so only through these; the player's
-        // "finished" callback never comes for a chunk stopped that way, so the reading would stay
-        // "speaking" over silence until a tap. An interruption pauses honestly and resumes when the
-        // system says so; the app coming back to the front picks the voice up where it stopped.
+        // The system can stop the players underneath (an interruption, the app suspended with the
+        // wrist down): an interruption pauses honestly and resumes when the system says so; the app
+        // coming back to the front picks the voice up where it stopped.
         let center = NotificationCenter.default
         center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
             let type = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
@@ -85,54 +105,60 @@ final class Speaker: NSObject, ObservableObject {
         center.addObserver(forName: WKApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in self?.ensurePlaying() }
         }
-        #if DEBUG
-        center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { note in
-            print("speaker route change \(note.userInfo?[AVAudioSessionRouteChangeReasonKey] ?? "?")")
-        }
-        #endif
     }
 
-    /// The invariant of a reading: while it is speaking, something plays. A player the system
-    /// stopped underneath plays on from where it stopped; no player, the next chunk starts.
-    private func ensurePlaying() {
-        guard state == .speaking else { return }
-        guard let p = player else { advanceIfIdle(); return }
-        guard !p.isPlaying else { return }
-        trace("the voice had stopped at \(String(format: "%.2f", p.currentTime)) s of this chunk: playing on")
-        try? AVAudioSession.sharedInstance().setActive(true)
-        RuntimeKeeper.shared.hold(holder)
-        if !p.play() { state = .failed("The watch stopped the voice."); stop() }
+    deinit {
+        let holder = holder
+        Task { @MainActor in RuntimeKeeper.shared.release(holder) }
     }
+
+    // MARK: State
 
     var isActive: Bool { state == .preparing || state == .speaking }
     /// Paused mid-sentence: `resume()` continues exactly there.
     var isPaused: Bool { state == .paused }
-    private var pausedFromPreparing = false
 
-    /// Holds the voice where it is (the current chunk's position is kept; chunks still arriving wait).
+    /// The invariant of a reading: while it is speaking, something plays. If the system stopped the
+    /// players underneath (nothing plays where the clock says something should), the voice goes on
+    /// from where it stands.
+    private func ensurePlaying() {
+        guard state == .speaking, let now = deviceNow() else { return }
+        let due = booked.first { $0.wallStart <= now && now < $0.wallStart + $0.wall }
+        guard let due, !due.player.isPlaying else { return }
+        trace("the voice had stopped: playing on")
+        try? AVAudioSession.sharedInstance().setActive(true)
+        RuntimeKeeper.shared.hold(holder)
+        rebook(from: position())
+    }
+
+    /// Holds the voice where it is (segments still arriving are kept and booked on resume).
     func pause() {
         guard isActive else { return }
         pausedFromPreparing = state == .preparing
-        player?.pause()
+        let at = position()
+        unbookAll()
+        pausedAt = at
         state = .paused
         RuntimeKeeper.shared.release(holder)          // a paused voice never keeps the watch awake
-        trace("paused at \(String(format: "%.2f", player?.currentTime ?? 0)) s of this chunk")
+        trace("paused at \(String(format: "%.2f", at)) s")
     }
 
-    /// Continues from the exact sample where `pause()` stopped.
+    /// Continues from where `pause()` stopped.
     func resume() {
         guard state == .paused else { return }
         RuntimeKeeper.shared.hold(holder)
-        if let player {
+        try? AVAudioSession.sharedInstance().setActive(true)        // off since the pause, maybe
+        let at = pausedAt ?? 0
+        pausedAt = nil
+        if timeline.started || at > 0 {
             state = .speaking
-            trace("resuming at \(String(format: "%.2f", player.currentTime)) s of this chunk")
-            try? AVAudioSession.sharedInstance().setActive(true)    // off since the pause, maybe
-            if !player.play() { state = .failed("The watch stopped the voice."); stop() }
+            rebook(from: at)
         } else {
             state = pausedFromPreparing ? .preparing : .speaking
-            advanceIfIdle()
         }
     }
+
+    // MARK: Reading
 
     /// Plays recordings alone (a recording's own row, or its page).
     func play(clips: [MediaItem], client: any GatewayClient) { read("", scope: nil, client: client, clips: clips) }
@@ -157,9 +183,10 @@ final class Speaker: NSObject, ObservableObject {
             trace("session error \(error)")
             return
         }
-        state = .preparing; streamDone = false; streamError = nil; receivedSeconds = 0; playedSeconds = 0
-        buffering = true; refilling = false
+        state = .preparing; streamDone = false; streamError = nil; receivedSeconds = 0; playedSeconds = 0; maxGapMilliseconds = 0
+        let rate = Float(VoicePrefs.speed)
         RuntimeKeeper.shared.hold(holder)
+        let mine = reading
         task = Task { [weak self] in
             // The recordings download while the text is spoken; they play after it, even when the
             // voice fails, and one that cannot be fetched does not keep the others from playing.
@@ -168,36 +195,32 @@ final class Speaker: NSObject, ObservableObject {
             if let scope, !spoken.isEmpty {
                 do {
                     for try await wav in client.speech(text: spoken, scope: scope, voice: VoicePrefs.voice(for: scope)) {
-                        guard let self, !Task.isCancelled else { return }
-                        self.enqueue(wav)
+                        guard let self, !Task.isCancelled, mine == self.reading else { return }
+                        self.receive(wav, rate: rate)
                     }
                 } catch { voiceError = error }
             }
-            guard let self, !Task.isCancelled else { return }
+            guard let self, !Task.isCancelled, mine == self.reading else { return }
             let spokenSeconds = self.receivedSeconds
-            if !clips.isEmpty { self.awaitingClips = true; self.advanceIfIdle() }
+            if !clips.isEmpty { self.awaitingClips = true }
             let fetched = await recordings
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, mine == self.reading else { return }
             self.awaitingClips = false
             for data in fetched.compactMap({ $0 }) {
                 guard !Task.isCancelled else { return }
-                self.enqueue(data, rate: 1)
+                self.receive(data, rate: 1)
             }
-            self.streamDone = true
             if let error = voiceError {
                 self.streamError = spokenSeconds > 0 ? "The voice stopped early. \(Self.describe(error))" : Self.describe(error)
                 self.trace("voice failed after \(String(format: "%.1f", spokenSeconds)) s: \(error)")
             } else if fetched.contains(where: { $0 == nil }) {
                 self.streamError = "A recording could not be played."
             }
-            self.advanceIfIdle()                          // what arrived plays, even under the buffer
+            self.streamDone = true
+            if self.state != .paused { self.book(self.timeline.finish(rendered: self.rendered())) }   // a short reading under the buffer
+            self.finishIfDone()
         }
     }
-
-    /// Audio chunks up to this size are analysed for the orb.
-    private static let analysedBytes = 4 * 1024 * 1024
-    /// The text has been spoken; its recordings are still downloading (the orb waits, not speaks).
-    private var awaitingClips = false
 
     private static func download(_ clips: [MediaItem], client: any GatewayClient) async -> [Data?] {
         var out: [Data?] = []
@@ -210,48 +233,200 @@ final class Speaker: NSObject, ObservableObject {
     /// `keepSession`: another reading starts right after (the session stays active for it).
     func stop(keepSession: Bool) {
         task?.cancel(); task = nil
-        cancelAnalysis()
-        player?.stop(); player = nil
-        queue.removeAll(); history.removeAll(); currentData = nil; startAt = 0
+        analysisTasks.forEach { $0.cancel() }; analysisTasks.removeAll()
+        reading += 1
+        #if DEBUG
+        silenceProbe?.cancel(); silenceProbe = nil
+        #endif
+        unbookAll()
+        chunks.removeAll(); unbooked.removeAll()
+        timeline = SpeechTimeline(sampleRate: Self.unit, startBuffer: Self.startBuffer)
+        epochFirst = 0; epochFrom = 0; pausedAt = nil
         if isActive || state == .paused { state = .idle }
         if keepSession { RuntimeKeeper.shared.release(holder) } else { release() }
     }
 
-    /// Something has been spoken that a rewind can go back to.
-    var canRewind: Bool { position() > 0.5 || !history.isEmpty }
+    // MARK: The audio clock
 
-    /// Goes back `seconds` in what was spoken (into earlier chunks if needed) and goes on from
-    /// there; paused stays paused at the new place, a finished reading speaks again from there.
-    func rewind(_ seconds: Double = 10) {
-        var back = seconds
-        if let p = player {
-            if p.currentTime >= back { p.currentTime -= back; trace("rewound within the chunk"); return }
-            back -= p.currentTime
-            p.stop(); player = nil
-            if let d = currentData { queue.insert((d, p.duration, frames, currentRate), at: 0) }
+    /// The device clock all players share (nil before any player exists).
+    private func deviceNow() -> TimeInterval? {
+        (booked.last?.player ?? clockPlayer)?.deviceCurrentTime
+    }
+
+    /// Microseconds on the timeline now (0 before the first start).
+    private func rendered() -> Int64 {
+        guard let start = clockStart, let now = deviceNow() else { return 0 }
+        return Int64(max(0, now - start) * Self.unit)
+    }
+
+    /// A segment arrived: kept, then booked on the clock at once (or kept for the first start).
+    private func receive(_ data: Data, rate: Float) {
+        guard let probe = try? AVAudioPlayer(data: data), probe.duration > 0 else {
+            trace("a segment could not be decoded (\(data.count) bytes)"); return
         }
-        currentData = nil
-        var offset: Double = 0
-        while let last = history.popLast() {
-            playedSeconds -= last.duration
-            queue.insert(last, at: 0)
-            if last.duration >= back { offset = last.duration - back; break }
-            back -= last.duration
+        if clockPlayer == nil { clockPlayer = probe }
+        let index = chunks.count
+        chunks.append(Chunk(data: data, duration: probe.duration, frames: [], rate: rate))
+        receivedSeconds += probe.duration
+        trace("segment \(data.count) bytes, received \(String(format: "%.1f", receivedSeconds)) s")
+        analyze(index)
+        unbooked.append(index)
+        guard state != .paused else { return }
+        book(timeline.receive(frames: Int64(chunks[index].wall * Self.unit), rendered: rendered()))
+    }
+
+    /// Books what the timeline says to book now: each segment's player is told when to start on the
+    /// device clock, right where the previous one ends (or at once when the voice ran dry).
+    private func book(_ bookings: [SpeechTimeline.Booking]) {
+        guard !bookings.isEmpty else { return }
+        for booking in bookings {
+            guard !unbooked.isEmpty else { break }
+            let index = unbooked.removeFirst()
+            let chunk = chunks[index]
+            let from = index == epochFirst ? epochFrom : 0
+            guard let player = try? AVAudioPlayer(data: chunk.data) else {
+                state = .failed("This speech could not be played."); stop(); return
+            }
+            player.delegate = self
+            player.enableRate = true                           // the speed chosen in Settings → Voice
+            player.rate = chunk.rate
+            player.prepareToPlay()
+            if from > 0 { player.currentTime = min(from, max(0, player.duration - 0.05)) }
+            let now = player.deviceCurrentTime
+            if clockStart == nil { clockStart = now + Self.lead - Double(booking.start) / Self.unit }
+            let at = max((clockStart ?? now) + Double(booking.start) / Self.unit, now + Self.lead)
+            if booking.gap > 0 { trace("late segment: \(Int(Double(booking.gap) / Self.unit * 1000)) ms of silence before it") }
+            if let prev = booked.last {                        // the silence asked of the device clock
+                let silence = at - (prev.wallStart + prev.wall)
+                if silence > 0.001 { maxGapMilliseconds = max(maxGapMilliseconds, silence * 1000) }
+            }
+            guard player.play(atTime: at) else { state = .failed("The watch stopped the voice."); stop(); return }
+            booked.append(Booked(index: index, player: player, wallStart: at, from: from, wall: (chunk.duration - from) / Double(chunk.rate)))
         }
-        playedSeconds = max(0, playedSeconds)
-        startAt = offset
-        guard !queue.isEmpty else { return }
-        if state == .paused {
-            loadNext(play: false)                        // ready at the new place; resume() plays it
+        maxGapMilliseconds = max(maxGapMilliseconds, timeline.maxGapMilliseconds)
+        #if DEBUG
+        startSilenceProbe()
+        #endif
+        if state != .speaking, state != .paused {
+            state = .speaking; WKHaptic.start()
+            trace("speaking, route \(AVAudioSession.sharedInstance().currentRoute.outputs.map(\.portName))")
+        }
+    }
+
+    #if DEBUG
+    /// DEBUG: the longest silence actually heard between two segments, from the players themselves:
+    /// every 10 ms, each sounding player tells where on the device clock it really started
+    /// (`deviceCurrentTime - (currentTime - from) / rate`, the earliest estimate kept, `currentTime`
+    /// moving in coarse steps), and the silence is the next one's real start minus this one's real end.
+    private var silenceProbe: Task<Void, Never>?
+    private func startSilenceProbe() {
+        guard silenceProbe == nil else { return }
+        let mine = reading
+        silenceProbe = Task { [weak self] in
+            var starts: [ObjectIdentifier: TimeInterval] = [:]
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(10))
+                guard let self, mine == self.reading else { return }
+                // A pause or a rewind books new players: measure again after it.
+                guard !self.booked.isEmpty, let now = self.deviceNow() else { starts.removeAll(); continue }
+                for b in self.booked where b.player.isPlaying && b.player.currentTime > b.from + 0.0005 {
+                    let id = ObjectIdentifier(b.player), start = now - (b.player.currentTime - b.from) / Double(b.player.rate)
+                    starts[id] = min(starts[id] ?? start, start)
+                }
+                var previousEnd: TimeInterval?
+                for b in self.booked {
+                    guard let start = starts[ObjectIdentifier(b.player)] else { previousEnd = nil; continue }
+                    if let end = previousEnd { self.maxGapMilliseconds = max(self.maxGapMilliseconds, (start - end) * 1000) }
+                    previousEnd = start + b.wall
+                }
+            }
+        }
+    }
+    #endif
+
+    /// Stops every booked player (a pause, a rewind, a stop); what was received stays.
+    private func unbookAll() {
+        for b in booked { b.player.delegate = nil; b.player.stop() }
+        booked.removeAll()
+        finishedPlayers = 0
+        clockStart = nil
+    }
+
+    /// Books the reading again from `seconds` into it (a resume, a rewind, the system having stopped it).
+    private func rebook(from seconds: Double) {
+        unbookAll()
+        var index = 0, start = 0.0
+        while index < chunks.count - 1, start + chunks[index].duration <= seconds { start += chunks[index].duration; index += 1 }
+        epochFirst = index
+        epochFrom = max(0, seconds - start)
+        playedSeconds = seconds
+        timeline = SpeechTimeline(sampleRate: Self.unit, startBuffer: 0)
+        unbooked = Array(index..<chunks.count)
+        var bookings: [SpeechTimeline.Booking] = []
+        for c in unbooked {
+            let wall = (chunks[c].duration - (c == index ? epochFrom : 0)) / Double(chunks[c].rate)
+            bookings += timeline.receive(frames: Int64(max(0, wall) * Self.unit), rendered: 0)
+        }
+        // `epochFrom` is in the first booking's player (`book` reads it).
+        book(bookings)
+    }
+
+    /// A booked segment has been heard (bookkeeping only: the next one is already booked).
+    fileprivate func finished(_ player: AVAudioPlayer) {
+        guard let b = booked.first(where: { $0.player === player }) else { return }
+        finishedPlayers += 1
+        playedSeconds += chunks[b.index].duration - b.from
+        trace("segment \(b.index) heard, played \(String(format: "%.1f", playedSeconds)) s")
+        finishIfDone()
+    }
+
+    private func finishIfDone() {
+        let allHeard = unbooked.isEmpty && finishedPlayers >= booked.count
+        guard streamDone, allHeard, isActive else {
+            if !streamDone, awaitingClips, state == .speaking, allHeard { state = .preparing }
             return
         }
-        if !isActive {                                   // finished (or stopped early): speak again
+        // Silence never passes for a reading: no sound and no error is a failure with a reason.
+        if let why = SpeechSample.failure(receivedSeconds: receivedSeconds, clipsPlayed: playedSeconds > 0, streamError: streamError) {
+            state = .failed(why); trace("ended without playing: \(why)")
+        } else {
+            state = .finished
+            trace("done, largest gap \(String(format: "%.0f", maxGapMilliseconds)) ms")
+        }
+        release()
+    }
+
+    // MARK: Position, rewind, the orb
+
+    /// Seconds spoken so far, inside the current segment too.
+    func position() -> Double {
+        if let pausedAt { return pausedAt }
+        // Where this epoch starts in the reading, then what its booked players have spoken since.
+        let base = chunks.prefix(epochFirst).reduce(0) { $0 + $1.duration } + epochFrom
+        guard let now = deviceNow() else { return base }
+        var spoken = 0.0
+        for b in booked where b.wallStart <= now {
+            spoken += min(now - b.wallStart, b.wall) * Double(chunks[b.index].rate)
+        }
+        return base + spoken
+    }
+
+    /// Something has been spoken that a rewind can go back to.
+    var canRewind: Bool { position() > 0.5 }
+
+    /// Goes back `seconds` in what was spoken and goes on from there; paused stays paused at the new
+    /// place, a finished reading speaks again from there.
+    func rewind(_ seconds: Double = 10) {
+        guard !chunks.isEmpty else { return }
+        let target = max(0, position() - seconds)
+        if state == .paused { pausedAt = target; trace("rewound to \(String(format: "%.1f", target)) s (paused)"); return }
+        if !isActive {                                    // finished (or stopped early): speak again
             try? AVAudioSession.sharedInstance().setActive(true)
             RuntimeKeeper.shared.hold(holder)
             state = .preparing
         }
-        trace("rewound \(seconds) s, starting \(String(format: "%.1f", offset)) s into an earlier chunk")
-        advanceIfIdle()
+        trace("rewound \(seconds) s, to \(String(format: "%.1f", target)) s")
+        rebook(from: target)
     }
 
     /// The rewind button: back `seconds` and play from there (paused, a rewind alone would be silent
@@ -261,104 +436,28 @@ final class Speaker: NSObject, ObservableObject {
         if state == .paused { resume() }
     }
 
-    /// Seconds spoken so far, inside the current sentence too.
-    func position() -> Double { playedSeconds + (player?.currentTime ?? 0) }
-
-    /// What the orb follows: the analysed frame of the chunk at the player's position (exact, at any
-    /// speed), scaled to the voice's recent range; silence while nothing plays.
+    /// What the orb follows: the analysed frame of the segment playing now, scaled to the voice's
+    /// recent range; silence while nothing plays.
     func features(at t: Double) -> VoiceFeatures {
-        guard let player, player.isPlaying, !frames.isEmpty else { return normalizer.push(.silent, at: t) }
-        let i = max(0, min(frames.count - 1, Int(player.currentTime * 60)))
-        return normalizer.push(frames[i], at: t)
+        guard let now = deviceNow(), let b = booked.first(where: { $0.wallStart <= now && now < $0.wallStart + $0.wall }),
+              b.player.isPlaying, !chunks[b.index].frames.isEmpty else { return normalizer.push(.silent, at: t) }
+        let frames = chunks[b.index].frames
+        let into = b.from + (now - b.wallStart) * Double(chunks[b.index].rate)
+        return normalizer.push(frames[max(0, min(frames.count - 1, Int(into * 60)))], at: t)
     }
 
-    private func enqueue(_ wav: Data, rate: Float = Float(VoicePrefs.speed)) {
-        let duration = (try? AVAudioPlayer(data: wav))?.duration ?? 0
-        queue.append((wav, duration, [], rate))
-        receivedSeconds += duration
-        trace("chunk \(wav.count) bytes, received \(String(format: "%.1f", receivedSeconds)) s")
-        advanceIfIdle()
-    }
+    /// Segments up to this size are analysed for the orb (in the background, never before playback).
+    private static let analysedBytes = 4 * 1024 * 1024
 
-    private func advanceIfIdle() {
-        guard player == nil, state != .paused else { return }
-        guard !queue.isEmpty else {
-            if !streamDone, playedSeconds > 0 { buffering = true; refilling = true; trace("ran dry, buffering") }
-            if !streamDone, awaitingClips, state == .speaking { state = .preparing }
-            if streamDone, isActive {
-                // Silence never passes for a reading: no sound and no error is a failure with a reason.
-                if let why = SpeechSample.failure(receivedSeconds: receivedSeconds, clipsPlayed: playedSeconds > 0, streamError: streamError) {
-                    state = .failed(why); trace("ended without playing: \(why)")
-                } else { state = .finished; trace("done") }
-                release()
-            }
-            return
-        }
-        if buffering && !streamDone {
-            let queued = queue.reduce(0) { $0 + $1.duration / Double($1.rate) }
-            guard queued >= (refilling ? Self.refillBuffer : Self.startBuffer) else {
-                trace("buffering, \(String(format: "%.1f", queued)) s queued"); return
-            }
-        }
-        buffering = false
-        loadNext(play: true)
-    }
-
-    /// The next chunk in the player (at `startAt`), playing or held for `resume()`.
-    private func loadNext(play: Bool) {
-        cancelAnalysis()
-        let chunk = queue.removeFirst()
-        let next = chunk.data
-        do {
-            let p = try AVAudioPlayer(data: next)
-            p.delegate = self
-            p.enableRate = true                           // the speed chosen in Settings → Voice
-            p.rate = chunk.rate
-            p.prepareToPlay()
-            if startAt > 0 { p.currentTime = min(startAt, max(0, p.duration - 0.05)); startAt = 0 }
-            currentData = next
-            currentRate = chunk.rate
-            frames = chunk.frames
-            player = p
-            if play, !p.play() { throw GatewayError.invalidResponse }
-            analyzeIfNeeded(next, player: p)
-            guard play else { return }
-            trace("playing \(String(format: "%.1f", p.duration)) s, route \(AVAudioSession.sharedInstance().currentRoute.outputs.map(\.portName))")
-            if state != .speaking { state = .speaking; WKHaptic.start() }
-        } catch {
-            state = .failed("This speech could not be played (\(error.localizedDescription)).")
-            stop()
-        }
-    }
-
-    /// Analyse only the current chunk, after playback starts. If analysis falls behind, the
-    /// orb catches up using the player's current time; obsolete work never delays the next chunk.
-    private func analyzeIfNeeded(_ data: Data, player: AVAudioPlayer) {
-        guard frames.isEmpty, data.count <= Self.analysedBytes else { return }
-        let ref = PlayerRef(player)
-        let worker = Task.detached(priority: .utility) { VoiceAnalyzer.frames(ofWAV: data) }
-        analysisWorker = worker
-        analysisTask = Task { [weak self] in
-            let result = await worker.value
-            guard !Task.isCancelled, let self, self.player === ref.player else { return }
-            self.frames = result
-        }
-    }
-
-    private func cancelAnalysis() {
-        analysisTask?.cancel(); analysisTask = nil
-        analysisWorker?.cancel(); analysisWorker = nil
-    }
-
-    fileprivate func finishedChunk(_ p: AVAudioPlayer) {
-        guard p === player else { return }
-        cancelAnalysis()
-        playedSeconds += p.duration
-        if let d = currentData { history.append((d, p.duration, frames, currentRate)) }
-        currentData = nil
-        trace("finished chunk, played \(String(format: "%.1f", playedSeconds)) s")
-        player = nil
-        advanceIfIdle()
+    private func analyze(_ index: Int) {
+        let data = chunks[index].data
+        guard data.count <= Self.analysedBytes else { return }
+        let mine = reading
+        analysisTasks.append(Task { [weak self] in
+            let result = await Task.detached(priority: .utility) { VoiceAnalyzer.frames(ofWAV: data) }.value
+            guard !Task.isCancelled, let self, mine == self.reading, index < self.chunks.count else { return }
+            self.chunks[index].frames = result
+        })
     }
 
     /// Lets go of the watch and, when this is the voice playing, of the audio session (a player
@@ -386,11 +485,8 @@ extension Speaker: AVAudioPlayerDelegate {
     }
 
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        #if DEBUG
-        if !flag { print("speaker chunk ended UNSUCCESSFULLY") }
-        #endif
         let ref = PlayerRef(player)
-        Task { @MainActor in self.finishedChunk(ref.player) }
+        Task { @MainActor in self.finished(ref.player) }
     }
 }
 
