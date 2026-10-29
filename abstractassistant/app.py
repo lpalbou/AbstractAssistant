@@ -13275,18 +13275,22 @@ def _build_tray_menu(*, palette, quit_app) -> QMenu:
 
 
 def _macos_tray_context_fallback(*, host_menu: QMenu, palette) -> None:
-    try:
-        host_menu.hide()
-    except Exception:
-        pass
-    now = time.monotonic()
-    last_activation = float(getattr(palette, "_tray_last_activation_ts", 0.0) or 0.0)
-    if last_activation > 0.0 and (now - last_activation) <= 0.20:
-        return
-    try:
-        palette.show_palette()
-    except Exception:
-        pass
+    def dismiss_and_show() -> None:
+        try:
+            host_menu.hide()
+        except RuntimeError:
+            return  # the tray was destroyed before this queued callback
+        try:
+            # The primary activation may already have shown the palette, but
+            # opening the menu can take focus afterwards. Showing is idempotent
+            # and restores prompt focus after the menu releases the keyboard.
+            palette.show_palette()
+        except Exception:
+            pass
+
+    # aboutToShow runs BEFORE Qt opens the popup. Hiding it synchronously is
+    # undone by that opening, leaving an invisible menu holding keyboard focus.
+    QTimer.singleShot(0, dismiss_and_show)
 
 
 def _configure_tray_host(*, tray: QSystemTrayIcon, palette, menu: QMenu) -> None:

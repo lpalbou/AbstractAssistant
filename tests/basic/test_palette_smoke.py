@@ -204,6 +204,55 @@ def palette():
 
 
 @pytest.mark.basic
+@pytest.mark.parametrize("primary_activation", [False, True])
+def test_macos_tray_menu_releases_focus_before_typing(palette, monkeypatch, primary_activation):
+    """The fallback menu must finish opening before it can release the keyboard."""
+    import time
+    from PyQt5.QtCore import QPoint, Qt
+    from PyQt5.QtTest import QTest
+    from PyQt5.QtWidgets import QMenu, QSystemTrayIcon
+    from abstractassistant import app as app_module
+
+    window, _controller = palette
+    monkeypatch.setattr(app_module.sys, "platform", "darwin")
+    class Tray:
+        def setContextMenu(self, menu):
+            self.menu = menu
+    tray = Tray()
+    app_module._configure_tray_host(tray=tray, palette=window, menu=QMenu())
+    menu = tray.menu
+    try:
+        for expected in ("hello world", "second  opening "):
+            window.hide()
+            _app().processEvents()
+            window.prompt_edit.clear()
+            window._tray_last_activation_ts = 0
+            if primary_activation:
+                window._tray_last_activation_ts = time.monotonic()
+                app_module._handle_tray_activation(
+                    palette=window, menu=None, reason=QSystemTrayIcon.Trigger,
+                )
+            # QMenu emits aboutToShow BEFORE its popup becomes visible. Calling
+            # hide in that callback is too early: Qt opens the menu afterwards.
+            menu.popup(QPoint(10, 10))
+            QTest.qWait(10)
+            assert QApplication.activePopupWidget() is None
+            assert not menu.isVisible()
+            assert window.focusWidget() is window.prompt_edit
+            # The offscreen backend has no window manager to acknowledge
+            # activateWindow. Deliver that activation before keyboard input.
+            QApplication.setActiveWindow(window)
+            assert QApplication.focusWidget() is window.prompt_edit
+            QTest.keyClicks(QApplication.focusWidget(), expected)
+            assert window.prompt_edit.toPlainText() == expected
+            QTest.keyClick(QApplication.focusWidget(), Qt.Key_Escape)
+            assert not window.isVisible(), "window shortcuts still work after restoring text focus"
+    finally:
+        menu.close()
+        menu.deleteLater()
+
+
+@pytest.mark.basic
 def test_sending_interrupts_reply_audio_and_clears_its_card(palette, monkeypatch):
     window, controller = palette
     events = []
