@@ -3862,11 +3862,12 @@ def test_thinking_indicator_card_shows_and_elides_status_text() -> None:
 
 
 @pytest.mark.basic
-@pytest.mark.parametrize("run_live,spoken", [(False, []), (True, ["Rendered and ready."])])
-def test_auto_speak_reads_only_a_reply_produced_while_the_session_is_open(run_live, spoken) -> None:
-    """Operator 2026-10-29: with "Speak replies aloud" on, opening, switching to or
-    recovering a session (a reattach to a run that is already over) must not speak its
-    existing answer; a reply of a run seen live is spoken."""
+@pytest.mark.parametrize("live,spoken", [(False, []), (True, ["Rendered and ready."])])
+def test_auto_speak_reads_only_a_reply_produced_while_the_session_is_open(live, spoken) -> None:
+    """Operator 2026-10-29: with "Speak replies aloud" on, opening, switching to or recovering a
+    session (an attach to a run that is already over) must not speak its existing answer; a reply of
+    a run sent here or attached while still in progress is spoken. The real worker sequence: a
+    "thinking" status first (an attach reports it too), then the final answer."""
     from types import SimpleNamespace
 
     class _AutoSpeak:
@@ -3875,7 +3876,8 @@ def test_auto_speak_reads_only_a_reply_produced_while_the_session_is_open(run_li
 
     said: list[str] = []
     palette = AssistantPalette.__new__(AssistantPalette)
-    palette._run_busy = run_live  # a send / a live reattach: True; a recovered (finished) run: False
+    palette._run_busy = live
+    palette._reply_live = live  # set by a send / a live reattach; False for a recovered run
     palette._run_has_final_output = False
     palette._tray_completion_unread = False
     palette.auto_speak = _AutoSpeak()
@@ -3888,7 +3890,11 @@ def test_auto_speak_reads_only_a_reply_produced_while_the_session_is_open(run_li
     palette._refresh_tray_feedback = lambda: None
     palette._notify_completion_ready = lambda content: None
     palette.isVisible = lambda: True
+    for name in ("_set_thinking_status", "_update_thinking_indicator", "_refresh_run_controls", "_sync_thinking_card"):
+        setattr(palette, name, lambda *a, **k: None)
 
+    AssistantPalette._on_worker_event(palette, {"type": "status", "status": "thinking"})
+    assert palette._run_busy is True, "the status handler marks any followed run busy (attach included)"
     AssistantPalette._on_worker_event(
         palette, {"type": "assistant", "final": True, "content": "Rendered and ready.", "history_changed": False}
     )
