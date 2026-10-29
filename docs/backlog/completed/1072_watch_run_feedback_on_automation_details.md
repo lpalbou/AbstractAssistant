@@ -2,8 +2,12 @@
 
 **Status**: completed on `main` under `## [Unreleased]` of `watch/apple/CHANGELOG.md` (branch `fix/watch-run-feedback`,
 brought onto main without its version bump: the lead sets the Apple apps' next `MARKETING_VERSION` / build); reaches
-testers with the operator's next TestFlight upload (`watch/apple/scripts/testflight.sh`). Not deployed to the operator's
-devices by this change (`phone/iphone/scripts/deploy-phone.sh` needs them).
+testers with the operator's next TestFlight upload (`watch/apple/scripts/testflight.sh`). PAUSED 2026-10-28 in draft PR
+"WIP (paused): Settings vertical space, voice select-to-play, watch run feedback": simulator (temporary watchOS 27.0
+Series 11 46 mm, `scripts/test-watch.sh light`): package tests 175 + 20 pass, `RunFeedbackUITests` passes, 8 UI tests
+pass, 3 fail (`SendNowUITests.testSendEndsTheListeningNow`, `StopVoiceUITests` x2: "a tap after the stop does not
+listen"; the microphone grant could not be applied to the fresh simulator, so not yet attributed); CI watch.yml /
+iphone.yml not yet run; NOT deployed to the operator's devices (the build is not green yet).
 **Source**: release-closing QA 2026-10-28, item (m).
 **Scope**: the watch app (`watch/apple`); the shared client package only for a test delay (`MockGatewayClient`
 `runDelay`).
