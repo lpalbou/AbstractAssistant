@@ -387,7 +387,7 @@ def _resolve(name: str) -> str:
 # `assets/automation_controls.json` (a byte-identical copy of the kit's
 # canonical file; the AbstractFramework root `scripts/check_identity_sync.py`
 # fails on drift).
-_KIT_GLYPHS = {"play-circle": "run_now"}
+_KIT_GLYPHS = {"play-circle": "run_now", "inbox": "attention"}
 
 
 def _kit_glyph_document(name: str, color: str) -> str:

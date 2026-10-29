@@ -22,7 +22,7 @@ from urllib.parse import urlparse
 import warnings
 import wave
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from PyQt5.QtCore import (
     QByteArray,
@@ -202,7 +202,7 @@ from .core.automations import (
     new_result_indices,
     target_from_workflow,
 )
-from .core.attention import AttentionModel, attention_banner_text, device_id as attention_device_id
+from .core.attention import AttentionModel, attention_label, attention_tooltip, automation_of_session, device_id as attention_device_id
 from .gateway.events import tool_policy_decision_text
 from .gateway.me_events import EventFollower
 from .ui.automations import (
@@ -5985,6 +5985,19 @@ class AssistantPalette(QMainWindow):
         self.session_picker.clicked.connect(self._open_session_switcher)
         title_row.addWidget(self.session_picker, 1, Qt.AlignVCenter)
 
+        # What waits for the person elsewhere, as the kit's attention badge on the sessions
+        # control (operator 2026-10-29: an icon and a count, not a text banner; glyph and words
+        # from automation_controls.json). A click opens exactly the first thing it counts.
+        self.attention_badge = QPushButton("")
+        self.attention_badge.setObjectName("attentionBadge")
+        self.attention_badge.setFixedHeight(28)
+        self.attention_badge.setCursor(Qt.PointingHandCursor)
+        self.attention_badge.setIcon(_symbol_icon("inbox", color=THEME.attention_text, size=14))
+        self.attention_badge.setIconSize(QSize(14, 14))
+        self.attention_badge.clicked.connect(lambda _checked=False: self._open_attention())
+        self.attention_badge.hide()
+        title_row.addWidget(self.attention_badge, 0, Qt.AlignVCenter)
+
         header_actions = QHBoxLayout()
         header_actions.setContentsMargins(0, 0, 0, 0)
         header_actions.setSpacing(4)
@@ -6053,13 +6066,6 @@ class AssistantPalette(QMainWindow):
         self.banner_label.hide()
         # "Needs you" / "new results" across every conversation and automation,
         # from the event stream (its own line: notices above never hide it).
-        self.attention_banner = QLabel("")
-        self.attention_banner.setObjectName("attentionBanner")
-        self.attention_banner.setWordWrap(True)
-        self.attention_banner.setTextFormat(Qt.RichText)
-        self.attention_banner.setTextInteractionFlags(Qt.LinksAccessibleByMouse)
-        self.attention_banner.linkActivated.connect(self._open_attention)
-        self.attention_banner.hide()
         # "Continued as a session from “<automation>” (run N)" — after a message
         # typed in an automation became a session; its link goes back to the
         # automation. Shown while that session is the one on screen.
@@ -6105,7 +6111,6 @@ class AssistantPalette(QMainWindow):
         self.chat_status_label.setWordWrap(True)
         self.chat_status_label.setTextFormat(Qt.PlainText)
         self.chat_status_label.hide()
-        history_wrap.addWidget(self.attention_banner)
         history_wrap.addWidget(self.continued_banner)
         history_wrap.addWidget(self.kept_recording_banner)
         history_wrap.addWidget(self.banner_label)
@@ -6739,36 +6744,79 @@ class AssistantPalette(QMainWindow):
 
         threading.Thread(target=work, name="attention-report", daemon=True).start()
 
-    def _attention_waits_elsewhere(self) -> int:
+    def _attention_targets(self) -> List[Tuple[str, Any]]:
+        """What the badge counts, in the order a click opens it: the waits not on screen, then
+        the automations with unseen results (newest first). A wait in an automation's session
+        (`automation:<id>`) and that automation's results are on screen while its view is open."""
         model = self._state("_attention")
         if model is None:
-            return 0
+            return []
+        viewing = str(self._state("_automation_view_id", "") or "")
         local = set((self._state("_pending_user_waits") or {}).keys())
         try:
             active = self._active_session_id()
         except Exception:
             active = ""
-        return len([w for w in model.waits_outside(active) if w.wait_key not in local])
+        out: List[Tuple[str, Any]] = []
+        for wait in model.waits():
+            aid = automation_of_session(wait.session_id)
+            if wait.wait_key in local or (aid and aid == viewing):
+                continue
+            if not aid and active and wait.session_id == active:
+                continue  # the conversation on screen shows its own sheet
+            out.append(("wait", wait))
+        out.extend(("result", aid) for aid in self._result_automations() if aid != viewing)
+        return out
 
-    def _attention_text(self) -> str:
+    def _result_automations(self) -> List[str]:
+        """The automations with unseen results: the person's stream when it is live (what the
+        count counts), else the automation list's own unseen counts (a gateway without it)."""
+        model = self._state("_attention")
+        if model is not None and self._me_events_live():
+            return model.result_automations()
+        return automations_with_new_results(getattr(self._state("_automations"), "summaries", None) or [])
+
+    def _new_results_outside(self, viewing: str) -> int:
+        model = self._state("_attention")
+        if model is not None and self._me_events_live():
+            return model.new_results_outside(viewing)
+        total = 0
+        for summary in getattr(self._state("_automations"), "summaries", None) or []:
+            if isinstance(summary, dict) and str(summary.get("automation_id") or "") != viewing:
+                attention = summary.get("attention") if isinstance(summary.get("attention"), dict) else {}
+                total += int(attention.get("unseen_count") or 0)
+        return total
+
+    def _attention_waits_elsewhere(self) -> int:
+        return len([t for t in self._attention_targets() if t[0] == "wait"])
+
+    def _attention_counts(self) -> Tuple[int, int]:
+        """(waits elsewhere, unseen results elsewhere)."""
         model = self._state("_attention")
         if model is None:
-            return ""
-        return attention_banner_text(needs_you=self._attention_waits_elsewhere(), new_results=model.new_results)
+            return 0, 0
+        return self._attention_waits_elsewhere(), self._new_results_outside(str(self._state("_automation_view_id", "") or ""))
+
+    def _attention_text(self) -> str:
+        waiting, results = self._attention_counts()
+        return attention_tooltip(waiting=waiting, results=results)
 
     def _refresh_attention(self) -> None:
-        """Repaint the attention banner and the tray from the model."""
-        banner = self._state("attention_banner")
-        text = self._attention_text()
-        if banner is not None:
+        """Repaint the attention badge and the tray from the model."""
+        badge = self._state("attention_badge")
+        waiting, results = self._attention_counts()
+        total = waiting + results
+        if badge is not None:
             try:
-                if text:
-                    link = "wait" if self._attention_waits_elsewhere() else "results"
-                    banner.setText(f"{_html.escape(text)} &nbsp;<a href=\"attention:{link}\">Open</a>")
-                    banner.show()
+                if total:
+                    badge.setText(str(total))
+                    badge.setToolTip(attention_tooltip(waiting=waiting, results=results))
+                    badge.setAccessibleName(attention_label(total))
+                    badge.show()
                 else:
-                    banner.clear()
-                    banner.hide()
+                    badge.setText("")
+                    badge.setToolTip("")
+                    badge.hide()
             except RuntimeError:
                 pass
         self._refresh_tray_feedback()
@@ -6807,46 +6855,33 @@ class AssistantPalette(QMainWindow):
         return not key or key == wait.wait_key or key.startswith("subworkflow:")
 
     def _open_attention(self, href: str = "") -> None:
-        """Banner "Open": a waiting conversation (after confirming against the
-        run that it still waits), else the Automations tab."""
-        model = self._state("_attention")
-        if model is None:
+        """The badge: open exactly the first thing it counts. A wait in an automation's session
+        opens that automation (its waiting run carries Approve / Deny); a wait in a chat opens
+        that chat after confirming against the run that it still waits; a new result opens its
+        automation on the new run, and viewing it acknowledges it (QA 2026-10-29: Open landed on
+        an old briefing with nothing pending, and the count never cleared)."""
+        targets = self._attention_targets()
+        if not targets:
+            self._refresh_attention()
             return
-        target = str(href or "")
-        waits = model.waits_outside(self._active_session_id())
-        if target.endswith("wait") and waits:
-            wait = waits[0]
-            controller = self._state("_controller")
-
-            def work() -> None:
-                live = self._wait_is_live(controller, wait)
-                self.me_event_received.emit(
-                    {"type": "attention.open", "data": {"session_id": wait.session_id, "run_id": wait.run_id,
-                                                        "wait_key": wait.wait_key, "live": live}},
-                    False,
-                )
-
-            threading.Thread(target=work, name="attention-open", daemon=True).start()
-            return
-        # New results: straight to the automation that has them, opened on the
-        # new run (QA 2026-10-28 (g): Open showed a list with nothing marked);
-        # several automations: the list, with the first of them selected.
-        with_new = automations_with_new_results(getattr(self._state("_automations"), "summaries", None) or [])
-        if len(with_new) == 1:
+        kind, target = targets[0]
+        aid = target if kind == "result" else automation_of_session(target.session_id)
+        if aid:
             self.show_palette()
-            self._open_automation(with_new[0])
+            self._open_automation(aid)
             return
-        self.open_automations()
-        if with_new:
-            def _select_first() -> None:
-                switcher = self._state("_session_switcher")
-                if switcher is not None:
-                    try:
-                        switcher.select_automation(with_new[0])
-                    except RuntimeError:
-                        pass
+        wait = target
+        controller = self._state("_controller")
 
-            QTimer.singleShot(0, _select_first)
+        def work() -> None:
+            live = self._wait_is_live(controller, wait)
+            self.me_event_received.emit(
+                {"type": "attention.open", "data": {"session_id": wait.session_id, "run_id": wait.run_id,
+                                                    "wait_key": wait.wait_key, "live": live}},
+                False,
+            )
+
+        threading.Thread(target=work, name="attention-open", daemon=True).start()
 
     def _on_attention_open(self, data: Dict[str, Any]) -> None:
         if not data.get("live"):
@@ -6891,6 +6926,7 @@ class AssistantPalette(QMainWindow):
             except RuntimeError:
                 self._session_switcher = None
         unread = hub.unread
+        self._refresh_attention()  # without the stream, the list's unseen counts drive the badge
         button = self._state("schedule_button")
         if button is not None:
             button.setVisible(hub.available is True)
@@ -7056,6 +7092,7 @@ class AssistantPalette(QMainWindow):
 
         self._automations.load_occurrences(aid, loaded)
         self._automations.detail(aid, lambda ok, detail: self._on_automation_detail(aid, ok, detail))
+        self._refresh_attention()  # what this view shows is no longer "elsewhere"
 
     def _close_automation_view(self, *, leaving_for_session: bool = False) -> None:
         """Back to the chat. ``leaving_for_session``: another session is about
@@ -7073,6 +7110,7 @@ class AssistantPalette(QMainWindow):
         self._automation_view_id = ""
         self.automation_view.set_new_runs([])
         self.automation_view.hide()
+        self._refresh_attention()
         self._automation_cards_by_key = {}
         self._set_composer_automation_mode(False)
         draft = self._state("_chat_draft")
@@ -12240,14 +12278,16 @@ class AssistantPalette(QMainWindow):
                 color: #b9dcff;
                 font-size: 11px;
             }
-            QLabel#attentionBanner {
-                border-radius: 11px;
-                padding: 7px 9px;
+            QPushButton#attentionBadge {
+                border-radius: 14px;
+                padding: 0 9px 0 7px;
                 border: 1px solid rgba(251, 146, 60, 0.42);
                 background: rgba(251, 146, 60, 0.14);
                 color: #ffd0a8;
-                font-size: 11px;
+                font-size: 12px;
+                font-weight: 650;
             }
+            QPushButton#attentionBadge:hover { background: rgba(251, 146, 60, 0.24); }
             QLabel#keptRecordingBanner {
                 border-radius: 11px;
                 padding: 7px 9px;

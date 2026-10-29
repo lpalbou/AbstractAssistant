@@ -325,14 +325,21 @@ exactly where it stopped. With the stream connected:
 - a run in **another conversation** that stops for your approval or your answer shows one tray
   notification ("Approval needed" or "A question for you"), unless that conversation is the one on
   screen. Its sheet opens in that conversation, as before;
-- a line above the transcript says what is waiting for you across every conversation and
-  automation ("A conversation is waiting for you · 2 new results from your automations"), with
-  **Open**. Open first asks the gateway whether that run still waits; it opens the conversation
-  when it does, and says so when it no longer does. For results it opens the automation that has
-  them (several: the Automations tab with the first of them selected); the runs whose results you
-  have not seen are marked **New result** and the automation opens on the first of them;
+- a badge beside the session control shows what waits for you elsewhere: the kit's inbox icon
+  with a count. Its tooltip says what the count is ("1 conversation is waiting for you", "2 new
+  results from your automations", then "Click to open it."). A click opens exactly the first
+  thing it counts:
+  - a run of an automation that waits for your approval opens that automation, where the run
+    carries **Approve** / **Deny**;
+  - a run in a chat that waits opens that chat, after asking the gateway whether the run still
+    waits (it says so when it no longer does);
+  - a new result opens its automation on the runs you have not seen (marked **New result**), and
+    viewing them marks them seen.
+
+  What the open view shows is not counted while it is open. With no event stream, the automation
+  list's unseen counts drive the badge;
 - the menu bar icon shows the amber "needs you" badge while a run elsewhere waits for you, and its
-  tooltip repeats the line.
+  tooltip repeats the badge's lines.
 
 What happened while the Assistant was closed is read when it starts, but it never notifies you
 for it: notifications are for what arrives while the app is open.
