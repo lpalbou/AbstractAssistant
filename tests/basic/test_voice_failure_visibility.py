@@ -629,3 +629,47 @@ def test_real_reply_shapes_that_reduce_to_nothing_are_detectable() -> None:
     """These are real assistant replies, not synthetic edge cases."""
     for markdown in ("![](sandbox:/img.png)", "\U0001f44d", "---", "| --- | --- |"):
         assert speech_plain_text(markdown) == "", markdown
+
+
+# --------------------------------------------------------------------------
+# A speak() with its own receivers (the Settings voice sample)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.basic
+def test_a_refusal_goes_to_the_callers_own_receiver(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Settings' voice sample says why in place: its failure must not ALSO
+    raise the chat window's banner."""
+    vm, reported = _manager_with_errors(_Gateway())
+    monkeypatch.setattr(vm, "_audio_player_available", lambda: False)
+    mine: list[str] = []
+
+    with pytest.warns(UserWarning):
+        assert vm.speak("hello", on_failure=mine.append) is False
+
+    assert reported == []
+    assert len(mine) == 1 and "audio output backend" in mine[0]
+
+
+@pytest.mark.basic
+def test_an_async_failure_goes_to_the_callers_own_receiver_then_the_next_speak_reports_normally(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway = _Gateway()
+    gateway.artifact_error = RuntimeError("gateway said 500")
+    vm, reported = _manager_with_errors(gateway)
+    monkeypatch.setattr(vm, "supports_tts", lambda: True)
+    monkeypatch.setattr(vm, "_speak_gateway_stream", lambda **kwargs: None)
+    mine: list[str] = []
+    completions: list[int] = []
+
+    with pytest.warns(UserWarning):
+        assert vm.speak("sample", callback=lambda: completions.append(1), on_failure=mine.append) is True
+        assert _wait_for(lambda: completions == [1])
+    assert reported == [] and len(mine) == 1 and "gateway said 500" in mine[0]
+
+    # A reply spoken afterwards reports to the app again (the receivers were that speak's only).
+    with pytest.warns(UserWarning):
+        assert vm.speak("a reply", callback=lambda: completions.append(2)) is True
+        assert _wait_for(lambda: completions == [1, 2])
+    assert len(mine) == 1 and len(reported) == 1 and "gateway said 500" in reported[0]
