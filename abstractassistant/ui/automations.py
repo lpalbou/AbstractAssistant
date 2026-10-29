@@ -527,6 +527,9 @@ def automation_row_qss() -> str:
     QFrame#autoNote[tone="quiet"] {{ background: transparent; border-color: {alpha(THEME.text_faint, 0.18)}; }}
     QFrame#autoNote[tone="failed"] {{ background: {THEME.danger_bg}; border: 1px solid {alpha(THEME.danger, 0.55)}; }}
     QFrame#autoNote[tone="waiting"] {{ background: {THEME.attention_bg}; border: 1px solid {THEME.attention_border}; }}
+    /* Opened from the attention badge: the item that needs the person, outlined for a moment. */
+    QFrame#autoNote[attentionFocus="true"] {{ border: 2px solid {THEME.accent_border}; }}
+    QWidget#autoOccurrence[attentionFocus="true"] {{ border: 2px solid {THEME.accent_border}; border-radius: 16px; }}
     QLabel#autoTurnMeta {{ color: {THEME.text_faint}; font-size: 10px; font-weight: 700; }}
     QLabel#autoTurnMeta[tone="failed"] {{ color: {THEME.danger_text}; }}
     QLabel#autoTurnMeta[tone="waiting"] {{ color: {THEME.attention_text}; }}
@@ -636,7 +639,9 @@ def _tool_call_label(call: Mapping[str, Any], *, parent: QWidget) -> QLabel:
         opts = f' <span style="color:{THEME.text_muted}">({_h.escape(", ".join(w.details))})</span>' if w.details else ""
         body = " ".join(x for x in (verb, _h.escape(w.lead), key) if x) + opts
     label = QLabel(body, parent)
-    label.setObjectName("autoTurnMeta")
+    # The kit's standard text colour (operator 2026-10-29: the dimmed meta style read poorly on
+    # the dark approval card); the options stay muted inside it.
+    label.setObjectName("autoTurnText")
     label.setTextFormat(Qt.RichText)
     label.setWordWrap(True)
     label.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -894,7 +899,7 @@ class OccurrencePair(QWidget):
         run_id = str(wait.get("run_id") or row.get("run_id") or "")
         wait_key = str(wait.get("wait_key") or "")
         kind = str(wait.get("kind") or "")
-        entry: Dict[str, Any] = {"run_id": run_id, "wait_key": wait_key, "kind": kind, "choices": [], "edit": None, "send": None}
+        entry: Dict[str, Any] = {"run_id": run_id, "wait_key": wait_key, "kind": kind, "choices": [], "edit": None, "send": None, "box": box}
         self.wait_inputs.append(entry)
         if kind not in WAIT_KINDS:
             # Fail loudly: without a kind there is no answer this client may send.
@@ -907,12 +912,12 @@ class OccurrencePair(QWidget):
             # `details` = the tool calls this approval would run: [{name, arguments, call_id?}].
             calls = wait.get("details") if isinstance(wait.get("details"), list) else []
             if not calls:
-                bl.addWidget(_text_label("The gateway did not list the tool calls to approve.", "autoTurnMeta", parent=box))
+                bl.addWidget(_text_label("The gateway did not list the tool calls to approve.", "autoTurnText", parent=box))
             # Each call in words (kit 0068, `tool_call_words.ts`): the verb, the key argument in
             # bold, the options muted; never the raw JSON arguments (operator QA 2026-10-29).
             listed = [c for c in calls if isinstance(c, Mapping)]
             if len(listed) > 1:
-                bl.addWidget(_text_label(group_tool_calls(listed), "autoTurnMeta", parent=box))
+                bl.addWidget(_text_label(group_tool_calls(listed), "autoTurnText", parent=box))
             for call in listed:
                 bl.addWidget(_tool_call_label(call, parent=box))
             buttons = QHBoxLayout()
@@ -1557,6 +1562,10 @@ class AutomationView(QFrame):
             pair.wait_answered.connect(self.wait_answered.emit)
             self.list_layout.addWidget(pair)
             self.pairs.append(pair)
+        if getattr(self, "_focus_until", 0.0):
+            from PyQt5.QtCore import QTimer
+
+            QTimer.singleShot(0, self._apply_attention_focus)  # the outline follows a rebuild
 
     def list_width(self) -> int:
         """The width the turns are laid out in: the list's viewport, as the
@@ -1591,6 +1600,64 @@ class AutomationView(QFrame):
             pair.is_new = pair.index in self.new_indices
             pair.new_badge.setText("New failure" if pair.index in self.new_failures else "New result")
             pair.new_badge.setVisible(pair.is_new)
+
+    def attention_widget(self, run_id: str = "") -> Optional[QWidget]:
+        """What the attention badge opens on: the run's waiting card (``run_id``), else the first
+        unresolved wait (the oldest waiting run), else the first unseen result."""
+        waiting = [(pair, entry) for pair in self.pairs for entry in pair.wait_inputs if entry.get("box") is not None]
+        if run_id:
+            for pair, entry in waiting:
+                if entry.get("run_id") == run_id:
+                    return pair.note or entry["box"]
+        if waiting:
+            pair, entry = waiting[0]
+            return pair.note or entry["box"]
+        return self.first_new_pair()
+
+    def scroll_to_attention(self, run_id: str = "", *, flash_ms: int = 2600) -> bool:
+        """Scroll the item that needs the person into view and outline it for a moment
+        (operator 2026-10-29: the badge opened the automation at its top, the approval card out of
+        view). The item is found again at each step: the runs may be rebuilt meanwhile (a detail
+        read, a refresh), and the outline follows them. False when nothing waits and nothing is new."""
+        import time as _time
+
+        from PyQt5.QtCore import QTimer
+
+        if self.attention_widget(run_id) is None:
+            return False
+        self._focus_run = run_id
+        self._focus_until = _time.monotonic() + flash_ms / 1000.0
+        QTimer.singleShot(0, self._apply_attention_focus)
+        QTimer.singleShot(150, self._apply_attention_focus)  # once the palette has its size
+        QTimer.singleShot(int(flash_ms) + 50, self._apply_attention_focus)  # the outline goes
+        return True
+
+    def _apply_attention_focus(self) -> None:
+        import time as _time
+
+        active = _time.monotonic() < float(getattr(self, "_focus_until", 0.0) or 0.0)
+        target = self.attention_widget(str(getattr(self, "_focus_run", "") or "")) if active else None
+        for pair in self.pairs:
+            for widget in (pair, pair.note):
+                if widget is None:
+                    continue
+                # `focus` is QWidget's own (read-only) property: a dynamic one of that name never sets.
+                value = "true" if widget is target else ""
+                try:
+                    if (widget.property("attentionFocus") or "") != value:
+                        widget.setProperty("attentionFocus", value)
+                        widget.style().unpolish(widget)
+                        widget.style().polish(widget)
+                except RuntimeError:  # rebuilt meanwhile
+                    continue
+        if target is not None:
+            # Its top in view (as for a new result), the card read from its first line.
+            host = self.scroll.widget()
+            try:
+                y = target.mapTo(host, QPoint(0, 0)).y() if host is not None else target.y()
+            except RuntimeError:
+                return
+            self.scroll.verticalScrollBar().setValue(max(0, int(y) - 12))
 
     def first_new_pair(self) -> Optional["OccurrencePair"]:
         return next((pair for pair in self.pairs if pair.is_new), None)

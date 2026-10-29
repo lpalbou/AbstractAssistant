@@ -104,6 +104,11 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Fixed
 
+- **The attention badge opens at what needs you** (operator 2026-10-29, backlog 1082). Clicking it opened the
+  automation at the top of its conversation, with the approval card out of view. It now scrolls to the waiting card
+  of that run (else the first unresolved wait, else the first new result) and outlines it for a moment. The
+  approval card's tool lines use the standard text colour instead of the dimmed one, so they read well on the dark
+  card.
 - **Message stamps in the kit's words** (backlog 1076 §3, split from #20). The stamps follow AbstractUIC panel-chat's
   `formatMessageStamp`, which the web Assistant uses since panel-chat 0.6.4:
   - "Yesterday · 10:52 PM";
