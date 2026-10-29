@@ -618,3 +618,18 @@ def test_the_route_state_names_the_voice_and_is_not_a_warning() -> None:
     assert dlg.route_state.property("tone") == "neutral"
     # Before the voice list is read (or when the voice is gone), never the raw id either.
     assert dlg.route_editor._voice_display_name("0062331440204fe7b77988ae42e80e1d") == "a saved voice"
+
+
+@pytest.mark.basic
+def test_the_chat_model_box_says_only_its_two_line_description() -> None:
+    """Operator ruling 2026-10-29: the Chat model block keeps one short description (at most two
+    lines) and no "Gateway default (derived from Text input): … This app: using the gateway
+    default." box text; the dropdown already says it uses the gateway default."""
+    dlg = _dialog()
+    _select(dlg, "output.text")
+    assert dlg.route_help.text() == "The model that answers chat turns and drives tools; override it for this app only."
+    assert dlg.route_state.isHidden(), "no state lines in the chat model's box"
+    assert dlg.provider_combo.currentIndex() == 0 and "default" in dlg.provider_combo.currentText().lower()
+    # Other routes keep their state lines.
+    _select(dlg, "output.voice")
+    assert not dlg.route_state.isHidden()

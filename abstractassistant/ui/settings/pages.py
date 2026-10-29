@@ -366,16 +366,16 @@ class ModelsPage(SettingsPage):
         # on by default, sent as `_runtime.stream` true/false with every run.
         # No "Gateway default": the gateway's own switch (Workflows → Settings
         # → Streamed replies) is for clients that do not say.
-        replies = self.add_card(
-            Card("Replies", "Show the answer while the model writes it. The finished answer replaces the live text.")
-        )
+        # Operator ruling 2026-10-29: ONE line, "Stream replies [toggle]": no title, no paragraph
+        # above or below. What the switch does here (and a gateway without live replies) is its tooltip.
+        replies = self.add_card(Card())
         self.stream_switch = AfSwitch("Stream replies")
         self.stream_switch.clicked.connect(self._on_stream_toggled)
-        replies.add_row("Streaming", self.stream_switch)
-        self.stream_detail = QLabel("")
+        replies.add_row("", self.stream_switch)
+        self.stream_detail = QLabel("", replies)  # kept for its text (the switch's tooltip); never shown
         self.stream_detail.setObjectName("rowHelp")
         self.stream_detail.setWordWrap(True)
-        replies.add_widget(self.stream_detail)
+        self.stream_detail.hide()
 
         # A card WITHOUT a title: the surface is what makes the form read as a
         # panel, but a card titled "Models" inside a page titled
@@ -413,6 +413,7 @@ class ModelsPage(SettingsPage):
         else:
             text = "Every reply from this app streams while the model writes it."
         self.stream_detail.setText(text)
+        self.stream_switch.setToolTip(text)
 
     def _on_stream_toggled(self, checked: bool) -> None:
         if not _update_prefs(self.controller, stream_replies="on" if checked else "off"):
