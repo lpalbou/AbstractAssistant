@@ -30,6 +30,9 @@ from ..gateway import get_cached_assistant_capabilities
 class GatewayVoiceManager:
     """Gateway-backed voice manager with a VoiceManager-compatible interface."""
 
+    # Class default too: tests build instances without __init__.
+    _speech_sinks: tuple = (None, None)
+
     def __init__(self, *, llm_manager, debug_mode: bool = False) -> None:
         self._llm_manager = llm_manager
         self.debug_mode = bool(debug_mode)
@@ -49,6 +52,9 @@ class GatewayVoiceManager:
         # gateway's default voice). Never silent: the operator heard another
         # voice with no word why (QA 2026-10-28).
         self.on_speech_notice: Optional[Callable[[str], None]] = None
+        # The running speak()'s own (failure, notice) receivers, when its caller
+        # gave them (the Settings voice sample); else the two above apply.
+        self._speech_sinks: tuple = (None, None)
         self._speech_failure_causes: list[str] = []
         self._speech_failure_reported = False
 
@@ -1194,7 +1200,15 @@ class GatewayVoiceManager:
                 # reports the recorded cause unless the user asked us to stop.
                 self._fire_speech_completion(callback, cancelled=stop_gate.is_set())
 
-    def speak(self, text: str, speed: float = 1.0, callback: Optional[Callable] = None) -> bool:
+    def speak(
+        self,
+        text: str,
+        speed: float = 1.0,
+        callback: Optional[Callable] = None,
+        *,
+        on_failure: Optional[Callable[[str], None]] = None,
+        on_notice: Optional[Callable[[str], None]] = None,
+    ) -> bool:
         """Speak the given text via gateway TTS (asynchronous dispatch).
 
         Returns True when the request was accepted and dispatched to a worker
@@ -1206,14 +1220,20 @@ class GatewayVoiceManager:
         texts, and speak() is routinely called from the Qt GUI thread — the
         network work must never run on the caller's thread (2026-07-15
         speaker-button freeze fix).
+
+        `on_failure` / `on_notice`, when given, receive THIS speak's failure
+        reason and "plays, but not as chosen" notice instead of the app-wide
+        `on_speech_error` / `on_speech_notice` (Settings' voice sample says
+        why in place, not as a banner on the chat window).
         """
         _ = float(speed or 1.0)
         raw = str(text or "").strip()
         self._begin_speech_failure_tracking()
         if not raw:
-            self._report_speech_failure(
+            self._refuse_speech(
                 "there is nothing to read aloud in this message (no spoken text "
-                "remains once markdown, code and links are removed)"
+                "remains once markdown, code and links are removed)",
+                on_failure,
             )
             return False
         if not self.supports_tts():
@@ -1221,25 +1241,27 @@ class GatewayVoiceManager:
             # synchronous so callers get an immediate, honest refusal — and it
             # names WHICH side is missing (an unavailable gateway route and a
             # missing local audio backend need opposite user actions).
-            self._report_speech_failure(self._tts_unsupported_reason())
+            self._refuse_speech(self._tts_unsupported_reason(), on_failure)
             return False
         threading.Thread(
             target=self._speak_dispatch,
-            kwargs={"text": raw, "callback": callback},
+            kwargs={"text": raw, "callback": callback, "sinks": (on_failure, on_notice)},
             daemon=True,
             name="gateway-tts-dispatch",
         ).start()
         return True
 
-    def _speak_dispatch(self, *, text: str, callback: Optional[Callable]) -> None:
+    def _speak_dispatch(self, *, text: str, callback: Optional[Callable], sinks: tuple = (None, None)) -> None:
         """Worker-thread body: stop previous speech, then stream-or-artifact."""
         stream_id = ""
         try:
             with self._dispatch_lock:
                 self.stop_speaking()
                 # stop_speaking() muted the SUPERSEDED generation's reporting;
-                # this dispatch owns the channel from here on.
+                # this dispatch owns the channel from here on (its own
+                # failure/notice receivers included).
                 self._begin_speech_failure_tracking()
+                self._speech_sinks = tuple(sinks or (None, None))
                 stream_id, pause_gate, stop_gate = self._start_stream_control()
                 # Resolve once per dispatch; speaks are single-active
                 # (stop_speaking above), so a per-instance value is race-free.
@@ -1424,7 +1446,7 @@ class GatewayVoiceManager:
         self._speech_failure_reported = True
         text = str(reason or "").strip() or "speech failed for an unknown reason"
         warnings.warn(f"#FALLBACK: gateway TTS did not play: {text}")
-        cb = self.on_speech_error
+        cb = self._speech_sinks[0] or self.on_speech_error
         if cb is None:
             return
         try:
@@ -1442,9 +1464,21 @@ class GatewayVoiceManager:
             return "the voice chosen in Settings"
         return "the voice set by the ABSTRACTASSISTANT_*_TTS_* environment variables"
 
+    def _refuse_speech(self, reason: str, on_failure: Optional[Callable[[str], None]]) -> None:
+        """An immediate refusal from speak(): to the caller's own receiver when it gave one."""
+        if on_failure is None:
+            self._report_speech_failure(reason)
+            return
+        self._speech_failure_reported = True
+        warnings.warn(f"#FALLBACK: gateway TTS did not play: {reason}")
+        try:
+            on_failure(str(reason or "").strip() or "speech failed for an unknown reason")
+        except Exception:
+            pass
+
     def _report_speech_notice(self, text: str) -> None:
         """Tell the UI that speech plays, but not as the user chose."""
-        cb = self.on_speech_notice
+        cb = self._speech_sinks[1] or self.on_speech_notice
         if cb is None:
             return
         try:

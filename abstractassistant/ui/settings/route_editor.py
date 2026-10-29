@@ -31,7 +31,7 @@ import re
 import threading
 from typing import Any, Callable, Dict, List, Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QFontMetrics, QIcon, QPainter, QPixmap
 from PyQt5.QtWidgets import (
     QSizePolicy,
@@ -52,6 +52,7 @@ from PyQt5.QtWidgets import (
 from ...gateway_service import ROUTE_SPECS, CapabilityRouteRow
 from ...preferences import REASONING_EFFORT_LEVELS
 from ...speculation import speculation_configurable, speculation_options
+from ...icons import symbol_icon
 from ...theme import THEME
 from .common import LABEL_COLUMN_MIN, safe_attr, safe_call
 
@@ -134,6 +135,175 @@ def _voice_name_only(choice: Any) -> str:
     if name:
         return name
     return str(getattr(choice, "label", "") or "").split(" · ")[0].split("  (")[0].strip()
+
+# The voice sample (the kit's AfVoiceSection preview, ui-kit voice_settings.tsx, in the desktop's
+# own widgets): choosing a voice plays a short sample through the desktop's TTS path; the button
+# beside the list plays / stops it; a newer choice aborts the older sample.
+VOICE_SAMPLE_TEXT = "Hello, this is how I sound when I read your replies."
+VOICE_SAMPLE_DEBOUNCE_MS = 200  # ui-kit VOICE_SAMPLE_DEBOUNCE_MS
+
+
+class VoiceSample(QObject):
+    """One voice sample at a time, through ``voice_manager.speak``.
+
+    States: ``idle`` | ``loading`` (synthesizing) | ``playing``. ``run``
+    numbers the current sample: a newer choice, a stop or a route change
+    moves it on, so a late answer from an older sample is dropped. Never
+    starts on its own: only `choose` (a voice picked by the person) and
+    `toggle` (the play button) start one.
+    """
+
+    changed = pyqtSignal()
+    _ended = pyqtSignal(int, str)  # run, failure reason ("" = played or stopped)
+    _noticed = pyqtSignal(int, str)
+
+    def __init__(self, voice_manager: Callable[[], Any], parent: Optional[QObject] = None) -> None:
+        super().__init__(parent)
+        self._voice_manager = voice_manager
+        self.state = "idle"
+        self.note = ""
+        self.tone = ""
+        self.run = 0
+        self._dispatched = False
+        self._pending = QTimer(self)
+        self._pending.setSingleShot(True)
+        self._pending.setInterval(VOICE_SAMPLE_DEBOUNCE_MS)
+        self._pending.timeout.connect(self._start)
+        # While synthesizing: notices the audio starting (the voice manager's
+        # start callback belongs to the chat window) and turns the spinner.
+        self._watch = QTimer(self)
+        self._watch.setInterval(100)
+        self._watch.timeout.connect(self._tick)
+        self.frame = 0
+        self._ended.connect(self._on_ended)
+        self._noticed.connect(self._on_notice)
+
+    # ---------------------------------------------------------------- actions
+
+    def choose(self) -> None:
+        """A voice was chosen: its sample after the debounce (busy meanwhile)."""
+        if self._reply_speaking():
+            return
+        self._abort()
+        self._set("loading", "Synthesizing a sample…")
+        self._pending.start()
+
+    def toggle(self) -> None:
+        """The button: stop (or cancel a sample on its way), else play the current voice."""
+        if self.state != "idle":
+            self.stop()
+            return
+        if self._reply_speaking():
+            return
+        self._abort()
+        self._set("loading", "Synthesizing a sample…")
+        self._start()
+
+    def stop(self) -> None:
+        if self.state == "idle" and not self._pending.isActive():
+            return
+        self._abort()
+        self._set("idle", "")
+
+    # ---------------------------------------------------------------- internals
+
+    def _voice(self) -> Any:
+        try:
+            return self._voice_manager()
+        except Exception:
+            return None
+
+    def _reply_speaking(self) -> bool:
+        """A reply being read aloud is never cut by a sample."""
+        if self.state != "idle":
+            return False  # what speaks is our own sample
+        voice = self._voice()
+        try:
+            busy = bool(voice is not None and (voice.is_speaking() or voice.is_paused()))
+        except Exception:
+            busy = False
+        if busy:
+            self._set("idle", "Not played: a reply is being read aloud. Play the sample once it ends.", tone="warning")
+        return busy
+
+    def _abort(self) -> None:
+        self.run += 1
+        self._pending.stop()
+        if self._dispatched:
+            self._dispatched = False
+            voice = self._voice()
+            try:
+                voice.stop_speaking()
+            except Exception:
+                pass
+
+    def _start(self) -> None:
+        voice = self._voice()
+        if voice is None or not callable(getattr(voice, "speak", None)):
+            self._fail("this build cannot read text aloud")
+            return
+        run = self.run
+        try:
+            accepted = voice.speak(
+                VOICE_SAMPLE_TEXT,
+                callback=lambda: self._ended.emit(run, ""),
+                on_failure=lambda reason: self._ended.emit(run, str(reason or "") or "speech failed"),
+                on_notice=lambda text: self._noticed.emit(run, str(text or "")),
+            )
+        except Exception as exc:
+            self._fail(_reason(exc))
+            return
+        if run != self.run or self.state == "idle":
+            return  # refused synchronously: already said why
+        if not accepted:
+            self._fail("the voice is unavailable")
+            return
+        self._dispatched = True
+
+    def _fail(self, reason: str) -> None:
+        self._dispatched = False
+        text = str(reason or "").strip().rstrip(".")
+        self._set("idle", f"The sample did not play: {text}.", tone="error")
+
+    def _on_ended(self, run: int, reason: str) -> None:
+        if run != self.run or self.state == "idle":
+            return
+        if reason:
+            self._fail(reason)
+            return
+        self._dispatched = False
+        self._set("idle", self.note if self.tone == "warning" else "", tone=self.tone if self.tone == "warning" else "")
+
+    def _on_notice(self, run: int, text: str) -> None:
+        if run == self.run and text and self.state != "idle":
+            self.note, self.tone = text, "warning"
+            self.changed.emit()
+
+    def _tick(self) -> None:
+        self.frame += 1
+        if self.state == "loading" and self._dispatched:
+            voice = self._voice()
+            try:
+                started = bool(voice.is_speaking())
+            except Exception:
+                started = False
+            if started:
+                self._set("playing", "Playing a sample…")
+                return
+        self.changed.emit()
+
+    def _set(self, state: str, note: str, *, tone: str = "") -> None:
+        self.state = state
+        self.note = note
+        self.tone = tone
+        if state == "loading":
+            self._watch.start()
+        elif state == "playing":
+            self._watch.stop()
+        else:
+            self._watch.stop()
+        self.changed.emit()
+
 
 class _CatalogCombo(QComboBox):
     """A list that retries its own fetch when the user opens it — but only when
@@ -251,35 +421,53 @@ class RouteOverrideEditor(QWidget):
         form.addWidget(self.voice_label, 2, 0)
         self.voice_combo = QComboBox()
         self.voice_combo.currentIndexChanged.connect(self._on_voice_combo_changed)
+        # `activated` is the person's choice only (never a programmatic
+        # selection), so opening Settings or loading a route never plays.
+        self.voice_combo.activated.connect(self._on_voice_chosen)
         voice_row = QHBoxLayout()
         voice_row.setContentsMargins(0, 0, 0, 0)
         voice_row.addWidget(self.voice_combo, 1)
+        # Play / stop a sample of the chosen voice (the kit's play-sample toggle).
+        self.voice_sample = VoiceSample(lambda: safe_attr(self._controller, "voice_manager", None), self)
+        self.voice_sample.changed.connect(self._show_voice_sample)
+        self.sample_button = QPushButton("")
+        self.sample_button.setObjectName("secondaryButton")
+        self.sample_button.setAutoDefault(False)
+        self.sample_button.clicked.connect(lambda _checked=False: self._toggle_voice_sample())
+        voice_row.addWidget(self.sample_button)
         # Create a voice (from a description or a recording) through the gateway's voice library.
         self.create_voice_button = QPushButton("Create…")
         self.create_voice_button.setToolTip("Create a voice from a description or a recording")
         self.create_voice_button.clicked.connect(self._open_create_voice)
         voice_row.addWidget(self.create_voice_button)
         form.addLayout(voice_row, 2, 1)
+        # What the sample is doing, in words; hidden (no height) when idle.
+        self.sample_note = QLabel("")
+        self.sample_note.setObjectName("routeHelp")
+        self.sample_note.setWordWrap(True)
+        self.sample_note.hide()
+        form.addWidget(self.sample_note, 3, 1)
+        self._show_voice_sample()
 
         # Reasoning belongs to the model that reasons. It is a property of the
         # chat model, like its provider and its name — not of the page, and not
         # of a voice, image, video, music or sound-effect model, none of which
         # has anything to think about.
         self.reasoning_label = QLabel("Reasoning")
-        form.addWidget(self.reasoning_label, 3, 0)
+        form.addWidget(self.reasoning_label, 4, 0)
         # A combo, not a 7-button ladder: the ladder could not shrink below
         # 508px, which pushed Apply off the screen at the dialog's own default
         # size — and it makes provider/model/reasoning read as one unit.
         self.reasoning_combo = QComboBox()
         self.reasoning_combo.currentIndexChanged.connect(self._on_reasoning_combo_changed)
-        form.addWidget(self.reasoning_combo, 3, 1)
+        form.addWidget(self.reasoning_combo, 4, 1)
         self.reasoning_note = QLabel("")
         self.reasoning_note.setObjectName("routeHelp")
         # One line, elided: the full sentence is three lines of small print and
         # it dominated the form (and ran off the bottom of the page).
         self.reasoning_note.setWordWrap(False)
         self.reasoning_note.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        form.addWidget(self.reasoning_note, 4, 1)
+        form.addWidget(self.reasoning_note, 5, 1)
         self.speculation_label = QLabel("MTP depth")
         self.speculation_combo = QComboBox()
         self.speculation_combo.currentIndexChanged.connect(self._on_speculation_changed)
@@ -287,9 +475,9 @@ class RouteOverrideEditor(QWidget):
         self.speculation_note.setObjectName("routeHelp")
         self.speculation_note.setTextFormat(Qt.PlainText)
         self.speculation_note.setWordWrap(True)
-        form.addWidget(self.speculation_label, 5, 0)
-        form.addWidget(self.speculation_combo, 5, 1)
-        form.addWidget(self.speculation_note, 6, 1)
+        form.addWidget(self.speculation_label, 6, 0)
+        form.addWidget(self.speculation_combo, 6, 1)
+        form.addWidget(self.speculation_note, 7, 1)
 
         # Hidden: the per-run override pins carry provider/model only, so an
         # upscale resolution would be saved and silently ignored.
@@ -305,11 +493,11 @@ class RouteOverrideEditor(QWidget):
         # form (no "Advanced" disclosure, R10.4), shown only for the route it
         # reaches — it rides the chat run only.
         self.base_url_label = QLabel("Provider base URL")
-        form.addWidget(self.base_url_label, 7, 0)
+        form.addWidget(self.base_url_label, 8, 0)
         self.base_url_edit = QLineEdit()
         self.base_url_edit.setPlaceholderText("Optional, e.g. http://localhost:1234/v1 — rides the chat run only")
         self.base_url_edit.editingFinished.connect(self._reload_catalogs_for_base_url)
-        form.addWidget(self.base_url_edit, 7, 1)
+        form.addWidget(self.base_url_edit, 8, 1)
 
         # Raw options JSON is kept as a data field (the voice choice is stored
         # in options.voice) but no longer offered as free text: nothing except
@@ -323,6 +511,13 @@ class RouteOverrideEditor(QWidget):
         self.route_feedback.setWordWrap(True)
         self.route_feedback.setObjectName("feedbackNote")
         right.addWidget(self.route_feedback)
+        # The column stacks from the top. The route list beside it is fixed to
+        # every route's height (ten rows), so on a route with a short form
+        # (Voice output, Voice input, the media routes) the row is taller than
+        # this column; without a trailing stretch the layout handed the surplus
+        # to the title, help and state lines, which opened a gap of ~40px under
+        # each of them and pushed the form down (operator QA 2026-10-28).
+        right.addStretch(1)
 
     def action_buttons(self) -> List[QWidget]:
         """None: a choice applies when it is made.
@@ -470,6 +665,8 @@ class RouteOverrideEditor(QWidget):
             self._set_route_editor_enabled(False)
             return
         self._loaded_row = int(self.route_list.currentRow())
+        # Another route (or this one reloaded): the sample of the old choice ends.
+        self.voice_sample.stop()
         self._loading_route = True
         try:
             # Re-enable on the way IN. `route_list.clear()` inside refresh()
@@ -506,6 +703,7 @@ class RouteOverrideEditor(QWidget):
         self.options_edit.setEnabled(enabled)
         self.voice_combo.setEnabled(enabled)
         self.create_voice_button.setEnabled(enabled)
+        self.sample_button.setEnabled(enabled)
         self.resolution_combo.setEnabled(enabled)
         self.reasoning_combo.setEnabled(enabled)
         self.speculation_combo.setEnabled(enabled)
@@ -670,6 +868,58 @@ class RouteOverrideEditor(QWidget):
         if bool(getattr(self, "_loading_route", False)):
             return
         self._apply_selection()
+
+    def _on_voice_chosen(self, _index: int) -> None:
+        """The person picked a voice: hear it, as the kit's picker does.
+
+        Only once the choice is what the next speech uses (saved, and pushed
+        to the voice manager by the controller): a choice that could not be
+        saved plays nothing, rather than a sample of the previous voice.
+        """
+        row = self._active_row()
+        if row is None or row.key != "output.voice":
+            return
+        chosen = str(self.voice_combo.currentData() or "").strip()
+        saved = str((row.options or {}).get("voice") or (row.options or {}).get("profile") or "").strip()
+        if chosen != saved:
+            self.voice_sample.stop()
+            return
+        self.voice_sample.choose()
+
+    def _toggle_voice_sample(self) -> None:
+        self.voice_sample.toggle()
+
+    def _show_voice_sample(self) -> None:
+        sample = self.voice_sample
+        button = self.sample_button
+        if sample.state == "playing":
+            button.setIcon(symbol_icon("stop", color=THEME.text_secondary, size=14))
+            button.setToolTip("Stop")
+            button.setAccessibleName("Stop the sample")
+        elif sample.state == "loading":
+            button.setIcon(symbol_icon(f"spinner{sample.frame % 8}", color=THEME.text_secondary, size=14))
+            button.setToolTip("Synthesizing… (click to cancel)")
+            button.setAccessibleName("Cancel the sample")
+        else:
+            button.setIcon(symbol_icon("play", color=THEME.text_secondary, size=14))
+            button.setToolTip("Play a sample")
+            button.setAccessibleName("Play a sample of this voice")
+        button.setProperty("sampleState", sample.state)
+        note = self.sample_note
+        note.setText(sample.note)
+        note.setProperty("tone", sample.tone)
+        note.style().unpolish(note)
+        note.style().polish(note)
+        note.setVisible(bool(sample.note) and self.voice_combo.isVisibleTo(self))
+
+    def hideEvent(self, event) -> None:  # noqa: N802 (Qt API)
+        # Leaving the page (another tab, Settings closed) ends the sample, as
+        # the kit's section does when it unmounts. (Also reached while Qt
+        # tears the widget down, when the Python attributes may be gone.)
+        sample = getattr(self, "voice_sample", None)
+        if sample is not None:
+            sample.stop()
+        super().hideEvent(event)
 
     def _refresh_models_for_provider(self, *, row: Optional[CapabilityRouteRow] = None) -> None:
         active = row if row is not None else self._active_row()
@@ -1060,6 +1310,10 @@ class RouteOverrideEditor(QWidget):
         self.voice_label.setVisible(is_voice)
         self.voice_combo.setVisible(is_voice)
         self.create_voice_button.setVisible(is_voice)
+        self.sample_button.setVisible(is_voice)
+        if not is_voice:
+            self.voice_sample.stop()
+        self._show_voice_sample()
         if is_voice:
             self._refresh_voice_choices()
 

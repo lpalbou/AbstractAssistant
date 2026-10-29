@@ -7,6 +7,31 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Changed
 
+- **The web app's account is the kit's ONE account widget** (operator ruling 2026-10-29: the docs button, Appearance,
+  About and the account are the same kit components in every app). The browser app already composed its header from
+  the kit (`AfAppShell`: Docs assistant, Appearance, About, `identity: "menu"`); on ui-kit 0.9.5 the signed-in account
+  was an identity menu beside a Disconnect pill. ui-kit 0.9.6 (pinned here, was 0.9.5) renders one button with the
+  person icon, the name and the connection light, its menu holding Signed in as, Gateway, Copy user id and Disconnect.
+  Test: `web/src/top_bar_set.test.tsx`.
+
+### Fixed
+
+- **Settings stack from the top on every tab** (operator QA 2026-10-28; backlog 1076). On Models → Voice output
+  (TTS), Voice input and the media routes, the route form no longer opens a ~40 px gap under its title, help and
+  state lines: the route list beside it is as tall as its ten routes and the form column now ends in a stretch
+  instead of handing the surplus to its labels. `test_no_settings_section_claims_empty_height` checks every tab and
+  every route.
+
+### Added
+
+- **Choosing a voice plays it** (backlog 1076). Settings → Models → Voice output: picking a voice plays a short
+  sample through the desktop's own speech path with the voice just chosen; a play/stop button beside the list
+  replays or stops it; a newer choice stops the older sample; "Synthesizing a sample…", "Playing a sample…" and
+  "The sample did not play: <reason>." say what happens. Nothing plays when Settings opens, and a reply being read
+  aloud is never cut by a sample (the kit's voice picker, AbstractUIC `AfVoiceSection`).
+
+### Changed
+
 - **Tool approvals read as sentences, never JSON** (operator QA 2026-10-29, kit backlog 0068).
   - The automation approval card listed `fetch_url {"include_full_content": false, …}`.
   - It now reads "Fetch the page fda.gov/news-events/…/public-meeting-10282026 (summary only, without links)": the
@@ -85,6 +110,21 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   button) from the start; it was computed for the full width, and the card claimed more height than it was given
   until the next layout pass.
 - The web Assistant builds with `@abstractframework/panel-chat` 0.6.4 (was 0.6.3; ui-kit stays 0.9.5, app-server 0.1.13). From the kit: a message's stamp carries the date when it is not from today ("Yesterday · 10:52 PM", "Oct 21 · 10:52 PM"; the full date on hover), the speaker stays on every assistant message while the voice is available (disabled with its reason while a reply is still being written), and the "files changed" chip opens the same structured detail as the tokens, tools and time chips (AbstractUIC backlog 0064, the message footer spec). The desktop mirrors the spec natively (alignment tracked separately).
+
+### Fixed
+
+- **The attention badge opens at what needs you** (operator 2026-10-29, backlog 1082). Clicking it opened the
+  automation at the top of its conversation, with the approval card out of view. It now scrolls to the waiting card
+  of that run (else the first unresolved wait, else the first new result) and outlines it for a moment. The
+  approval card's tool lines use the standard text colour instead of the dimmed one, so they read well on the dark
+  card.
+- **Message stamps in the kit's words** (backlog 1076 §3, split from #20). The stamps follow AbstractUIC panel-chat's
+  `formatMessageStamp`, which the web Assistant uses since panel-chat 0.6.4:
+  - "Yesterday · 10:52 PM";
+  - "Oct 1 · 10:52 PM", with no zero-padded day;
+  - "Oct 21, 2025 · 10:52 PM" for another year;
+  - a bare date as its day alone;
+  - no stamp at all for a malformed timestamp, never the raw text.
 
 ## [0.16.5] - 2026-10-28
 

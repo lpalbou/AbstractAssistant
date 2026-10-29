@@ -842,6 +842,38 @@ def test_open_goes_to_the_new_result_and_marks_it(palette, stub) -> None:
 
 
 @pytest.mark.basic
+def test_the_badge_opens_at_the_item_that_needs_the_person(palette, stub) -> None:
+    """Operator 2026-10-29: "if I click an attention icon, I should get directly to where you need
+    my attention" (it opened at the top, the approval card out of view). The badge scrolls to the
+    first unresolved wait (here run #7's approval card, below the new results) and outlines it for
+    a moment; the approval card's words use the standard text style, not the dimmed meta style."""
+    from PyQt5.QtCore import QPoint
+    from PyQt5.QtTest import QTest
+    from PyQt5.QtWidgets import QLabel
+
+    window, _controller = palette
+    window.resize(720, 520)
+    window._poll_automations()
+    window._open_attention("")
+    view = window.automation_view
+    assert window._automation_view_id == TRIAGE
+    waiting = [p for p in view.pairs if p.wait_inputs]
+    assert waiting and waiting[0].index == 7
+    note = waiting[0].note
+    assert view.attention_widget() is note
+    QTest.qWait(250)
+    assert note.property("attentionFocus") == "true", "the waiting card is outlined"
+    viewport = view.scroll.viewport()
+    top = note.mapTo(viewport, QPoint(0, 0)).y()
+    assert 0 <= top < viewport.height(), f"the waiting card is in view (top {top}, viewport {viewport.height()})"
+    # Readable on the dark card: each tool call line uses the standard text style (not the dimmed meta).
+    calls = [w for w in note.findChildren(QLabel) if w.toolTip() and w.accessibleName()]
+    assert calls and all(w.objectName() == "autoTurnText" for w in calls), [(w.toolTip(), w.objectName()) for w in calls]
+    # A focus run that is not waiting falls back to the first unresolved wait.
+    assert view.attention_widget("no-such-run") is note
+
+
+@pytest.mark.basic
 def test_run_now_while_paused_and_archive_confirmed_in_the_palette(palette, stub) -> None:
     window, _controller = palette
     window._poll_automations()
