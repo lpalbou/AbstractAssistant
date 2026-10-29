@@ -91,7 +91,7 @@ struct ConversationToolsScreen: View {
                         Toggle(scope == .settings ? "Use gateway defaults" : "Use Settings defaults", isOn: $inherit)
                             .tint(PhoneTheme.mint).accessibilityIdentifier("tools.defaults")
                     } header: { Text(scopeTitle).textCase(nil) }
-                    footer: { if !searching { Text(scopeHelp + " Off blocks · Auto runs · Approve asks.") } }
+                    footer: { if !searching { Text(scopeHelp + " Off blocks · Auto runs · Ask waits for you.") } }
                         .listRowBackground(PhoneTheme.surface)
                     ForEach(groups) { group in
                         Section {

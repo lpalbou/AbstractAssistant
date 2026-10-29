@@ -52,7 +52,7 @@ public extension ToolInfo {
     var displayName: String { name.replacingOccurrences(of: "_", with: " ").capitalized }
 }
 
-/// The iPhone's words for a tool's mode (the watch says Ask).
+/// The iPhone's words for a tool's mode: the kit's Off / Ask / Auto (the watch and the desktop say the same).
 public extension ToolMode {
-    var label: String { switch self { case .off: "Off"; case .auto: "Auto"; case .ask: "Approve" } }
+    var label: String { switch self { case .off: "Off"; case .auto: "Auto"; case .ask: "Ask" } }
 }
