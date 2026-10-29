@@ -6868,7 +6868,9 @@ class AssistantPalette(QMainWindow):
         aid = target if kind == "result" else automation_of_session(target.session_id)
         if aid:
             self.show_palette()
-            self._open_automation(aid)
+            # Straight to what needs the person: the waiting card of that run, else the first
+            # unresolved wait or new result, scrolled into view and outlined (operator 2026-10-29).
+            self._open_automation(aid, where="attention", focus_run=(target.run_id if kind == "wait" else ""))
             return
         wait = target
         controller = self._state("_controller")
@@ -7005,9 +7007,11 @@ class AssistantPalette(QMainWindow):
 
         self._automations.command(str(automation_id), str(control), done)
 
-    def _open_automation(self, automation_id: str, where: str = "latest") -> None:
+    def _open_automation(self, automation_id: str, where: str = "latest", focus_run: str = "") -> None:
         """Open an automation in the palette; ``where`` = "latest" (scrolled to
-        the last run) or "top" (its first run)."""
+        the last run), "top" (its first run) or "attention" (the attention badge: the run
+        ``focus_run``'s waiting card, else the first unresolved wait or new result, in view
+        and outlined)."""
         aid = str(automation_id or "").strip()
         summary = self._automations.summary(aid)
         if summary is None:
@@ -7085,6 +7089,8 @@ class AssistantPalette(QMainWindow):
             view.set_occurrences(value.get("items") or [], next_cursor=value.get("next_cursor"))
             if where == "top":
                 view.scroll.verticalScrollBar().setValue(0)
+            elif where == "attention" and view.scroll_to_attention(focus_run):
+                pass
             elif not view.scroll_to_first_new():
                 view.scroll_to_latest()
             # Viewing acknowledges the attention items the view DISPLAYED.
