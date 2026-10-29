@@ -57,7 +57,9 @@ conversation: its runs are the messages (what its trigger sent, then the answer)
 run in progress and speaks its answer, and talking there opens a conversation about it (its own runs
 never read it). Its details sit behind (i), where a conversation has its tools: when it runs, Run,
 and Edit (its title and task apart; Active and how often; whether it builds on its earlier runs and
-how much of them it reads, in tokens); once read, a page opens at once. Every screen shows a spinner until
+how much of them it reads, in tokens); once read, a page opens at once. Run answers the tap at once
+(a haptic, a spinner, "Starting…" then "Running…" with the time) and, once your gateway has started
+the run, goes back to the orb page, which follows that run to its answer. Every screen shows a spinner until
 its information is in, and an error only once reading it has failed several times.
 
 **Get answers while away.** An answer that arrives after you left the app comes as a notification.

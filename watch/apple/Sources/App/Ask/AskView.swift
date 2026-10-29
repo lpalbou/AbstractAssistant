@@ -1058,6 +1058,17 @@ struct AskView: View {
     private func checkAutomationRun(_ a: AutomationFeed) async {
         guard automationFeed === a, phase != .listening, phase != .thinking else { return }
         let mine = turn
+        // Run on its details handed over the run it saw start: followed at once (its message after).
+        if let handed = model.startedRuns.removeValue(forKey: a.id), Date().timeIntervalSince(handed.since) < 600 {
+            let run = handed.runId
+            guard run != stoppedRun, exchanges.first(where: { $0.id == run })?.answer.isEmpty != false else { return }
+            followAutomationRun(run, prompt: "", since: handed.since)
+            let sent = (try? await model.client.prompt(ofRun: run)) ?? nil
+            guard let sent, !sent.isEmpty, runId == run else { return }
+            if phase == .thinking { prompt = sent }
+            if let i = exchanges.firstIndex(where: { $0.id == run }), exchanges[i].prompt.isEmpty { exchanges[i].prompt = sent }
+            return
+        }
         let starting = model.automations.first { $0.id == a.id }?.currentOccurrence != nil || a.automation.currentOccurrence != nil
         let found = starting ? await a.liveRun(model) : await a.refresh(model)
         guard !Task.isCancelled, mine == turn else { return }
@@ -1071,12 +1082,19 @@ struct AskView: View {
               exchanges.first(where: { $0.id == run })?.answer.isEmpty != false else { return }
         let sent = (try? await model.client.prompt(ofRun: run)) ?? nil
         guard !Task.isCancelled, mine == turn, phase != .listening, phase != .thinking else { return }
+        followAutomationRun(run, prompt: sent ?? "")          // never another run's message
+    }
+
+    /// Follows a run of the automation on this page: its message, its steps under the orb (timed
+    /// from `since`), then its answer.
+    private func followAutomationRun(_ run: String, prompt sent: String, since: Date = Date()) {
         speaker.stop()
         liveRuns.insert(run)
-        liveWhen = AutomationInfoView.short(ISO8601DateFormatter().string(from: Date()))
+        liveWhen = AutomationInfoView.short(ISO8601DateFormatter().string(from: since))
         runId = run
-        prompt = sent ?? ""                                   // never another run's message
+        prompt = sent
         note = nil; error = nil
+        if activity.runId != run { activity.start(runId: run, client: model.client, since: since) }
         resumeFollowing(run)
     }
 
@@ -1087,6 +1105,8 @@ struct AskView: View {
         guard let a = automationFeed else { return }
         while !opened, !Task.isCancelled { try? await Task.sleep(for: .milliseconds(300)) }
         guard !Task.isCancelled else { return }                                // replaced by the page's next appearance
+        // A run handed over by Run on its details is followed first: the page's reading waits for it.
+        if model.startedRuns[a.id] != nil, scenePhase == .active { await checkAutomationRun(a) }
         if !automationRead { await finishAutomation(a) }                       // the first opening was cut short
         while !Task.isCancelled {
             if scenePhase == .active { await checkAutomationRun(a) }

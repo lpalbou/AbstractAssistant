@@ -20,7 +20,7 @@ ARGS=(-project ../../phone/iphone/AbstractAssistant.xcodeproj -scheme AbstractAs
       -destination "platform=watchOS Simulator,id=$SIM" -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO)
 T=AbstractAssistantWatchUITests
 if [[ $MODE == light ]]; then
-  for c in CornerButtonUITests BrowserNavigationUITests AutomationConversationUITests NewConversationToolsUITests \
+  for c in CornerButtonUITests BrowserNavigationUITests AutomationConversationUITests RunFeedbackUITests NewConversationToolsUITests \
            SendNowUITests StopVoiceUITests "$@"; do ARGS+=(-only-testing:$T/$c); done
 else
   for c in LiveActivityUITests LiveEditUITests LiveHistoryUITests LiveHomeUITests LiveMediaUITests AskStatusUITests; do

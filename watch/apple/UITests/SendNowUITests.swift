@@ -6,7 +6,8 @@ import XCTest
 final class SendNowUITests: XCTestCase {
     func testSendEndsTheListeningNow() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["--mock", "--no-notification-prompt", "--fresh-conversation", "--screen", "ask", "--test-listen"]
+        // `--silent-mic`: the room's noise through the Mac's microphone is never taken for speech.
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--fresh-conversation", "--screen", "ask", "--test-listen", "--silent-mic"]
         app.launch()
         let listening = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Listening")).firstMatch
         XCTAssertTrue(listening.waitForExistence(timeout: 20), app.debugDescription)

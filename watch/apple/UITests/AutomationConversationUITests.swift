@@ -112,6 +112,43 @@ final class NewConversationToolsUITests: XCTestCase {
     }
 }
 
+/// Run on an automation's details answers the tap at once: a spinner on the button and a
+/// "Starting…" line with the time, the details kept until the gateway has the run (4 s here,
+/// as a command over the watch's radio), then the orb page following that run.
+final class RunFeedbackUITests: XCTestCase {
+    private func shot(_ name: String) {
+        guard let dir = ProcessInfo.processInfo.environment["SHOTS_DIR"] else { return }
+        try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent(name + ".png"))
+    }
+
+    func testRunShowsItIsStartingThenFollowsTheRun() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--orb-design", "A", "--screen", "automation-info", "--slow-run"]
+        app.launch()
+        let run = app.buttons["automation.run"].firstMatch
+        XCTAssertTrue(run.waitForExistence(timeout: 10), app.debugDescription)
+        sleep(1)                                                            // the page has slid in
+        XCTAssertFalse(app.descendants(matching: .any)["automation.starting"].exists, "a starting line before any tap")
+        run.tap()
+        // At once: the line saying it is starting, the button saying so (its spinner), still the details.
+        let line = app.descendants(matching: .any)["automation.starting"].firstMatch
+        XCTAssertTrue(line.waitForExistence(timeout: 1), "the tap on Run shows nothing:\n\(app.debugDescription)")
+        XCTAssertTrue(line.label.hasPrefix("Starting…"), "not saying it is starting: \(line.label)")
+        XCTAssertEqual(app.buttons["automation.run"].firstMatch.label, "Starting the run")
+        shot("r1-starting")
+        XCTAssertTrue(app.descendants(matching: .any)["automation.title"].exists, "left the details before the gateway had the run")
+        XCTAssertFalse(app.buttons["ask.stop"].exists, "on the orb page before the gateway had the run")
+        // Accepted: the orb page follows that run (Stop while it works), the details gone.
+        XCTAssertTrue(app.buttons["ask.stop"].waitForExistence(timeout: 10), "the run is not followed on the orb page:\n\(app.debugDescription)")
+        XCTAssertFalse(app.descendants(matching: .any)["automation.title"].exists, "still on the details")
+        XCTAssertTrue(app.descendants(matching: .any)["activity.panel"].firstMatch.exists, "no steps under the orb")
+        shot("r2-following")
+        let answer = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Digest 42'")).firstMatch
+        XCTAssertTrue(answer.waitForExistence(timeout: 40), "the run's answer did not come:\n\(app.debugDescription)")
+        shot("r3-answer")
+    }
+}
+
 /// An automation's page shows its latest run at once while its runs are read.
 /// Its details, back after a Run, say it is running (Stop).
 final class AutomationLoadingUITests: XCTestCase {
