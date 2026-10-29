@@ -100,6 +100,7 @@ from ..core.automations import (
     tool_approval_line,
     tool_mode_changes,
 )
+from ..core.tool_call_words import describe_tool_call, group_tool_calls
 from ..gateway.automations import AutomationApiError, AutomationsClient
 from ..gateway.client import WAIT_KINDS
 from ..icons import symbol_icon
@@ -620,6 +621,30 @@ def _button(text: str, name: str = "autoControl", *, parent: Optional[QWidget] =
 NOTIFY_UNAVAILABLE_REASON = "Connect a mailbox first."
 
 
+def _tool_call_label(call: Mapping[str, Any], *, parent: QWidget) -> QLabel:
+    """One tool call as a sentence (the kit's words): the verb as a tinted chip-like word, the key
+    argument bold, the options muted; a tool without a template shows "Key: value" lines."""
+    import html as _h
+
+    w = describe_tool_call(call)
+    verb = f'<span style="color:{THEME.accent_text}; font-weight:650">{_h.escape(w.verb)}</span>'
+    if w.fallback is not None:
+        lines = "<br>".join(f'<span style="color:{THEME.text_muted}">{_h.escape(f["label"])}:</span> {_h.escape(f["value"])}' for f in w.fallback)
+        body = f"{verb}<br>{lines}" if lines else verb
+    else:
+        key = f"<b>{_h.escape(w.key)}</b>" if w.key else ""
+        opts = f' <span style="color:{THEME.text_muted}">({_h.escape(", ".join(w.details))})</span>' if w.details else ""
+        body = " ".join(x for x in (verb, _h.escape(w.lead), key) if x) + opts
+    label = QLabel(body, parent)
+    label.setObjectName("autoTurnMeta")
+    label.setTextFormat(Qt.RichText)
+    label.setWordWrap(True)
+    label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+    label.setToolTip(str(call.get("name") or ""))
+    label.setAccessibleName(w.sentence)
+    return label
+
+
 def _text_label(text: str, name: str, *, parent: QWidget, tone: str = "") -> QLabel:
     label = QLabel(text, parent)
     label.setObjectName(name)
@@ -883,11 +908,13 @@ class OccurrencePair(QWidget):
             calls = wait.get("details") if isinstance(wait.get("details"), list) else []
             if not calls:
                 bl.addWidget(_text_label("The gateway did not list the tool calls to approve.", "autoTurnMeta", parent=box))
-            for call in calls:
-                if isinstance(call, Mapping):
-                    args = call.get("arguments")
-                    preview = _clip(json.dumps(args, ensure_ascii=False, sort_keys=True) if args is not None else "", 200)
-                    bl.addWidget(_text_label(f"• {call.get('name') or 'tool'} {preview}".rstrip(), "autoTurnMeta", parent=box))
+            # Each call in words (kit 0068, `tool_call_words.ts`): the verb, the key argument in
+            # bold, the options muted; never the raw JSON arguments (operator QA 2026-10-29).
+            listed = [c for c in calls if isinstance(c, Mapping)]
+            if len(listed) > 1:
+                bl.addWidget(_text_label(group_tool_calls(listed), "autoTurnMeta", parent=box))
+            for call in listed:
+                bl.addWidget(_tool_call_label(call, parent=box))
             buttons = QHBoxLayout()
             approve = _button("Approve", "autoPrimary", parent=box)
             deny = _button("Deny", "autoControl", parent=box)

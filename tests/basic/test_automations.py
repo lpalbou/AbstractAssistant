@@ -1420,7 +1420,9 @@ def test_a_tool_approval_wait_lists_its_calls_and_answers_approved(palette, stub
     window._open_automation(TRIAGE)
     pair = next(p for p in window.automation_view.pairs if p.index == 7)
     texts = [w.text() for w in pair.answer.findChildren(QLabel)]
-    assert any("send_email" in t and "clara@example.com" in t for t in texts), texts
+    # The call in words (kit 0068): the verb and the recipient, never the raw JSON arguments.
+    assert any(">Email</span>" in t and "<b>clara@example.com</b>" in t for t in texts), texts
+    assert not any("{" in t for t in texts), "no JSON arguments on the card"
     entry = next(e for e in pair.wait_inputs if e["kind"] == "tool_approval")
     assert entry["edit"] is None, "an approval is Approve / Deny, never free text"
     entry["approve"].click()

@@ -7,6 +7,14 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Changed
 
+- **Tool approvals read as sentences, never JSON** (operator QA 2026-10-29, kit backlog 0068).
+  - The automation approval card listed `fetch_url {"include_full_content": false, …}`.
+  - It now reads "Fetch the page fda.gov/news-events/…/public-meeting-10282026 (summary only, without links)": the
+    verb tinted, the key argument bold, the options muted. Repeated tools are counted ("2 web searches, 2 page
+    fetches").
+  - A tool without a template shows "Key: value" lines.
+  - The words are the kit's: `core/tool_call_words.py`, checked against the kit's shared cases
+    (`assets/tool_call_words.cases.json`).
 - **The automation editor is a sheet with sections** (operator QA 2026-10-29, backlog 1080).
   - The inline Edit form overlapped the conversation, and its rows were cut and stacked. The workflow showed as
     `basic-agent@0.0.5:81795ea9`.
