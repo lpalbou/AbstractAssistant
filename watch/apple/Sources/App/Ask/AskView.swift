@@ -667,8 +667,9 @@ struct AskView: View {
                 guard mine == turn else { return }
                 transcribing = false; phase = back
                 kept = retrying ? KeptQuestion.url : KeptQuestion.keep(wav)
-                // Kept: the line under the orb says it, with Retry and Discard.
-                self.error = kept == nil ? "I couldn't hear that." : nil
+                // Keeping the recording must not hide why it could not be sent.
+                // Retry and Discard stay available alongside the actionable error.
+                self.error = Self.human(error)
                 note = nil
                 RuntimeKeeper.shared.release("ask")
             }

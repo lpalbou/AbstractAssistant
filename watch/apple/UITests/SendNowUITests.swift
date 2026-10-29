@@ -53,6 +53,13 @@ final class HomeOrbNewConversationUITests: XCTestCase {
 /// recording is gone), Discard deletes it. `--test-fail-send` opens the orb on a question just
 /// recorded (sample audio) and makes every send fail while the app runs. Sample data.
 final class KeptQuestionUITests: XCTestCase {
+    func testAFailedQuestionShowsItsConnectionFailureAndKeepsRetry() throws {
+        let app = launch(failing: true)
+        XCTAssertTrue(app.buttons["ask.retry"].waitForExistence(timeout: 20), app.debugDescription)
+        XCTAssertTrue(app.buttons["ask.discard"].exists)
+        XCTAssertEqual(app.staticTexts["ask.status"].label, "No connection.")
+    }
+
     private func shot(_ name: String) {
         guard let dir = ProcessInfo.processInfo.environment["SHOTS_DIR"] else { return }
         try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent(name + ".png"))
@@ -67,20 +74,20 @@ final class KeptQuestionUITests: XCTestCase {
     }
 
     /// The failure state: the line and both actions, under the orb.
-    private func assertKept(_ app: XCUIApplication, _ why: String) {
+    private func assertKept(_ app: XCUIApplication, _ why: String, status: String = "Not sent.") {
         XCTAssertTrue(app.buttons["ask.retry"].waitForExistence(timeout: 20), "\(why): no Retry\n\(app.debugDescription)")
         XCTAssertTrue(app.buttons["ask.discard"].exists, "\(why): no Discard")
-        XCTAssertEqual(app.staticTexts["ask.status"].label, "Not sent.", why)
+        XCTAssertEqual(app.staticTexts["ask.status"].label, status, why)
     }
 
     func testAFailedQuestionIsKeptAcrossARelaunchAndRetrySendsIt() throws {
         var app = launch(failing: true)
-        assertKept(app, "a failed send")
+        assertKept(app, "a failed send", status: "No connection.")
         shot("kept-1-failed")
         // Retry while sending still fails: the recording stays.
         app.buttons["ask.retry"].tap()
         XCTAssertTrue(app.buttons["ask.retry"].waitForNonExistence(timeout: 3), "Retry did not send")
-        assertKept(app, "a failed retry")
+        assertKept(app, "a failed retry", status: "No connection.")
         app.terminate()
 
         // Relaunched, sending works again: still offered, and Retry sends it.
@@ -104,7 +111,7 @@ final class KeptQuestionUITests: XCTestCase {
 
     func testDiscardDeletesTheKeptRecording() throws {
         var app = launch(failing: true)
-        assertKept(app, "a failed send")
+        assertKept(app, "a failed send", status: "No connection.")
         app.buttons["ask.discard"].tap()
         XCTAssertTrue(app.buttons["ask.retry"].waitForNonExistence(timeout: 3), "Discard left Retry")
         XCTAssertFalse(app.buttons["ask.discard"].exists)
