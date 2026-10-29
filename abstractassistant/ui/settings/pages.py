@@ -1349,6 +1349,15 @@ _TOOLSET_ICONS = {
 TOOL_MODE_LABELS = {"off": "Off", "ask": "Ask", "auto": "Auto", "on": "On"}
 _TOOL_WIRE = {"off": "disabled", "ask": "ask", "auto": "approve"}
 TOOL_ROW_MODES = [(_TOOL_WIRE[m], TOOL_MODE_LABELS[m]) for m in ("off", "ask", "auto")]
+# An automation's per-tool modes (the editor's tools dialog): kit words <-> this page's wire values.
+def tool_mode_to_wire(mode: str) -> str:
+    return _TOOL_WIRE.get(str(mode or "off"), "disabled")
+
+
+def tool_mode_from_wire(wire: str) -> str:
+    return {wire_value: mode for mode, wire_value in _TOOL_WIRE.items()}.get(str(wire or ""), "off")
+
+
 # The automation tool picker: the kit's allow-list mode (Off / On).
 TOOL_ALLOW_LIST_MODES = [("disabled", TOOL_MODE_LABELS["off"]), ("ask", TOOL_MODE_LABELS["on"])]
 _TOOL_LABEL_BY_WIRE = {wire: label for wire, label in TOOL_ROW_MODES}
@@ -1486,11 +1495,19 @@ class ToolsPage(SettingsPage):
     subtitle = "How this Mac handles tool requests before they reach the gateway. Off and Ask narrow what the gateway allows; Auto pre-approves a tool even where the gateway would ask. Risk tiers come from the gateway."
     icon = "shield"
     selection_saved = pyqtSignal(object)
+    #: modes_only: {tool name: wire mode} on "Use these tools".
+    modes_saved = pyqtSignal(object)
 
-    def __init__(self, controller: Any, parent: Optional[QWidget] = None, *, selection_only: bool = False) -> None:
-        self.selection_only = selection_only
+    def __init__(self, controller: Any, parent: Optional[QWidget] = None, *, selection_only: bool = False, modes_only: bool = False) -> None:
+        # modes_only (the automation editor): Off / Ask / Auto per tool for ONE automation; nothing
+        # is stored on this Mac, the dialog hands its modes back ("Use these tools").
+        self.modes_only = modes_only
+        self.selection_only = selection_only or modes_only
         super().__init__(controller, parent)
-        if selection_only:
+        if modes_only:
+            self.title_label.setText("Tools")
+            self.subtitle_label.setText("Off, Ask or Auto for each tool, for this automation only.")
+        elif selection_only:
             self.title_label.setText("Tools")
             self.subtitle_label.setText("Choose the tools available to this automation. Its approval setting controls when they may run.")
         self._rows: Dict[str, Dict[str, Any]] = {}
@@ -1520,7 +1537,9 @@ class ToolsPage(SettingsPage):
         # automation tool picker (selection_only) keeps its one dialog action.
         self.reset_button = button("Use gateway defaults", "secondary", tooltip="Set every tool back to the gateway's own approval default", on_click=self._reset_defaults)
         self.save_button_tools = button("Use selection", "primary", on_click=self._save)
-        if selection_only:
+        if self.selection_only:
+            if modes_only:
+                self.save_button_tools.setText("Use these tools")
             self.add_actions(self.save_button_tools)
             self.mode_note.hide()
         else:
@@ -1585,7 +1604,7 @@ class ToolsPage(SettingsPage):
         self._apply_filter()
 
     def _build_group(self, toolset: str, items: List[dict]) -> _ToolGroup:
-        group = _ToolGroup(toolset, len(items), modes=TOOL_ALLOW_LIST_MODES if self.selection_only else TOOL_ROW_MODES)
+        group = _ToolGroup(toolset, len(items), modes=TOOL_ALLOW_LIST_MODES if self.selection_only and not self.modes_only else TOOL_ROW_MODES)
         card = group.body
         group.mode.changed.connect(lambda value, t=toolset: self._set_group(t, value))
         group.toggle.clicked.connect(lambda checked, t=toolset: self._open_choice.__setitem__(t, bool(checked)))
@@ -1625,7 +1644,7 @@ class ToolsPage(SettingsPage):
                 # page and the automation picker alike.
                 served = str(item.get("why_disabled") or "").strip()
                 why = f"Not offered by the gateway: {served}" if served else "Not offered by the gateway."
-            if self.selection_only:
+            if self.selection_only and not self.modes_only:
                 control = SegmentedControl(TOOL_ALLOW_LIST_MODES)
                 control.set_tooltips(_ALLOW_LIST_TIPS)
                 control.set_value("disabled" if item.get("selected_mode") == "disabled" else "ask")
@@ -1638,7 +1657,7 @@ class ToolsPage(SettingsPage):
                         for wire, tip in _TOOL_MODE_TIPS.items()
                     }
                 )
-                if available:
+                if available or (self.modes_only and item.get("selected_mode") not in (None, "disabled")):
                     control.set_value(str(item.get("selected_mode") or default))
                     control.changed.connect(lambda value, n=name: self._on_tool_changed(n, value))
                 else:
@@ -1841,6 +1860,10 @@ class ToolsPage(SettingsPage):
         info = self._rows.get(name)
         if info is None:
             return
+        if self.modes_only:
+            self._sync_default_chip(name)
+            self._sync_group_state(info["toolset"])
+            return
         if self._persist([name]):
             self.say("Saved on this device.")
         self._sync_default_chip(name)
@@ -1938,6 +1961,9 @@ class ToolsPage(SettingsPage):
     def _save(self) -> None:
         if not self._rows:
             self.say("Nothing to choose: the gateway reported no tools.", tone="warning")
+            return
+        if self.modes_only:
+            self.modes_saved.emit({name: str(info["control"].value() or "disabled") for name, info in self._rows.items()})
             return
         if self.selection_only:
             self.selection_saved.emit([name for name, info in self._rows.items() if info["control"].value() != "disabled"])

@@ -149,7 +149,7 @@ def test_the_workflow_picker_lists_gateway_default_first_and_keeps_a_pinned_targ
     assert combo.retargeted() is True and combo.currentData() == {"flow_id": "@default", "interface": "abstractassistant.agent.v1"}
     # A target the catalog no longer lists stays as its own row.
     combo.set_workflows(MENU, {"bundle_ref": "gone@2", "flow_id": "x"})
-    assert combo.currentText() == "gone@2:x" and combo.retargeted() is False
+    assert combo.currentText() == "gone 2" and combo.retargeted() is False  # readable name, no flow digest (ADR 0043)
     # The gateway default target selects the first row.
     combo.set_workflows(MENU, {"flow_id": "@default", "interface": "abstractassistant.agent.v1"})
     assert combo.currentIndex() == 0 and combo.retargeted() is False

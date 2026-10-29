@@ -7310,11 +7310,50 @@ class AssistantPalette(QMainWindow):
                 self.automation_view.set_error(str(target))
                 return
             revised = {**changes, "target": target} if target is not None else changes
-            self._automations.revise(summary, revised, self._automation_call_done("Saved; applies from the next run."))
+            saved = self._automation_call_done("Saved; applies from the next run.")
+            modes = self.automation_view.edit_modes if "policy" in revised else None
+
+            def done(ok: bool, value: Any) -> None:
+                saved(ok, value)
+                if ok and isinstance(modes, dict):
+                    self._resume_waits_set_to_auto(summary, modes)
+
+            self._automations.revise(summary, revised, done)
         if changes.get("target") and self.automation_view.edit_workflow.retargeted():
             self._automations.run(lambda: self._prepare_automation_target(changes["target"]), ready)
         else:
             ready(True, None)
+
+    def _resume_waits_set_to_auto(self, summary: Dict[str, Any], modes: Dict[str, str]) -> None:
+        """Saved tools: a run waiting to approve calls whose every tool is now Auto continues
+        without another click (setting them to Auto IS the approval); one still waiting says which
+        tools keep it waiting (operator QA 2026-10-29)."""
+        from .core.automations import waits_cleared_by_modes
+
+        resume, still = waits_cleared_by_modes(summary, modes)
+        view = self.automation_view
+        controller = self._controller
+        if still:
+            tools = sorted({name for _wait, names in still for name in names})
+            runs = "1 run still waits" if len(still) == 1 else f"{len(still)} runs still wait"
+            view.set_notice(f"Saved. {runs}: {', '.join(tools)} {'is' if len(tools) == 1 else 'are'} on Ask.")
+        if not resume:
+            return
+
+        def work() -> int:
+            for wait in resume:
+                controller.answer_wait(run_id=str(wait.get("run_id") or ""), wait_key=str(wait.get("wait_key") or ""), kind="tool_approval", answer=True)
+            return len(resume)
+
+        def done(ok: bool, value: Any) -> None:
+            if not ok:
+                view.set_error(f"Saved, but the waiting run could not be continued ({value}). Approve it from its card.")
+                return
+            count = int(value or 0)
+            view.set_notice("Saved. The waiting run continues." if count == 1 else f"Saved. {count} waiting runs continue.")
+            self._reload_open_automation()
+
+        self._automations.run(work, done)
 
     def _prepare_automation_target(self, target: Dict[str, Any]) -> Dict[str, Any]:
         from .core.automations import prepare_workflow_input
