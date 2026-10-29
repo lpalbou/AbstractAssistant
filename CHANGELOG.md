@@ -102,6 +102,15 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   until the next layout pass.
 - The web Assistant builds with `@abstractframework/panel-chat` 0.6.4 (was 0.6.3; ui-kit stays 0.9.5, app-server 0.1.13). From the kit: a message's stamp carries the date when it is not from today ("Yesterday · 10:52 PM", "Oct 21 · 10:52 PM"; the full date on hover), the speaker stays on every assistant message while the voice is available (disabled with its reason while a reply is still being written), and the "files changed" chip opens the same structured detail as the tokens, tools and time chips (AbstractUIC backlog 0064, the message footer spec). The desktop mirrors the spec natively (alignment tracked separately).
 
+### Changed
+
+- **Settings → Models: two quieter blocks** (operator ruling 2026-10-29).
+  - **Replies** is one line, "Stream replies [toggle]": no title and no paragraph. What it does, and a gateway
+    without live replies, is said in the switch's tooltip.
+  - **Chat model** keeps one description, "The model that answers chat turns and drives tools; override it for this
+    app only." The "Gateway default (derived from Text input): … / This app: using the gateway default." box text is
+    gone: the dropdown already says it uses the gateway default, and the two lines stay on the route's tooltip.
+
 ## [0.16.5] - 2026-10-28
 
 The web Assistant on AbstractUIC 0.8.3, and the desktop's AbstractVoice floor raised. No other Python change.

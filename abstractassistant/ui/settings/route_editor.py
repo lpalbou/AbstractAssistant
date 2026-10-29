@@ -113,7 +113,8 @@ _DERIVED_LABELS = {"input.text": "Text input", **OVERRIDE_ROUTE_LABELS}
 # Help lines written for the assistant's user (the gateway's own route
 # descriptions are engine-centric, e.g. "Read-only view derived from input.text").
 _ROUTE_HELP = {
-    "output.text": "The model that answers chat turns and drives tools. The gateway derives its default from the text-input route; override it here for this app only.",
+    # Operator ruling 2026-10-29: two lines at most; the dropdown itself says it uses the gateway default.
+    "output.text": "The model that answers chat turns and drives tools; override it for this app only.",
     "output.voice": "The engine and voice that read replies aloud.",
     "input.voice": "The engine that transcribes your microphone.",
 }
@@ -121,6 +122,8 @@ _ROUTE_HELP = {
 # Which advanced fields actually reach a request, per route. Everything else
 # is hidden rather than saved-and-ignored.
 _BASE_URL_ROUTES = {"output.text"}
+# Routes whose form shows no "Gateway default … / This app …" lines (the tooltip keeps them).
+_QUIET_STATE_ROUTES = {"output.text"}
 
 
 
@@ -679,6 +682,9 @@ class RouteOverrideEditor(QWidget):
             self.route_label.setText(row.label)
             self.route_help.setText(_ROUTE_HELP.get(row.key) or row.description or row.package_hint or "")
             self.route_state.setText(self._route_state_text(row))
+            # The chat model's box says nothing more (operator ruling 2026-10-29): its dropdown already reads
+            # "Gateway default"; the two state lines stay on the route's tooltip.
+            self.route_state.setVisible(row.key not in _QUIET_STATE_ROUTES)
             self.base_url_edit.setText(row.base_url)
             self.options_edit.setPlainText(json_dumps(row.options) if row.options else "")
 

@@ -573,6 +573,13 @@ def test_settings_stream_replies_is_a_plain_switch_on_by_default(qapp, tmp_path,
     controller.streaming = None
     page._refresh_stream()
     assert "Not connected" in page.stream_detail.text()
+    # Operator ruling 2026-10-29: ONE line, "Stream replies [toggle]": no title, no paragraph above or below.
+    assert replies.title_label is None and replies.help_label is None
+    assert page.stream_detail.isHidden() and "Not connected" in page.stream_switch.toolTip()
+    from PyQt5.QtWidgets import QLabel as _QLabel
+
+    shown = [w.text() for w in replies.findChildren(_QLabel) if not w.isHidden() and w.text()]
+    assert shown == [], f"nothing but the switch on the Replies line: {shown}"
 
 
 # ------------------------------------------------------------------- gating
