@@ -13,6 +13,7 @@ config fields, ``session_kind`` — never model prose and never id prefixes.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -1655,3 +1656,101 @@ def api_error_text(reason_code: str, message: str = "") -> str:
     head = API_ERROR_TEXT.get(str(reason_code), f"The gateway refused the request ({reason_code}).")
     detail = str(message or "").strip()
     return f"{head} {detail}" if detail and detail not in head else head
+
+
+# ------------------------------------------ per-tool modes (operator QA 2026-10-29)
+
+#: The kit's tool vocabulary (abstractuic ui-kit tool_mode_editor.tsx `TOOL_MODE_LABELS`, tool_plan.ts
+#: `TOOL_MODES`), in the kit's order.
+TOOL_MODES: Tuple[str, ...] = ("off", "ask", "auto")
+
+
+def target_tool_names(target: Mapping[str, Any]) -> Optional[List[str]]:
+    """The tools a target offers its runs (`input_data.tools` within `_runtime.allowed_tools`);
+    None = the workflow's own defaults (no explicit list)."""
+    data = target.get("input_data") if isinstance(target.get("input_data"), Mapping) else {}
+    tools = data.get("tools")
+    runtime = data.get("_runtime") if isinstance(data.get("_runtime"), Mapping) else {}
+    ceiling = runtime.get("allowed_tools")
+    if isinstance(ceiling, list):
+        return [name for name in tools if name in ceiling] if isinstance(tools, list) else list(ceiling)
+    return list(tools) if isinstance(tools, list) else None
+
+
+def automation_tool_modes(definition: Mapping[str, Any], names: Iterable[str] = ()) -> Dict[str, str]:
+    """Off / Ask / Auto for each tool the definition offers, plus each of ``names`` (the gateway's
+    inventory). The definition's named policy (`policy.tool_policy`) decides per tool, exactly as
+    the iPhone and the runtime read it (a tool named in neither list asks); without one, the
+    automation-wide `policy.tool_approval` does. A tool outside an explicit list is Off."""
+    target = definition.get("target") if isinstance(definition.get("target"), Mapping) else {}
+    allowed = target_tool_names(target)
+    policy = definition.get("policy") if isinstance(definition.get("policy"), Mapping) else {}
+    named = policy.get("tool_policy") if isinstance(policy.get("tool_policy"), Mapping) else None
+    approval = str(policy.get("tool_approval") or "auto")
+    auto = {str(n) for n in (named or {}).get("auto_approve_tools") or []}
+    ask = {str(n) for n in (named or {}).get("require_approval_tools") or []}
+    out: Dict[str, str] = {}
+    for name in [*list(names), *(allowed or [])]:
+        name = str(name)
+        if allowed is not None and name not in allowed:
+            out[name] = "off"
+        elif named is not None:
+            out[name] = "auto" if name in auto and name not in ask else "ask"
+        else:
+            out[name] = "auto" if approval == "auto" else "ask"
+    return out
+
+
+def tool_mode_changes(definition: Mapping[str, Any], modes: Mapping[str, str]) -> Dict[str, Any]:
+    """The revision that stores ``modes``: the tools offered (`target.input_data.tools` and
+    `_runtime.allowed_tools`, every other input kept), the per-tool approvals
+    (`policy.tool_policy`), and `policy.tool_approval` ("ask" only when a tool asks)."""
+    target = copy.deepcopy(dict(definition.get("target") or {}))
+    allowed = sorted(name for name, mode in modes.items() if mode != "off")
+    data = target.setdefault("input_data", {})
+    data["tools"] = list(allowed)
+    data.setdefault("_runtime", {})["allowed_tools"] = list(allowed)
+    data["_runtime"].pop("tool_policy", None)  # the definition's policy decides, not runtime vars
+    auto = sorted(name for name, mode in modes.items() if mode == "auto")
+    ask = sorted(name for name, mode in modes.items() if mode == "ask")
+    return {
+        "target": {key: target[key] for key in ("bundle_ref", "flow_id", "interface", "input_data") if key in target},
+        "policy": {"tool_policy": {"auto_approve_tools": auto, "require_approval_tools": ask}, "tool_approval": "ask" if ask else "auto"},
+    }
+
+
+def tool_approval_line(modes: Mapping[str, str]) -> str:
+    """The automation-level state at a glance: "Runs its 4 tools without asking", "Asks before
+    2 of its 4 tools", "No tools"."""
+    offered = [mode for mode in modes.values() if mode != "off"]
+    asking = [mode for mode in offered if mode == "ask"]
+    if not offered:
+        return "No tools"
+    tools = "1 tool" if len(offered) == 1 else f"{len(offered)} tools"
+    if not asking:
+        return f"Runs its {tools} without asking"
+    if len(asking) == len(offered):
+        return f"Asks before each of its {tools}" if len(offered) > 1 else "Asks before its tool"
+    return f"Asks before {len(asking)} of its {tools}"
+
+
+def waits_cleared_by_modes(summary: Mapping[str, Any], modes: Mapping[str, str]) -> Tuple[List[Dict[str, Any]], List[Tuple[Dict[str, Any], List[str]]]]:
+    """The summary's tool-approval waits split by the new modes: (those whose every call is now
+    Auto: approving them is the person's own choice, made in the editor; those still waiting,
+    with the tools that keep them waiting)."""
+    attention = summary.get("attention") if isinstance(summary.get("attention"), Mapping) else {}
+    resume: List[Dict[str, Any]] = []
+    still: List[Tuple[Dict[str, Any], List[str]]] = []
+    for wait in attention.get("waits") or []:
+        if not isinstance(wait, Mapping) or str(wait.get("kind") or "") != "tool_approval":
+            continue
+        calls = wait.get("details") if isinstance(wait.get("details"), list) else []
+        names = [str((c or {}).get("name") or "") for c in calls if isinstance(c, Mapping)]
+        if not names:
+            continue
+        blocking = sorted({n for n in names if modes.get(n) != "auto"})
+        if blocking:
+            still.append((dict(wait), blocking))
+        else:
+            resume.append(dict(wait))
+    return resume, still

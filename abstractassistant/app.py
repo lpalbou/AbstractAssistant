@@ -7348,11 +7348,41 @@ class AssistantPalette(QMainWindow):
                 self.automation_view.set_error(str(target))
                 return
             revised = {**changes, "target": target} if target is not None else changes
-            self._automations.revise(summary, revised, self._automation_call_done("Saved; applies from the next run."))
+            saved = self._automation_call_done("Saved; applies from the next run.")
+            modes = self.automation_view.edit_modes if "policy" in revised else None
+
+            def done(ok: bool, value: Any) -> None:
+                saved(ok, value)
+                if ok and isinstance(modes, dict):
+                    self._resume_waits_set_to_auto(summary, modes)
+
+            self._automations.revise(summary, revised, done)
         if changes.get("target") and self.automation_view.edit_workflow.retargeted():
             self._automations.run(lambda: self._prepare_automation_target(changes["target"]), ready)
         else:
             ready(True, None)
+
+    def _resume_waits_set_to_auto(self, summary: Dict[str, Any], modes: Dict[str, str]) -> None:
+        """Saved tools. The GATEWAY answers a run waiting on calls whose every tool is now Auto
+        (one rule for every client, AbstractGateway: a revision resolves the waits it grants);
+        this app only says what follows and refreshes. A run still waiting is named with the tools
+        that keep it waiting (operator QA 2026-10-29)."""
+        from .core.automations import waits_cleared_by_modes
+
+        resume, still = waits_cleared_by_modes(summary, modes)
+        view = self.automation_view
+        lines = []
+        if resume:
+            lines.append("The waiting run continues." if len(resume) == 1 else f"{len(resume)} waiting runs continue.")
+        if still:
+            tools = sorted({name for _wait, names in still for name in names})
+            runs = "1 run still waits" if len(still) == 1 else f"{len(still)} runs still wait"
+            lines.append(f"{runs}: {', '.join(tools)} {'is' if len(tools) == 1 else 'are'} on Ask.")
+        if lines:
+            view.set_notice("Saved. " + " ".join(lines))
+        if resume:
+            # The gateway resumes it once the revision is applied: read the automation again shortly.
+            QTimer.singleShot(1500, self._reload_open_automation)
 
     def _prepare_automation_target(self, target: Dict[str, Any]) -> Dict[str, Any]:
         from .core.automations import prepare_workflow_input
