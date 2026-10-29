@@ -5,6 +5,7 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+
 ### Changed
 
 - **The web app's account is the kit's ONE account widget** (operator ruling 2026-10-29: the docs button, Appearance,
@@ -13,25 +14,6 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   was an identity menu beside a Disconnect pill. ui-kit 0.9.6 (pinned here, was 0.9.5) renders one button with the
   person icon, the name and the connection light, its menu holding Signed in as, Gateway, Copy user id and Disconnect.
   Test: `web/src/top_bar_set.test.tsx`.
-
-### Fixed
-
-- **Settings stack from the top on every tab** (operator QA 2026-10-28; backlog 1076). On Models → Voice output
-  (TTS), Voice input and the media routes, the route form no longer opens a ~40 px gap under its title, help and
-  state lines: the route list beside it is as tall as its ten routes and the form column now ends in a stretch
-  instead of handing the surplus to its labels. `test_no_settings_section_claims_empty_height` checks every tab and
-  every route.
-
-### Added
-
-- **Choosing a voice plays it** (backlog 1076). Settings → Models → Voice output: picking a voice plays a short
-  sample through the desktop's own speech path with the voice just chosen; a play/stop button beside the list
-  replays or stops it; a newer choice stops the older sample; "Synthesizing a sample…", "Playing a sample…" and
-  "The sample did not play: <reason>." say what happens. Nothing plays when Settings opens, and a reply being read
-  aloud is never cut by a sample (the kit's voice picker, AbstractUIC `AfVoiceSection`).
-
-### Changed
-
 - **Tool approvals read as sentences, never JSON** (operator QA 2026-10-29, kit backlog 0068).
   - The automation approval card listed `fetch_url {"include_full_content": false, …}`.
   - It now reads "Fetch the page fda.gov/news-events/…/public-meeting-10282026 (summary only, without links)": the
@@ -50,25 +32,6 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   - Saving stores the tools as the definition's own approvals. A run that was waiting to approve tools now all on
     Auto continues without another click: the gateway resolves the waits a revision grants, for every client, and this
     app only refreshes. A run still waiting says which tools keep it waiting.
-
-### Fixed
-
-- **What waits for you is a badge on the session control, and it opens exactly what it counts** (operator QA
-  2026-10-29, backlog 1078).
-  - The text banner ("A conversation is waiting for you · 1 new result from your automations · Open") is gone. In
-    its place is the kit's attention badge: the inbox icon and a count, with the lines in its tooltip.
-  - Before, Open switched the chat to an automation's backing session (`automation:<id>`). That showed an old
-    briefing with nothing pending, and the approval it counted was never shown.
-  - Now a run of an automation that waits opens that automation's view, where the run carries Approve / Deny. A new
-    result opens its automation, and viewing it marks it seen. What the open view shows is not counted while it is
-    open, so the count drops and a second click goes to the next thing instead of a blank page.
-
-- **"Speak replies aloud" no longer reads a session's existing answer** when the session is opened, switched to or
-  recovered at launch (a reattach to a run that is already over): only a reply of a run seen live in the palette is
-  spoken (operator 2026-10-29; the rule of AbstractUIC's `readAloudStep`). A voice conversation follows the same rule.
-
-### Changed
-
 - **Settings → Tools speaks the kit's vocabulary** (operator, 2026-10-28; backlog 1077): every tool and every group
   reads **Off / Ask / Auto** in that order (AbstractUIC `TOOL_MODE_LABELS`); the group head carries the same control
   ("All <toolset> tools"), showing the tools' one state or **Mixed**, and replaces **All auto** / **All ask**. Group
@@ -103,16 +66,37 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   "From the run ledger; summed across this turn and its child runs."; Tools, Files, Time and Model cards likewise.
   It opens on hover or keyboard focus (every chip is reachable with Tab) and closes on Escape; the plain grey
   multi-line tooltips are gone.
+- **Settings → Models: two quieter blocks** (operator ruling 2026-10-29).
+  - **Replies** is one line, "Stream replies [toggle]": no title and no paragraph. What it does, and a gateway
+    without live replies, is said in the switch's tooltip.
+  - **Chat model** keeps one description, "The model that answers chat turns and drives tools; override it for this
+    app only." The "Gateway default (derived from Text input): … / This app: using the gateway default." box text is
+    gone: the dropdown already says it uses the gateway default, and the two lines stay on the route's tooltip.
 
 ### Fixed
 
+- **Settings stack from the top on every tab** (operator QA 2026-10-28; backlog 1076). On Models → Voice output
+  (TTS), Voice input and the media routes, the route form no longer opens a ~40 px gap under its title, help and
+  state lines: the route list beside it is as tall as its ten routes and the form column now ends in a stretch
+  instead of handing the surplus to its labels. `test_no_settings_section_claims_empty_height` checks every tab and
+  every route.
+- **What waits for you is a badge on the session control, and it opens exactly what it counts** (operator QA
+  2026-10-29, backlog 1078).
+  - The text banner ("A conversation is waiting for you · 1 new result from your automations · Open") is gone. In
+    its place is the kit's attention badge: the inbox icon and a count, with the lines in its tooltip.
+  - Before, Open switched the chat to an automation's backing session (`automation:<id>`). That showed an old
+    briefing with nothing pending, and the approval it counted was never shown.
+  - Now a run of an automation that waits opens that automation's view, where the run carries Approve / Deny. A new
+    result opens its automation, and viewing it marks it seen. What the open view shows is not counted while it is
+    open, so the count drops and a second click goes to the next thing instead of a blank page.
+
+- **"Speak replies aloud" no longer reads a session's existing answer** when the session is opened, switched to or
+  recovered at launch (a reattach to a run that is already over): only a reply of a run seen live in the palette is
+  spoken (operator 2026-10-29; the rule of AbstractUIC's `readAloudStep`). A voice conversation follows the same rule.
 - A user bubble's text height is computed for the width it really gets (the bubble minus its time and copy
   button) from the start; it was computed for the full width, and the card claimed more height than it was given
   until the next layout pass.
 - The web Assistant builds with `@abstractframework/panel-chat` 0.6.4 (was 0.6.3; ui-kit stays 0.9.5, app-server 0.1.13). From the kit: a message's stamp carries the date when it is not from today ("Yesterday · 10:52 PM", "Oct 21 · 10:52 PM"; the full date on hover), the speaker stays on every assistant message while the voice is available (disabled with its reason while a reply is still being written), and the "files changed" chip opens the same structured detail as the tokens, tools and time chips (AbstractUIC backlog 0064, the message footer spec). The desktop mirrors the spec natively (alignment tracked separately).
-
-### Fixed
-
 - **The attention badge opens at what needs you** (operator 2026-10-29, backlog 1082). Clicking it opened the
   automation at the top of its conversation, with the approval card out of view. It now scrolls to the waiting card
   of that run (else the first unresolved wait, else the first new result) and outlines it for a moment. The
@@ -125,6 +109,14 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   - "Oct 21, 2025 · 10:52 PM" for another year;
   - a bare date as its day alone;
   - no stamp at all for a malformed timestamp, never the raw text.
+
+### Added
+
+- **Choosing a voice plays it** (backlog 1076). Settings → Models → Voice output: picking a voice plays a short
+  sample through the desktop's own speech path with the voice just chosen; a play/stop button beside the list
+  replays or stops it; a newer choice stops the older sample; "Synthesizing a sample…", "Playing a sample…" and
+  "The sample did not play: <reason>." say what happens. Nothing plays when Settings opens, and a reply being read
+  aloud is never cut by a sample (the kit's voice picker, AbstractUIC `AfVoiceSection`).
 
 ## [0.16.5] - 2026-10-28
 
