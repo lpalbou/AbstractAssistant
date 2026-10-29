@@ -5,6 +5,17 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+### Changed
+
+- **Tool approvals read as sentences, never JSON** (operator QA 2026-10-29, kit backlog 0068).
+  - The automation approval card listed `fetch_url {"include_full_content": false, …}`.
+  - It now reads "Fetch the page fda.gov/news-events/…/public-meeting-10282026 (summary only, without links)": the
+    verb tinted, the key argument bold, the options muted. Repeated tools are counted ("2 web searches, 2 page
+    fetches").
+  - A tool without a template shows "Key: value" lines.
+  - The words are the kit's: `core/tool_call_words.py`, checked against the kit's shared cases
+    (`assets/tool_call_words.cases.json`).
+
 ### Fixed
 
 - **What waits for you is a badge on the session control, and it opens exactly what it counts** (operator QA

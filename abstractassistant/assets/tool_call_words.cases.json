@@ -1,0 +1,79 @@
+{
+  "doc": "Shared cases for tool calls in words (ui-kit tool_call_words.ts); clients that cannot import the kit check their own wording against these.",
+  "cases": [
+    {
+      "call": {
+        "name": "fetch_url",
+        "arguments": {
+          "include_full_content": false,
+          "keep_links": false,
+          "url": "https://www.fda.gov/news-events/fda-meetings-conferences-and-workshops/fda-rare-disease-framework-initiative-public-meeting-10282026"
+        }
+      },
+      "sentence": "Fetch the page fda.gov/news-events/…/fda-rare-disease-framework-initiative-public-meeting-10282026 (summary only, without links)"
+    },
+    {
+      "call": {
+        "name": "skim_websearch",
+        "arguments": {
+          "num_results": 10,
+          "query": "\"Oct. 28, 2026\" pharmaceutical FDA approval",
+          "region": "us-en",
+          "safe_search": "moderate"
+        }
+      },
+      "sentence": "Search the web for “Oct. 28, 2026” pharmaceutical FDA approval (10 results, US English, moderate safe search)"
+    },
+    {
+      "call": {
+        "name": "read_file",
+        "arguments": {
+          "file_path": "notes/today.md"
+        }
+      },
+      "sentence": "Read the file notes/today.md"
+    },
+    {
+      "call": {
+        "name": "mcp::linear::create_issue",
+        "arguments": {
+          "team_id": "ENG",
+          "title": "Fix login",
+          "priority": 2
+        }
+      },
+      "sentence": "Create issue",
+      "fallback": [
+        {
+          "label": "Team id",
+          "value": "ENG"
+        },
+        {
+          "label": "Title",
+          "value": "Fix login"
+        },
+        {
+          "label": "Priority",
+          "value": "2"
+        }
+      ]
+    }
+  ],
+  "group": {
+    "calls": [
+      {
+        "name": "skim_websearch"
+      },
+      {
+        "name": "fetch_url"
+      },
+      {
+        "name": "skim_websearch"
+      },
+      {
+        "name": "fetch_url"
+      }
+    ],
+    "text": "2 web searches, 2 page fetches"
+  }
+}
