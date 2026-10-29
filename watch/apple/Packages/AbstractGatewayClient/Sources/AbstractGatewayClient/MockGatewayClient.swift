@@ -911,6 +911,15 @@ public actor MockGatewayClient: GatewayClient {
                 continuation.onTermination = { _ in task.cancel() }
             }
         }
+        // `--failing-sample`: the voice "M2" fails at the gateway (a voice picker must say why, not fall silent).
+        if ProcessInfo.processInfo.arguments.contains("--failing-sample"), voice?.voice == "M2" {
+            return AsyncThrowingStream { continuation in
+                Task {
+                    try? await Task.sleep(for: .milliseconds(400))
+                    continuation.finish(throwing: GatewayError.http(status: 502, body: "the qwen3-tts engine is not loaded"))
+                }
+            }
+        }
         return AsyncThrowingStream { continuation in
             Task {
                 // The public gateway's timeline (measured 2026-10-17): a first piece of two words

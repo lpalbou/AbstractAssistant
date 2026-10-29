@@ -138,8 +138,10 @@ final class Speaker: NSObject, ObservableObject {
     func play(clips: [MediaItem], client: any GatewayClient) { read("", scope: nil, client: client, clips: clips) }
 
     func read(_ markdown: String, scope: SpeechScope?, client: any GatewayClient, clips: [MediaItem] = []) {
-        stop()
-        if let other = Self.current, other !== self { other.stop() }
+        // The audio session stays active from one reading to the next (a voice picker's taps follow
+        // each other): deactivating it between them could leave the next one silent.
+        stop(keepSession: true)
+        if let other = Self.current, other !== self { other.stop(keepSession: true) }
         Self.current = self
         // The whole text in one request: the gateway's voice speaks it in whole sentences, made ahead
         // of playback, in one language for the whole reply (abstractvoice 0.15.2).
@@ -203,13 +205,16 @@ final class Speaker: NSObject, ObservableObject {
         return out
     }
 
-    func stop() {
+    func stop() { stop(keepSession: false) }
+
+    /// `keepSession`: another reading starts right after (the session stays active for it).
+    func stop(keepSession: Bool) {
         task?.cancel(); task = nil
         cancelAnalysis()
         player?.stop(); player = nil
         queue.removeAll(); history.removeAll(); currentData = nil; startAt = 0
         if isActive || state == .paused { state = .idle }
-        release()
+        if keepSession { RuntimeKeeper.shared.release(holder) } else { release() }
     }
 
     /// Something has been spoken that a rewind can go back to.
@@ -281,8 +286,10 @@ final class Speaker: NSObject, ObservableObject {
             if !streamDone, playedSeconds > 0 { buffering = true; refilling = true; trace("ran dry, buffering") }
             if !streamDone, awaitingClips, state == .speaking { state = .preparing }
             if streamDone, isActive {
-                if let why = streamError { state = .failed(why); trace("ended early: \(why)") }
-                else { state = .finished; trace("done") }
+                // Silence never passes for a reading: no sound and no error is a failure with a reason.
+                if let why = SpeechSample.failure(receivedSeconds: receivedSeconds, clipsPlayed: playedSeconds > 0, streamError: streamError) {
+                    state = .failed(why); trace("ended without playing: \(why)")
+                } else { state = .finished; trace("done") }
                 release()
             }
             return

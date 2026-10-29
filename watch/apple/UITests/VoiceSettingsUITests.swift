@@ -90,4 +90,44 @@ final class VoiceSettingsUITests: XCTestCase {
         // Leave the default for the next run.
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Gateway default")).firstMatch.tap()
     }
+
+    /// Operator 2026-10-29: choosing a voice did not always play its sample, and a failure was silent.
+    /// Every tap on a voice plays its sample (a newer tap replaces the older one), and a sample that
+    /// cannot play says why in that voice's row (sample data; `--failing-sample` fails the voice M2).
+    func testEveryTapPlaysItsSampleAndAFailureSaysWhy() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--screen", "voice", "--failing-sample"]
+        app.launch()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Gateway default")).firstMatch.waitForExistence(timeout: 15),
+                      app.debugDescription)
+        func nudge() {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)),
+                       withVelocity: .slow, thenHoldForDuration: 0.2)
+        }
+        func row(_ name: String) -> XCUIElement { app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", name)).firstMatch }
+        func reach(_ e: XCUIElement) { for _ in 0..<16 where !(e.exists && e.isHittable) { nudge() } }
+        func says(_ e: XCUIElement, _ text: String, _ timeout: TimeInterval) -> Bool {
+            let end = Date().addingTimeInterval(timeout)
+            while Date() < end { if e.label.contains(text) { return true }; usleep(200_000) }
+            return false
+        }
+        let m1 = row("Supertonic M1"), f1 = row("Supertonic F1"), m2 = row("Supertonic M2")
+        reach(m1)
+        m1.tap()
+        XCTAssertTrue(says(m1, "Playing the sample", 10), "M1's sample did not play:\n\(m1.label)")
+        // A second voice while the first still speaks: it plays, and the first one no longer does.
+        reach(f1)
+        f1.tap()
+        XCTAssertTrue(says(f1, "Playing the sample", 10), "F1's sample did not play:\n\(f1.label)")
+        XCTAssertFalse(m1.label.contains("Playing the sample"), "the earlier sample still says it plays")
+        // The same voice again: a tap is a request, never ignored.
+        f1.tap()
+        XCTAssertTrue(says(f1, "Playing the sample", 10), "F1 tapped again did not play:\n\(f1.label)")
+        // A voice the gateway cannot speak: its row says why, in one line.
+        reach(m2)
+        m2.tap()
+        XCTAssertTrue(says(m2, "The sample did not play:", 8), "a failed sample is silent:\n\(m2.label)")
+        XCTAssertTrue(m2.label.contains("not loaded"), m2.label)
+    }
 }
