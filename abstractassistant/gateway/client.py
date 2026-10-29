@@ -237,7 +237,12 @@ def wait_response_command(*, run_id: str, wait_key: str, payload: Dict[str, Any]
     if not rid or not key:
         raise ValueError("wait_response_command: run_id and wait_key are required")
     return {
-        "command_id": f"resume_{int(time.time() * 1000)}",
+        # Approval keys include the unique effect invocation. Other wait keys
+        # may repeat when a workflow loops, so cannot identify a retry.
+        "command_id": "resume_" + uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            json.dumps([rid, key, payload or {}], sort_keys=True, separators=(",", ":")),
+        ).hex if key.startswith("tool_approval:") else "resume_" + uuid.uuid4().hex,
         "run_id": rid,
         "type": "resume",
         "payload": {"wait_key": key, "payload": dict(payload or {})},
@@ -1613,7 +1618,15 @@ class GatewayClient:
         ``{wait_key, payload}`` on the WAITING run (the one path every wait
         answer takes — tool approvals, ask-user, and waits of automation
         occurrences the Assistant never started)."""
-        return self.submit_command(command=wait_response_command(run_id=run_id, wait_key=wait_key, payload=payload))
+        command = wait_response_command(run_id=run_id, wait_key=wait_key, payload=payload)
+        receipt = self.submit_command(command=command)
+        if not isinstance(receipt, dict) or not (
+            receipt.get("accepted") is True or receipt.get("duplicate") is True
+        ):
+            raise RuntimeError("The gateway did not acknowledge the wait answer")
+        if receipt.get("command_id") and receipt["command_id"] != command["command_id"]:
+            raise RuntimeError("The gateway acknowledged a different command")
+        return receipt
 
     def _submit_run_command(self, *, run_id: str, type_: str, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         rid = str(run_id or "").strip()

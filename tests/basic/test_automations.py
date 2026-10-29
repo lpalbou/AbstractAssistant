@@ -2558,3 +2558,169 @@ def test_an_automation_result_card_has_the_chats_speaker(palette, stub) -> None:
     assert spoken == ["1 new newsletter; nothing needs a reply."], spoken
     # The card follows the voice like a session card.
     assert card._voice_state == "synthesizing"
+
+
+@pytest.mark.basic
+@pytest.mark.parametrize("answer", [True, False])
+def test_approval_stays_pending_through_slow_delivery_and_stale_reads(palette, stub, monkeypatch, answer):
+    window, controller = palette
+    window._poll_automations()
+    window._open_automation(TRIAGE)
+    view = window.automation_view
+    rows = copy.deepcopy(view.occurrences)
+    row = next(r for r in rows if r.get("waits"))
+    row["waits"][0]["kind"] = "tool_approval"
+    view.set_occurrences(rows, next_cursor=None)
+    entry = next(p for p in view.pairs if p.wait_inputs).wait_inputs[0]
+    key = (entry["run_id"], entry["wait_key"])
+    pending_calls = []
+    monkeypatch.setattr(window._automations, "run", lambda fn, done: pending_calls.append((fn, done)))
+    # Keep authoritative reads stale while tools execute after accepting approval.
+    monkeypatch.setattr(window._automations, "load_occurrences", lambda aid, done, **kw: done(True, {"items": rows}))
+    button = entry["approve"] if answer else entry["deny"]
+    button.click()
+    assert key in view.pending_waits and not entry["approve"].isEnabled() and not entry["deny"].isEnabled()
+    window._on_automation_wait_answer(*key, "tool_approval", answer)
+    assert len(pending_calls) == 1
+    pending_calls[0][1](True, {"accepted": True})
+    assert "waiting for the run" in view.notice_label.text()
+    assert key in view.pending_waits
+    assert window._automation_wait_timer.isActive()
+    # A changed row rebuilds cards without allowing a second command.
+    rows[0]["_refresh_test"] = True
+    view.set_occurrences(rows, next_cursor=None)
+    entry = next(p for p in view.pairs if p.wait_inputs).wait_inputs[0]
+    assert not entry["approve"].isEnabled() and not entry["deny"].isEnabled()
+    completed = copy.deepcopy(rows)
+    for r in completed:
+        r["waits"] = []
+    monkeypatch.setattr(window._automations, "load_occurrences", lambda aid, done, **kw: done(True, {"items": completed}))
+    window._reload_open_automation(refresh_summary=False)
+    assert not view.pending_waits and not any(p.wait_inputs for p in view.pairs)
+    window._close_automation_view()
+    assert not window._automation_wait_timer.isActive()
+
+
+@pytest.mark.basic
+def test_late_wait_receipt_does_not_change_another_automation(palette, stub, monkeypatch):
+    window, controller = palette
+    window._poll_automations()
+    window._open_automation(TRIAGE)
+    view = window.automation_view
+    entry = next(p for p in view.pairs if p.wait_inputs).wait_inputs[0]
+    callbacks = []
+    monkeypatch.setattr(window._automations, "run", lambda fn, done: callbacks.append(done))
+    window._on_automation_wait_answer(entry["run_id"], entry["wait_key"], entry["kind"], "Tuesday")
+    window._open_automation(NEWS)
+    before = (view.notice_label.text(), copy.deepcopy(view.occurrences))
+    callbacks[0](False, "late timeout")
+    assert (view.notice_label.text(), view.occurrences) == before
+    assert not view.pending_waits
+
+
+@pytest.mark.basic
+def test_wait_retries_reuse_command_and_validate_gateway_receipt(stub):
+    from abstractassistant.gateway.client import wait_response_command
+    kwargs = dict(run_id="run", wait_key="tool_approval:wait", payload={"approved": True})
+    assert wait_response_command(**kwargs)["command_id"] == wait_response_command(**kwargs)["command_id"]
+    assert wait_response_command(**dict(kwargs, wait_key="next"))["command_id"] != wait_response_command(**kwargs)["command_id"]
+    repeated_question = dict(run_id="run", wait_key="user:run:node", payload={"response": "yes"})
+    assert wait_response_command(**repeated_question)["command_id"] != wait_response_command(**repeated_question)["command_id"]
+    client = _gateway(stub)
+    stub.route = lambda *_a: (200, {"accepted": False, "duplicate": True})
+    assert client.submit_wait_response(**kwargs)["duplicate"] is True
+    stub.route = lambda *_a: (200, {"accepted": False})
+    with pytest.raises(RuntimeError, match="did not acknowledge"):
+        client.submit_wait_response(**kwargs)
+
+
+@pytest.mark.basic
+def test_pending_answer_survives_navigation_and_reopening(palette, stub, monkeypatch):
+    window, controller = palette
+    window._poll_automations()
+    window._open_automation(TRIAGE)
+    view = window.automation_view
+    entry = next(p for p in view.pairs if p.wait_inputs).wait_inputs[0]
+    key = (entry["run_id"], entry["wait_key"])
+    callbacks = []
+    monkeypatch.setattr(window._automations, "run", lambda fn, done: callbacks.append(done))
+    window._on_automation_wait_answer(*key, entry["kind"], "Tuesday")
+    window._open_automation(NEWS)
+    window._open_automation(TRIAGE)
+    assert key in view.pending_waits
+    entry = next(p for p in view.pairs if p.wait_inputs).wait_inputs[0]
+    assert not entry["box"].isEnabled()
+    before_retry = len(callbacks)
+    window._on_automation_wait_answer(*key, entry["kind"], "Tuesday")
+    assert len(callbacks) == before_retry
+    window._open_automation(NEWS)
+    callbacks[0](False, "offline")
+    window._open_automation(TRIAGE)
+    assert key not in view.pending_waits
+    assert next(p for p in view.pairs if p.wait_inputs).wait_inputs[0]["box"].isEnabled()
+
+
+@pytest.mark.basic
+def test_superseded_open_read_cannot_restore_an_old_wait(palette, stub, monkeypatch):
+    window, controller = palette
+    window._poll_automations()
+    window._open_automation(TRIAGE)
+    view = window.automation_view
+    stale = copy.deepcopy(view.occurrences)
+    completed = copy.deepcopy(stale)
+    for row in completed:
+        row["waits"] = []
+    callbacks = []
+    monkeypatch.setattr(window._automations, "load_occurrences", lambda aid, done, **kw: callbacks.append(done))
+    window._close_automation_view()
+    window._open_automation(TRIAGE)
+    first = callbacks[-1]
+    window._reload_open_automation(refresh_summary=False)
+    assert len(callbacks) == 1, "opening and refresh serialize their reads"
+    window._close_automation_view()
+    window._open_automation(TRIAGE)
+    second = callbacks[-1]
+    second(True, {"items": completed})
+    first(True, {"items": stale})
+    assert view.occurrences == completed
+    assert not any(p.wait_inputs for p in view.pairs)
+
+
+@pytest.mark.basic
+def test_first_page_refresh_does_not_confirm_an_off_page_approval(palette, stub):
+    window, controller = palette
+    window._poll_automations()
+    window._open_automation(TRIAGE)
+    view = window.automation_view
+    rows = copy.deepcopy(view.occurrences)
+    row = next(r for r in rows if r.get("waits"))
+    wait = row["waits"][0]
+    key = (str(wait.get("run_id") or row["run_id"]), wait["wait_key"])
+    view.set_wait_pending(*key, True)
+    view.set_occurrences([r for r in rows if r["run_id"] != row["run_id"]], next_cursor="older")
+    assert key in view.pending_waits, "an absent run is not confirmation that approval was applied"
+    row["waits"] = []
+    view.set_occurrences([row], next_cursor=None, append=True)
+    assert key not in view.pending_waits
+
+
+@pytest.mark.basic
+def test_refresh_during_read_is_coalesced_without_losing_terminal_update(palette, stub, monkeypatch):
+    window, controller = palette
+    window._poll_automations()
+    window._open_automation(TRIAGE)
+    view = window.automation_view
+    stale = copy.deepcopy(view.occurrences)
+    complete = copy.deepcopy(stale)
+    for row in complete:
+        row["waits"] = []
+    callbacks = []
+    monkeypatch.setattr(window._automations, "load_occurrences", lambda aid, done, **kw: callbacks.append(done))
+    window._reload_open_automation(refresh_summary=False)
+    window._reload_open_automation(refresh_summary=False)
+    window._reload_open_automation(refresh_summary=False)
+    assert len(callbacks) == 1
+    callbacks[0](True, {"items": stale})
+    assert len(callbacks) == 2, "one trailing read captures events received during the first read"
+    callbacks[1](True, {"items": complete})
+    assert not any(p.wait_inputs for p in view.pairs)

@@ -6674,7 +6674,9 @@ class AssistantPalette(QMainWindow):
             self._on_attention_open(event.get("data") or {})
             return
         raised = self._attention.apply(event)
-        if live and self._is_automation_event(event):
+        if live and (self._is_automation_event(event) or (
+            self._state("_automation_view_id", "") and event.get("type") in ("attention.raised", "attention.seen")
+        )):
             # The automation rows (and their notices, through the hub's
             # notification ledger) follow the stream instead of a timer.
             self._schedule_automations_refresh()
@@ -6964,6 +6966,7 @@ class AssistantPalette(QMainWindow):
                 self._automations_menu_action = None
         view_id = self._state("_automation_view_id", "")
         if view_id:
+            self._reload_open_automation(refresh_summary=False)
             summary = hub.summary(view_id)
             if summary is not None:
                 previous_revision = self.automation_view.summary.get("revision")
@@ -7042,7 +7045,17 @@ class AssistantPalette(QMainWindow):
             return
         previous = self._state("_automation_view_id", "")
         self._automation_view_id = aid
+        timer = self._state("_automation_wait_timer")
+        if timer is not None:
+            timer.stop()
+        self._automation_occurrences_loading = None
+        self._automation_occurrences_refresh_again = ""
+        pending_by_automation = self._state("_automation_pending_waits")
+        if pending_by_automation is None:
+            pending_by_automation = self._automation_pending_waits = {}
         view = self.automation_view
+        view.pending_waits = set()
+        self._automation_wait_refresh_attempt = 0
         view.set_error("")
         view.set_notice("Loading runs…")
         # The unseen results, read before viewing acknowledges them below: an
@@ -7070,6 +7083,7 @@ class AssistantPalette(QMainWindow):
         view.selection_bar.hide()
         self._automation_cards_by_key = {}
         view.set_occurrences([], next_cursor=None)
+        view.pending_waits = pending_by_automation.setdefault(aid, set())
         view.runs_loaded = False
         view.set_summary(summary)
         view.reset_details()
@@ -7100,9 +7114,14 @@ class AssistantPalette(QMainWindow):
             view.target_changed.emit()
             return
 
+        token = object()
+        self._automation_occurrences_loading = aid
+        self._automation_occurrences_token = token
+
         def loaded(ok: bool, value: Any) -> None:
-            if self._state("_automation_view_id") != aid:
+            if self._state("_automation_view_id") != aid or self._state("_automation_occurrences_token") is not token:
                 return
+            self._automation_occurrences_loading = ""
             view.set_notice("")
             if not ok:
                 view.runs_loaded = True
@@ -7110,6 +7129,9 @@ class AssistantPalette(QMainWindow):
                 view.target_changed.emit()
                 return
             view.set_occurrences(value.get("items") or [], next_cursor=value.get("next_cursor"))
+            if view.pending_waits:
+                view.set_notice("Answer sent; waiting for the run to update…")
+                self._schedule_automation_wait_refresh(aid)
             if where == "top":
                 view.scroll.verticalScrollBar().setValue(0)
             elif where == "attention" and view.scroll_to_attention(focus_run):
@@ -7118,6 +7140,9 @@ class AssistantPalette(QMainWindow):
                 view.scroll_to_latest()
             # Viewing acknowledges the attention items the view DISPLAYED.
             self._automations.mark_seen(summary)
+            if self._state("_automation_occurrences_refresh_again") == aid:
+                self._automation_occurrences_refresh_again = ""
+                self._reload_open_automation(refresh_summary=False)
 
         self._automations.load_occurrences(aid, loaded)
         self._automations.detail(aid, lambda ok, detail: self._on_automation_detail(aid, ok, detail))
@@ -7137,6 +7162,11 @@ class AssistantPalette(QMainWindow):
                 self._automation_drafts.pop(aid, None)
             self.prompt_edit.clear()
         self._automation_view_id = ""
+        self._automation_occurrences_loading = None
+        self._automation_occurrences_token = None
+        timer = self._state("_automation_wait_timer")
+        if timer is not None:
+            timer.stop()
         self.automation_view.set_new_runs([])
         self.automation_view.hide()
         self._refresh_attention()
@@ -7314,17 +7344,56 @@ class AssistantPalette(QMainWindow):
         if aid:
             self._open_automation(aid)
 
-    def _reload_open_automation(self) -> None:
+    def _schedule_automation_wait_refresh(self, aid: str) -> None:
+        timer = self._state("_automation_wait_timer")
+        if timer is None:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(lambda: self._reload_open_automation(refresh_summary=False))
+            self._automation_wait_timer = timer
+        if timer.isActive() or self._state("_automation_view_id") != aid:
+            return
+        attempt = int(self._state("_automation_wait_refresh_attempt", 0))
+        if attempt >= 120:
+            self.automation_view.set_notice("Your answer was sent. Reopen this automation to check its latest state.")
+            return
+        self._automation_wait_refresh_attempt = attempt + 1
+        timer.start(min(5000, 1000 + attempt * 250))
+
+    def _reload_open_automation(self, *, refresh_summary: bool = True) -> None:
         aid = self._state("_automation_view_id", "")
         if not aid:
             return
+        if self._state("_automation_occurrences_loading") == aid:
+            self._automation_occurrences_refresh_again = aid
+            return
         view = self.automation_view
+        token = object()
+        self._automation_occurrences_loading = aid
+        self._automation_occurrences_token = token
 
         def loaded(ok: bool, value: Any) -> None:
-            if ok and self._state("_automation_view_id") == aid:
+            if self._state("_automation_occurrences_token") is not token:
+                return
+            self._automation_occurrences_loading = ""
+            if self._state("_automation_view_id") != aid:
+                return
+            if ok:
+                had_pending = bool(view.pending_waits)
                 view.set_occurrences(value.get("items") or [], next_cursor=value.get("next_cursor"))
+                if had_pending and not view.pending_waits:
+                    view.set_notice("")
+                    timer = self._state("_automation_wait_timer")
+                    if timer is not None:
+                        timer.stop()
+            if view.pending_waits:
+                self._schedule_automation_wait_refresh(aid)
+            if self._state("_automation_occurrences_refresh_again") == aid:
+                self._automation_occurrences_refresh_again = ""
+                self._reload_open_automation(refresh_summary=False)
 
-        self._automations.poll()
+        if refresh_summary:
+            self._automations.poll()
         self._automations.load_occurrences(aid, loaded)
 
     def _automation_call_done(self, success_notice: str) -> Callable[[bool, Any], None]:
@@ -7505,19 +7574,29 @@ class AssistantPalette(QMainWindow):
 
     def _on_automation_wait_answer(self, run_id: str, wait_key: str, kind: str, answer: Any) -> None:
         view = self.automation_view
-        view.set_busy(True)
+        key = (run_id, wait_key)
+        if key in view.pending_waits:
+            return
+        aid = self._state("_automation_view_id", "")
+        view.set_wait_pending(run_id, wait_key, True)
+        self._automation_wait_refresh_attempt = 0
+        view.set_error("")
+        view.set_notice("Sending your answer…")
         controller = self._controller
 
         def done(ok: bool, value: Any) -> None:
-            view.set_busy(False)
             if not ok:
-                view.set_error(f"Your answer did not reach the gateway ({value}). The run is still waiting; try again.")
+                pending = (self._state("_automation_pending_waits") or {}).get(aid)
+                if pending is not None:
+                    pending.discard(key)
+            if self._state("_automation_view_id", "") != aid:
                 return
-            view.set_notice(
-                ("Approved; the run continues." if answer is True else "Denied; the run continues.")
-                if kind == "tool_approval"
-                else "Answer sent; the run continues."
-            )
+            if not ok:
+                view.set_wait_pending(run_id, wait_key, False)
+                view.set_notice("")
+                view.set_error(f"Could not confirm delivery of your answer ({value}). Refresh the run before trying again.")
+                return
+            view.set_notice("Answer sent; waiting for the run to update…")
             self._reload_open_automation()
 
         self._automations.run(

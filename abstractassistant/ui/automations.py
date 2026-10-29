@@ -1067,6 +1067,8 @@ class AutomationView(QFrame):
         self.edit_target: Optional[Dict[str, Any]] = None
         self.edit_definition: Optional[Dict[str, Any]] = None
         self.occurrences: List[Dict[str, Any]] = []
+        self.pending_waits: set = set()
+        self._pending_wait_roots: Dict[Tuple[str, str], str] = {}
         # A command sent and not yet confirmed by the gateway's state.
         self.pending: Optional[str] = None
         self._pending_before: Dict[str, Any] = {}
@@ -1424,17 +1426,52 @@ class AutomationView(QFrame):
 
     def set_occurrences(self, rows: Sequence[Mapping[str, Any]], *, next_cursor: Optional[str], append: bool = False) -> None:
         incoming = [dict(r) for r in rows if isinstance(r, Mapping)]
+        if not append and self.runs_loaded and incoming == self.occurrences and next_cursor == self.next_cursor:
+            return
         if append:
             known = {r.get("run_id") for r in self.occurrences}
             self.occurrences.extend(r for r in incoming if r.get("run_id") not in known)
         else:
             self.occurrences = incoming
+        live_waits = {
+            (str(w.get("run_id") or row.get("run_id") or ""), str(w.get("wait_key") or ""))
+            for row in self.occurrences for w in row.get("waits") or [] if isinstance(w, Mapping)
+        }
+        observed_runs = {str(row.get("run_id") or "") for row in self.occurrences}
+        for key in tuple(self.pending_waits):
+            # A first-page refresh says nothing about an older, off-page run.
+            root = self._pending_wait_roots.get(key, key[0])
+            if root in observed_runs and key not in live_waits:
+                self.pending_waits.discard(key)
+                self._pending_wait_roots.pop(key, None)
         self.next_cursor = next_cursor if isinstance(next_cursor, str) and next_cursor else None
         self.runs_loaded = True
         self._apply_controls()
         self._rebuild_pairs()
         self._revalidate_selection()
         self.target_changed.emit()
+
+    def set_wait_pending(self, run_id: str, wait_key: str, pending: bool) -> None:
+        key = (run_id, wait_key)
+        if pending:
+            self.pending_waits.add(key)
+            root = next((str(row.get("run_id") or run_id) for row in self.occurrences
+                         if any((str(w.get("run_id") or row.get("run_id") or ""), str(w.get("wait_key") or "")) == key
+                                for w in row.get("waits") or [] if isinstance(w, Mapping))), run_id)
+            self._pending_wait_roots[key] = root
+        else:
+            self.pending_waits.discard(key)
+            self._pending_wait_roots.pop(key, None)
+        self._apply_pending_waits()
+
+    def _apply_pending_waits(self) -> None:
+        for pair in self.pairs:
+            for entry in pair.wait_inputs:
+                pending = (entry["run_id"], entry["wait_key"]) in self.pending_waits
+                entry["box"].setEnabled(not pending)
+                approve = entry.get("approve")
+                if approve is not None:
+                    approve.setText("Answer pending…" if pending else "Approve")
 
     def set_busy(self, busy: bool) -> None:
         self.busy = bool(busy)
@@ -1592,6 +1629,7 @@ class AutomationView(QFrame):
             pair.wait_answered.connect(self.wait_answered.emit)
             self.list_layout.addWidget(pair)
             self.pairs.append(pair)
+        self._apply_pending_waits()
         if getattr(self, "_focus_until", 0.0):
             from PyQt5.QtCore import QTimer
 
