@@ -5692,6 +5692,9 @@ class AssistantPalette(QMainWindow):
     # palettes via __new__), while class attributes resolve through normal MRO.
     _cancel_requested = False
     _pending_submit = False
+    # The run being followed was started here or attached while in progress
+    # (read aloud speaks only its reply; operator 2026-10-29).
+    _reply_live = False
     # An automation open in the palette (design pass 2026-10-28): the chat's
     # draft kept aside, a session being created from the composer, and the
     # sessions this app continued automations as (automation id -> rows).
@@ -6383,6 +6386,8 @@ class AssistantPalette(QMainWindow):
         self._cancel_requested = False
         self._last_run_status = ended if recovering else ""
         self._run_busy = not recovering
+        # A recovered (finished) run's answer is not spoken by itself (read aloud).
+        self._reply_live = not recovering
         self._run_has_final_output = False
         self._discard_live_replies()
         self._live_closed_calls = set()
@@ -9390,6 +9395,7 @@ class AssistantPalette(QMainWindow):
             conversation.mark_sent()
 
         self._run_busy = True
+        self._reply_live = True  # a run started here: its reply may be read aloud
         self._run_has_final_output = False
         self._tray_completion_unread = False
         self._discard_live_replies()
@@ -9655,6 +9661,16 @@ class AssistantPalette(QMainWindow):
             # streamed from its agent subrun, so run ids do not pair up).
             self._discard_live_replies(close=True)
             is_final = bool(payload.get("final"))
+            # Spoken by itself only when the reply was produced while this
+            # conversation was open (a run seen live here): a session opened,
+            # switched to or recovered on launch never speaks its existing
+            # answer (operator 2026-10-29; AbstractUIC readAloudStep's rule).
+            # `_reply_live` is set where a run starts from this palette (a send)
+            # or is reattached while still in progress — never by a status event
+            # (an attach to a finished run also reports "thinking" first).
+            produced_live = bool(self._state("_reply_live", False))
+            if is_final:
+                self._reply_live = False
             if is_final:
                 self._run_has_final_output = True
                 self._run_busy = False
@@ -9682,7 +9698,7 @@ class AssistantPalette(QMainWindow):
             in_conversation = conversation is not None and bool(
                 self._state("_voice_conversation_active", False)
             )
-            if is_final and in_conversation:
+            if is_final and in_conversation and produced_live:
                 spoken = speech_plain_text(str(payload.get("content") or ""))
                 will_speak = bool(spoken) and self._controller.supports_tts()
                 # Nothing to speak: `_on_worker_finished` reopens the mic once
@@ -9695,7 +9711,7 @@ class AssistantPalette(QMainWindow):
                     )
                     if not started:
                         conversation.speech_finished()
-            elif self.auto_speak.isChecked() and is_final:
+            elif self.auto_speak.isChecked() and is_final and produced_live:
                 self._controller.voice_manager.speak(
                     speech_plain_text(str(payload.get("content") or ""))
                 )

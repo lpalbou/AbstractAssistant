@@ -5,6 +5,12 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+### Fixed
+
+- **"Speak replies aloud" no longer reads a session's existing answer** when the session is opened, switched to or
+  recovered at launch (a reattach to a run that is already over): only a reply of a run seen live in the palette is
+  spoken (operator 2026-10-29; the rule of AbstractUIC's `readAloudStep`). A voice conversation follows the same rule.
+
 ### Changed
 
 - **Settings → Tools speaks the kit's vocabulary** (operator, 2026-10-28; backlog 1077): every tool and every group
