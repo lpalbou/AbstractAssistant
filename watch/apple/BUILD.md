@@ -137,6 +137,13 @@ extensions did with each push (shown with its event, or why it kept its generic 
 an earlier sign-in, the gateway's status or error, the event missing from the page, an event it
 cannot render). Release builds ignore the argument.
 
+## Voice-send errors
+
+The device console records failed recording uploads and transcriptions under subsystem
+`ai.abstractframework.assistant.watchkitapp`, category `voice-send`. Each entry contains
+the error domain and code, without credentials, audio bytes or transcript text. The app keeps
+the recording and displays the actionable error with Retry and Discard.
+
 ## App Store packaging
 
 Store delivery uses **Actions → Apple app (iPhone + Watch)**. The existing AbstractAssistant

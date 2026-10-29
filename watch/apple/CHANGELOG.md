@@ -17,6 +17,8 @@ iPhone app); the Python package's history is in
 
 ### Fixed
 
+- Failed voice uploads and transcriptions show their error while preserving the recording and Retry/Discard actions. Device logs include the error domain and code without recording credentials, audio or transcripts.
+
 - **Run on an automation's details answers the tap.** The tap is felt (a click, then the start
   haptic once the gateway accepts the run), the Run button shows a spinner and a "Starting… 0:01"
   line becomes "Running… 0:03" once the gateway has the command; the details stay until the gateway

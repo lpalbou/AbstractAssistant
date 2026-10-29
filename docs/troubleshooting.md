@@ -71,6 +71,12 @@ the gateway's reason. A workspace the gateway no longer allows is one cause: ope
 Workspace and check **This chat** and **My default workspaces** against the **Gateway:** line (or
 switch on **Use my default** / **Follow the gateway policy**). See [settings.md](settings.md#workspace).
 
+## The prompt ignores spaces after opening from the menu bar
+
+The palette releases the tray menu before focusing the prompt. If keyboard input still
+goes to a menu, press Esc, then reopen the palette and click the editor. Restart the desktop
+Assistant after updating its local installation so the keyboard-focus fix is loaded.
+
 ## An approval sheet never appears but the run is waiting
 
 The sheet is modeless and may be behind other windows, or you deferred it with Esc. Show the

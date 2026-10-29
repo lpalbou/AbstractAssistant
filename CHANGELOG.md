@@ -80,6 +80,8 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Fixed
 
+- Opening the macOS menu-bar palette releases the tray menu before restoring prompt focus, so keyboard input and spaces reach the editor.
+
 - **Settings stack from the top on every tab** (operator QA 2026-10-28; backlog 1076). On Models → Voice output
   (TTS), Voice input and the media routes, the route form no longer opens a ~40 px gap under its title, help and
   state lines: the route list beside it is as tall as its ten routes and the form column now ends in a stretch

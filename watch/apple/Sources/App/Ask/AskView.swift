@@ -1,4 +1,5 @@
 import AbstractGatewayClient
+import OSLog
 import SwiftUI
 import WatchKit
 
@@ -665,6 +666,9 @@ struct AskView: View {
                 send(text)
             } catch {
                 guard mine == turn else { return }
+                let failure = error as NSError
+                Logger(subsystem: "ai.abstractframework.assistant.watchkitapp", category: "voice-send")
+                    .error("Voice question send failed: domain=\(failure.domain, privacy: .public) code=\(failure.code, privacy: .public)")
                 transcribing = false; phase = back
                 kept = retrying ? KeptQuestion.url : KeptQuestion.keep(wav)
                 // Keeping the recording must not hide why it could not be sent.

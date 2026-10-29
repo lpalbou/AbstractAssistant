@@ -1195,7 +1195,7 @@ stay counted until you answer them.
 | **Active** (a switch, first in the bar) | On: the automation runs on its schedule. Off: paused, scheduled runs are skipped; a run in progress finishes. Switching it back on restarts the schedule at its next time after now (it does not fire at once; times missed while paused are skipped). Unavailable, with the reason, once the automation is archived, ended or legacy, or when the gateway does not permit the change. |
 | **Run now** (the play-in-a-circle icon, as in the web clients; the controls are icons, their name in the tooltip) | One run immediately, instead of waiting for the schedule. The schedule does not move: the next scheduled run keeps its time, and if that time comes while this run is still going, the scheduled run starts right after it. It does not count toward a run limit. It also works while paused, and the automation stays paused. In a Growing automation, later runs see it in their history. Disabled while a run is in progress. |
 | **Stop current** (the square icon) | Stops the run in progress. |
-| **Edit** (the pen icon) | Title, interval (`30m`, `8h`, `7d`; for an email trigger the check interval, at least `60s`) or, for a Daily, Weekly or Monthly schedule, its rule (the kind, the days, the day of the month and the time, with the gateway's line "in Europe/Paris (this automation's time zone)" and its preview sentence; the automation keeps its own zone and its run limits), context mode, workflow, tool selection, **Workspaces** (the same chooser as the schedule window, with the stored choice; each change checked by the gateway) and result-email recipients, inline. **Save** sends the changes as one revision; with **Use my default** the stored choice is removed. Applies from the next run; a new interval starts counting from the change, so no missed run fires. |
+| **Edit** (the pen icon) | Opens the automation editor: a sheet over the palette with one section per question, each with its icon, and **Cancel** / **Save** always visible below them. **What**: title and task. **When**: the interval (`30m`, `8h`, `7d`; for an email trigger the check interval, at least `60s`) or, for a Daily, Weekly or Monthly schedule, its rule, with the gateway's line "in Europe/Paris (this automation's time zone)" and its preview sentence. **How**: the workflow by its readable name ("basic-agent 0.0.5"), the memory of earlier runs (Independent, or Growing with its token budget) and **Workspaces**. **Tools**: the automation-level state ("Asks before 2 of its 4 tools", "Runs its 4 tools without asking"), then each tool it offers with **Off** / **Ask** / **Auto** as icons (the words in their tooltips); **Add or remove tools…** opens every tool the gateway offers. **Delivery**: **Email result** and its recipients. **Save** sends the changes as one revision: the tools ride the definition's own approvals (`policy.tool_policy`, `policy.tool_approval` "ask" only when a tool asks). A run waiting to approve calls whose every tool is now **Auto** continues at once: the gateway answers it for the person who saved, whichever app saved; a run still waiting is named with the tools that keep it waiting. Applies from the next run; a new interval starts counting from the change, so no missed run fires. |
 | **Archive** (the box icon) | Asks for confirmation in the palette. Nothing runs any more; the history is kept. |
 
 Hovering a control shows what it does: the same text as the web clients (AbstractUIC's shared
@@ -1273,14 +1273,21 @@ exactly where it stopped. With the stream connected:
 - a run in **another conversation** that stops for your approval or your answer shows one tray
   notification ("Approval needed" or "A question for you"), unless that conversation is the one on
   screen. Its sheet opens in that conversation, as before;
-- a line above the transcript says what is waiting for you across every conversation and
-  automation ("A conversation is waiting for you · 2 new results from your automations"), with
-  **Open**. Open first asks the gateway whether that run still waits; it opens the conversation
-  when it does, and says so when it no longer does. For results it opens the automation that has
-  them (several: the Automations tab with the first of them selected); the runs whose results you
-  have not seen are marked **New result** and the automation opens on the first of them;
+- a badge beside the session control shows what waits for you elsewhere: the kit's inbox icon
+  with a count. Its tooltip says what the count is ("1 conversation is waiting for you", "2 new
+  results from your automations", then "Click to open it."). A click opens exactly the first
+  thing it counts:
+  - a run of an automation that waits for your approval opens that automation, where the run
+    carries **Approve** / **Deny**;
+  - a run in a chat that waits opens that chat, after asking the gateway whether the run still
+    waits (it says so when it no longer does);
+  - a new result opens its automation on the runs you have not seen (marked **New result**), and
+    viewing them marks them seen.
+
+  What the open view shows is not counted while it is open. With no event stream, the automation
+  list's unseen counts drive the badge;
 - the menu bar icon shows the amber "needs you" badge while a run elsewhere waits for you, and its
-  tooltip repeats the line.
+  tooltip repeats the badge's lines.
 
 What happened while the Assistant was closed is read when it starts, but it never notifies you
 for it: notifications are for what arrives while the app is open.
@@ -1344,7 +1351,7 @@ automations, and no automation route is called before that.
 - The Assistant creates scheduled and incoming-email automations; **Run now** starts one more run.
 - A maximum number of runs and an end date are set when the automation is created; **Edit** does
   not change them.
-- **Edit** changes title, interval or calendar rule, context settings, workflow, available tools and result-email recipients. To change the task, revise it through the gateway API or create a new automation.
+- **Edit** changes the title, the task, the interval or calendar rule, the memory of earlier runs, the workflow, each tool's Off / Ask / Auto and the result-email recipients.
 
 Changing workflows preserves the task, portable agent settings, selected tools and result-email
 recipients. The new workflow supplies its input defaults. If additional required inputs are
@@ -2419,6 +2426,12 @@ the gateway's reason. A workspace the gateway no longer allows is one cause: ope
 Workspace and check **This chat** and **My default workspaces** against the **Gateway:** line (or
 switch on **Use my default** / **Follow the gateway policy**). See [settings.md](settings.md#workspace).
 
+## The prompt ignores spaces after opening from the menu bar
+
+The palette releases the tray menu before focusing the prompt. If keyboard input still
+goes to a menu, press Esc, then reopen the palette and click the editor. Restart the desktop
+Assistant after updating its local installation so the keyboard-focus fix is loaded.
+
 ## An approval sheet never appears but the run is waiting
 
 The sheet is modeless and may be behind other windows, or you deferred it with Esc. Show the
@@ -3180,16 +3193,50 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+
 ### Changed
 
+- **The automation's tool-approval card reads in one glance** (operator ruling 2026-10-29; the kit's card does the
+  same, AbstractUIC 0073). It opens with "The Assistant wants to use these tools:" in bold, the card's only bold.
+  The count line is gone. Each call is one bullet on one line: the coloured tool word, then plain text, cut with an
+  ellipsis to the card's width, with the whole call on its tooltip. Approve and Deny are unchanged.
+
+- **The web app's account is the kit's ONE account widget** (operator ruling 2026-10-29: the docs button, Appearance,
+  About and the account are the same kit components in every app). The browser app already composed its header from
+  the kit (`AfAppShell`: Docs assistant, Appearance, About, `identity: "menu"`); on ui-kit 0.9.5 the signed-in account
+  was an identity menu beside a Disconnect pill. ui-kit 0.9.6 (pinned here, was 0.9.5) renders one button with the
+  person icon, the name and the connection light, its menu holding Signed in as, Gateway, Copy user id and Disconnect.
+  Test: `web/src/top_bar_set.test.tsx`.
+- **Tool approvals read as sentences, never JSON** (operator QA 2026-10-29, kit backlog 0068).
+  - The automation approval card listed `fetch_url {"include_full_content": false, …}`.
+  - It now reads "Fetch the page fda.gov/news-events/…/public-meeting-10282026 (summary only, without links)": the
+    verb tinted, the key argument bold, the options muted. Repeated tools are counted ("2 web searches, 2 page
+    fetches").
+  - A tool without a template shows "Key: value" lines.
+  - The words are the kit's: `core/tool_call_words.py`, checked against the kit's shared cases
+    (`assets/tool_call_words.cases.json`).
+- **The automation editor is a sheet with sections** (operator QA 2026-10-29, backlog 1080).
+  - The inline Edit form overlapped the conversation, and its rows were cut and stacked. The workflow showed as
+    `basic-agent@0.0.5:81795ea9`.
+  - Edit now opens a sheet. **What** has the title and the task, now editable. **When** has the interval or the
+    calendar rule. **How** has the workflow by its readable name, the memory of earlier runs and the workspaces.
+    **Tools** shows the automation-level state at a glance and each tool's **Off** / **Ask** / **Auto** as icons.
+    **Delivery** has the email result. Each section has its icon, and **Cancel** / **Save** stay visible.
+  - Saving stores the tools as the definition's own approvals. A run that was waiting to approve tools now all on
+    Auto continues without another click: the gateway resolves the waits a revision grants, for every client, and this
+    app only refreshes. A run still waiting says which tools keep it waiting.
 - **Settings → Tools speaks the kit's vocabulary** (operator, 2026-10-28; backlog 1077): every tool and every group
   reads **Off / Ask / Auto** in that order (AbstractUIC `TOOL_MODE_LABELS`); the group head carries the same control
   ("All <toolset> tools"), showing the tools' one state or **Mixed**, and replaces **All auto** / **All ask**. Group
   Auto reaches only the tools of risk 2 or lower whose destination the assistant does not choose, and says so in the
   kit's sentence, naming the tools that stay. A tool the gateway does not offer is Off and read-only with "Not
   offered by the gateway: <reason>" (the approval sheet's chip says the same, not "Disabled on gateway"); a row set
-  differently from the gateway's default shows "Default: Ask". Rebuilding the list no longer paints the old panels
-  under the new ones.
+  differently from the gateway's default shows "Default: Ask"; a tool whose default the gateway did not say reads
+  "The gateway did not say whether this tool asks first; Ask is assumed." **Use gateway defaults** clears this
+  app's whole layer (a choice stored for a tool the gateway does not offer no longer survives it). The automation
+  tool picker (Off / On) shows the same "Not offered" line and its group acts only on offered tools. The chat
+  toolbar's tools button says "Tools & permissions: N tools on, M without asking". Rebuilding the list no longer
+  paints the old panels under the new ones.
 
 - **An automation opens as the chat** (operator, 2026-10-28; backlog 1070). Its runs read as the chat's exchanges: a
   compact system line in words ("Scheduled run 1 · Oct 9 at 11:06 PM", "Run now · run 4 · Today at 7:12 AM"), the
@@ -3212,13 +3259,59 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   "From the run ledger; summed across this turn and its child runs."; Tools, Files, Time and Model cards likewise.
   It opens on hover or keyboard focus (every chip is reachable with Tab) and closes on Escape; the plain grey
   multi-line tooltips are gone.
+- **Settings → Models: two quieter blocks** (operator ruling 2026-10-29).
+  - **Replies** is one line, "Stream replies [toggle]": no title and no paragraph. What it does, and a gateway
+    without live replies, is said in the switch's tooltip.
+  - **Chat model** keeps one description, "The model that answers chat turns and drives tools; override it for this
+    app only." The "Gateway default (derived from Text input): … / This app: using the gateway default." box text is
+    gone: the dropdown already says it uses the gateway default, and the two lines stay on the route's tooltip.
 
 ### Fixed
 
+- Opening the macOS menu-bar palette releases the tray menu before restoring prompt focus, so keyboard input and spaces reach the editor.
+
+- **Settings stack from the top on every tab** (operator QA 2026-10-28; backlog 1076). On Models → Voice output
+  (TTS), Voice input and the media routes, the route form no longer opens a ~40 px gap under its title, help and
+  state lines: the route list beside it is as tall as its ten routes and the form column now ends in a stretch
+  instead of handing the surplus to its labels. `test_no_settings_section_claims_empty_height` checks every tab and
+  every route.
+- **What waits for you is a badge on the session control, and it opens exactly what it counts** (operator QA
+  2026-10-29, backlog 1078).
+  - The text banner ("A conversation is waiting for you · 1 new result from your automations · Open") is gone. In
+    its place is the kit's attention badge: the inbox icon and a count, with the lines in its tooltip.
+  - Before, Open switched the chat to an automation's backing session (`automation:<id>`). That showed an old
+    briefing with nothing pending, and the approval it counted was never shown.
+  - Now a run of an automation that waits opens that automation's view, where the run carries Approve / Deny. A new
+    result opens its automation, and viewing it marks it seen. What the open view shows is not counted while it is
+    open, so the count drops and a second click goes to the next thing instead of a blank page.
+
+- **"Speak replies aloud" no longer reads a session's existing answer** when the session is opened, switched to or
+  recovered at launch (a reattach to a run that is already over): only a reply of a run seen live in the palette is
+  spoken (operator 2026-10-29; the rule of AbstractUIC's `readAloudStep`). A voice conversation follows the same rule.
 - A user bubble's text height is computed for the width it really gets (the bubble minus its time and copy
   button) from the start; it was computed for the full width, and the card claimed more height than it was given
   until the next layout pass.
 - The web Assistant builds with `@abstractframework/panel-chat` 0.6.4 (was 0.6.3; ui-kit stays 0.9.5, app-server 0.1.13). From the kit: a message's stamp carries the date when it is not from today ("Yesterday · 10:52 PM", "Oct 21 · 10:52 PM"; the full date on hover), the speaker stays on every assistant message while the voice is available (disabled with its reason while a reply is still being written), and the "files changed" chip opens the same structured detail as the tokens, tools and time chips (AbstractUIC backlog 0064, the message footer spec). The desktop mirrors the spec natively (alignment tracked separately).
+- **The attention badge opens at what needs you** (operator 2026-10-29, backlog 1082). Clicking it opened the
+  automation at the top of its conversation, with the approval card out of view. It now scrolls to the waiting card
+  of that run (else the first unresolved wait, else the first new result) and outlines it for a moment. The
+  approval card's tool lines use the standard text colour instead of the dimmed one, so they read well on the dark
+  card.
+- **Message stamps in the kit's words** (backlog 1076 §3, split from #20). The stamps follow AbstractUIC panel-chat's
+  `formatMessageStamp`, which the web Assistant uses since panel-chat 0.6.4:
+  - "Yesterday · 10:52 PM";
+  - "Oct 1 · 10:52 PM", with no zero-padded day;
+  - "Oct 21, 2025 · 10:52 PM" for another year;
+  - a bare date as its day alone;
+  - no stamp at all for a malformed timestamp, never the raw text.
+
+### Added
+
+- **Choosing a voice plays it** (backlog 1076). Settings → Models → Voice output: picking a voice plays a short
+  sample through the desktop's own speech path with the voice just chosen; a play/stop button beside the list
+  replays or stops it; a newer choice stops the older sample; "Synthesizing a sample…", "Playing a sample…" and
+  "The sample did not play: <reason>." say what happens. Nothing plays when Settings opens, and a reply being read
+  aloud is never cut by a sample (the kit's voice picker, AbstractUIC `AfVoiceSection`).
 
 ## [0.16.5] - 2026-10-28
 
@@ -4820,6 +4913,18 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- **An automation created on the iPhone runs unattended when its tools are set to Auto** (operator QA 2026-10-29, backlog
+  1079).
+  - Every automation was created with "ask before each tool" (`policy.tool_approval: "ask"`, hard-coded), although
+    the screen offers no such choice and says the permissions "are saved with the automation so it can run while
+    this iPhone is closed". Its runs parked on a tool approval for hours.
+  - The approval now follows the tool modes you chose: "ask" only when a tool is on Ask. The per-tool modes still
+    ride `policy.tool_policy`.
+  - Automations created before this keep their "ask" setting. Their waiting runs say so; set their tools to Auto in
+    the automation's Tools.
+
 ### Added
 
 - **Your voices, the engine's and the shared ones (AbstractGateway 0.16.0 voice library).**
@@ -4927,6 +5032,14 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
   when the notification service extension does not replace them. The extension records why in the
   app group (read with the watch's `--dump-notify` readout); the item itself is in the Inbox or
   Automations when you open the app.
+
+### Fixed
+
+- **New automation says whether it will ask before tools** (backlog 1081). Under Tools the sheet now says "Runs without
+  asking: no tool is on Ask." or "Asks before Send Email: a run that uses it waits for your approval, even while this
+  iPhone is closed.", for the Settings defaults and for custom tools, before you create it. An automation is no longer
+  created "ask" by accident.
+- **Tool modes read Off / Ask / Auto**, as on the desktop, the watch and the web (was Off / Auto / Approve).
 
 ## [0.7.0] — 2026-10-25
 
@@ -6155,6 +6268,11 @@ voice button beside Back plays, pauses and rewinds. A tap on the orb pauses or r
 and at rest the same hold reads the last answer aloud. Once a conversation has a message, swipe
 to the left from the orb for its numbers and files (each one shareable).
 
+If a voice upload or transcription fails, the watch keeps the recording and shows the error
+with **Retry** and **Discard**. Restore the connection or sign in again when requested, then
+retry the same recording. After relaunching, **Not sent.** means a recording is still kept;
+Retry reports the result of another attempt. Discard deletes it.
+
 **Swipe as in a browser.** A swipe to the right (your finger moving right, as with watchOS's Back)
 goes back to the page before, down to Home; a swipe to the left goes forward again to a page you
 came back from, and does nothing when there is none.
@@ -6185,7 +6303,9 @@ conversation: its runs are the messages (what its trigger sent, then the answer)
 run in progress and speaks its answer, and talking there opens a conversation about it (its own runs
 never read it). Its details sit behind (i), where a conversation has its tools: when it runs, Run,
 and Edit (its title and task apart; Active and how often; whether it builds on its earlier runs and
-how much of them it reads, in tokens); once read, a page opens at once. Every screen shows a spinner until
+how much of them it reads, in tokens); once read, a page opens at once. Run answers the tap at once
+(a haptic, a spinner, "Starting…" then "Running…" with the time) and, once your gateway has started
+the run, goes back to the orb page, which follows that run to its answer. Every screen shows a spinner until
 its information is in, and an error only once reading it has failed several times.
 
 **Get answers while away.** An answer that arrives after you left the app comes as a notification.
@@ -6316,6 +6436,17 @@ iPhone app); the Python package's history is in
 
 ### Fixed
 
+- Failed voice uploads and transcriptions show their error while preserving the recording and Retry/Discard actions. Device logs include the error domain and code without recording credentials, audio or transcripts.
+
+- **Run on an automation's details answers the tap.** The tap is felt (a click, then the start
+  haptic once the gateway accepts the run), the Run button shows a spinner and a "Starting… 0:01"
+  line becomes "Running… 0:03" once the gateway has the command; the details stay until the gateway
+  has started the run, then the automation's orb page follows that very run (its steps timed from
+  the tap, then its answer, spoken). Before, the button only went inert while the command was sent,
+  the page went back to the orb at rest, and that page looked for the run again: a run that ended
+  before its first look (a short task on a fast model) was never shown there, and a longer one
+  showed only after several round trips. A refused Run says why, with the failure haptic.
+  (QA 2026-10-28 item m; `RunFeedbackUITests`, `LiveRunFeedbackUITests`.)
 - **A sign-out stands.** Once signed out, the watch stays signed out across launches until you
   sign in on it. The watch and the iPhone sign in independently: neither passes its sign-in to the
   other, and neither needs the other's app. Sign out confirms the credential is gone from the
@@ -6455,6 +6586,16 @@ iPhone app); the Python package's history is in
 - On a development build, a push can keep its generic words ("Approval needed", "Tap to read it")
   when the notification service extension does not replace them. The extension records why in the
   app group; `--dump-notify` prints it under "push extension".
+
+### Fixed
+
+- **Every voice you choose plays its sample, or says why it cannot** (operator 2026-10-29, backlog 1083). Choosing a
+  voice in Settings → Voice sometimes played nothing, silently.
+  - The watch's audio session now stays active from one sample to the next. It was deactivated between two taps,
+    which could leave the next one silent.
+  - A sample that ends with no sound and no error is a failure: "The gateway sent no sound for this voice."
+  - The tapped voice's row says "Playing the sample", or "The sample did not play: <reason>" in one line.
+  - Every tap plays, the same voice again included, and a newer tap replaces the older sample.
 
 ## [0.5.0] - 2026-10-25
 
@@ -7220,7 +7361,8 @@ sign-ins), `--test-known <url,url>` (gateways signed into, oldest first), `--tes
 `--render-orb-work` (the orb at work, frame by frame, into Documents), `--render-orb-scenes` (the scene styles, robots included, at rest, speaking, listening, thinking and working, into Documents), `--reset-tools` (tool and
 workflow choices back to the gateway's), `--reset-seen` (every answer counts as new),
 `--fresh-conversation` and `--test-session <id>` (open a conversation), `--slow-automations`
-(sample automations answer 6 s late, as on a public gateway). Release builds ignore them.
+(sample automations answer 6 s late, as on a public gateway), `--slow-run` (a sample Run is
+accepted 4 s after the tap, as a command over the watch's radio). Release builds ignore them.
 
 ## Live in the simulator
 
@@ -7259,6 +7401,13 @@ the watch face's snapshot, and `push extension`: the last lines of what the noti
 extensions did with each push (shown with its event, or why it kept its generic words: no sign-in,
 an earlier sign-in, the gateway's status or error, the event missing from the page, an event it
 cannot render). Release builds ignore the argument.
+
+## Voice-send errors
+
+The device console records failed recording uploads and transcriptions under subsystem
+`ai.abstractframework.assistant.watchkitapp`, category `voice-send`. Each entry contains
+the error domain and code, without credentials, audio bytes or transcript text. The app keeps
+the recording and displays the actionable error with Retry and Discard.
 
 ## App Store packaging
 
@@ -11816,7 +11965,12 @@ def wait_response_command(*, run_id: str, wait_key: str, payload: Dict[str, Any]
     if not rid or not key:
         raise ValueError("wait_response_command: run_id and wait_key are required")
     return {
-        "command_id": f"resume_{int(time.time() * 1000)}",
+        # Approval keys include the unique effect invocation. Other wait keys
+        # may repeat when a workflow loops, so cannot identify a retry.
+        "command_id": "resume_" + uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            json.dumps([rid, key, payload or {}], sort_keys=True, separators=(",", ":")),
+        ).hex if key.startswith("tool_approval:") else "resume_" + uuid.uuid4().hex,
         "run_id": rid,
         "type": "resume",
         "payload": {"wait_key": key, "payload": dict(payload or {})},
@@ -13192,7 +13346,15 @@ class GatewayClient:
         ``{wait_key, payload}`` on the WAITING run (the one path every wait
         answer takes — tool approvals, ask-user, and waits of automation
         occurrences the Assistant never started)."""
-        return self.submit_command(command=wait_response_command(run_id=run_id, wait_key=wait_key, payload=payload))
+        command = wait_response_command(run_id=run_id, wait_key=wait_key, payload=payload)
+        receipt = self.submit_command(command=command)
+        if not isinstance(receipt, dict) or not (
+            receipt.get("accepted") is True or receipt.get("duplicate") is True
+        ):
+            raise RuntimeError("The gateway did not acknowledge the wait answer")
+        if receipt.get("command_id") and receipt["command_id"] != command["command_id"]:
+            raise RuntimeError("The gateway acknowledged a different command")
+        return receipt
 
     def _submit_run_command(self, *, run_id: str, type_: str, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         rid = str(run_id or "").strip()
@@ -16739,6 +16901,9 @@ from ..gateway import get_cached_assistant_capabilities
 class GatewayVoiceManager:
     """Gateway-backed voice manager with a VoiceManager-compatible interface."""
 
+    # Class default too: tests build instances without __init__.
+    _speech_sinks: tuple = (None, None)
+
     def __init__(self, *, llm_manager, debug_mode: bool = False) -> None:
         self._llm_manager = llm_manager
         self.debug_mode = bool(debug_mode)
@@ -16758,6 +16923,9 @@ class GatewayVoiceManager:
         # gateway's default voice). Never silent: the operator heard another
         # voice with no word why (QA 2026-10-28).
         self.on_speech_notice: Optional[Callable[[str], None]] = None
+        # The running speak()'s own (failure, notice) receivers, when its caller
+        # gave them (the Settings voice sample); else the two above apply.
+        self._speech_sinks: tuple = (None, None)
         self._speech_failure_causes: list[str] = []
         self._speech_failure_reported = False
 
@@ -17903,7 +18071,15 @@ class GatewayVoiceManager:
                 # reports the recorded cause unless the user asked us to stop.
                 self._fire_speech_completion(callback, cancelled=stop_gate.is_set())
 
-    def speak(self, text: str, speed: float = 1.0, callback: Optional[Callable] = None) -> bool:
+    def speak(
+        self,
+        text: str,
+        speed: float = 1.0,
+        callback: Optional[Callable] = None,
+        *,
+        on_failure: Optional[Callable[[str], None]] = None,
+        on_notice: Optional[Callable[[str], None]] = None,
+    ) -> bool:
         """Speak the given text via gateway TTS (asynchronous dispatch).
 
         Returns True when the request was accepted and dispatched to a worker
@@ -17915,14 +18091,20 @@ class GatewayVoiceManager:
         texts, and speak() is routinely called from the Qt GUI thread — the
         network work must never run on the caller's thread (2026-07-15
         speaker-button freeze fix).
+
+        `on_failure` / `on_notice`, when given, receive THIS speak's failure
+        reason and "plays, but not as chosen" notice instead of the app-wide
+        `on_speech_error` / `on_speech_notice` (Settings' voice sample says
+        why in place, not as a banner on the chat window).
         """
         _ = float(speed or 1.0)
         raw = str(text or "").strip()
         self._begin_speech_failure_tracking()
         if not raw:
-            self._report_speech_failure(
+            self._refuse_speech(
                 "there is nothing to read aloud in this message (no spoken text "
-                "remains once markdown, code and links are removed)"
+                "remains once markdown, code and links are removed)",
+                on_failure,
             )
             return False
         if not self.supports_tts():
@@ -17930,25 +18112,27 @@ class GatewayVoiceManager:
             # synchronous so callers get an immediate, honest refusal — and it
             # names WHICH side is missing (an unavailable gateway route and a
             # missing local audio backend need opposite user actions).
-            self._report_speech_failure(self._tts_unsupported_reason())
+            self._refuse_speech(self._tts_unsupported_reason(), on_failure)
             return False
         threading.Thread(
             target=self._speak_dispatch,
-            kwargs={"text": raw, "callback": callback},
+            kwargs={"text": raw, "callback": callback, "sinks": (on_failure, on_notice)},
             daemon=True,
             name="gateway-tts-dispatch",
         ).start()
         return True
 
-    def _speak_dispatch(self, *, text: str, callback: Optional[Callable]) -> None:
+    def _speak_dispatch(self, *, text: str, callback: Optional[Callable], sinks: tuple = (None, None)) -> None:
         """Worker-thread body: stop previous speech, then stream-or-artifact."""
         stream_id = ""
         try:
             with self._dispatch_lock:
                 self.stop_speaking()
                 # stop_speaking() muted the SUPERSEDED generation's reporting;
-                # this dispatch owns the channel from here on.
+                # this dispatch owns the channel from here on (its own
+                # failure/notice receivers included).
                 self._begin_speech_failure_tracking()
+                self._speech_sinks = tuple(sinks or (None, None))
                 stream_id, pause_gate, stop_gate = self._start_stream_control()
                 # Resolve once per dispatch; speaks are single-active
                 # (stop_speaking above), so a per-instance value is race-free.
@@ -18133,7 +18317,7 @@ class GatewayVoiceManager:
         self._speech_failure_reported = True
         text = str(reason or "").strip() or "speech failed for an unknown reason"
         warnings.warn(f"#FALLBACK: gateway TTS did not play: {text}")
-        cb = self.on_speech_error
+        cb = self._speech_sinks[0] or self.on_speech_error
         if cb is None:
             return
         try:
@@ -18151,9 +18335,21 @@ class GatewayVoiceManager:
             return "the voice chosen in Settings"
         return "the voice set by the ABSTRACTASSISTANT_*_TTS_* environment variables"
 
+    def _refuse_speech(self, reason: str, on_failure: Optional[Callable[[str], None]]) -> None:
+        """An immediate refusal from speak(): to the caller's own receiver when it gave one."""
+        if on_failure is None:
+            self._report_speech_failure(reason)
+            return
+        self._speech_failure_reported = True
+        warnings.warn(f"#FALLBACK: gateway TTS did not play: {reason}")
+        try:
+            on_failure(str(reason or "").strip() or "speech failed for an unknown reason")
+        except Exception:
+            pass
+
     def _report_speech_notice(self, text: str) -> None:
         """Tell the UI that speech plays, but not as the user chose."""
-        cb = self.on_speech_notice
+        cb = self._speech_sinks[1] or self.on_speech_notice
         if cb is None:
             return
         try:
@@ -20379,6 +20575,7 @@ config fields, ``session_kind`` — never model prose and never id prefixes.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -22021,6 +22218,104 @@ def api_error_text(reason_code: str, message: str = "") -> str:
     head = API_ERROR_TEXT.get(str(reason_code), f"The gateway refused the request ({reason_code}).")
     detail = str(message or "").strip()
     return f"{head} {detail}" if detail and detail not in head else head
+
+
+# ------------------------------------------ per-tool modes (operator QA 2026-10-29)
+
+#: The kit's tool vocabulary (abstractuic ui-kit tool_mode_editor.tsx `TOOL_MODE_LABELS`, tool_plan.ts
+#: `TOOL_MODES`), in the kit's order.
+TOOL_MODES: Tuple[str, ...] = ("off", "ask", "auto")
+
+
+def target_tool_names(target: Mapping[str, Any]) -> Optional[List[str]]:
+    """The tools a target offers its runs (`input_data.tools` within `_runtime.allowed_tools`);
+    None = the workflow's own defaults (no explicit list)."""
+    data = target.get("input_data") if isinstance(target.get("input_data"), Mapping) else {}
+    tools = data.get("tools")
+    runtime = data.get("_runtime") if isinstance(data.get("_runtime"), Mapping) else {}
+    ceiling = runtime.get("allowed_tools")
+    if isinstance(ceiling, list):
+        return [name for name in tools if name in ceiling] if isinstance(tools, list) else list(ceiling)
+    return list(tools) if isinstance(tools, list) else None
+
+
+def automation_tool_modes(definition: Mapping[str, Any], names: Iterable[str] = ()) -> Dict[str, str]:
+    """Off / Ask / Auto for each tool the definition offers, plus each of ``names`` (the gateway's
+    inventory). The definition's named policy (`policy.tool_policy`) decides per tool, exactly as
+    the iPhone and the runtime read it (a tool named in neither list asks); without one, the
+    automation-wide `policy.tool_approval` does. A tool outside an explicit list is Off."""
+    target = definition.get("target") if isinstance(definition.get("target"), Mapping) else {}
+    allowed = target_tool_names(target)
+    policy = definition.get("policy") if isinstance(definition.get("policy"), Mapping) else {}
+    named = policy.get("tool_policy") if isinstance(policy.get("tool_policy"), Mapping) else None
+    approval = str(policy.get("tool_approval") or "auto")
+    auto = {str(n) for n in (named or {}).get("auto_approve_tools") or []}
+    ask = {str(n) for n in (named or {}).get("require_approval_tools") or []}
+    out: Dict[str, str] = {}
+    for name in [*list(names), *(allowed or [])]:
+        name = str(name)
+        if allowed is not None and name not in allowed:
+            out[name] = "off"
+        elif named is not None:
+            out[name] = "auto" if name in auto and name not in ask else "ask"
+        else:
+            out[name] = "auto" if approval == "auto" else "ask"
+    return out
+
+
+def tool_mode_changes(definition: Mapping[str, Any], modes: Mapping[str, str]) -> Dict[str, Any]:
+    """The revision that stores ``modes``: the tools offered (`target.input_data.tools` and
+    `_runtime.allowed_tools`, every other input kept), the per-tool approvals
+    (`policy.tool_policy`), and `policy.tool_approval` ("ask" only when a tool asks)."""
+    target = copy.deepcopy(dict(definition.get("target") or {}))
+    allowed = sorted(name for name, mode in modes.items() if mode != "off")
+    data = target.setdefault("input_data", {})
+    data["tools"] = list(allowed)
+    data.setdefault("_runtime", {})["allowed_tools"] = list(allowed)
+    data["_runtime"].pop("tool_policy", None)  # the definition's policy decides, not runtime vars
+    auto = sorted(name for name, mode in modes.items() if mode == "auto")
+    ask = sorted(name for name, mode in modes.items() if mode == "ask")
+    return {
+        "target": {key: target[key] for key in ("bundle_ref", "flow_id", "interface", "input_data") if key in target},
+        "policy": {"tool_policy": {"auto_approve_tools": auto, "require_approval_tools": ask}, "tool_approval": "ask" if ask else "auto"},
+    }
+
+
+def tool_approval_line(modes: Mapping[str, str]) -> str:
+    """The automation-level state at a glance: "Runs its 4 tools without asking", "Asks before
+    2 of its 4 tools", "No tools"."""
+    offered = [mode for mode in modes.values() if mode != "off"]
+    asking = [mode for mode in offered if mode == "ask"]
+    if not offered:
+        return "No tools"
+    tools = "1 tool" if len(offered) == 1 else f"{len(offered)} tools"
+    if not asking:
+        return f"Runs its {tools} without asking"
+    if len(asking) == len(offered):
+        return f"Asks before each of its {tools}" if len(offered) > 1 else "Asks before its tool"
+    return f"Asks before {len(asking)} of its {tools}"
+
+
+def waits_cleared_by_modes(summary: Mapping[str, Any], modes: Mapping[str, str]) -> Tuple[List[Dict[str, Any]], List[Tuple[Dict[str, Any], List[str]]]]:
+    """The summary's tool-approval waits split by the new modes: (those whose every call is now
+    Auto: approving them is the person's own choice, made in the editor; those still waiting,
+    with the tools that keep them waiting)."""
+    attention = summary.get("attention") if isinstance(summary.get("attention"), Mapping) else {}
+    resume: List[Dict[str, Any]] = []
+    still: List[Tuple[Dict[str, Any], List[str]]] = []
+    for wait in attention.get("waits") or []:
+        if not isinstance(wait, Mapping) or str(wait.get("kind") or "") != "tool_approval":
+            continue
+        calls = wait.get("details") if isinstance(wait.get("details"), list) else []
+        names = [str((c or {}).get("name") or "") for c in calls if isinstance(c, Mapping)]
+        if not names:
+            continue
+        blocking = sorted({n for n in names if modes.get(n) != "auto"})
+        if blocking:
+            still.append((dict(wait), blocking))
+        else:
+            resume.append(dict(wait))
+    return resume, still
 
 --- abstractassistant/gateway_service.py ---
 """Gateway-facing contract helpers for AbstractAssistant."""
