@@ -125,6 +125,14 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
   app group (read with the watch's `--dump-notify` readout); the item itself is in the Inbox or
   Automations when you open the app.
 
+### Fixed
+
+- **New automation says whether it will ask before tools** (backlog 1081). Under Tools the sheet now says "Runs without
+  asking: no tool is on Ask." or "Asks before Send Email: a run that uses it waits for your approval, even while this
+  iPhone is closed.", for the Settings defaults and for custom tools, before you create it. An automation is no longer
+  created "ask" by accident.
+- **Tool modes read Off / Ask / Auto**, as on the desktop, the watch and the web (was Off / Auto / Approve).
+
 ## [0.7.0] — 2026-10-25
 
 ### Added

@@ -26,6 +26,12 @@ struct NewAutomationScreen: View {
     @FocusState private var editingBudget: Bool
     @State private var tools: ConversationTools?
     @State private var showTools = false
+    /// The tool inventory (GET /tools), read once: what the automation's modes resolve against.
+    @State private var inventory: [ToolInfo]?
+    /// Whether the automation will ask before a tool, from the modes it would be created with.
+    private var approval: AutomationApprovalState? {
+        inventory.map { AutomationApprovalState(tools: ConversationTools.snapshot(tools ?? store.appTools, inventory: $0)) }
+    }
     @State private var zone = "your account’s time zone"
     @State private var creating = false
     @State private var loading = true
@@ -100,7 +106,15 @@ struct NewAutomationScreen: View {
                     Button { editingTitle = false; editingTask = false; editingBudget = false; editingInput = nil; showTools = true } label: {
                         HStack { Label("Tools", systemImage: "wrench.and.screwdriver").foregroundStyle(PhoneTheme.tool); Spacer(); Text(tools == nil ? "Settings defaults" : "Custom").foregroundStyle(PhoneTheme.secondary); Image(systemName: "chevron.right").font(.caption) }
                     }.accessibilityIdentifier("automation.tools")
-                } footer: { Text("Tool permissions are saved with the automation so it can run while this iPhone is closed.") }
+                    // Asks before tools, or not: always in view before Create (backlog 1081).
+                    if let approval {
+                        Label(approval.sentence, systemImage: approval.asks ? "hand.raised.fill" : "checkmark.circle")
+                            .font(.subheadline).foregroundStyle(approval.asks ? PhoneTheme.amber : PhoneTheme.secondary)
+                            .accessibilityIdentifier("automation.approval")
+                    } else {
+                        Text("Checking which tools ask first…").font(.subheadline).foregroundStyle(PhoneTheme.secondary)
+                    }
+                } footer: { Text("Tool permissions are saved with the automation so it can run while this iPhone is closed. Set a tool to Auto in Tools so its runs do not wait for you.") }
                 if let error { Section { ErrorBanner(message: error) } }
                 Section {
                     Button { Task { await create() } } label: {
@@ -167,6 +181,7 @@ struct NewAutomationScreen: View {
         guard let client = store.client else { return }; let context = store.contextID; defer { loading = false }
         do {
             let result = try await client.workflows(forInterface: ""); guard context == store.contextID else { return }; workflows = result
+            if let listed = try? await client.tools(), context == store.contextID { inventory = listed }
             let prefs = try await client.accountPreferences(); guard context == store.contextID else { return }
             zone = prefs["time_zone"]?["effective"]?.stringValue ?? zone
             do {
@@ -186,6 +201,7 @@ struct NewAutomationScreen: View {
             if pending == nil {
                 let inventory = try await client.tools()
                 guard context == store.contextID else { return }
+                self.inventory = inventory
                 let snapshot = ConversationTools.snapshot(tools ?? store.appTools, inventory: inventory)
                 let target: NewAutomation.Target
                 let text = task.trimmingCharacters(in: .whitespacesAndNewlines)
