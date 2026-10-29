@@ -1452,9 +1452,20 @@ def test_a_tool_approval_wait_lists_its_calls_and_answers_approved(palette, stub
     window._open_automation(TRIAGE)
     pair = next(p for p in window.automation_view.pairs if p.index == 7)
     texts = [w.text() for w in pair.answer.findChildren(QLabel)]
-    # The call in words (kit 0068): the verb and the recipient, never the raw JSON arguments.
-    assert any(">Email</span>" in t and "<b>clara@example.com</b>" in t for t in texts), texts
+    # The call in words (kit 0068), never the raw JSON arguments. Operator ruling 2026-10-29: the bold first
+    # line "The Assistant wants to use these tools:" (the card's only bold), no count line, one bullet per call
+    # on one line with plain parameters.
+    assert any(">Email</span>" in t and "clara@example.com" in t and t.startswith("• ") for t in texts), texts
+    assert not any("<b>" in t for t in texts), "no bold on the parameters"
     assert not any("{" in t for t in texts), "no JSON arguments on the card"
+    heading = [w for w in pair.answer.findChildren(QLabel) if w.text() == "The Assistant wants to use these tools:"]
+    assert len(heading) == 1 and heading[0].objectName() == "autoTurnHeading"
+    calls = [w for w in pair.answer.findChildren(QLabel) if w.text().startswith("• ")]
+    assert calls and all(not w.wordWrap() for w in calls), "one line per call"
+    # Too long for its width: cut with an ellipsis, the whole call on its tooltip.
+    calls[0].resize(140, 20)
+    calls[0]._render(140)
+    assert calls[0].shown_rest().endswith("…") and "clara@example.com" in calls[0].toolTip()
     entry = next(e for e in pair.wait_inputs if e["kind"] == "tool_approval")
     assert entry["edit"] is None, "an approval is Approve / Deny, never free text"
     entry["approve"].click()

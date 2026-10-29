@@ -42,6 +42,9 @@ def test_the_approval_card_shows_words_not_json() -> None:
 
     host = QWidget()
     label = _tool_call_label(CASES["cases"][1]["call"], parent=host)
-    assert "{" not in label.text() and "<b>“Oct. 28, 2026” pharmaceutical FDA approval</b>" in label.text()
-    assert label.accessibleName() == CASES["cases"][1]["sentence"] and label.toolTip() == "skim_websearch"
-    assert isinstance(label, QLabel)
+    # Operator ruling 2026-10-29: one bullet, one line, plain parameters (no bold); the whole call and
+    # the tool's own name on its tooltip.
+    assert "{" not in label.text() and "<b>" not in label.text() and label.text().startswith("• ")
+    assert "“Oct. 28, 2026” pharmaceutical FDA approval" in label.text()
+    assert label.accessibleName() == CASES["cases"][1]["sentence"] and "skim_websearch" in label.toolTip()
+    assert isinstance(label, QLabel) and not label.wordWrap()

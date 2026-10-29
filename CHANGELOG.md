@@ -117,6 +117,13 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   - a bare date as its day alone;
   - no stamp at all for a malformed timestamp, never the raw text.
 
+### Changed
+
+- **The automation's tool-approval card reads in one glance** (operator ruling 2026-10-29; the kit's card does the
+  same, AbstractUIC 0073). It opens with "The Assistant wants to use these tools:" in bold, the card's only bold.
+  The count line is gone. Each call is one bullet on one line: the coloured tool word, then plain text, cut with an
+  ellipsis to the card's width, with the whole call on its tooltip. Approve and Deny are unchanged.
+
 ## [0.16.5] - 2026-10-28
 
 The web Assistant on AbstractUIC 0.8.3, and the desktop's AbstractVoice floor raised. No other Python change.
