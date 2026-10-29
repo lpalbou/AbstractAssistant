@@ -5,6 +5,15 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+### Changed
+
+- **The web app's account is the kit's ONE account widget** (operator ruling 2026-10-29: the docs button, Appearance,
+  About and the account are the same kit components in every app). The browser app already composed its header from
+  the kit (`AfAppShell`: Docs assistant, Appearance, About, `identity: "menu"`); on ui-kit 0.9.5 the signed-in account
+  was an identity menu beside a Disconnect pill. ui-kit 0.9.6 (pinned here, was 0.9.5) renders one button with the
+  person icon, the name and the connection light, its menu holding Signed in as, Gateway, Copy user id and Disconnect.
+  Test: `web/src/top_bar_set.test.tsx`.
+
 ### Fixed
 
 - **Settings stack from the top on every tab** (operator QA 2026-10-28; backlog 1076). On Models → Voice output
