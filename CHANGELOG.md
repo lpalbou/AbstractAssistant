@@ -7,6 +7,16 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Fixed
 
+- **What waits for you is a badge on the session control, and it opens exactly what it counts** (operator QA
+  2026-10-29, backlog 1078).
+  - The text banner ("A conversation is waiting for you · 1 new result from your automations · Open") is gone. In
+    its place is the kit's attention badge: the inbox icon and a count, with the lines in its tooltip.
+  - Before, Open switched the chat to an automation's backing session (`automation:<id>`). That showed an old
+    briefing with nothing pending, and the approval it counted was never shown.
+  - Now a run of an automation that waits opens that automation's view, where the run carries Approve / Deny. A new
+    result opens its automation, and viewing it marks it seen. What the open view shows is not counted while it is
+    open, so the count drops and a second click goes to the next thing instead of a blank page.
+
 - **"Speak replies aloud" no longer reads a session's existing answer** when the session is opened, switched to or
   recovered at launch (a reattach to a run that is already over): only a reply of a run seen live in the palette is
   spoken (operator 2026-10-29; the rule of AbstractUIC's `readAloudStep`). A voice conversation follows the same rule.

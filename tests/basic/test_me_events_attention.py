@@ -28,11 +28,11 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from abstractassistant.core.attention import AttentionModel, attention_banner_text  # noqa: E402
+from abstractassistant.core.attention import AttentionModel, attention_label, attention_tooltip, automation_of_session  # noqa: E402
 from abstractassistant.gateway.client import GatewayClient, GatewayClientConfig  # noqa: E402
 from abstractassistant.gateway.me_events import EventFollower, MeEventsClient, SseFrameParser  # noqa: E402
 
-from test_automations import AUTOMATIONS_PATH, TRIAGE, palette, stub  # noqa: E402,F401  (fixtures)
+from test_automations import AUTOMATIONS_PATH, JOURNAL, TRIAGE, palette, stub  # noqa: E402,F401  (fixtures)
 
 
 # ------------------------------------------------------------------ helpers
@@ -219,10 +219,28 @@ def test_unseen_is_raised_minus_seen_over_automations_and_waits() -> None:
 
 
 @pytest.mark.basic
-def test_banner_words() -> None:
-    assert attention_banner_text(needs_you=0, new_results=0) == ""
-    assert attention_banner_text(needs_you=1, new_results=0) == "A conversation is waiting for you"
-    assert attention_banner_text(needs_you=2, new_results=1) == "2 conversations are waiting for you · 1 new result from your automations"
+def test_badge_words_are_the_kits() -> None:
+    """The badge's tooltip and name come from the kit's `automation_controls.json` → `attention`
+    (the kit's `attentionBadgeTooltip` / `attentionBadgeLabel`, check_automation_panel.mjs)."""
+    assert attention_tooltip(waiting=0, results=0) == ""
+    assert attention_tooltip(waiting=1, results=0) == "1 conversation is waiting for you\nClick to open it."
+    assert attention_tooltip(waiting=1, results=2) == "1 conversation is waiting for you\n2 new results from your automations\nClick to open it."
+    assert attention_tooltip(waiting=3, results=1) == "3 conversations are waiting for you\n1 new result from your automations\nClick to open it."
+    assert attention_label(3) == "3 waiting for you" and attention_label(0) == ""
+    assert automation_of_session(f"automation:{TRIAGE}") == TRIAGE and automation_of_session("sess-1") == ""
+
+
+@pytest.mark.basic
+def test_result_automations_are_what_new_results_counts() -> None:
+    m = AttentionModel()
+    m.apply(_raised(1, "a", 1))
+    m.apply(_raised(2, "b", 1))
+    m.apply(_raised(3, "a", 2))
+    m.apply(_ev(4, "attention.seen", automation_id="b", seq=1))
+    assert m.result_automations() == ["a"] and m.new_results == 2
+    m.apply(_raised(5, "b", 4))
+    assert m.result_automations() == ["b", "a"], "the newest result first"
+    assert m.new_results_outside("a") == 1 and m.new_results_outside("") == 3
 
 
 @pytest.mark.basic
@@ -305,9 +323,12 @@ def test_palette_banner_tray_and_notifications_follow_the_stream(palette, stub, 
     # The verification against the runs drops the wait whose run is not waiting any more.
     _until(lambda: window._attention.needs_you == 1, pump=pump)
     assert window._notified[notified_at_start:] == [], "history never notifies"
-    assert not window.attention_banner.isHidden()
-    banner = window.attention_banner.text()
-    assert "A conversation is waiting for you · 1 new result from your automations" in banner and "attention:wait" in banner
+    # The badge on the sessions control: the kit's inbox glyph and a count, the words in its tooltip.
+    badge = window.attention_badge
+    assert not badge.isHidden() and badge.text() == "2" and not badge.icon().isNull()
+    assert badge.toolTip() == "1 conversation is waiting for you\n1 new result from your automations\nClick to open it."
+    assert badge.accessibleName() == "2 waiting for you"
+    assert window._attention_targets()[0][0] == "wait", "a click opens the waiting conversation first"
     assert window._tray_feedback_state() == "waiting"
     assert window._automations_timer.interval() == AUTOMATIONS_RECONCILE_MS
 
@@ -316,7 +337,7 @@ def test_palette_banner_tray_and_notifications_follow_the_stream(palette, stub, 
     events.append(_wait(6, "run-new", "tool_approval:run-new:act", session_id="sess-third"))
     _until(lambda: window._attention.cursor == 6, pump=pump)
     _until(lambda: window._notified[notified_at_start:] == [("Approval needed", "A conversation is waiting for your answer. Click the menu bar icon to open it.")], pump=pump)
-    assert "2 conversations are waiting for you" in window.attention_banner.text()
+    assert "2 conversations are waiting for you" in window.attention_badge.toolTip() and window.attention_badge.text() == "3"
     # Live automation attention refetches the list (no timer involved).
     events.append(_raised(7, TRIAGE, 3))
     _until(lambda: len(stub.calls("GET", AUTOMATIONS_PATH)) > polls_before, pump=pump)
@@ -327,7 +348,7 @@ def test_palette_banner_tray_and_notifications_follow_the_stream(palette, stub, 
     _until(lambda: window._attention.cursor == 10, pump=pump)
     pump()
     assert window._attention.total == 0
-    assert window.attention_banner.isHidden()
+    assert window.attention_badge.isHidden()
     assert window._tray_feedback_state() != "waiting"
     assert len([n for n in window._notified[notified_at_start:] if n[0] == "Approval needed"]) == 1
 
@@ -416,3 +437,54 @@ def test_the_tray_notifies_first_and_this_app_reports_what_it_shows(palette, stu
     _until(lambda: events.reports, pump=pump)
     assert events.reports == [{"channel": "assistant", "outcome": "sent", "record_key": "wait:run-x:tool_approval:run-x:act:s1",
                                "device": device_id()}]
+
+
+@pytest.mark.basic
+def test_the_badge_opens_exactly_what_it_counts_and_opening_clears_it(palette, stub, events) -> None:
+    """QA 2026-10-29: "A conversation is waiting for you · 1 new result" -> Open landed on an old
+    session (the automation's backing session `automation:<id>`, switched to as a chat) with nothing
+    pending; the banner never cleared; a second Open showed a blank page. Now a wait raised in an
+    automation's session opens THAT automation (its waiting run carries Approve / Deny), while its
+    view is open the badge stops counting it, and a new result opens its automation and is
+    acknowledged by viewing it."""
+    from test_automations import _APP
+    import test_automations
+
+    window, controller = palette
+    app = test_automations._APP or _APP
+    pump = app.processEvents
+    window._poll_automations()
+    switched: List[str] = []
+    window._switch_to_session = lambda sid: switched.append(sid)  # never a chat switch here
+    window._wait_is_live = lambda _controller, wait: True
+    events.events += [
+        _wait(1, "run-auto", "tool_approval:run-auto:act", session_id=f"automation:{JOURNAL}"),
+        _raised(2, TRIAGE, 2),
+    ]
+    controller.me_events_client = events.client
+    window._start_me_events()
+    _until(lambda: window._me_events.live and window._attention.cursor == 2, pump=pump)
+    pump()
+    badge = window.attention_badge
+    assert badge.text() == "2" and [t[0] for t in window._attention_targets()] == ["wait", "result"]
+
+    # First click: the automation whose run waits, in its own view (not a chat switch).
+    badge.click()
+    pump()
+    assert window._automation_view_id == JOURNAL and switched == []
+    assert window.automation_view.isVisibleTo(window)
+    # Its wait is on screen now: the badge counts only the other automation's result.
+    assert badge.text() == "1" and badge.toolTip() == "1 new result from your automations\nClick to open it."
+    assert window._attention_targets() == [("result", TRIAGE)]
+
+    # Second click: exactly the automation with the new result; viewing it acknowledges it.
+    badge.click()
+    _until(lambda: stub.calls("POST", f"{AUTOMATIONS_PATH}/{TRIAGE}/seen"), pump=pump)
+    assert window._automation_view_id == TRIAGE and switched == []
+    events.append(_ev(3, "attention.seen", automation_id=TRIAGE, seq=2))  # the gateway's echo of that seen
+    _until(lambda: window._attention.cursor == 3, pump=pump)
+    pump()
+    window._close_automation_view()
+    # Back in the chat: the approval still waits in JOURNAL's automation (it was not answered).
+    assert badge.text() == "1" and window._attention_targets()[0][0] == "wait"
+    assert window._attention.new_results == 0

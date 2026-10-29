@@ -39,10 +39,23 @@ __all__ = [
     "PendingWait",
     "RaisedItem",
     "WAIT_KINDS",
-    "attention_banner_text",
+    "AUTOMATION_SESSION_PREFIX",
+    "attention_label",
+    "attention_tooltip",
+    "automation_of_session",
 ]
 
 WAIT_KINDS = frozenset({"approval", "question"})
+# An automation's runs live in the gateway session `automation:<automation id>`: a wait raised
+# there is answered in the automation's view (its waiting run, with Approve / Deny), never by
+# switching the chat to that session (QA 2026-10-29: it showed an old briefing, nothing pending).
+AUTOMATION_SESSION_PREFIX = "automation:"
+
+
+def automation_of_session(session_id: Any) -> str:
+    """The automation id behind an `automation:<id>` session, "" for a chat session."""
+    sid = str(session_id or "")
+    return sid[len(AUTOMATION_SESSION_PREFIX):] if sid.startswith(AUTOMATION_SESSION_PREFIX) else ""
 # The client channels that show a person a notification on a device (the
 # gateway's CLIENT_CHANNELS). `console` and `email` never silence this app.
 DEVICE_CHANNELS = frozenset({"tray", "assistant", "code", "watch"})
@@ -283,21 +296,50 @@ class AttentionModel:
     def waits(self) -> List[PendingWait]:
         return list(self._waits.values())
 
+    def result_automations(self) -> List[str]:
+        """The automations with unseen results, the one with the newest result first: exactly
+        what `new_results` counts, so the badge opens what it counted."""
+        newest: Dict[str, int] = {}
+        for aid, seqs in self._raised.items():
+            unseen = [s for s in seqs if s > self._seen.get(aid, 0)]
+            if unseen:
+                newest[aid] = max(unseen)
+        return sorted(newest, key=lambda aid: -newest[aid])
+
+    def new_results_outside(self, automation_id: str) -> int:
+        """Unseen results of every automation but the one on screen."""
+        here = str(automation_id or "")
+        return sum(len([s for s in seqs if s > self._seen.get(aid, 0)]) for aid, seqs in self._raised.items() if aid != here)
+
     def waits_outside(self, session_id: str) -> List[PendingWait]:
         """Waits in conversations other than the one on screen."""
         sid = str(session_id or "")
         return [w for w in self._waits.values() if not sid or w.session_id != sid]
 
 
-def attention_banner_text(*, needs_you: int, new_results: int) -> str:
-    """The palette banner's words (empty = no banner)."""
-    parts: List[str] = []
-    if needs_you == 1:
-        parts.append("A conversation is waiting for you")
-    elif needs_you > 1:
-        parts.append(f"{needs_you} conversations are waiting for you")
-    if new_results == 1:
-        parts.append("1 new result from your automations")
-    elif new_results > 1:
-        parts.append(f"{new_results} new results from your automations")
-    return " · ".join(parts)
+def _words() -> Mapping[str, str]:
+    """The kit's badge words (`automation_controls.json` → `attention`, vendored byte-identically)."""
+    from .automations import AUTOMATION_CONTROLS
+
+    return AUTOMATION_CONTROLS["attention"]
+
+
+def attention_tooltip(*, waiting: int, results: int) -> str:
+    """The attention badge's tooltip (the kit's `attentionBadgeTooltip`): one line per non-zero
+    count, then the hint; "" when nothing waits."""
+    t = _words()
+    lines: List[str] = []
+    if waiting == 1:
+        lines.append(t["waiting_one"])
+    elif waiting > 1:
+        lines.append(t["waiting_many"].replace("{n}", str(waiting)))
+    if results == 1:
+        lines.append(t["result_one"])
+    elif results > 1:
+        lines.append(t["result_many"].replace("{n}", str(results)))
+    return "\n".join([*lines, t["open_hint"]]) if lines else ""
+
+
+def attention_label(total: int) -> str:
+    """The badge's accessible name (the kit's `attentionBadgeLabel`): "3 waiting for you"."""
+    return _words()["label"].replace("{n}", str(int(total))) if total > 0 else ""
