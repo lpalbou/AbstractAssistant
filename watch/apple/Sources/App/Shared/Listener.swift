@@ -14,6 +14,9 @@ final class Listener: ObservableObject {
     static let silenceToSend: TimeInterval = 3
     /// Time to start speaking after the tap before listening gives up.
     static let waitForSpeech: TimeInterval = 5
+    #if DEBUG
+    static let silentForTests = ProcessInfo.processInfo.arguments.contains("--silent-mic")
+    #endif
     static let maxDuration: TimeInterval = 60
 
     @Published private(set) var isListening = false
@@ -105,7 +108,13 @@ final class Listener: ObservableObject {
         // The first half second sets the room's floor; it then follows the quietest moments slowly.
         if elapsed < 0.5 { floorDB = min(floorDB == -50 ? db : floorDB, db) }
         else if db < floorDB { floorDB = 0.9 * floorDB + 0.1 * db }
-        let speaking = elapsed > 0.5 && db > max(floorDB + 12, -48)
+        var speaking = elapsed > 0.5 && db > max(floorDB + 12, -48)
+        #if DEBUG
+        // `--silent-mic` (UI tests that assert "nothing heard"): the simulator records through the
+        // Mac's real microphone, so a noise in the room was taken for speech and sent as a question
+        // (SendNowUITests failed 5 of 8 on main, 2026-10-29). Debug builds only.
+        if Self.silentForTests { speaking = false }
+        #endif
         if speaking {
             if !heardSpeech { heardSpeech = true }
             lastSpeech = Date()
