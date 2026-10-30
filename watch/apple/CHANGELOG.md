@@ -17,6 +17,10 @@ iPhone app); the Python package's history is in
 
 ### Fixed
 
+- Approving one request keeps later requests pending and visible while the app is active.
+  Approval monitoring resumes after sleep/wake, and late reads cannot replace a newer request
+  with an older gate. Resolutions from another client clear the matching request.
+
 - Event-stream notifications follow explicit gateway attention records. Quiet automation
   completions no longer add a separate "finished" alert, and attention resolved later in the
   same replay page stays silent.

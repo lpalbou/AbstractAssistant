@@ -80,6 +80,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Fixed
 
+- Cross-device approval updates clear the matching desktop prompt and tray state. Attention
+  clicks reopen the pending gate in an already-selected conversation. The active watch follows
+  subsequent requests after a single approval without granting permission to the next request.
+
 - iPhone reconnects reconcile attention before posting local notifications, suppress consumed
   history and withdraw known-resolved alerts. Shared Apple attention replay uses explicit gateway
   attention records rather than generating extra alerts for quiet run completions.

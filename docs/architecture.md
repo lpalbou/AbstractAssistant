@@ -209,7 +209,11 @@ flowchart LR
   when the stream holds a `notification.sent` for the same `record_key` from another client channel
   on the same device (`device_id()` = sha256 of the lower-cased host name, 16 hex, as the gateway
   tray) less than 60 s old — the gateway's `events_stream.already_notified` rule; a shown one is
-  reported with `channel: "assistant"` and the device.
+  reported with `channel: "assistant"` and the device. A resolution on another client withdraws
+  only the matching prompt, banner and pending activity marker. A selected conversation still
+  contributes to attention when its approval is not represented locally. Opening its attention
+  item validates the run's session and root ancestry, then follows that root through the existing
+  ledger path, including when the same conversation and cached root are already selected.
 - **Polling.** `AutomationsHub` reads every page of `GET /automations` (there is no change cursor)
   and, for each automation with unseen items, its `…/attention` pages. While the event stream is
   live it refetches on automation events (`trigger.event`, `attention.*`, `wake.*`, an occurrence's

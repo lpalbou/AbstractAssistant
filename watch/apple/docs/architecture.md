@@ -55,6 +55,12 @@ flowchart LR
 A wait answered on the watch is answered for every client; a question asked on the watch is a run
 in the same session pool as the desktop assistant's.
 
+While the app is active, a fast approval monitor follows known approval runs through their
+subsequent gates until they finish. It replaces the displayed gate from the current run snapshot;
+answering one request does not approve its successor. Remote resolutions clear the matching gate.
+Sleep and wake restart the monitor independently of the slower general refresh, and older reads
+cannot restore or retire a newer request. The monitor stops when the app is inactive.
+
 ### One question, while it works
 
 ```mermaid

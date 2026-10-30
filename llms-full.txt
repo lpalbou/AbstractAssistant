@@ -1883,7 +1883,11 @@ flowchart LR
   when the stream holds a `notification.sent` for the same `record_key` from another client channel
   on the same device (`device_id()` = sha256 of the lower-cased host name, 16 hex, as the gateway
   tray) less than 60 s old — the gateway's `events_stream.already_notified` rule; a shown one is
-  reported with `channel: "assistant"` and the device.
+  reported with `channel: "assistant"` and the device. A resolution on another client withdraws
+  only the matching prompt, banner and pending activity marker. A selected conversation still
+  contributes to attention when its approval is not represented locally. Opening its attention
+  item validates the run's session and root ancestry, then follows that root through the existing
+  ledger path, including when the same conversation and cached root are already selected.
 - **Polling.** `AutomationsHub` reads every page of `GET /automations` (there is no change cursor)
   and, for each automation with unseen items, its `…/attention` pages. While the event stream is
   live it refetches on automation events (`trigger.event`, `attention.*`, `wake.*`, an occurrence's
@@ -3267,6 +3271,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
     gone: the dropdown already says it uses the gateway default, and the two lines stay on the route's tooltip.
 
 ### Fixed
+
+- Cross-device approval updates clear the matching desktop prompt and tray state. Attention
+  clicks reopen the pending gate in an already-selected conversation. The active watch follows
+  subsequent requests after a single approval without granting permission to the next request.
 
 - iPhone reconnects reconcile attention before posting local notifications, suppress consumed
   history and withdraw known-resolved alerts. Shared Apple attention replay uses explicit gateway
@@ -6465,6 +6473,10 @@ iPhone app); the Python package's history is in
 
 ### Fixed
 
+- Approving one request keeps later requests pending and visible while the app is active.
+  Approval monitoring resumes after sleep/wake, and late reads cannot replace a newer request
+  with an older gate. Resolutions from another client clear the matching request.
+
 - Event-stream notifications follow explicit gateway attention records. Quiet automation
   completions no longer add a separate "finished" alert, and attention resolved later in the
   same replay page stays silent.
@@ -7115,6 +7127,12 @@ flowchart LR
 
 A wait answered on the watch is answered for every client; a question asked on the watch is a run
 in the same session pool as the desktop assistant's.
+
+While the app is active, a fast approval monitor follows known approval runs through their
+subsequent gates until they finish. It replaces the displayed gate from the current run snapshot;
+answering one request does not approve its successor. Remote resolutions clear the matching gate.
+Sleep and wake restart the monitor independently of the slower general refresh, and older reads
+cannot restore or retire a newer request. The monitor stops when the app is inactive.
 
 ### One question, while it works
 
