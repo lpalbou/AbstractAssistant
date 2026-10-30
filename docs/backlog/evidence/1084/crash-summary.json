@@ -1,0 +1,115 @@
+{
+  "version": "0.16.0",
+  "build": "39",
+  "at": "2026-10-30 06:22:17.00 +0100",
+  "exception": {
+    "codes": "0x0000000000000000, 0x0000000000000000",
+    "rawCodes": [
+      0,
+      0
+    ],
+    "type": "EXC_CRASH",
+    "signal": "SIGABRT"
+  },
+  "termination": {
+    "code": 6,
+    "namespace": "SIGNAL",
+    "indicator": "Abort trap: 6"
+  },
+  "queue": "com.apple.root.user-initiated-qos.cooperative",
+  "frames": [
+    {
+      "image": "libsystem_kernel.dylib",
+      "symbol": "__pthread_kill"
+    },
+    {
+      "image": "libsystem_pthread.dylib",
+      "symbol": "pthread_kill"
+    },
+    {
+      "image": "libsystem_c.dylib",
+      "symbol": "abort"
+    },
+    {
+      "image": "libc++abi.dylib",
+      "symbol": "__abort_message"
+    },
+    {
+      "image": "libc++abi.dylib",
+      "symbol": "demangling_terminate_handler()"
+    },
+    {
+      "image": "libobjc.A.dylib",
+      "symbol": "_objc_terminate()"
+    },
+    {
+      "image": "libc++abi.dylib",
+      "symbol": "std::__terminate(void (*)())"
+    },
+    {
+      "image": "libc++abi.dylib",
+      "symbol": "__cxxabiv1::failed_throw(__cxxabiv1::__cxa_exception*)"
+    },
+    {
+      "image": "libc++abi.dylib",
+      "symbol": "__cxa_throw"
+    },
+    {
+      "image": "libobjc.A.dylib",
+      "symbol": "objc_exception_throw"
+    },
+    {
+      "image": "Foundation",
+      "symbol": "-[NSAssertionHandler handleFailureInMethod:object:file:lineNumber:description:]"
+    },
+    {
+      "image": "UIKitCore",
+      "symbol": "-[UIApplication _performBlockAfterCATransactionCommitSynchronizes:]"
+    },
+    {
+      "image": "UIKitCore",
+      "symbol": "-[UIApplication _updateStateRestorationArchiveForBackgroundEvent:saveState:exitIfCouldNotRestoreState:updateSnapshot:windowScene:]"
+    },
+    {
+      "image": "UIKitCore",
+      "symbol": "-[UIApplication _updateSnapshotAndStateRestorationWithAction:windowScene:]"
+    },
+    {
+      "image": "AbstractAssistantPhone.debug.dylib",
+      "symbol": "@objc closure #1 in PhoneNotifier.userNotificationCenter(_:didReceive:)"
+    },
+    {
+      "image": "AbstractAssistantPhone.debug.dylib",
+      "symbol": "partial apply for @objc closure #1 in PhoneNotifier.userNotificationCenter(_:didReceive:)"
+    },
+    {
+      "image": "AbstractAssistantPhone.debug.dylib",
+      "symbol": "thunk for @escaping @callee_guaranteed @Sendable @async () -> ()"
+    },
+    {
+      "image": "AbstractAssistantPhone.debug.dylib",
+      "symbol": "partial apply for thunk for @escaping @callee_guaranteed @Sendable @async () -> ()"
+    },
+    {
+      "image": "AbstractAssistantPhone.debug.dylib",
+      "symbol": "thunk for @escaping @isolated(any) @callee_guaranteed @async () -> ()"
+    },
+    {
+      "image": "AbstractAssistantPhone.debug.dylib",
+      "symbol": "partial apply for thunk for @escaping @isolated(any) @callee_guaranteed @async () -> ()"
+    },
+    {
+      "image": "AbstractAssistantPhone.debug.dylib",
+      "symbol": "specialized thunk for @escaping @isolated(any) @callee_guaranteed @async () -> (@out A)"
+    },
+    {
+      "image": "AbstractAssistantPhone.debug.dylib",
+      "symbol": "partial apply for specialized thunk for @escaping @isolated(any) @callee_guaranteed @async () -> (@out A)"
+    },
+    {
+      "image": "libswift_Concurrency.dylib",
+      "symbol": "completeTaskWithClosure(swift::AsyncContext*, swift::SwiftError*)"
+    }
+  ],
+  "note": "Sanitized from the connected physical iPhone report; raw report retained privately in /tmp. No device/account identifiers or memory dumps included."
+}

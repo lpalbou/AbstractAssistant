@@ -1,0 +1,44 @@
+{
+  "code_commit": "8f773fb",
+  "intake_commit": "693d128",
+  "desktop_commit_by_other_agent": "b962b94",
+  "tests": {
+    "assistant_kit": {
+      "passed": 228,
+      "suites": 20
+    },
+    "native_notification_tests": {
+      "passed": 2,
+      "failed": 0,
+      "os": "iOS Simulator 26.5"
+    },
+    "desktop_regressions": {
+      "passed": 43,
+      "note": "Read-only verification of the other agent\u2019s source; no desktop files staged by this work."
+    }
+  },
+  "deployment": {
+    "target": "connected physical iPhone",
+    "method": "Existing guarded deploy-phone.sh, development-signed Debug install and launch",
+    "bundle_id": "ai.abstractframework.assistant",
+    "version": "0.16.0",
+    "build": "39",
+    "binary_sha256": "eecf1f8ddfc8a183a35f1ea94b067364c6bf76b3d3aab1419c4ef3f1f2a4d8ca",
+    "install_and_launch_exit_code": 0,
+    "app_running_after_launch": true,
+    "new_phone_crashes_after_launch": 0,
+    "saved_sign_in_preserved": true,
+    "app_store_upload": false,
+    "live_approvals_sent_for_testing": 0
+  },
+  "desktop": {
+    "source_updated_local": "2026-10-30 06:29:06",
+    "process_started_local": "2026-10-30 06:31:36",
+    "deploy_symlink_points_to_checked_source": true,
+    "restarted_by_this_work": false
+  },
+  "limitations": [
+    "Real APNs notification tapping after installation requires operator confirmation; callback queue/once behavior was verified natively from background tasks.",
+    "Different new approval gates still require separate decisions; no additional tools or waits are auto-approved."
+  ]
+}
