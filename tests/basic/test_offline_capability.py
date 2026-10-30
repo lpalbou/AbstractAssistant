@@ -121,6 +121,7 @@ def test_only_one_session_sync_runs_at_a_time() -> None:
 
     palette = app_module.AssistantPalette.__new__(app_module.AssistantPalette)
     started = []
+    completed = []
     release = threading.Event()
 
     class _Controller:
@@ -138,6 +139,8 @@ def test_only_one_session_sync_runs_at_a_time() -> None:
     palette.session_attachments_restored = type(
         "S", (), {"emit": staticmethod(lambda *a: None)}
     )()
+    palette.session_sync_completed = type("S", (), {"emit": staticmethod(completed.append)})()
+    palette.session_sync_again = type("S", (), {"emit": staticmethod(lambda: None)})()
 
     try:
         for _ in range(5):  # five session switches while the first call hangs
@@ -148,9 +151,11 @@ def test_only_one_session_sync_runs_at_a_time() -> None:
 
     # Once it finishes, the next switch is allowed to try again.
     for _ in range(50):
-        if not palette._state("_attachment_backfill_running", False):
+        if completed:
             break
         threading.Event().wait(0.02)
+    assert completed
+    app_module.AssistantPalette._on_session_sync_completed(palette, completed[0])
     app_module.AssistantPalette._sync_session_from_gateway(palette)
     assert len(started) == 2
     release.set()

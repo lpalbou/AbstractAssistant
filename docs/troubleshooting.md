@@ -89,6 +89,14 @@ The switcher shows the sessions it last received and your cached transcripts sta
 nothing is deleted. Check the connection orb and Settings → Connection. The next successful fetch
 from the gateway replaces the cached list. See [architecture.md](architecture.md#sessions).
 
+## A conversation changed on another device
+
+The selected conversation follows Gateway run events, including approvals and completed replies
+from the phone or watch. Reopening the palette or reconnecting refreshes its history, including
+changes to an already-known run. If the conversation stays behind, check the connection orb and
+Settings → Connection. Cached messages remain readable while offline; a successful refresh
+replaces them with the Gateway's history.
+
 ## The switcher has no Automations tab
 
 The gateway does not advertise automations in its capabilities

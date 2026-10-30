@@ -5698,6 +5698,7 @@ class AssistantPalette(QMainWindow):
     session_sync_failed = pyqtSignal(str)
     # A sync ended after the user had switched to another session: sync that one.
     session_sync_again = pyqtSignal()
+    session_sync_completed = pyqtSignal(object)
     # Meter readings arrive on the audio thread; this hops them to the GUI.
     speech_level_received = pyqtSignal(object)
     # The player started or stopped: no message key, so auto-speak and the
@@ -5856,6 +5857,7 @@ class AssistantPalette(QMainWindow):
         self.sessions_refreshed.connect(self._on_sessions_refreshed)
         self.session_sync_failed.connect(self._on_session_sync_failed)
         self.session_sync_again.connect(self._sync_session_from_gateway)
+        self.session_sync_completed.connect(self._on_session_sync_completed)
         # Automations (contract F): the hub does every call off the GUI thread.
         self._automations = AutomationsHub(
             client_factory=self._controller.automations_client,
@@ -6373,7 +6375,6 @@ class AssistantPalette(QMainWindow):
         # The gateway is reachable now: the session list and the transcript on
         # screen come from it (the local copies are only a cache).
         self._refresh_sessions_from_gateway()
-        self._sync_session_from_gateway()
         self._start_me_events()
         # Clear the transient "Connecting…" banner unless a refresh replaced it
         # with something more specific (e.g. a gateway-unavailable message).
@@ -6675,6 +6676,7 @@ class AssistantPalette(QMainWindow):
             # runs themselves (the live fact), then refresh once.
             self._verify_attention_waits()
             self._schedule_automations_refresh()
+            self._schedule_session_refresh()
 
     def _on_me_event(self, event: Any, live: bool) -> None:
         if not isinstance(event, dict):
@@ -6705,7 +6707,31 @@ class AssistantPalette(QMainWindow):
             self._schedule_automations_refresh()
         if live and raised is not None and raised.wait is not None:
             self._notify_attention_wait(raised.wait)
+        data = event.get("data") if isinstance(event.get("data"), dict) else {}
+        if (live and event.get("type") in {"run.started", "run.finished", "attention.raised"}
+                and data.get("session_id") == self._active_session_id()):
+            self._schedule_session_refresh()
         self._refresh_attention()
+
+    def _schedule_session_refresh(self) -> None:
+        """Account events invalidate the selected chat; its ledger supplies the content."""
+        if self._state("_automation_view_id", "") or self._state("_bootstrapping", True):
+            return
+        if self._state("_worker") is not None:
+            self._session_refresh_deferred = True
+            return
+        if self._state("_session_refresh_pending", False):
+            return
+        self._session_refresh_pending = True
+
+        def refresh() -> None:
+            self._session_refresh_pending = False
+            if self._state("_worker") is not None:
+                self._session_refresh_deferred = True
+            elif not self._state("_automation_view_id", ""):
+                self._refresh_sessions_from_gateway()
+
+        QTimer.singleShot(50, refresh)
 
     @staticmethod
     def _is_automation_event(event: Dict[str, Any]) -> bool:
@@ -7888,6 +7914,8 @@ class AssistantPalette(QMainWindow):
             if attention_root and self._state("_worker") is None:
                 self._attention_reattach_request = (target, attention_root, object())
                 self._sync_session_from_gateway()
+            elif self._state("_worker") is None:
+                self._schedule_session_refresh()
             return
         if self._state("_worker") is not None:
             self._set_banner(
@@ -7929,9 +7957,15 @@ class AssistantPalette(QMainWindow):
         (The `_attachment_backfill_*` names predate this: the sync replaced the
         attachment backfill and keeps its same-session redraw guard.)
         """
+        if self._state("_worker") is not None:
+            self._session_refresh_deferred = True
+            return
+        if self._state("_automation_view_id", ""):
+            return
         if bool(self._state("_attachment_backfill_running", False)):
             # Switching sessions with an unreachable gateway must not leave a
             # thread per switch waiting on a socket.
+            self._session_sync_pending = True
             return
         self._attachment_backfill_running = True
         # The redraw it may trigger belongs to THIS session: a switch while the
@@ -7939,40 +7973,23 @@ class AssistantPalette(QMainWindow):
         started_for = self._active_session_id()
         self._attachment_backfill_session = started_for
         controller = self._controller
+        request = self._state("_attention_reattach_request")
 
         def _work() -> None:
             result: Dict[str, Any] = {}
+            candidate = None
             try:
-                before = str(controller.last_run_id() or "").strip()
                 result = dict(controller.sync_session_from_gateway() or {})
                 after = str(controller.last_run_id() or "").strip()
-            except Exception:
-                before = after = ""
-            finally:
-                self._attachment_backfill_running = False
-            try:
-                if result.get("error"):
-                    self.session_sync_failed.emit(str(result["error"]))
-                if result.get("changed"):
-                    self.session_attachments_restored.emit(1)
-                request = self._state("_attention_reattach_request")
-                requested_here = bool(request and request[0] == started_for)
-                if after and ((result.get("changed") and after != before) or requested_here):
-                    # An explicit attention click also follows an already-known run; a selected
-                    # session and a cached last-run ID do not imply a worker is following it.
+                # The same root can be running after its prompt was cached, or
+                # finish on another device. A cached ID is not a live follower.
+                if after:
                     candidate = controller.probe_reattach_candidate()
-                    if candidate and (not requested_here or (
-                        str(candidate.get("run_id") or "") == request[1]
-                        and str(candidate.get("status") or "") in {"running", "waiting"}
-                    )):
-                        self.reattach_candidate.emit({**candidate, "session_id": started_for,
-                                                      **({"attention_request": request} if requested_here else {})})
-                now = str(getattr(controller, "active_session_id", "") or "").strip()
-                if now and now != started_for:
-                    # The user switched while this ran, and that switch's own
-                    # sync was skipped (one at a time): sync the session on
-                    # screen now.
-                    self.session_sync_again.emit()
+            except Exception:
+                pass
+            try:
+                self.session_sync_completed.emit({"session_id": started_for, "result": result,
+                                                  "candidate": candidate, "attention_request": request})
             except Exception:
                 return  # the palette was destroyed meanwhile
 
@@ -7982,6 +7999,29 @@ class AssistantPalette(QMainWindow):
             ).start()
         except Exception:
             self._attachment_backfill_running = False
+
+    def _on_session_sync_completed(self, payload: Dict[str, Any]) -> None:
+        self._attachment_backfill_running = False
+        started_for = payload["session_id"]
+        if started_for == self._active_session_id():
+            result = payload["result"]
+            if result.get("error"):
+                self._on_session_sync_failed(str(result["error"]))
+            if result.get("changed"):
+                self.refresh_history()
+            candidate = payload.get("candidate")
+            request = payload.get("attention_request")
+            requested_here = bool(request and request[0] == started_for)
+            if (candidate and request is self._state("_attention_reattach_request")
+                    and (not requested_here or (
+                        str(candidate.get("run_id") or "") == request[1]
+                        and str(candidate.get("status") or "") in {"running", "waiting"}))):
+                self.reattach_candidate.emit({**candidate, "session_id": started_for,
+                                              **({"attention_request": request} if requested_here else {})})
+        rerun = self._state("_session_sync_pending", False) or started_for != self._active_session_id()
+        self._session_sync_pending = False
+        if rerun:
+            self.session_sync_again.emit()
 
     def _on_session_sync_failed(self, message: str) -> None:
         if str(message or "").strip():
@@ -7995,6 +8035,7 @@ class AssistantPalette(QMainWindow):
         """Fetch the session list from the gateway, off the GUI thread
         (``more``: one more page of sessions)."""
         if bool(self._state("_sessions_refresh_running", False)):
+            self._sessions_refresh_again = True
             return
         self._sessions_refresh_running = True
         controller = self._controller
@@ -8005,8 +8046,6 @@ class AssistantPalette(QMainWindow):
                 result = dict((controller.load_more_sessions() if more else controller.refresh_sessions()) or {})
             except Exception as exc:
                 result = {"ok": False, "error": str(exc)}
-            finally:
-                self._sessions_refresh_running = False
             try:
                 self.sessions_refreshed.emit(result)
             except Exception:
@@ -8018,9 +8057,15 @@ class AssistantPalette(QMainWindow):
             self._sessions_refresh_running = False
 
     def _on_sessions_refreshed(self, _result: Any) -> None:
+        self._sessions_refresh_running = False
         self._invalidate_session_digests()
         self._refresh_session_picker()
         self._refresh_open_session_switcher()
+        if self._state("_sessions_refresh_again", False):
+            self._sessions_refresh_again = False
+            self._refresh_sessions_from_gateway()
+        else:
+            self._sync_session_from_gateway()
 
     def _on_session_attachments_restored(self, _count: int) -> None:
         started_for = str(self._state("_attachment_backfill_session", "") or "")
@@ -8583,6 +8628,7 @@ class AssistantPalette(QMainWindow):
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
+        self._schedule_session_refresh()
         timer = self._state("_automations_timer")
         if timer is not None:
             timer.setInterval(self._automations_interval_ms(visible=True))
@@ -8921,6 +8967,7 @@ class AssistantPalette(QMainWindow):
         self._reflow_shell(reposition=True)
 
     def show_palette(self) -> None:
+        self._schedule_session_refresh()
         self._tray_completion_unread = False
         self._refresh_tray_feedback()
         self._reflow_shell(reposition=True)
@@ -10176,6 +10223,9 @@ class AssistantPalette(QMainWindow):
         start_failed = bool(self._state("_run_start_failed", False))
         self._run_start_failed = False
         self._worker = None
+        if self._state("_session_refresh_deferred", False):
+            self._session_refresh_deferred = False
+            self._schedule_session_refresh()
         # The run added turns, tools and tokens: the session's metrics moved.
         self._invalidate_session_digests()
         if not self._active_session_listed_on_gateway():

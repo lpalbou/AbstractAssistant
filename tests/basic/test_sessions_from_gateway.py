@@ -560,6 +560,7 @@ def test_a_switch_during_a_sync_gets_its_own_sync_when_that_one_ends() -> None:
     palette = app_module.AssistantPalette.__new__(app_module.AssistantPalette)
     release = threading.Event()
     again: List[int] = []
+    completed: List[Dict[str, Any]] = []
 
     class _Controller:
         active_session_id = "sess_a"
@@ -575,11 +576,14 @@ def test_a_switch_during_a_sync_gets_its_own_sync_when_that_one_ends() -> None:
     palette.session_attachments_restored = type("S", (), {"emit": staticmethod(lambda *a: None)})()
     palette.session_sync_failed = type("S", (), {"emit": staticmethod(lambda *a: None)})()
     palette.session_sync_again = type("S", (), {"emit": staticmethod(lambda *a: again.append(1))})()
+    palette.session_sync_completed = type("S", (), {"emit": staticmethod(completed.append)})()
 
     app_module.AssistantPalette._sync_session_from_gateway(palette)
     palette._controller.active_session_id = "sess_b"  # the user switched meanwhile
     app_module.AssistantPalette._sync_session_from_gateway(palette)  # skipped: one at a time
     release.set()
+    assert _wait(lambda: bool(completed))
+    app_module.AssistantPalette._on_session_sync_completed(palette, completed[0])
     assert _wait(lambda: again == [1]), again
 
 

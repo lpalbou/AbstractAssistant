@@ -1786,7 +1786,13 @@ Sessions live on the gateway. A session is the set of root runs that share a `se
   session sets a local label on this device that is shown instead.
 - **Transcripts.** Opening a session paints its cached transcript at once, then reads the
   gateway's history bundle of the session's latest root run (with its session turns) and replaces
-  the cache with it. Attachments come back from the turn's artifact references.
+  the cache with it. Reopening the palette, reconnecting the account event stream, and live
+  run or approval events for the selected conversation refresh its history too. The session
+  list is refreshed before history so turns started on another device are included. An active
+  run is followed even when its ID was already cached; a completed answer is loaded without
+  starting another run or reading it aloud. Attachments come back from the turn's artifact references.
+  Refreshes run off the GUI thread and coalesce bursts of events. An update received during a
+  fetch requests one follow-up fetch; results from a previous session cannot repaint the new selection.
 - **New sessions.** The app mints the id; the session is listed while it is the active one and
   becomes a gateway session with its first run.
 - **No local sessions, no removal.** A session exists if and only if the gateway lists it. The
@@ -2447,6 +2453,14 @@ card. The run log (list icon on the activity card) shows the pending wait.
 The switcher shows the sessions it last received and your cached transcripts stay readable;
 nothing is deleted. Check the connection orb and Settings → Connection. The next successful fetch
 from the gateway replaces the cached list. See [architecture.md](architecture.md#sessions).
+
+## A conversation changed on another device
+
+The selected conversation follows Gateway run events, including approvals and completed replies
+from the phone or watch. Reopening the palette or reconnecting refreshes its history, including
+changes to an already-known run. If the conversation stays behind, check the connection orb and
+Settings → Connection. Cached messages remain readable while offline; a successful refresh
+replaces them with the Gateway's history.
 
 ## The switcher has no Automations tab
 
@@ -3199,6 +3213,11 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 
 ### Changed
+
+- **Desktop conversations stay synchronized across devices.** The selected chat refreshes when
+  another device starts or finishes a run, when the palette opens, and after reconnection.
+  Updates arriving during a refresh are retained, and delayed results cannot replace another
+  session's transcript.
 
 - **The automation's tool-approval card reads in one glance** (operator ruling 2026-10-29; the kit's card does the
   same, AbstractUIC 0073). It opens with "The Assistant wants to use these tools:" in bold, the card's only bold.

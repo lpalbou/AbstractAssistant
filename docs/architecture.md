@@ -112,7 +112,13 @@ Sessions live on the gateway. A session is the set of root runs that share a `se
   session sets a local label on this device that is shown instead.
 - **Transcripts.** Opening a session paints its cached transcript at once, then reads the
   gateway's history bundle of the session's latest root run (with its session turns) and replaces
-  the cache with it. Attachments come back from the turn's artifact references.
+  the cache with it. Reopening the palette, reconnecting the account event stream, and live
+  run or approval events for the selected conversation refresh its history too. The session
+  list is refreshed before history so turns started on another device are included. An active
+  run is followed even when its ID was already cached; a completed answer is loaded without
+  starting another run or reading it aloud. Attachments come back from the turn's artifact references.
+  Refreshes run off the GUI thread and coalesce bursts of events. An update received during a
+  fetch requests one follow-up fetch; results from a previous session cannot repaint the new selection.
 - **New sessions.** The app mints the id; the session is listed while it is the active one and
   becomes a gateway session with its first run.
 - **No local sessions, no removal.** A session exists if and only if the gateway lists it. The

@@ -129,6 +129,9 @@ def test_the_echo_of_a_local_decision_does_not_replace_its_activity_outcome(pale
 @pytest.mark.basic
 def test_attention_open_uses_validated_root_even_when_the_session_and_cached_run_are_unchanged(palette, monkeypatch):
     window, controller = _prepare(palette)
+    # This test captures candidates instead of installing a worker. Isolate
+    # explicit navigation from the independent refresh on window exposure.
+    monkeypatch.setattr(window, "_schedule_session_refresh", lambda: None)
     monkeypatch.setattr(controller, "last_run_id", lambda: "root")
     monkeypatch.setattr(controller, "sync_session_from_gateway", lambda: {"changed": False}, raising=False)
     monkeypatch.setattr(controller, "probe_reattach_candidate", lambda: {"run_id": "root", "status": "waiting"})
@@ -140,9 +143,9 @@ def test_attention_open_uses_validated_root_even_when_the_session_and_cached_run
     end = time.monotonic() + 2
     while not captured and time.monotonic() < end:
         QTest.qWait(10)
-    assert window.isVisible() and len(captured) == 1
-    assert captured[0]["run_id"] == "root" and captured[0]["session_id"] == "phone-session"
-    assert captured[0]["attention_request"] is window._attention_reattach_request
+    assert window.isVisible() and captured
+    assert all(candidate["run_id"] == "root" and candidate["session_id"] == "phone-session"
+               and candidate["attention_request"] is window._attention_reattach_request for candidate in captured)
 
 
 @pytest.mark.basic

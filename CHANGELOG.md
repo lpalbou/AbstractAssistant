@@ -8,6 +8,11 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Changed
 
+- **Desktop conversations stay synchronized across devices.** The selected chat refreshes when
+  another device starts or finishes a run, when the palette opens, and after reconnection.
+  Updates arriving during a refresh are retained, and delayed results cannot replace another
+  session's transcript.
+
 - **The automation's tool-approval card reads in one glance** (operator ruling 2026-10-29; the kit's card does the
   same, AbstractUIC 0073). It opens with "The Assistant wants to use these tools:" in bold, the card's only bold.
   The count line is gone. Each call is one bullet on one line: the coloured tool word, then plain text, cut with an
