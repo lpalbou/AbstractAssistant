@@ -78,18 +78,26 @@ front, then the live tail `GET /api/gateway/me/events/stream` (resumed with `Las
 long as the app is in front; nothing runs in the background. It folds raised minus seen
 (`AttentionState`, the same fold as the watch): approvals and questions open (`attention.raised`
 with a `wait_key`, closed by `attention.seen` of the same run, wait key and step, or the run's
-`run.finished`) and automation results not seen. The Inbox tab's badge is the larger of the live
-waits and the stream's open waits; the Automations tab's badge is the results not seen. The state is
-kept per connection, so the first read only takes stock and a relaunch never replays history.
+`run.finished`) and automation results not seen. The Inbox tab's badge counts the live wait rows
+shown in the Inbox; the Automations tab's badge is the results not seen. The state is
+kept per connection. Catch-up reconciles every page before posting any local notice, including
+after a stream reconnect. The first read only takes stock; later reads notify only attention
+that remains unread or unresolved at the head of the stream.
 
-Each new item after that becomes one local notification (`PhoneNotifier`): approvals and questions
+Each explicit `attention.raised` item after that can become one local notification (`PhoneNotifier`): approvals and questions
 are time-sensitive ("Approval needed", "A question for you"; a tap opens the Inbox, whose wait
 screens read the waits live), automation results are passive ("Morning digest has a result"; a tap
 opens Automations). The gateway's per-device rule applies (stay silent when another client channel
 on this same device showed the item less than a minute ago); no other client reports from a phone,
 so the phone notifies. Each notification iOS accepted is recorded once on the stream
 (`POST /api/gateway/me/events/notifications {channel: "phone", outcome: "sent", record_key, device}`,
-with this iPhone's own device id, kept on the phone); nothing is sent when nothing was shown. Time-sensitive
+with this iPhone's own device id, kept on the phone); nothing is sent when nothing was shown.
+Consumption on another client suppresses the local alert and removes a known-resolved alert from
+the iPhone's Notification Center. Delivery waits for reconciliation across system permission
+prompts and checks the connection identity before posting. Saved projections from earlier builds
+recover notification identities without announcing old history or silencing genuinely new unread items.
+Ordinary `run.finished` records update lists; quiet completions do not invent extra notifications.
+Time-sensitive
 delivery through a Focus needs the time-sensitive notifications entitlement on the App ID; without
 it iOS delivers an ordinary notification. A gateway without the stream (404) leaves the app on its
 polls. Any automation-shaped event (`attention.*`, `trigger.event`, an occurrence's `run.finished`)

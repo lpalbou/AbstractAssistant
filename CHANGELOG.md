@@ -80,6 +80,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Fixed
 
+- iPhone reconnects reconcile attention before posting local notifications, suppress consumed
+  history and withdraw known-resolved alerts. Shared Apple attention replay uses explicit gateway
+  attention records rather than generating extra alerts for quiet run completions.
+
 - Apple voice previews use a longer sample. Watch voice-match failures show readable retry
   guidance rather than a truncated technical error.
 

@@ -78,9 +78,9 @@ event stream in the background about every 15 minutes and when the app opens: wh
 as a time-sensitive notification, results as quiet news. With a push forwarder on your gateway they
 arrive at once, through Apple push, and the app never shows twice what a push showed. (With an older
 gateway, or when the stream cannot be read, the watch reads the waits and automations instead, and an
-ordinary tool approval can be allowed or denied from the notification itself.) An automation that finishes a run
-posts a notification ("Morning digest finished"; a tap opens it), shown as a banner when the app
-is open; Settings → Notifications turns this off.
+ordinary tool approval can be allowed or denied from the notification itself.) Automation alerts
+follow the gateway's attention records; quiet completions update status without creating an extra
+notification.
 
 **See it on your watch face.** The **Assistant** complication puts your avatar on a face: the orb
 style you chose, as the app draws it (the app's own orb until the app has opened once), in one of

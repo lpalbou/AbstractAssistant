@@ -17,6 +17,10 @@ iPhone app); the Python package's history is in
 
 ### Fixed
 
+- Event-stream notifications follow explicit gateway attention records. Quiet automation
+  completions no longer add a separate "finished" alert, and attention resolved later in the
+  same replay page stays silent.
+
 - Voice previews use a longer sample shared with the iPhone. A failed cloned-voice match shows
   readable retry guidance across multiple lines.
 

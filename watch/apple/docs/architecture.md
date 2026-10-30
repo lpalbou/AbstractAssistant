@@ -163,8 +163,8 @@ sequenceDiagram
   Each new approval or question is posted once as **time-sensitive** ("Approval needed" / "A question
   for you"; a tap opens the waits list, which reads the waits live); each new automation result is
   posted once as **passive** news ("Morning digest has a result" / "… failed", names from the last
-  automation list read; a tap opens it); an automation's run that finished without a result posts
-  "… finished" (Settings → Notifications; a run already posted by its answer stream is skipped). The
+  automation list read; a tap opens it). Event-stream alerts follow the gateway's explicit
+  attention records; a quiet completion updates state without adding a "… finished" alert. The
   first read only takes stock: what happened before the watch first looked never notifies.
   The watch is its own device: it always notifies, then records each notice it showed with
   `POST /api/gateway/me/events/notifications {channel: "watch", outcome: "sent", record_key, device}`

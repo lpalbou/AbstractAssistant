@@ -3268,6 +3268,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Fixed
 
+- iPhone reconnects reconcile attention before posting local notifications, suppress consumed
+  history and withdraw known-resolved alerts. Shared Apple attention replay uses explicit gateway
+  attention records rather than generating extra alerts for quiet run completions.
+
 - Apple voice previews use a longer sample. Watch voice-match failures show readable retry
   guidance rather than a truncated technical error.
 
@@ -4922,6 +4926,10 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ### Fixed
 
+- Reconnecting reconciles unread attention before posting local alerts. Approvals and results
+  consumed on another client stay silent, and known-resolved notifications are withdrawn.
+  Genuine unread items remain eligible across reconnects and saved-state upgrades.
+
 - **An automation created on the iPhone runs unattended when its tools are set to Auto** (operator QA 2026-10-29, backlog
   1079).
   - Every automation was created with "ask before each tool" (`policy.tool_approval: "ask"`, hard-coded), although
@@ -5212,18 +5220,26 @@ front, then the live tail `GET /api/gateway/me/events/stream` (resumed with `Las
 long as the app is in front; nothing runs in the background. It folds raised minus seen
 (`AttentionState`, the same fold as the watch): approvals and questions open (`attention.raised`
 with a `wait_key`, closed by `attention.seen` of the same run, wait key and step, or the run's
-`run.finished`) and automation results not seen. The Inbox tab's badge is the larger of the live
-waits and the stream's open waits; the Automations tab's badge is the results not seen. The state is
-kept per connection, so the first read only takes stock and a relaunch never replays history.
+`run.finished`) and automation results not seen. The Inbox tab's badge counts the live wait rows
+shown in the Inbox; the Automations tab's badge is the results not seen. The state is
+kept per connection. Catch-up reconciles every page before posting any local notice, including
+after a stream reconnect. The first read only takes stock; later reads notify only attention
+that remains unread or unresolved at the head of the stream.
 
-Each new item after that becomes one local notification (`PhoneNotifier`): approvals and questions
+Each explicit `attention.raised` item after that can become one local notification (`PhoneNotifier`): approvals and questions
 are time-sensitive ("Approval needed", "A question for you"; a tap opens the Inbox, whose wait
 screens read the waits live), automation results are passive ("Morning digest has a result"; a tap
 opens Automations). The gateway's per-device rule applies (stay silent when another client channel
 on this same device showed the item less than a minute ago); no other client reports from a phone,
 so the phone notifies. Each notification iOS accepted is recorded once on the stream
 (`POST /api/gateway/me/events/notifications {channel: "phone", outcome: "sent", record_key, device}`,
-with this iPhone's own device id, kept on the phone); nothing is sent when nothing was shown. Time-sensitive
+with this iPhone's own device id, kept on the phone); nothing is sent when nothing was shown.
+Consumption on another client suppresses the local alert and removes a known-resolved alert from
+the iPhone's Notification Center. Delivery waits for reconciliation across system permission
+prompts and checks the connection identity before posting. Saved projections from earlier builds
+recover notification identities without announcing old history or silencing genuinely new unread items.
+Ordinary `run.finished` records update lists; quiet completions do not invent extra notifications.
+Time-sensitive
 delivery through a Focus needs the time-sensitive notifications entitlement on the App ID; without
 it iOS delivers an ordinary notification. A gateway without the stream (404) leaves the app on its
 polls. Any automation-shaped event (`attention.*`, `trigger.event`, an occurrence's `run.finished`)
@@ -6326,9 +6342,9 @@ event stream in the background about every 15 minutes and when the app opens: wh
 as a time-sensitive notification, results as quiet news. With a push forwarder on your gateway they
 arrive at once, through Apple push, and the app never shows twice what a push showed. (With an older
 gateway, or when the stream cannot be read, the watch reads the waits and automations instead, and an
-ordinary tool approval can be allowed or denied from the notification itself.) An automation that finishes a run
-posts a notification ("Morning digest finished"; a tap opens it), shown as a banner when the app
-is open; Settings → Notifications turns this off.
+ordinary tool approval can be allowed or denied from the notification itself.) Automation alerts
+follow the gateway's attention records; quiet completions update status without creating an extra
+notification.
 
 **See it on your watch face.** The **Assistant** complication puts your avatar on a face: the orb
 style you chose, as the app draws it (the app's own orb until the app has opened once), in one of
@@ -6448,6 +6464,10 @@ iPhone app); the Python package's history is in
   several. Voices are created on the iPhone or the desktop; the watch says so.
 
 ### Fixed
+
+- Event-stream notifications follow explicit gateway attention records. Quiet automation
+  completions no longer add a separate "finished" alert, and attention resolved later in the
+  same replay page stays silent.
 
 - Voice previews use a longer sample shared with the iPhone. A failed cloned-voice match shows
   readable retry guidance across multiple lines.
@@ -7204,8 +7224,8 @@ sequenceDiagram
   Each new approval or question is posted once as **time-sensitive** ("Approval needed" / "A question
   for you"; a tap opens the waits list, which reads the waits live); each new automation result is
   posted once as **passive** news ("Morning digest has a result" / "… failed", names from the last
-  automation list read; a tap opens it); an automation's run that finished without a result posts
-  "… finished" (Settings → Notifications; a run already posted by its answer stream is skipped). The
+  automation list read; a tap opens it). Event-stream alerts follow the gateway's explicit
+  attention records; a quiet completion updates state without adding a "… finished" alert. The
   first read only takes stock: what happened before the watch first looked never notifies.
   The watch is its own device: it always notifies, then records each notice it showed with
   `POST /api/gateway/me/events/notifications {channel: "watch", outcome: "sent", record_key, device}`

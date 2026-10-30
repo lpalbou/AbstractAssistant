@@ -7,6 +7,10 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ### Fixed
 
+- Reconnecting reconciles unread attention before posting local alerts. Approvals and results
+  consumed on another client stay silent, and known-resolved notifications are withdrawn.
+  Genuine unread items remain eligible across reconnects and saved-state upgrades.
+
 - **An automation created on the iPhone runs unattended when its tools are set to Auto** (operator QA 2026-10-29, backlog
   1079).
   - Every automation was created with "ask before each tool" (`policy.tool_approval: "ask"`, hard-coded), although
