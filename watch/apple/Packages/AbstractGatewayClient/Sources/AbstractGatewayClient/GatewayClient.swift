@@ -1030,18 +1030,31 @@ public actor LiveGatewayClient: GatewayClient {
                         throw GatewayError.http(status: http.statusCode, body: body)
                     }
                     for try await line in bytes.lines {
-                        guard let event = try? JSONDecoder().decode(SpeechEvent.self, from: Data(line.utf8)) else { continue }
+                        try Task.checkCancellation()
+                        if line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
+                        guard let event = try? JSONDecoder().decode(SpeechEvent.self, from: Data(line.utf8)) else {
+                            throw GatewayError.invalidResponse
+                        }
                         switch event.type {
                         case "audio":
-                            if let b64 = event.audioB64, let wav = Data(base64Encoded: b64) { continuation.yield(wav) }
-                        case "error":
-                            throw GatewayError.http(status: 502, body: event.error ?? "speech failed")
+                            guard let b64 = event.audioB64, let wav = Data(base64Encoded: b64), !wav.isEmpty else {
+                                throw GatewayError.invalidResponse
+                            }
+                            continuation.yield(wav)
+                        case "error", "cancelled":
+                            throw GatewayError.http(status: 502, body: event.error ?? "Speech stopped before it finished.")
                         case "done":
+                            if event.ok == false {
+                                throw GatewayError.http(status: 502, body: event.error ?? "Speech stopped before it finished.")
+                            }
                             continuation.finish(); return
                         default: continue
                         }
                     }
-                    continuation.finish()
+                    try Task.checkCancellation()
+                    // The Runtime stream contract requires a terminal event. A clean HTTP EOF
+                    // can still be a cut connection: never turn a partial reading into success.
+                    throw GatewayError.http(status: 502, body: #"{"detail":"The voice stream ended before speech was complete. Try again."}"#)
                 } catch {
                     continuation.finish(throwing: error)
                 }

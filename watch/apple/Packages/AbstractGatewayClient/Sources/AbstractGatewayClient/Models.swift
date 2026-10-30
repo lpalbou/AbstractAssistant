@@ -1443,7 +1443,8 @@ struct SpeechEvent: Decodable {
     let type: String
     let audioB64: String?
     let error: String?
-    enum CodingKeys: String, CodingKey { case type, audioB64 = "audio_b64", error }
+    let ok: Bool?
+    enum CodingKeys: String, CodingKey { case type, audioB64 = "audio_b64", error, ok }
 }
 
 /// A 16-bit mono WAV of a voiced tone with a syllable-rate envelope (mock speech).
