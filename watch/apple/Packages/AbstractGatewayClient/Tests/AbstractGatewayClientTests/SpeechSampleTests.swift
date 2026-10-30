@@ -22,3 +22,19 @@ import Testing
     #expect(SpeechSample.line("The gateway sent no sound for this voice.") == "The sample did not play: The gateway sent no sound for this voice.")
     #expect(SpeechSample.line("  ") == "The sample did not play.")
 }
+
+@Test(arguments: [
+    "ClonedVoiceNotAppliedError: speaker score 0.872 below threshold 0.950",
+    "The gateway's voice failed (502): ClonedVoiceNotAppliedError: speaker score 0.936 below threshold 0.950",
+    "The voice stopped early. {\"detail\":\"ClonedVoiceNotAppliedError: verification failed\"}"
+])
+func cloneVerificationFailureOffersARetryWithoutTechnicalDetails(reason: String) {
+    let line = SpeechSample.line(reason)
+    #expect(line == "The sample could not match this voice. Tap to try again.")
+    #expect(!line.contains("ClonedVoiceNotAppliedError"))
+    #expect(!line.contains("0.950"))
+}
+
+@Test func unrelatedVoiceErrorsKeepTheirUsefulReason() {
+    #expect(SpeechSample.line("The gateway is offline.") == "The sample did not play: The gateway is offline.")
+}

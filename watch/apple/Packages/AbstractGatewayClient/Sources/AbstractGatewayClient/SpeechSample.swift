@@ -3,6 +3,9 @@ import Foundation
 /// How a spoken reading ends, and the one line a voice picker shows for it (operator 2026-10-29:
 /// choosing a voice sometimes played nothing, and nothing said why). Pure, so it is tested here.
 public enum SpeechSample {
+    /// A complete preview gives cloned voices enough speech to establish the selected speaker.
+    public static let previewText = "Hello, I'm AbstractAssistant. This is a sample of your selected voice. I'll use it to read your replies aloud, so you can hear how it sounds."
+
     /// The failure of a reading that ended (`nil`: it played). A stream that ended with no sound and
     /// no error is a failure too: silence must never pass for a sample.
     public static func failure(receivedSeconds: Double, clipsPlayed: Bool, streamError: String?) -> String? {
@@ -14,6 +17,9 @@ public enum SpeechSample {
     /// The row's one line under a voice whose sample did not play.
     public static func line(_ why: String) -> String {
         let reason = why.trimmingCharacters(in: .whitespacesAndNewlines)
+        if reason.contains("ClonedVoiceNotAppliedError") {
+            return "The sample could not match this voice. Tap to try again."
+        }
         return reason.isEmpty ? "The sample did not play." : "The sample did not play: \(reason)"
     }
 }

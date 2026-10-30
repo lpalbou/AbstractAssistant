@@ -121,7 +121,7 @@ struct VoiceSettingsView: View {
                     Text(title).font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text)
                     if let detail, !detail.isEmpty {
                         Text(detail).font(.rounded(.caption2)).foregroundStyle(failed ? Theme.amber : Theme.muted)
-                            .lineLimit(1)
+                            .lineLimit(failed ? 3 : 1)
                     }
                 }
                 Spacer(minLength: 4)
@@ -138,7 +138,7 @@ struct VoiceSettingsView: View {
         VoicePrefs.voice = v
         previewing = v?.id ?? "default"
         WKInterfaceDevice.current().play(.click)
-        speaker.read("Hello, I'm AbstractAssistant.", scope: .run("session_memory_\(model.askSessionId)"), client: model.client)
+        speaker.read(SpeechSample.previewText, scope: .run("session_memory_\(model.askSessionId)"), client: model.client)
     }
 
     /// Chosen, then heard: the sample in the chosen voice at that speed.
@@ -147,7 +147,7 @@ struct VoiceSettingsView: View {
         VoicePrefs.speed = s
         previewing = "speed-\(s)"
         WKInterfaceDevice.current().play(.click)
-        speaker.read("Hello, I'm AbstractAssistant.", scope: .run("session_memory_\(model.askSessionId)"), client: model.client)
+        speaker.read(SpeechSample.previewText, scope: .run("session_memory_\(model.askSessionId)"), client: model.client)
     }
 
     static func label(speed s: Double) -> String {

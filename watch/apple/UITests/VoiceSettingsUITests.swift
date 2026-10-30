@@ -3,6 +3,36 @@ import XCTest
 /// Settings → Voice: the gateway's voices and transcription models, the default first; a choice is
 /// marked and kept (sample data).
 final class VoiceSettingsUITests: XCTestCase {
+    func testClonePreviewFailureExplainsHowToRetry() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--screen", "voice", "--clone-sample-failure"]
+        app.launch()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Gateway default")).firstMatch.waitForExistence(timeout: 15))
+        let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Supertonic M2")).firstMatch
+        for _ in 0..<16 where !(row.exists && row.isHittable) {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)),
+                       withVelocity: .slow, thenHoldForDuration: 0.2)
+        }
+        XCTAssertTrue(row.exists, app.debugDescription)
+        row.tap()
+        func offersRetry() -> Bool {
+            let end = Date().addingTimeInterval(8)
+            while Date() < end {
+                if row.label.contains("The sample could not match this voice. Tap to try again.") { return true }
+                usleep(200_000)
+            }
+            return false
+        }
+        XCTAssertTrue(offersRetry(), row.label)
+        XCTAssertFalse(row.label.contains("ClonedVoiceNotAppliedError"))
+        XCTAssertFalse(row.label.contains("0.950"))
+        row.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["Making the sample"].firstMatch.waitForExistence(timeout: 3),
+                      "Tapping a failed sample must request it again")
+        XCTAssertTrue(offersRetry(), row.label)
+    }
+
     func testChooseAVoiceAndAModel() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--mock", "--no-notification-prompt", "--screen", "voice"]

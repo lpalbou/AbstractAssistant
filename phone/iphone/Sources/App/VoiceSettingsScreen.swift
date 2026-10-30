@@ -70,7 +70,7 @@ struct VoiceSettingsScreen: View {
 
     private func preview() {
         guard let client = store.client, scenePhase == .active else { return }
-        sample.read("Hello, I’m AbstractAssistant.", client: client, scope: .run(PhoneSession.owner(store.sessionID)), choice: store.preferences.voice, speed: store.preferences.speed)
+        sample.read(SpeechSample.previewText, client: client, scope: .run(PhoneSession.owner(store.sessionID)), choice: store.preferences.voice, speed: store.preferences.speed)
     }
     private func load() async {
         guard let client = store.client else { return }; let context = store.contextID; error = nil; catalog = nil; sample.stop()
@@ -171,7 +171,7 @@ private struct VoiceChoicesScreen: View {
         return Button {
             store.preferences.voice = value; chosen = value?.id ?? "default"
             guard let client = store.client, scenePhase == .active else { return }
-            sample.read("Hello, I’m AbstractAssistant.", client: client, scope: .run(PhoneSession.owner(store.sessionID)), choice: value, speed: store.preferences.speed)
+            sample.read(SpeechSample.previewText, client: client, scope: .run(PhoneSession.owner(store.sessionID)), choice: value, speed: store.preferences.speed)
         } label: {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {

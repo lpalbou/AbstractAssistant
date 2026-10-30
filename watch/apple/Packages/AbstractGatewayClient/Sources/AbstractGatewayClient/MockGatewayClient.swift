@@ -911,12 +911,16 @@ public actor MockGatewayClient: GatewayClient {
                 continuation.onTermination = { _ in task.cancel() }
             }
         }
-        // `--failing-sample`: the voice "M2" fails at the gateway (a voice picker must say why, not fall silent).
-        if ProcessInfo.processInfo.arguments.contains("--failing-sample"), voice?.voice == "M2" {
+        // A failed preview must explain itself, and tapping the same row must request it again.
+        let cloneFailure = ProcessInfo.processInfo.arguments.contains("--clone-sample-failure")
+        if (ProcessInfo.processInfo.arguments.contains("--failing-sample") || cloneFailure), voice?.voice == "M2" {
             return AsyncThrowingStream { continuation in
                 Task {
-                    try? await Task.sleep(for: .milliseconds(400))
-                    continuation.finish(throwing: GatewayError.http(status: 502, body: "the qwen3-tts engine is not loaded"))
+                    try? await Task.sleep(for: .milliseconds(cloneFailure ? 1500 : 400))
+                    let reason = cloneFailure
+                        ? "ClonedVoiceNotAppliedError: speaker score 0.872 below threshold 0.950"
+                        : "the qwen3-tts engine is not loaded"
+                    continuation.finish(throwing: GatewayError.http(status: 502, body: reason))
                 }
             }
         }
