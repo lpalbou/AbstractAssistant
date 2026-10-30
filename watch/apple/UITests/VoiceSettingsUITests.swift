@@ -38,10 +38,12 @@ final class VoiceSettingsUITests: XCTestCase {
     /// hash. Use the system defaults argument domain so this also covers relaunch/offline display.
     func testSettingsShowsSavedVoiceLabelInsteadOfIdentifier() throws {
         let voiceID = "41576236cd5f4a9a8399f123456789ab"
-        let app = settings(voiceID: voiceID, label: "My narrator")
-        let label = app.staticTexts["settings.voice.label"]
-        XCTAssertEqual(label.label, "My narrator", app.debugDescription)
-        XCTAssertFalse(app.staticTexts[voiceID].exists, "An internal voice ID must not appear in Settings")
+        for name in ["My narrator", "abcdef1234567890"] {
+            let app = settings(voiceID: voiceID, label: name)
+            XCTAssertEqual(app.staticTexts["settings.voice.label"].label, name, app.debugDescription)
+            XCTAssertFalse(app.staticTexts[voiceID].exists, "An internal voice ID must not appear in Settings")
+            app.terminate()
+        }
     }
 
     func testSettingsDoesNotExposeLegacyOpaqueVoiceLabels() throws {

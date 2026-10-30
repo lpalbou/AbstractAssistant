@@ -19,7 +19,7 @@ enum VoicePrefs {
         guard let voice else { return "Default" }
         let label = voice.label.trimmingCharacters(in: .whitespacesAndNewlines)
         let compact = label.replacingOccurrences(of: "-", with: "")
-        let opaque = compact.count >= 16 && compact.allSatisfy(\.isHexDigit)
+        let opaque = label == voice.voice && compact.count >= 16 && compact.allSatisfy(\.isHexDigit)
         return label.isEmpty || opaque ? "Selected voice" : label
     }
     static var transcription: TranscriptionChoice? {
