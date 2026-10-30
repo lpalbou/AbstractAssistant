@@ -51,6 +51,91 @@ final class VoiceButtonUITests: XCTestCase {
         XCTAssertLessThan(longest, 1.0, "the voice broke for \(longest) s once started")
     }
 
+    /// Qwen's 26 short pieces arrive faster than playback. Their total duration must stay close
+    /// to elapsed playback time, including its final 5 ms tail; callback gaps must not accumulate.
+    func testShortPiecesPlayContinuouslyThroughTheirFinalTail() throws {
+        app = XCUIApplication()
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--screen", "read", "--short-voice"]
+        app.launch()
+        XCTAssertTrue(voice.waitForExistence(timeout: 20))
+        var started: Date?, last = 0.0, lastMove = Date(), longest = 0.0
+        let end = Date().addingTimeInterval(40)
+        while Date() < end {
+            let position = seconds()
+            if position > 0.15 && started == nil { started = Date(); lastMove = Date() }
+            if started != nil, position > last + 0.05 {
+                longest = max(longest, Date().timeIntervalSince(lastMove))
+                lastMove = Date(); last = position
+            }
+            if position >= 23.1 { break }
+            usleep(100_000)
+        }
+        XCTAssertNotNil(started, "the voice never played")
+        XCTAssertGreaterThanOrEqual(last, 23.1, "the voice did not play all 26 pieces (\(last) s)")
+        XCTAssertLessThan(longest, 0.9, "playback stopped between pieces for \(longest) s")
+        if let started {
+            XCTAssertLessThan(Date().timeIntervalSince(started), 23.7,
+                              "per-piece player setup added gaps to 23.120 seconds of sound")
+        }
+        let finished = Date().addingTimeInterval(3)
+        while voice.label != "Read aloud" && Date() < finished { usleep(100_000) }
+        XCTAssertEqual(voice.label, "Read aloud", "the final 5 ms tail never completed")
+    }
+
+    func testAnInvalidPreparedPieceFailsRatherThanStayingSpeaking() throws {
+        app = XCUIApplication()
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--screen", "read", "--bad-voice-tail"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Voice unavailable"].waitForExistence(timeout: 15))
+        XCTAssertEqual(voice.label, "Read aloud")
+    }
+
+    func testShortPiecePauseAndResumeKeepTheirQueue() throws {
+        app = XCUIApplication()
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--screen", "read", "--short-voice"]
+        app.launch()
+        XCTAssertTrue(voice.waitForExistence(timeout: 20))
+        let start = Date()
+        while seconds() < 2.5 && Date().timeIntervalSince(start) < 15 { usleep(100_000) }
+        voice.tap()
+        XCTAssertEqual(voice.label, "Read aloud")
+        let paused = seconds()
+        sleep(2)
+        XCTAssertEqual(seconds(), paused, accuracy: 0.2, "the prepared piece played while paused")
+        voice.tap()
+        let resumed = Date()
+        while seconds() < paused + 1 && Date().timeIntervalSince(resumed) < 10 { usleep(100_000) }
+        XCTAssertGreaterThan(seconds(), paused + 0.5)
+        let end = Date().addingTimeInterval(35)
+        while seconds() < 23.1 && Date() < end { usleep(200_000) }
+        XCTAssertGreaterThanOrEqual(seconds(), 23.1, "pause/resume lost a queued piece")
+        let finished = Date().addingTimeInterval(3)
+        while voice.label != "Read aloud" && Date() < finished { usleep(100_000) }
+        XCTAssertEqual(voice.label, "Read aloud", "the resumed queue never completed")
+    }
+
+    /// Uses the existing DEBUG rewind hook: watch simulator long presses do not reliably enter
+    /// the drag gesture, so this checks the playback queue directly, including rewind after finish.
+    func testShortPiecesCanRewindAcrossPreparedAndFinishedPieces() throws {
+        app = XCUIApplication()
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--screen", "read", "--short-voice",
+                               "--test-rewind", "--rewind-delay", "7"]
+        app.launch()
+        XCTAssertTrue(voice.waitForExistence(timeout: 20))
+        var last = 0.0, rewinds = 0
+        let end = Date().addingTimeInterval(55)
+        while Date() < end {
+            let position = seconds()
+            if last > 5, position < last - 3 { rewinds += 1 }
+            last = position
+            if rewinds >= 2, position >= 23.1, voice.label == "Read aloud" { break }
+            usleep(150_000)
+        }
+        XCTAssertEqual(rewinds, 2, "mid-reading and finished-reading rewinds must each move back")
+        XCTAssertGreaterThanOrEqual(last, 23.1, "rewind lost part of the speech")
+        XCTAssertEqual(voice.label, "Read aloud", "the rewound queue never completed")
+    }
+
     /// The orb page, scrolled, voice finished: taps that just miss the button (beside, above,
     /// below, a corner) work the button or do nothing, and never start listening; a short press is
     /// a tap; a hold on a finished voice replays it.

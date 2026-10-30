@@ -3,7 +3,8 @@ import AbstractGatewayClient
 import SwiftUI
 
 /// Reads a text aloud with the gateway's voice: the speech stream's WAV chunks play back to back
-/// through one AVAudioPlayer at a time; optional background analysis lets the orb
+/// through a current and a prepared AVAudioPlayer, scheduled on the audio device's clock;
+/// optional background analysis lets the orb
 /// follow the voice without delaying playback. An answer's recordings (the Assistant's workflow makes
 /// them) play after its text, at their own speed.
 @MainActor
@@ -20,10 +21,9 @@ final class Speaker: NSObject, ObservableObject {
 
     /// Chunks to play; analysis is optional and may be cached when replaying a chunk.
     private var queue: [Chunk] = []
-    /// Playback waits until this much speech is queued (or the stream is done): a gateway voice
-    /// before abstractvoice 0.15.2 sends two words first (1.3 s, "Ah oui,") and the rest seconds
-    /// later, so starting on that piece alone breaks the voice after it; from 0.15.2 the first piece
-    /// is a whole clause (2 s or more) and starts at once. Set again when the queue runs dry.
+    /// Wait for a short audio cushion, or the end of the stream. Chunk size depends on the backend:
+    /// Supertonic sends sentence-sized pieces, while Qwen commonly sends subsecond PCM pieces.
+    /// Set again when the queue runs dry.
     private var buffering = true
     private static let startBuffer = 1.5, refillBuffer = 2.0
     private var refilling = false
@@ -37,6 +37,12 @@ final class Speaker: NSObject, ObservableObject {
     /// Where the next chunk starts (a rewind into the middle of an earlier chunk).
     private var startAt: TimeInterval = 0
     private var player: AVAudioPlayer?
+    /// One piece ahead, already scheduled: a delegate callback is too late to open the next WAV
+    /// without a gap (Qwen sends roughly one WAV per second). At most two players are resident.
+    private var successor: (player: AVAudioPlayer, chunk: Chunk, startTime: TimeInterval)?
+    private var scheduledEnd: TimeInterval = 0
+    private var completions: [ObjectIdentifier: Bool] = [:]
+    private nonisolated let completionMailbox = PlayerCompletionMailbox()
     private var streamDone = false
     private var task: Task<Void, Never>?
     private var analysisTask: Task<Void, Never>?
@@ -95,13 +101,16 @@ final class Speaker: NSObject, ObservableObject {
     /// The invariant of a reading: while it is speaking, something plays. A player the system
     /// stopped underneath plays on from where it stopped; no player, the next chunk starts.
     private func ensurePlaying() {
+        synchronizePlayback()
         guard state == .speaking else { return }
         guard let p = player else { advanceIfIdle(); return }
         guard !p.isPlaying else { return }
         trace("the voice had stopped at \(String(format: "%.2f", p.currentTime)) s of this chunk: playing on")
+        unscheduleSuccessor()
         try? AVAudioSession.sharedInstance().setActive(true)
         RuntimeKeeper.shared.hold(holder)
-        if !p.play() { state = .failed("The watch stopped the voice."); stop() }
+        if !start(p) { state = .failed("The watch stopped the voice."); stop() }
+        else { scheduleSuccessor() }
     }
 
     var isActive: Bool { state == .preparing || state == .speaking }
@@ -111,8 +120,10 @@ final class Speaker: NSObject, ObservableObject {
 
     /// Holds the voice where it is (the current chunk's position is kept; chunks still arriving wait).
     func pause() {
+        synchronizePlayback()
         guard isActive else { return }
         pausedFromPreparing = state == .preparing
+        unscheduleSuccessor()
         player?.pause()
         state = .paused
         RuntimeKeeper.shared.release(holder)          // a paused voice never keeps the watch awake
@@ -127,7 +138,8 @@ final class Speaker: NSObject, ObservableObject {
             state = .speaking
             trace("resuming at \(String(format: "%.2f", player.currentTime)) s of this chunk")
             try? AVAudioSession.sharedInstance().setActive(true)    // off since the pause, maybe
-            if !player.play() { state = .failed("The watch stopped the voice."); stop() }
+            if !start(player) { state = .failed("The watch stopped the voice."); stop() }
+            else { scheduleSuccessor() }
         } else {
             state = pausedFromPreparing ? .preparing : .speaking
             advanceIfIdle()
@@ -143,8 +155,7 @@ final class Speaker: NSObject, ObservableObject {
         stop(keepSession: true)
         if let other = Self.current, other !== self { other.stop(keepSession: true) }
         Self.current = self
-        // The whole text in one request: the gateway's voice speaks it in whole sentences, made ahead
-        // of playback, in one language for the whole reply (abstractvoice 0.15.2).
+        // One request for the whole text; the selected backend determines the streamed audio pieces.
         let spoken = scope == nil ? "" : SpeechText.plain(markdown)
         let clips = clips.filter { $0.kind == .audio }
         guard !spoken.isEmpty || !clips.isEmpty else { state = .failed("Nothing to read in this text."); return }
@@ -211,7 +222,11 @@ final class Speaker: NSObject, ObservableObject {
     func stop(keepSession: Bool) {
         task?.cancel(); task = nil
         cancelAnalysis()
+        successor?.player.stop(); successor = nil
+        completions.removeAll()
+        _ = completionMailbox.take()
         player?.stop(); player = nil
+        scheduledEnd = 0
         queue.removeAll(); history.removeAll(); currentData = nil; startAt = 0
         if isActive || state == .paused { state = .idle }
         if keepSession { RuntimeKeeper.shared.release(holder) } else { release() }
@@ -223,9 +238,18 @@ final class Speaker: NSObject, ObservableObject {
     /// Goes back `seconds` in what was spoken (into earlier chunks if needed) and goes on from
     /// there; paused stays paused at the new place, a finished reading speaks again from there.
     func rewind(_ seconds: Double = 10) {
+        synchronizePlayback()
+        unscheduleSuccessor()
         var back = seconds
         if let p = player {
-            if p.currentTime >= back { p.currentTime -= back; trace("rewound within the chunk"); return }
+            if p.currentTime >= back {
+                p.currentTime -= back
+                if state != .paused {
+                    scheduledEnd = p.deviceCurrentTime + (p.duration - p.currentTime) / Double(p.rate)
+                    scheduleSuccessor()
+                }
+                trace("rewound within the chunk"); return
+            }
             back -= p.currentTime
             p.stop(); player = nil
             if let d = currentData { queue.insert((d, p.duration, frames, currentRate), at: 0) }
@@ -278,6 +302,7 @@ final class Speaker: NSObject, ObservableObject {
         receivedSeconds += duration
         trace("chunk \(wav.count) bytes, received \(String(format: "%.1f", receivedSeconds)) s")
         advanceIfIdle()
+        scheduleSuccessor()
     }
 
     private func advanceIfIdle() {
@@ -310,25 +335,87 @@ final class Speaker: NSObject, ObservableObject {
         let chunk = queue.removeFirst()
         let next = chunk.data
         do {
-            let p = try AVAudioPlayer(data: next)
-            p.delegate = self
-            p.enableRate = true                           // the speed chosen in Settings → Voice
-            p.rate = chunk.rate
-            p.prepareToPlay()
+            let p = try makePlayer(chunk)
             if startAt > 0 { p.currentTime = min(startAt, max(0, p.duration - 0.05)); startAt = 0 }
             currentData = next
             currentRate = chunk.rate
             frames = chunk.frames
             player = p
-            if play, !p.play() { throw GatewayError.invalidResponse }
+            if play, !start(p) { throw GatewayError.invalidResponse }
             analyzeIfNeeded(next, player: p)
             guard play else { return }
             trace("playing \(String(format: "%.1f", p.duration)) s, route \(AVAudioSession.sharedInstance().currentRoute.outputs.map(\.portName))")
             if state != .speaking { state = .speaking; WKHaptic.start() }
+            scheduleSuccessor()
         } catch {
             state = .failed("This speech could not be played (\(error.localizedDescription)).")
             stop()
         }
+    }
+
+    private func makePlayer(_ chunk: Chunk) throws -> AVAudioPlayer {
+        let p = try AVAudioPlayer(data: chunk.data)
+        p.delegate = self
+        p.enableRate = true
+        p.rate = chunk.rate
+        guard p.prepareToPlay() else { throw GatewayError.invalidResponse }
+        return p
+    }
+
+    /// `play(atTime:)` shares a clock between players. Preparing the successor while this one
+    /// plays removes decoder setup and main-thread callback latency from the audible boundary.
+    private func start(_ p: AVAudioPlayer) -> Bool {
+        let time = p.deviceCurrentTime + 0.03
+        guard p.play(atTime: time) else { return false }
+        scheduledEnd = time + (p.duration - p.currentTime) / Double(p.rate)
+        return true
+    }
+
+    private func scheduleSuccessor() {
+        guard player != nil, successor == nil, state != .paused, scheduledEnd > 0,
+              let chunk = queue.first else { return }
+        do {
+            let p = try makePlayer(chunk)
+            // A late arrival or a delayed delegate cannot schedule in the past: retain its actual
+            // start so following pieces never overlap while catching up.
+            let time = max(scheduledEnd, p.deviceCurrentTime + 0.03)
+            guard p.play(atTime: time) else { throw GatewayError.invalidResponse }
+            successor = (p, chunk, time)
+            queue.removeFirst()
+        } catch {
+            state = .failed("This speech could not be played (\(error.localizedDescription)).")
+            stop()
+        }
+    }
+
+    /// A paused or rewound reading owns the queued piece again; it must never start on its old
+    /// device-clock deadline while the current piece is held or playing from a different place.
+    private func unscheduleSuccessor() {
+        guard let next = successor else { return }
+        next.player.stop()
+        completions.removeValue(forKey: ObjectIdentifier(next.player))
+        queue.insert(next.chunk, at: 0)
+        successor = nil
+    }
+
+    /// The delegate can finish a piece before its main-actor task runs. Controls first consume
+    /// actual outcomes recorded by the delegate, so they operate on the piece really playing.
+    private func synchronizePlayback() {
+        for (ref, success) in completionMailbox.take() {
+            let p = ref.player
+            guard p === player || p === successor?.player else { continue }
+            guard success else {
+                state = .failed("The watch could not finish playing this speech.")
+                stop(); return
+            }
+            completions[ObjectIdentifier(p)] = success
+        }
+        // A 5 ms tail may already have finished too. Consume outcomes in playback order.
+        while let current = player,
+              let success = completions.removeValue(forKey: ObjectIdentifier(current)) {
+            finishedChunk(current, successfully: success)
+        }
+        scheduleSuccessor()
     }
 
     /// Analyse only the current chunk, after playback starts. If analysis falls behind, the
@@ -350,15 +437,31 @@ final class Speaker: NSObject, ObservableObject {
         analysisWorker?.cancel(); analysisWorker = nil
     }
 
-    fileprivate func finishedChunk(_ p: AVAudioPlayer) {
+    fileprivate func finishedChunk(_ p: AVAudioPlayer, successfully: Bool) {
         guard p === player else { return }
+        completions.removeValue(forKey: ObjectIdentifier(p))
+        guard successfully else {
+            state = .failed("The watch could not finish playing this speech.")
+            stop(); return
+        }
         cancelAnalysis()
         playedSeconds += p.duration
         if let d = currentData { history.append((d, p.duration, frames, currentRate)) }
         currentData = nil
         trace("finished chunk, played \(String(format: "%.1f", playedSeconds)) s")
         player = nil
-        advanceIfIdle()
+        if let next = successor {
+            successor = nil
+            player = next.player
+            currentData = next.chunk.data
+            currentRate = next.chunk.rate
+            frames = next.chunk.frames
+            scheduledEnd = next.startTime + next.player.duration / Double(next.chunk.rate)
+            analyzeIfNeeded(next.chunk.data, player: next.player)
+        } else {
+            scheduledEnd = 0
+            advanceIfIdle()
+        }
     }
 
     /// Lets go of the watch and, when this is the voice playing, of the audio session (a player
@@ -383,6 +486,9 @@ extension Speaker: AVAudioPlayerDelegate {
         #if DEBUG
         print("speaker decode error \(String(describing: error))")
         #endif
+        let ref = PlayerRef(player)
+        completionMailbox.record(ref, successfully: false)
+        Task { @MainActor in self.synchronizePlayback() }
     }
 
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
@@ -390,11 +496,31 @@ extension Speaker: AVAudioPlayerDelegate {
         if !flag { print("speaker chunk ended UNSUCCESSFULLY") }
         #endif
         let ref = PlayerRef(player)
-        Task { @MainActor in self.finishedChunk(ref.player) }
+        completionMailbox.record(ref, successfully: flag)
+        Task { @MainActor in self.synchronizePlayback() }
     }
 }
 
 private struct PlayerRef: @unchecked Sendable { let player: AVAudioPlayer; init(_ p: AVAudioPlayer) { player = p } }
+
+/// AVAudioPlayer invokes its delegate outside the main actor. Record the real outcome before
+/// hopping actors, so a simultaneous tap can drain it without guessing from the device clock.
+private final class PlayerCompletionMailbox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending: [(PlayerRef, Bool)] = []
+
+    func record(_ player: PlayerRef, successfully: Bool) {
+        lock.withLock { pending.append((player, successfully)) }
+    }
+
+    func take() -> [(PlayerRef, Bool)] {
+        lock.withLock {
+            let values = pending
+            pending.removeAll()
+            return values
+        }
+    }
+}
 
 import WatchKit
 private enum WKHaptic { @MainActor static func start() { WKInterfaceDevice.current().play(.start) } }

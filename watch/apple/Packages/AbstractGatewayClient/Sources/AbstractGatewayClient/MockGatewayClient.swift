@@ -920,6 +920,39 @@ public actor MockGatewayClient: GatewayClient {
                 }
             }
         }
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--bad-voice-tail") {
+            return AsyncThrowingStream { continuation in
+                let task = Task {
+                    do {
+                        continuation.yield(SyntheticSpeech.wav(seconds: 2.4, seed: 1))
+                        try await Task.sleep(for: .milliseconds(200))
+                        continuation.yield(Data("not a WAV".utf8))
+                        continuation.finish()
+                    } catch { continuation.finish(throwing: error) }
+                }
+                continuation.onTermination = { _ in task.cancel() }
+            }
+        }
+        // Qwen's measured stream: subsecond 24 kHz pieces, including a final 5 ms tail. Opening
+        // a fresh player only at each completion adds seconds of gaps to a 23-second reading.
+        if ProcessInfo.processInfo.arguments.contains("--short-voice") {
+            return AsyncThrowingStream { continuation in
+                let task = Task {
+                    do {
+                        let durations = [0.475] + Array(repeating: 0.960, count: 23) + [0.560, 0.005]
+                        let delays = [550, 0, 0, 970] + Array(repeating: 150, count: 22)
+                        for (i, duration) in durations.enumerated() {
+                            try await Task.sleep(for: .milliseconds(delays[i]))
+                            continuation.yield(SyntheticSpeech.wav(seconds: duration, seed: i + 1, rate: 24_000))
+                        }
+                        continuation.finish()
+                    } catch { continuation.finish(throwing: error) }
+                }
+                continuation.onTermination = { _ in task.cancel() }
+            }
+        }
+        #endif
         return AsyncThrowingStream { continuation in
             Task {
                 // The public gateway's timeline (measured 2026-10-17): a first piece of two words

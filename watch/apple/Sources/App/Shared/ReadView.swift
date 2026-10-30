@@ -56,7 +56,11 @@ struct ReadView: View {
         .task {   // --test-rewind: rewind once mid-reading, once after it finished; positions printed
             guard ProcessInfo.processInfo.arguments.contains("--test-rewind") else { return }
             while speaker.playedSeconds == 0 { try? await Task.sleep(for: .milliseconds(100)) }
-            try? await Task.sleep(for: .milliseconds(600))
+            let args = ProcessInfo.processInfo.arguments
+            let delay = args.firstIndex(of: "--rewind-delay").flatMap { i in
+                i + 1 < args.count ? Double(args[i + 1]) : nil
+            } ?? 0.6
+            try? await Task.sleep(for: .seconds(delay))
             let before = speaker.position()
             speaker.rewind(ProcessInfo.processInfo.arguments.contains("--rewind-1") ? 1 : 10)
             print(String(format: "test-rewind playing: %.2f s -> %.2f s, state %@", before, speaker.position(), "\(speaker.state)"))
