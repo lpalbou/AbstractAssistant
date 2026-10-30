@@ -51,12 +51,14 @@ struct SettingsView: View {
                         HStack {
                             Text("Voice").font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text)
                             Spacer(minLength: 4)
-                            Text(VoicePrefs.voice?.voice ?? "Default").font(.rounded(.footnote)).foregroundStyle(Theme.muted).lineLimit(1)
+                            Text(VoicePrefs.voiceLabel).font(.rounded(.footnote)).foregroundStyle(Theme.muted).lineLimit(1)
+                                .accessibilityIdentifier("settings.voice.label")
                             Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Theme.muted)
                         }
                     }
                 }
                 .buttonStyle(.tap)
+                .accessibilityIdentifier("settings.voice")
                 Button { model.push(.tools(.defaults)) } label: {
                     Card {
                         HStack {

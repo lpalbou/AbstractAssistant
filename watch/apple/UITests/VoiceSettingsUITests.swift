@@ -31,7 +31,42 @@ final class VoiceSettingsUITests: XCTestCase {
         XCTAssertTrue(small.isSelected, "the chosen model is marked")
         // Kept: Settings shows the voice, and the page reopens with both choices.
         app.buttons["Back"].firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["F2"].waitForExistence(timeout: 5), "Settings does not show the chosen voice:\n\(app.debugDescription)")
+        XCTAssertTrue(app.staticTexts["Supertonic F2"].waitForExistence(timeout: 5), "Settings does not show the chosen voice's label:\n\(app.debugDescription)")
+    }
+
+    /// A saved custom voice is shown by its catalog label, including when its internal ID is a
+    /// hash. Use the system defaults argument domain so this also covers relaunch/offline display.
+    func testSettingsShowsSavedVoiceLabelInsteadOfIdentifier() throws {
+        let voiceID = "41576236cd5f4a9a8399f123456789ab"
+        let app = settings(voiceID: voiceID, label: "My narrator")
+        let label = app.staticTexts["settings.voice.label"]
+        XCTAssertEqual(label.label, "My narrator", app.debugDescription)
+        XCTAssertFalse(app.staticTexts[voiceID].exists, "An internal voice ID must not appear in Settings")
+    }
+
+    func testSettingsDoesNotExposeLegacyOpaqueVoiceLabels() throws {
+        let voiceID = "41576236cd5f4a9a8399f123456789ab"
+        for legacyLabel in [voiceID, "   "] {
+            let app = settings(voiceID: voiceID, label: legacyLabel)
+            XCTAssertEqual(app.staticTexts["settings.voice.label"].label, "Selected voice", app.debugDescription)
+            XCTAssertFalse(app.staticTexts[voiceID].exists)
+            app.terminate()
+        }
+    }
+
+    private func settings(voiceID: String, label: String) -> XCUIApplication {
+        let app = XCUIApplication()
+        let choice = ["provider": "qwen3-tts", "model": "Qwen3-TTS-12Hz-1.7B-Base", "voice": voiceID, "label": label]
+        let data = try! JSONSerialization.data(withJSONObject: choice)
+        // UserDefaults accepts a property-list Data literal in launch arguments. No test-only
+        // application hook and no changes to the watch's saved choice are needed.
+        let literal = "<" + data.map { String(format: "%02x", $0) }.joined() + ">"
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--screen", "settings", "-voice.tts", literal]
+        app.launch()
+        let row = app.buttons["settings.voice"]
+        for _ in 0..<5 where !(row.exists && row.isHittable) { app.swipeUp() }
+        XCTAssertTrue(row.waitForExistence(timeout: 5), app.debugDescription)
+        return app
     }
 
     /// The voice library on the watch (sample data): voices in groups (yours, the engine's, the

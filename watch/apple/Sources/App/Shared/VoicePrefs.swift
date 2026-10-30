@@ -12,6 +12,16 @@ enum VoicePrefs {
         get { load(voiceKey) }
         set { save(newValue, voiceKey) }
     }
+
+    /// The saved catalog label, available even when the gateway is offline. Older choices may
+    /// have no label or repeat a voice-library identifier; those still represent a selected voice.
+    static var voiceLabel: String {
+        guard let voice else { return "Default" }
+        let label = voice.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let compact = label.replacingOccurrences(of: "-", with: "")
+        let opaque = compact.count >= 16 && compact.allSatisfy(\.isHexDigit)
+        return label.isEmpty || opaque ? "Selected voice" : label
+    }
     static var transcription: TranscriptionChoice? {
         get { load(transcriptionKey) }
         set { save(newValue, transcriptionKey) }
