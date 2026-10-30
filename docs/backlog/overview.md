@@ -7,9 +7,9 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 
 ## Current Counts
 
-- Planned: 13
+- Planned: 15
 - Proposed: 23
-- Completed: 24
+- Completed: 31
 
 Counts recomputed from disk on 2026-10-26 after adding 1053 (shared Swift client kit) and 1054 (offline capture queue), from the fusion decision of ADR 0004 (topic tracks included). Planned +1 the same day for 1056 (Apple lessons for the desktop). Planned +1 for 1055 (sign and notarize the macOS app, ADR 0006). Planned +1 for 1057 (the Assistant on the web, ADR 0007). Proposed +1 for 1059 (alert levels; recounted from disk 2026-10-26: planned 12, proposed 21, completed 16). Completed +2 on 2026-10-27 for 1060 (desktop voice library) and 1061 (iPhone and watch voice library), both under the framework release wave 1055 (recounted from disk: planned 12, proposed 21, completed 18). Proposed +1 on 2026-10-27 for 1062 (iPhone and watch chat trust through the gateway's session tool policy). 1062 promoted to Planned on 2026-10-28 (AbstractGateway 0.16.0 released): planned 13, proposed 21. Proposed +1 on 2026-10-28 for 1066 (Create a voice capability-gated on the gateway): planned 13, proposed 22. Completed +1 on 2026-10-28 for 1063 (replay view on the desktop, 0.16.0): completed 19. Completed +1 on 2026-10-28 for 1067 (desktop QA: the chosen voice, no bookkeeping chips; 0.16.3): completed 20. Completed +1 for 1068 (desktop QA: playback states, voice settings, an automation's new result; 0.16.4) and proposed +1 for 1069 (an automation's runs as replay-view exchanges): completed 21, proposed 23. Completed +1 on 2026-10-28 for 1070 (desktop: an automation opens as the chat, chip header, footer stat card): completed 22. Completed +1 on 2026-10-28 for 1075 (the web Assistant on the kit's message footer spec, panel-chat 0.6.4): completed 23. Completed +1 on 2026-10-28 for 1077 (Tools settings: the kit's Off / Ask / Auto, the group's same control): completed 24.
 - Deprecated: 0
@@ -41,6 +41,7 @@ Counts recomputed from disk on 2026-10-26 after adding 1053 (shared Swift client
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
+| [1084](planned/1084_iphone_notification_completion_and_approval_reconciliation.md) | iPhone notification completion and repeated approval gates | Planned | Device build39 crash captured; correct main-thread completion and same-gate reconciliation. Desktop sync is another agent’s uncommitted work, preserved. |
 | [1057](planned/1057_web_assistant.md) | The Assistant on the web | Planned | Scaffold in `web/` (Vite + React + TypeScript on the abstractuic app-server; host interface for the browser now and a Tauri shell later; session fold, run input, turn reducer ported from the desktop with parity tests; 58 tests, build green; read-only live proofs). Next: operator decision on ADR 0007, live send/approval proof, gateway catalog row (G1), npm publish. |
 | [1055](planned/1055_macos_signing_and_notarization.md) | Sign and notarize the macOS app | Planned | Signing, notarization and disk image wired off by default (`build-macos-app --sign/--notarize/--dmg`, bundle id `ai.abstractframework.assistant.mac`, ADR 0006 Proposed); operator: ADR decisions, Developer ID certificate and notary key (docs/macos-signing.md); then a first notarized build and CI. |
 | [1056](planned/1056_apple_lessons_for_the_desktop_assistant.md) | What the iPhone and watch taught us, brought to the desktop assistant | Planned | 21 changes ranked for the Qt desktop on all three platforms, each marked portable or per-platform: "needs you" you can click, edit and resend, voice review, an Inbox, past answers reopening their activity (overview item 0), an archive action, CI on all three desktops, the orb and tokens on the Qt palette (ADR 0008). Apple-only features are out of scope. Rows 1-2 shipped 2026-10-26, uncommitted: a send that fails keeps its words and files, and a failed transcription keeps its recording with Retry/Discard. |
@@ -104,3 +105,5 @@ No deprecated backlog items currently tracked.
 - New items use four-digit global IDs.
 - Gateway-related authority changes must cite [ADR 0001](../adr/0001_gateway_native_assistant_v2.md).
 - When code and backlog disagree, update backlog text in the same pass.
+
+2026-10-30: while filing 1084, lifecycle files recounted (topic README indexes excluded): planned 15, proposed 23, completed 31. Prior overview had missed one planned file and seven completed files; historical rows retained.
