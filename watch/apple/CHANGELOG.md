@@ -17,6 +17,9 @@ iPhone app); the Python package's history is in
 
 ### Fixed
 
+- Voice previews use a longer sample shared with the iPhone. A failed cloned-voice match shows
+  readable retry guidance across multiple lines.
+
 - Settings shows the selected voice's friendly name instead of its internal identifier. An empty
   saved label, or one that repeats an opaque identifier, reads "Selected voice".
 - Spoken answers prepare and schedule the next audio piece while the current one plays, reducing

@@ -80,6 +80,9 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Fixed
 
+- Apple voice previews use a longer sample. Watch voice-match failures show readable retry
+  guidance rather than a truncated technical error.
+
 - Apple Watch Settings shows the chosen voice's friendly name. Streamed speech prepares the next
   audio piece ahead of playback, and interrupted streams or playback failures report an error
   instead of silently completing a partial reading. See the [Watch changelog](watch/apple/CHANGELOG.md).
