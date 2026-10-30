@@ -11,7 +11,7 @@ enum Route: Hashable {
         case .ask, .sessions, .session, .automations, .automation, .automationInfo, .automationSearch, .conversation, .settings, .voiceSettings,
              .orbStyle, .about, .tools, .toolGroup, .connection, .archivedSessions, .sessionSearch,
              .archivedAutomations: true
-        // `.answer`: a notification's answer (it would be read aloud again); `.waits`: it closes once empty.
+        // `.answer`: a notification's answer (it would be read aloud again); `.waits`: refresh it on a new tap.
         case .approval, .askUser, .draft, .waits, .answer, .picker, .automationEdit, .newAutomation, .message,
              .read, .link, .orbStylePreview, .workflow, .media, .activity, .filePreview: false
         }
@@ -51,8 +51,15 @@ struct Exchange: Identifiable, Hashable {
 
 @MainActor
 final class AppModel: ObservableObject {
+    enum WaitsReadState: Equatable {
+        case checking, ready, failed(String)
+    }
     /// (The watch face's complication shows how many, and the first: `FaceSnapshot`.)
     @Published var waits: [Wait] = [] { didSet { if waits != oldValue { FaceSnapshot.waits(waits) } } }
+    /// A successful empty waits read is still a result, even when `waits` stays equal to [].
+    /// Independent of the runs/tools reads in the same refresh; older reads cannot replace it.
+    @Published private(set) var waitsReadState: WaitsReadState = .checking
+    private var waitsReadRevision = 0
     @Published var runs: [RunSummary] = []
     /// Conversations (turns grouped by session), newest activity first.
     var sessions: [SessionSummary] { SessionSummary.group(runs) }
@@ -590,7 +597,7 @@ final class AppModel: ObservableObject {
         recordingConnectionKey = KeptQuestion.connectionKey(gateway: signIn.gateway, user: signIn.user, tenant: signIn.tenant, credential: signIn.credential)
         client = LiveGatewayClient(baseURL: signIn.gateway, credential: signIn.credential)
         gatewayHost = signIn.gateway.host() ?? signIn.gateway.absoluteString
-        waits = []; runs = []; automations = []; principal = nil; lastError = nil; failures = 0; failingSince = nil; unreachable = false; seenWaitIDs = []; entities = []; automationsLoaded = false; automationsError = nil; automationsTask?.cancel(); automationsTask = nil; automationsLoading = false; automationsReadAt = nil
+        waits = []; waitsReadState = .checking; runs = []; automations = []; principal = nil; lastError = nil; failures = 0; failingSince = nil; unreachable = false; seenWaitIDs = []; entities = []; automationsLoaded = false; automationsError = nil; automationsTask?.cancel(); automationsTask = nil; automationsLoading = false; automationsReadAt = nil
         definitions = [:]; results = [:]; savedAt = [:]
         forgetTools()                                    // each account has its own tools (email, …)
         workflows = []; workflowsReadAt = nil; MediaStore.shared.clear()
@@ -628,7 +635,7 @@ final class AppModel: ObservableObject {
         if !SavedSignIn.clear() { notice = "The sign-in could not be removed from this watch's Keychain." }
         stopPolling()
         client = MockGatewayClient(world: .watch); gatewayHost = "—"; recordingConnectionKey = "signed-out"
-        waits = []; runs = []; automations = []; principal = nil; lastError = nil; failures = 0; failingSince = nil; unreachable = false; seenWaitIDs = []; entities = []; automationsLoaded = false; automationsError = nil; automationsTask?.cancel(); automationsTask = nil; automationsLoading = false; automationsReadAt = nil
+        waits = []; waitsReadState = .checking; runs = []; automations = []; principal = nil; lastError = nil; failures = 0; failingSince = nil; unreachable = false; seenWaitIDs = []; entities = []; automationsLoaded = false; automationsError = nil; automationsTask?.cancel(); automationsTask = nil; automationsLoading = false; automationsReadAt = nil
         definitions = [:]; results = [:]; savedAt = [:]
         forgetTools()
         workflows = []; workflowsReadAt = nil; MediaStore.shared.clear()
@@ -648,10 +655,14 @@ final class AppModel: ObservableObject {
 
     /// Returns false when polling must stop (401: the gateway locks out by address).
     @discardableResult
-    func refresh() async -> Bool {
+    func refresh(checkingWaits: Bool = false) async -> Bool {
         let approvals = approvalRevision
         let connection = connectionRevision
         let refreshClient = client
+        waitsReadRevision += 1
+        let waitsRead = waitsReadRevision
+        if checkingWaits { waitsReadState = .checking }
+        var waitsReadFinished = false
         do {
             // The three first-poll calls go out together: on the watch's radio each round trip
             // costs seconds, and nothing on Home can be drawn before all three are back.
@@ -664,14 +675,20 @@ final class AppModel: ObservableObject {
             }
             let found = try await waitsCall
             guard connection == connectionRevision, !Task.isCancelled else { return false }
-            approvalRuns.formUnion(found.map(\.runId))
-            let newWaits = await approveTrusted(found, connection: connection)
-            guard connection == connectionRevision, !Task.isCancelled else { return false }
-            if approvals == approvalRevision, waits != newWaits {
-                approvalRevision += 1
-                waits = newWaits
-                noticeNewWaits(newWaits)
+            if waitsRead == waitsReadRevision {
+                approvalRuns.formUnion(found.map(\.runId))
+                let newWaits = await approveTrusted(found, connection: connection, readRevision: waitsRead)
+                guard connection == connectionRevision, !Task.isCancelled else { return false }
+                if waitsRead == waitsReadRevision {
+                    if approvals == approvalRevision, waits != newWaits {
+                        approvalRevision += 1
+                        waits = newWaits
+                        noticeNewWaits(newWaits)
+                    }
+                    waitsReadState = .ready
+                }
             }
+            waitsReadFinished = true
             let newRuns = try await runsCall
             guard connection == connectionRevision, !Task.isCancelled else { return false }
             runs = newRuns
@@ -709,6 +726,7 @@ final class AppModel: ObservableObject {
             return false
         } catch {
             guard connection == connectionRevision, !Task.isCancelled else { return false }
+            if !waitsReadFinished, waitsRead == waitsReadRevision { waitsReadState = .failed(Self.say(error)) }
             lastError = Self.say(error)
             failures += 1
             let since = failingSince ?? Date()
@@ -870,14 +888,14 @@ final class AppModel: ObservableObject {
     /// The waits an Approve all covers, answered by the watch as they come (seen by the poll,
     /// whatever page is open): the rest stay for the person. Only what was explicitly allowed for
     /// that owner: a conversation of another device never gets the watch's defaults.
-    private func approveTrusted(_ found: [Wait], connection: Int) async -> [Wait] {
+    private func approveTrusted(_ found: [Wait], connection: Int, readRevision: Int) async -> [Wait] {
         var left: [Wait] = []
         for w in found {
-            guard connection == connectionRevision, !Task.isCancelled else { return [] }
+            guard connection == connectionRevision, readRevision == waitsReadRevision, !Task.isCancelled else { return [] }
             if case .automation(let id)? = w.owner, definitions[id] == nil, !ToolPrefs.trust(w.owner!.key).isEmpty {
                 _ = try? await definition(of: id)                    // its own tools, to decide by them
             }
-            guard connection == connectionRevision, !Task.isCancelled else { return [] }
+            guard connection == connectionRevision, readRevision == waitsReadRevision, !Task.isCancelled else { return [] }
             if await approveIfAllowed(w, byDefaults: false) == false { left.append(w) }
         }
         return left

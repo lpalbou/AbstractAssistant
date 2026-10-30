@@ -184,6 +184,30 @@ public actor MockGatewayClient: GatewayClient {
     }
     public func waits() async throws -> [Wait] {
         #if DEBUG
+        if let scenario = waitsReadScenario {
+            waitsReadCalls += 1
+            let call = waitsReadCalls
+            switch scenario {
+            case "delayed":
+                try await Task.sleep(for: .seconds(3))
+                return sequentialRun().personWait.map { [$0] } ?? []
+            case "retry" where call <= 2:
+                try await Task.sleep(for: .seconds(1))
+                throw URLError(.notConnectedToInternet)
+            case "stale-error" where call == 1:
+                try await Task.sleep(for: .seconds(4))
+                throw URLError(.notConnectedToInternet)
+            case "stale-gate" where call == 1:
+                try await Task.sleep(for: .seconds(4))
+                return sequentialRun().personWait.map { [$0] } ?? []
+            case "poll-slow" where call > 2:
+                try await Task.sleep(for: .seconds(8))
+                return []
+            default:
+                try await Task.sleep(for: .milliseconds(500))
+                return []
+            }
+        }
         if sequentialApprovalFixture {
             sequentialListReads += 1
             if sequentialListReads == 2, ProcessInfo.processInfo.arguments.contains("--approval-index-race") {
@@ -213,6 +237,13 @@ public actor MockGatewayClient: GatewayClient {
     // MARK: Conversations
 
     #if DEBUG
+    /// Regression fixtures for a notification opening an initially empty Needs you page.
+    private var waitsReadCalls = 0
+    private var waitsReadScenario: String? {
+        let args = ProcessInfo.processInfo.arguments
+        guard world == .watch, let i = args.firstIndex(of: "--waits-state"), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
     private var sequentialApprovalFixture: Bool { world == .watch && ProcessInfo.processInfo.arguments.contains("--sequential-approvals") }
     private let sequentialStarted = Date()
     private var sequentialAnsweredAt: Date?
@@ -253,7 +284,10 @@ public actor MockGatewayClient: GatewayClient {
         return world.sampleRuns
     }
     public func recentRuns(limit: Int) async throws -> [RunSummary] {
-        Array(historySource.filter { !archived.contains($0.sessionId ?? $0.runId) }.prefix(limit))
+        #if DEBUG
+        if waitsReadScenario == "runs-fail" { throw URLError(.notConnectedToInternet) }
+        #endif
+        return Array(historySource.filter { !archived.contains($0.sessionId ?? $0.runId) }.prefix(limit))
     }
     public func setArchived(sessionId: String, _ on: Bool) async throws {
         if world == .watch { try await Task.sleep(for: .milliseconds(300)) }
@@ -1183,6 +1217,7 @@ public actor MockGatewayClient: GatewayClient {
     /// A started mock run "streams": each poll reveals the words due by now, then completes.
     public func run(id: String) async throws -> RunSummary {
         #if DEBUG
+        if ["delayed", "stale-gate"].contains(waitsReadScenario ?? ""), id == "sequential-approval-leaf" { return sequentialRun() }
         if sequentialApprovalFixture, id == "sequential-approval-leaf" {
             let captured = sequentialRun()
             if ProcessInfo.processInfo.arguments.contains("--approval-index-race"), !sequentialHeldRun {

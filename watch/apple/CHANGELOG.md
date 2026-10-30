@@ -17,6 +17,10 @@ iPhone app); the Python package's history is in
 
 ### Fixed
 
+- **Needs you** shows loading, retryable errors and a confirmed empty state when
+  opened from a notification. Older waits reads cannot restore a resolved request,
+  and background refreshes preserve the confirmed state while checking again.
+
 - Approving one request keeps later requests pending and visible while the app is active.
   Approval monitoring resumes after sleep/wake, and late reads cannot replace a newer request
   with an older gate. Resolutions from another client clear the matching request.

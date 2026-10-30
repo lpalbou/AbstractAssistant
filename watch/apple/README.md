@@ -53,6 +53,11 @@ wrist with a haptic: what it wants to do and exactly what (the command, the page
 the email). Deny, allow once, or, from a conversation, allow its tools for the rest of it; while it
 works, the amber shield on the orb takes that back at once. Sends to other people always ask.
 
+**Needs you** checks the current requests when it opens. It shows a checking
+indicator while loading and **Retry** if the check fails. If nothing remains
+pending, including requests handled by an earlier **Approve all** choice, it
+shows **Nothing needs you now.** You can use Back to return home.
+
 **Find and tidy your conversations.** Sessions lists your conversations (Today, Yesterday,
 Earlier), outlines the ones with an answer you have not opened, searches every question, answer and
 artifact (an image by what it was made from, a file by its name), and archives one with the

@@ -3214,6 +3214,9 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Changed
 
+- Apple Watch's **Needs you** page refreshes on open and shows checking, retry and
+  confirmed-empty states. Overlapping waits reads cannot restore older requests.
+
 - **Desktop conversations stay synchronized across devices.** The selected chat refreshes when
   another device starts or finishes a run, when the palette opens, and after reconnection.
   Updates arriving during a refresh are retained, and delayed results cannot replace another
@@ -6344,6 +6347,11 @@ wrist with a haptic: what it wants to do and exactly what (the command, the page
 the email). Deny, allow once, or, from a conversation, allow its tools for the rest of it; while it
 works, the amber shield on the orb takes that back at once. Sends to other people always ask.
 
+**Needs you** checks the current requests when it opens. It shows a checking
+indicator while loading and **Retry** if the check fails. If nothing remains
+pending, including requests handled by an earlier **Approve all** choice, it
+shows **Nothing needs you now.** You can use Back to return home.
+
 **Find and tidy your conversations.** Sessions lists your conversations (Today, Yesterday,
 Earlier), outlines the ones with an answer you have not opened, searches every question, answer and
 artifact (an image by what it was made from, a file by its name), and archives one with the
@@ -6491,6 +6499,10 @@ iPhone app); the Python package's history is in
   several. Voices are created on the iPhone or the desktop; the watch says so.
 
 ### Fixed
+
+- **Needs you** shows loading, retryable errors and a confirmed empty state when
+  opened from a notification. Older waits reads cannot restore a resolved request,
+  and background refreshes preserve the confirmed state while checking again.
 
 - Approving one request keeps later requests pending and visible while the app is active.
   Approval monitoring resumes after sleep/wake, and late reads cannot replace a newer request
