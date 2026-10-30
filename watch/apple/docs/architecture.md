@@ -64,6 +64,12 @@ sequenceDiagram
   participant RA as RunActivity
   participant GW as Gateway
   You->>Orb: speak or type
+  opt recorded voice
+    Orb->>GW: POST /attachments/upload (session + recording)
+    GW-->>Orb: audio artifact and owner run
+    Orb->>GW: POST /runs/{owner}/audio/transcribe
+    GW-->>Orb: transcript
+  end
   Orb->>GW: POST /runs/start (workflow, tools, tool policy)
   loop every second until the run ends
     Orb->>GW: GET /runs/{root} (answer? a wait on you?)
@@ -86,6 +92,7 @@ sequenceDiagram
 | `AppModel` (`@MainActor`) | The client, the state on screen (waits, sessions, automations, entities), each automation's definition and latest results once read (shared by its pages, updated by a save), the 15 s poll while the scene is active (the automations list at most once a minute; none while the screen is dimmed or the app is in the background), haptics, tool and workflow choices, the tools Accept all allowed, the answers seen on this watch. |
 | `Orb`, `OrbScenes`, `OrbConcepts`, `OrbCosmos`, `OrbNature`, `OrbAvatars`, `OrbLines`, `OrbRobots`, `OrbMachines` | The orb (every style drawn from `OrbPhases`, the five phases' weights and the voice): a planet of points whose style answers the voice (Halo, Vortex, Nebula, Liquid, Galaxy), and scenes of their own: Rings, the five state shapes (Lotus, Crystal, Eclipse, Synapse, Drop), Face, Imprint, Contour, Membrane, Eye (one relief of the face, computed once on a grid for the line styles), the eleven machines (six robots, a floating robot, a robot on tracks, a car, an android and a chrome sentinel, drawn as lit metal under a fine texture of points), the Cosmos scenes (Well, Black hole, Accretion) and the Nature scenes (Ocean, Aurora, Murmuration); every motion at a fixed pace, the phases blending how much of each shows, so a change of state is always a smooth morph; all frame-rate independent and drawn in one `Canvas`, with the light of its work. |
 | `Listener` | Records 16 kHz mono WAV with metering; detects speech against the room's noise floor; sends after 3 s of silence. |
+| `KeptQuestion` | Keeps one failed voice recording per connection, conversation and responder in local files until Retry or Discard. Metadata is updated on the main actor; replacement and deletion check the captured file so older requests cannot remove newer questions. |
 | `Speaker` | Streams the gateway's voice in chunks and plays them back to back with metering (the orb follows the level); pause, resume, rewind 10 s. |
 | `AskView`, `Conversation`, `AutomationFeed` | The one orb page, for a conversation and for an automation: `Conversation` says which, `AutomationFeed` gives an automation's runs as messages (`/occurrences`, its trigger's `user_turn`), its run in progress, Stop, Seen and the conversation about it (`/discuss`); the page follows a run the same way for both (`RunActivity`). |
 | Browser navigation | `AppModel.path` is the history: a swipe to the right (`goBack`) closes the top page, a swipe to the left (`goForward`) opens again the pages closed by going back (`forward`, kept until something else is opened; only the app's own pages are kept, `Route.revisitable`: a message, its steps, media, a link, a form or a question opens with a tap only); rows and links fire on a tap only (`TapButtonStyle`: a finger that moves is not a tap), and the stack's binding (`stackPath`) also refuses a page opened under a sideways-moving finger, so a swipe across a row never opens it; with nothing ahead, and only from there, the orb page of a conversation with a message opens `ConversationInfoView` (its numbers, and its files from `GET /sessions/{id}/artifacts` and the conversation's folder through `GET /runs/{id}/workspace/files`, each shared as a file downloaded only when shared). |
@@ -225,7 +232,12 @@ sequenceDiagram
 - After a 401 the client sends nothing more (the gateway locks out an address after repeated
   failures) and the app returns to the sign-in screen.
 - Transport is HTTPS; plain HTTP is accepted only for local-network addresses (development).
-- Nothing else is stored on the watch beyond the choices in Settings.
+- Failed voice recordings remain local, excluded from backups, until their matching Retry or
+  Discard. Their ownership includes the normalized Gateway, verified tenant/account, conversation
+  and responder. An older sign-in without verified tenant metadata uses a credential fingerprint;
+  another credential does not automatically expose its pending recordings. No raw credential is
+  stored in this ownership key. Each upload captures its client and owner before asynchronous
+  work, so changing accounts cannot redirect it.
 
 ## Gaps that need gateway work
 

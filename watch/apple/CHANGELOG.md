@@ -17,6 +17,8 @@ iPhone app); the Python package's history is in
 
 ### Fixed
 
+- Pending voice recordings stay with their conversation, responder and Gateway account. Switching discussions does not show another question's Retry/Discard controls; late requests cannot replace or discard a newer recording. Verified sign-ins preserve tenant identity.
+
 - Failed voice uploads and transcriptions show their error while preserving the recording and Retry/Discard actions. Device logs include the error domain and code without recording credentials, audio or transcripts.
 
 - **Run on an automation's details answers the tap.** The tap is felt (a click, then the start

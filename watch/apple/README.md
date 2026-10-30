@@ -28,9 +28,10 @@ and at rest the same hold reads the last answer aloud. Once a conversation has a
 to the left from the orb for its numbers and files (each one shareable).
 
 If a voice upload or transcription fails, the watch keeps the recording and shows the error
-with **Retry** and **Discard**. Restore the connection or sign in again when requested, then
-retry the same recording. After relaunching, **Not sent.** means a recording is still kept;
-Retry reports the result of another attempt. Discard deletes it.
+with **Retry** and **Discard** in that conversation. Each conversation and responder keeps
+its own pending recording, scoped to its Gateway and sign-in. Retry and Discard affect only
+that question. After relaunching, **Not sent.** means a recording is still kept in this
+conversation; it does not describe the status of other discussions.
 
 **Swipe as in a browser.** A swipe to the right (your finger moving right, as with watchOS's Back)
 goes back to the page before, down to Home; a swipe to the left goes forward again to a page you
