@@ -183,6 +183,26 @@ public actor MockGatewayClient: GatewayClient {
         return Principal(userId: "albou", tenantId: "default", roles: ["admin"])
     }
     public func waits() async throws -> [Wait] {
+        #if DEBUG
+        if sequentialApprovalFixture {
+            sequentialListReads += 1
+            if sequentialListReads == 2, ProcessInfo.processInfo.arguments.contains("--approval-index-race") {
+                sequentialAnsweredAt = Date().addingTimeInterval(-1)
+                if let waiter = sequentialRunWaiter {
+                    sequentialRunWaiter = nil
+                    Task { try? await Task.sleep(for: .milliseconds(250)); waiter.resume() }
+                }
+                return sequentialRun().personWait.map { [$0] } ?? []
+            }
+            let captured = sequentialRun().personWait.map { [$0] } ?? []
+            // The second list read began before the decision, but returns after it: an old
+            // snapshot must not restore the first gate over a fresher per-run observation.
+            if sequentialListReads == 2, sequentialAnsweredAt == nil {
+                await withCheckedContinuation { sequentialListWaiter = $0 }
+            }
+            return captured
+        }
+        #endif
         if pollFailures > 0 {
             if pollFailures != .max { pollFailures -= 1 }
             throw URLError(.notConnectedToInternet)
@@ -191,6 +211,30 @@ public actor MockGatewayClient: GatewayClient {
     }
 
     // MARK: Conversations
+
+    #if DEBUG
+    private var sequentialApprovalFixture: Bool { world == .watch && ProcessInfo.processInfo.arguments.contains("--sequential-approvals") }
+    private let sequentialStarted = Date()
+    private var sequentialAnsweredAt: Date?
+    private var sequentialSecondAnswered = false
+    private var sequentialListReads = 0
+    private var sequentialListWaiter: CheckedContinuation<Void, Never>?
+    private var sequentialRunWaiter: CheckedContinuation<Void, Never>?
+    private var sequentialHeldRun = false
+    public var sequentialOldRunPending: Bool { sequentialRunWaiter != nil }
+
+    private func sequentialRun() -> RunSummary {
+        let elapsed = sequentialAnsweredAt.map { Date().timeIntervalSince($0) }
+        let status = sequentialSecondAnswered || (elapsed ?? 0) >= 12 ? "completed"
+            : elapsed.map { $0 < 0.8 } == true ? "running" : "waiting"
+        let gate = sequentialAnsweredAt == nil ? 1 : 2
+        let details: JSONValue = .object(["mode": .string("approval_required"), "tool_calls": .array([
+            .object(["name": .string("execute_command"), "arguments": .object(["command": .string("echo gate-\(gate)")])])])])
+        return RunSummary(runId: "sequential-approval-leaf", workflowId: "basic-agent", status: status,
+                          sessionId: "sequential-approval-session", updatedAt: Self.iso(sequentialAnsweredAt ?? sequentialStarted),
+                          waiting: status == "waiting" ? RunWaiting(reason: "user", waitKey: "tool_approval:sequential-approval-leaf:act:gate-\(gate)", details: details) : nil)
+    }
+    #endif
 
     /// Archived conversations (`POST /sessions/{id}/archive`): out of the listing, nothing deleted.
     private var archived: Set<String> = []
@@ -975,6 +1019,20 @@ public actor MockGatewayClient: GatewayClient {
     }
 
     public func answer(_ wait: Wait, with answer: WaitAnswer) async throws {
+        #if DEBUG
+        if sequentialApprovalFixture, wait.runId == "sequential-approval-leaf" {
+            guard sequentialRun().personWait?.id == wait.id else { throw GatewayError.alreadyHandled }
+            approvals.append(wait.waitKey)
+            if sequentialAnsweredAt == nil {
+                sequentialAnsweredAt = Date()
+                if let waiter = sequentialListWaiter {
+                    sequentialListWaiter = nil
+                    Task { try? await Task.sleep(for: .milliseconds(250)); waiter.resume() }
+                }
+            } else { sequentialSecondAnswered = true }
+            return
+        }
+        #endif
         if var s = scripted[wait.runId], let i = Int(wait.waitKey.split(separator: ":").last ?? "") {
             s.answered[i] = Date(); scripted[wait.runId] = s
             approvals.append(wait.waitKey)
@@ -1124,6 +1182,27 @@ public actor MockGatewayClient: GatewayClient {
 
     /// A started mock run "streams": each poll reveals the words due by now, then completes.
     public func run(id: String) async throws -> RunSummary {
+        #if DEBUG
+        if sequentialApprovalFixture, id == "sequential-approval-leaf" {
+            let captured = sequentialRun()
+            if ProcessInfo.processInfo.arguments.contains("--approval-index-race"), !sequentialHeldRun {
+                sequentialHeldRun = true
+                await withCheckedContinuation { sequentialRunWaiter = $0 }
+            }
+            return captured
+        }
+        #endif
+        if world == .watch, let wait = pending.first(where: { $0.runId == id }) {
+            let calls = wait.details.map { details in JSONValue.array(details.map { call in
+                .object(["name": .string(call.name), "arguments": .object(call.arguments)])
+            }) }
+            var run = RunSummary(runId: id, workflowId: wait.workflow, status: "waiting", sessionId: wait.sessionId,
+                                 updatedAt: wait.askedAt.map(Self.iso),
+                                 waiting: RunWaiting(reason: "user", waitKey: wait.waitKey, prompt: wait.prompt,
+                                                     choices: wait.choices, allowFreeText: wait.allowFreeText, details: calls))
+            run.automationId = wait.automationId
+            return run
+        }
         if world == .phone {
             if id.hasPrefix("occ-") || id == "b81f3302" {
                 return RunSummary(runId: id, workflowId: "@default", status: id == "occ-39" ? "failed" : id == "occ-live" ? "running" : "completed",

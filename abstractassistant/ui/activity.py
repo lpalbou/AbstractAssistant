@@ -396,6 +396,8 @@ class RunActivityModel:
             target = matches[0]
         if target is None:
             return None
+        if result == "resolved_elsewhere" and target.status != "waiting" and not target.payload.get("pending"):
+            return None  # An echo of our own decision must preserve its recorded outcome.
         # Any older step on the same key is superseded: it can no longer be
         # the one the user is answering.
         for step in matches:
@@ -423,6 +425,8 @@ class RunActivityModel:
             pending = True
         elif result == "answered":
             target.status, target.tone, target.title_plain = "ok", "ok", "You answered"
+        elif result == "resolved_elsewhere":
+            target.status, target.tone, target.title_plain = "info", "info", "Request resolved"
         elif result == "dismissed":
             target.status, target.tone = "info", "attention"
             target.title_plain = "Dismissed — run is waiting"

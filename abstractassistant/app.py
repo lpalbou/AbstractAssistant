@@ -6386,6 +6386,15 @@ class AssistantPalette(QMainWindow):
     def _on_reattach_candidate(self, payload: Any) -> None:
         if not isinstance(payload, dict):
             return
+        if payload.get("session_id") and payload["session_id"] != self._active_session_id():
+            return
+        request = payload.get("attention_request")
+        if request is not None:
+            if request is not self._state("_attention_reattach_request"):
+                return
+            if str(payload.get("run_id") or "") != request[1]:
+                return
+            self._attention_reattach_request = None
         run_id = str(payload.get("run_id") or "").strip()
         if not run_id:
             return
@@ -6673,7 +6682,21 @@ class AssistantPalette(QMainWindow):
         if event.get("type") == "attention.open":
             self._on_attention_open(event.get("data") or {})
             return
+        previous_waits = self._attention.waits()
         raised = self._attention.apply(event)
+        if event.get("type") in {"attention.seen", "run.finished"}:
+            current = {wait.key for wait in self._attention.waits()}
+            for wait in previous_waits:
+                if wait.key not in current:
+                    self._withdraw_user_wait(wait.wait_key, run_id=wait.run_id, step_id=wait.step_id)
+            data = event.get("data") if isinstance(event.get("data"), dict) else {}
+            # A replayed run can display its gate before the account stream catches up.
+            if event.get("type") == "attention.seen" and data.get("run_id") and data.get("wait_key"):
+                self._withdraw_user_wait(str(data["wait_key"]), run_id=str(data["run_id"]), step_id=str(data.get("step_id") or ""))
+            elif event.get("type") == "run.finished" and data.get("run_id"):
+                for key, wait in list((self._state("_pending_user_waits") or {}).items()):
+                    if wait.get("run_id") == data["run_id"]:
+                        self._withdraw_user_wait(key, run_id=str(data["run_id"]))
         if live and (self._is_automation_event(event) or (
             self._state("_automation_view_id", "") and event.get("type") in ("attention.raised", "attention.seen")
         )):
@@ -6717,7 +6740,7 @@ class AssistantPalette(QMainWindow):
         ledger = getattr(hub, "ledger", None)
         if ledger is None or wait.notice_key in ledger:
             return
-        if wait.session_id and wait.session_id == self._active_session_id() and self.isVisible():
+        if self._wait_is_locally_shown(wait):
             return
         title = "Approval needed" if wait.kind == "approval" else "A question for you"
         body = "A conversation is waiting for your answer. Click the menu bar icon to open it."
@@ -6777,18 +6800,11 @@ class AssistantPalette(QMainWindow):
         if model is None:
             return []
         viewing = str(self._state("_automation_view_id", "") or "")
-        local = set((self._state("_pending_user_waits") or {}).keys())
-        try:
-            active = self._active_session_id()
-        except Exception:
-            active = ""
         out: List[Tuple[str, Any]] = []
         for wait in model.waits():
             aid = automation_of_session(wait.session_id)
-            if wait.wait_key in local or (aid and aid == viewing):
+            if self._wait_is_locally_shown(wait) or (aid and aid == viewing):
                 continue
-            if not aid and active and wait.session_id == active:
-                continue  # the conversation on screen shows its own sheet
             out.append(("wait", wait))
         out.extend(("result", aid) for aid in self._result_automations() if aid != viewing)
         return out
@@ -6899,26 +6915,58 @@ class AssistantPalette(QMainWindow):
             return
         wait = target
         controller = self._state("_controller")
+        token = object()
+        self._attention_open_token = token
+        opened_from = self._active_session_id()
 
         def work() -> None:
             live = self._wait_is_live(controller, wait)
+            root = ""
+            if live:
+                try:
+                    gateway = controller.llm_manager.gateway_client()
+                    rid, visited = wait.run_id, set()
+                    while rid and rid not in visited and len(visited) < 32:
+                        visited.add(rid)
+                        run = gateway.get_run(rid)
+                        if str(run.get("run_id") or "") != rid or str(run.get("session_id") or "") != wait.session_id:
+                            break
+                        parent = str(run.get("parent_run_id") or "")
+                        if not parent:
+                            root = rid
+                            break
+                        rid = parent
+                except Exception:
+                    pass  # Keep the badge: unknown ownership never attaches an unrelated run.
             self.me_event_received.emit(
                 {"type": "attention.open", "data": {"session_id": wait.session_id, "run_id": wait.run_id,
-                                                    "wait_key": wait.wait_key, "live": live}},
+                                                    "wait_key": wait.wait_key, "live": live, "root_run_id": root,
+                                                    "step_id": wait.step_id,
+                                                    "token": token, "opened_from": opened_from}},
                 False,
             )
 
         threading.Thread(target=work, name="attention-open", daemon=True).start()
 
     def _on_attention_open(self, data: Dict[str, Any]) -> None:
+        if "token" in data and (data["token"] is not self._state("_attention_open_token")
+                                or data.get("opened_from") != self._active_session_id()):
+            return
         if not data.get("live"):
             self._attention.drop_wait(str(data.get("run_id") or ""), str(data.get("wait_key") or ""))
+            self._withdraw_user_wait(str(data.get("wait_key") or ""), run_id=str(data.get("run_id") or ""),
+                                     step_id=str(data.get("step_id") or ""))
             self._refresh_attention()
             self._set_banner("That conversation is not waiting any more.", tone="info", key="attention")
             return
         session_id = str(data.get("session_id") or "")
         if session_id:
-            self._switch_to_session(session_id)
+            self.show_palette()
+            root = str(data.get("root_run_id") or "")
+            if root:
+                self._switch_to_session(session_id, attention_root=root)
+            else:
+                self._set_banner("Could not confirm the waiting run. Try opening it again.", tone="warn", key="attention")
 
     def _notify_automation(self, title: str, body: str) -> None:
         self._notify(str(title or "Automation"), str(body or title or ""), duration_ms=7000)
@@ -7827,7 +7875,7 @@ class AssistantPalette(QMainWindow):
             lines.append("Loading sessions from the gateway…")
         setter("\n".join(lines), tone=tone, tooltip=tooltip)
 
-    def _switch_to_session(self, session_id: str) -> None:
+    def _switch_to_session(self, session_id: str, *, attention_root: str = "") -> None:
         target = str(session_id or "").strip()
         if not target:
             return
@@ -7837,6 +7885,9 @@ class AssistantPalette(QMainWindow):
             self._close_automation_view(leaving_for_session=True)
         current = self._active_session_id()
         if target == current:
+            if attention_root and self._state("_worker") is None:
+                self._attention_reattach_request = (target, attention_root, object())
+                self._sync_session_from_gateway()
             return
         if self._state("_worker") is not None:
             self._set_banner(
@@ -7850,6 +7901,10 @@ class AssistantPalette(QMainWindow):
             self._set_banner(f"Could not switch session: {exc}", tone="error")
             self._refresh_session_picker(select_session_id=current or None)
             return
+        self._attention_open_token = None
+        self._attention_reattach_request = (target, attention_root, object()) if attention_root else None
+        for key in list(self._state("_pending_user_waits") or {}):
+            self._withdraw_user_wait(key, resolved=False)
         self._tray_completion_unread = False
         self._refresh_tray_feedback()
         self._set_history_status()
@@ -7900,13 +7955,18 @@ class AssistantPalette(QMainWindow):
                     self.session_sync_failed.emit(str(result["error"]))
                 if result.get("changed"):
                     self.session_attachments_restored.emit(1)
-                    if after and after != before:
-                        # The cache did not know this session's latest run (it
-                        # was rebuilt from the gateway): a run still waiting on
-                        # the user must be reattached like at launch.
-                        candidate = controller.probe_reattach_candidate()
-                        if candidate:
-                            self.reattach_candidate.emit(candidate)
+                request = self._state("_attention_reattach_request")
+                requested_here = bool(request and request[0] == started_for)
+                if after and ((result.get("changed") and after != before) or requested_here):
+                    # An explicit attention click also follows an already-known run; a selected
+                    # session and a cached last-run ID do not imply a worker is following it.
+                    candidate = controller.probe_reattach_candidate()
+                    if candidate and (not requested_here or (
+                        str(candidate.get("run_id") or "") == request[1]
+                        and str(candidate.get("status") or "") in {"running", "waiting"}
+                    )):
+                        self.reattach_candidate.emit({**candidate, "session_id": started_for,
+                                                      **({"attention_request": request} if requested_here else {})})
                 now = str(getattr(controller, "active_session_id", "") or "").strip()
                 if now and now != started_for:
                     # The user switched while this ran, and that switch's own
@@ -8369,16 +8429,68 @@ class AssistantPalette(QMainWindow):
                     self._clear_banner("speech")
             QTimer.singleShot(5000, expire)
 
-    def _note_user_wait(self, *, wait_key: str, kind: str, label: str) -> None:
+    def _note_user_wait(self, *, wait_key: str, kind: str, label: str, run_id: str = "", step_id: str = "") -> None:
         """Record that a run is parked on the user until they answer."""
         key = str(wait_key or "").strip()
         if not key:
             return
         waits = self._state("_pending_user_waits") or {}
         waits = dict(waits)
-        waits[key] = {"kind": str(kind or "approval"), "label": str(label or "")}
+        previous = waits.get(key) or {}
+        waits[key] = {"kind": str(kind or "approval"), "label": str(label or ""),
+                      "run_id": str(run_id or previous.get("run_id") or ""),
+                      "step_id": str(step_id or previous.get("step_id") or ""),
+                      "session_id": str(getattr(self._state("_controller"), "active_session_id", "") or "")}
         self._pending_user_waits = waits
         self._refresh_wait_notice()
+
+    def _wait_is_locally_shown(self, wait: Any) -> bool:
+        local = (self._state("_pending_user_waits") or {}).get(wait.wait_key)
+        if not isinstance(local, dict):
+            return False
+        return all(not local.get(key) or not value or local[key] == value for key, value in (
+            ("run_id", wait.run_id), ("step_id", wait.step_id), ("session_id", wait.session_id),
+        ))
+
+    def _withdraw_user_wait(self, wait_key: str, *, run_id: str = "", step_id: str = "", resolved: bool = True) -> None:
+        """Withdraw a resolved gate without making a decision, including deferred prompts."""
+        key = str(wait_key or "").strip()
+        if not key:
+            return
+        local = (self._state("_pending_user_waits") or {}).get(key) or {}
+        if any(local.get(field) and value and local[field] != value
+               for field, value in (("run_id", run_id), ("step_id", step_id))):
+            return
+        sheet = self._state("_approval_sheet")
+        if sheet is not None and hasattr(sheet, "withdraw"):
+            try:
+                sheet.withdraw(key)
+            except RuntimeError:
+                pass
+        dialog = self._state("_ask_dialog")
+        if dialog is not None and str(getattr(dialog, "wait_key", "") or "") == key:
+            try:
+                # `finished` means a user decision; remote consumption must not create a
+                # deferred question or send an empty response through that callback.
+                dialog.blockSignals(True)
+                dialog.done(0)
+            except RuntimeError:
+                pass
+            self._ask_dialog = None
+        for name in ("_deferred_tool_request", "_deferred_ask_payload"):
+            deferred = self._state(name)
+            if isinstance(deferred, dict) and str(deferred.get("wait_key") or "") == key:
+                setattr(self, name, None)
+        model = self._state("_activity_model")
+        if resolved and model is not None:
+            changed = model.resolve_wait(key, "resolved_elsewhere")
+            card = self._state("_thinking_card")
+            if changed and card is not None:
+                card.refresh([changed])
+        self._clear_user_wait(key)
+        if not self._state("_pending_user_waits") and self._state("_ask_dialog") is None:
+            if sheet is None or not getattr(sheet, "current_batch", None):
+                self._resume_voice_after_dialog()
 
     def _clear_user_wait(self, wait_key: str = "") -> None:
         """Answered (or the run ended): drop the wait, or all of them."""
@@ -9796,20 +9908,8 @@ class AssistantPalette(QMainWindow):
             # The replay view says the approval or question is no longer open (answered on
             # another client, by the session policy, or the run moved on): close it here too.
             wait_key = str(payload.get("wait_key") or "").strip()
-            sheet = self._state("_approval_sheet")
-            if sheet is not None and hasattr(sheet, "withdraw"):
-                try:
-                    sheet.withdraw(wait_key)
-                except RuntimeError:
-                    pass
-            dialog = self._state("_ask_dialog")
-            if dialog is not None and str(getattr(dialog, "wait_key", "") or "") == wait_key:
-                try:
-                    dialog.done(0)
-                except RuntimeError:
-                    pass
-                self._ask_dialog = None
-            self._clear_user_wait(wait_key)
+            self._withdraw_user_wait(wait_key, run_id=str(payload.get("run_id") or ""),
+                                     step_id=str(payload.get("step_id") or ""))
             return
         if typ == "replay_mode":
             # The gateway has no replay view (before AbstractGateway 0.17.0): said once, in
@@ -9970,7 +10070,8 @@ class AssistantPalette(QMainWindow):
                 message="The assistant is waiting for you to approve a tool.",
             )
             self._open_approval_sheet(
-                tool_calls=tool_calls, run_id=wait_run_id, wait_key=wait_key
+                tool_calls=tool_calls, run_id=wait_run_id, wait_key=wait_key,
+                step_id=str(payload.get("step_id") or ""),
             )
             return
         if typ == "ask_user":
@@ -11586,7 +11687,7 @@ class AssistantPalette(QMainWindow):
             self._voice_paused_for_dialog = False
             conversation.resume()
 
-    def _open_approval_sheet(self, *, tool_calls: List[Dict[str, Any]], run_id: str, wait_key: str) -> None:
+    def _open_approval_sheet(self, *, tool_calls: List[Dict[str, Any]], run_id: str, wait_key: str, step_id: str = "") -> None:
         """Show (or queue into) the modeless approval sheet for one wait."""
         risks: Dict[str, Dict[str, Any]] = {}
         try:
@@ -11599,7 +11700,7 @@ class AssistantPalette(QMainWindow):
         except RuntimeError:
             alive = False
         label = _tool_call_summary(tool_calls[0]).name if tool_calls else ""
-        self._note_user_wait(wait_key=wait_key, kind="approval", label=label)
+        self._note_user_wait(wait_key=wait_key, kind="approval", label=label, run_id=run_id, step_id=step_id)
         if alive and hasattr(sheet, "enqueue"):
             sheet.enqueue(list(tool_calls or []), run_id=run_id, wait_key=wait_key, risks=risks)
             return
@@ -11849,6 +11950,7 @@ class AssistantPalette(QMainWindow):
             wait_key=str(payload.get("wait_key") or "").strip() or "ask",
             kind="ask",
             label=short_prompt,
+            run_id=str(payload.get("run_id") or ""), step_id=str(payload.get("step_id") or ""),
         )
         if not reraise:
             self._append_run_activity(

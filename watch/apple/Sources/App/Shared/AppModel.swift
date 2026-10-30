@@ -415,7 +415,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var sessionTools: [String: ToolMode] = [:]
     /// The tools of the automation being created (its changes on top of the defaults).
     @Published private(set) var draftTools: [String: ToolMode] = [:]
-    /// Waits answered from an approval or question screen (Back without deciding is not an answer).
+    /// Exact waits answered here or confirmed resolved by the server (Back alone is not an answer).
     private(set) var decidedWaits: Set<String> = []
     /// When the last successful refresh happened; nil until the first one.
     @Published var lastRefresh: Date?
@@ -438,6 +438,12 @@ final class AppModel: ObservableObject {
     private var seenWaitIDs: Set<String> = []
     private var pollTask: Task<Void, Never>?
     private var approvalPollTask: Task<Void, Never>?
+    private var approvalPollID: UUID?
+    private var pollID: UUID?
+    /// A leaf can run briefly between consecutive approvals. Keep following it while active until
+    /// it finishes, even after its previous wait has left the Inbox.
+    private var approvalRuns: Set<String> = []
+    private var connectionRevision = 0
     private var approvalRevision = 0
     /// Live mode only: `--screen approval|askuser` opens the first real wait after the first poll.
     var pendingScreen: String?
@@ -479,31 +485,12 @@ final class AppModel: ObservableObject {
     var connecting: Bool { principal == nil && !unreachable && (failures > 0 || !client.isMock) }
 
     func startPolling() {
-        guard pollTask == nil, !needsSignIn else { return }
-        approvalPollTask?.cancel()
-        approvalPollTask = Task { [weak self] in
-            while !Task.isCancelled {
-                guard let self, self.onScreen, !self.needsSignIn else { return }
-                let pending = Dictionary(grouping: self.waits, by: \.runId)
-                for (id, known) in pending {
-                    do {
-                        let run = try await self.client.run(id: id)
-                        guard !Task.isCancelled else { return }
-                        let current = run.isTerminal ? nil : run.personWait?.id
-                        let removed = Set(known.filter { $0.id != current }.map(\.id))
-                        if !removed.isEmpty {
-                            self.approvalRevision += 1
-                            self.waits.removeAll { removed.contains($0.id) }
-                        }
-                    } catch GatewayError.unauthorized {
-                        guard !Task.isCancelled else { return }
-                        self.signOut(notice: "You were signed out. Please sign in again."); return
-                    } catch { /* Keep the approval visible until the server confirms resolution. */ }
-                }
-                do { try await Task.sleep(for: .seconds(1)) } catch { return }
-            }
-        }
+        guard !needsSignIn else { return }
+        startApprovalPolling()
+        guard pollTask == nil else { return }
+        let id = UUID(); pollID = id
         pollTask = Task { [weak self] in
+            defer { if self?.pollID == id { self?.pollTask = nil; self?.pollID = nil } }
             while !Task.isCancelled {
                 guard let self else { return }
                 let keepGoing = await self.refresh()
@@ -513,11 +500,60 @@ final class AppModel: ObservableObject {
                 guard self.onScreen, !Task.isCancelled else { break }
                 try? await Task.sleep(for: self.failures > 0 && !self.unreachable ? Self.retryInterval : Self.pollInterval)
             }
-            self?.pollTask = nil
         }
     }
 
-    func stopPolling() { pollTask?.cancel(); pollTask = nil; approvalPollTask?.cancel(); approvalPollTask = nil }
+    private func startApprovalPolling() {
+        guard approvalPollTask == nil, onScreen else { return }
+        let id = UUID(); approvalPollID = id
+        approvalPollTask = Task { [weak self] in
+            defer { if self?.approvalPollID == id { self?.approvalPollTask = nil; self?.approvalPollID = nil } }
+            while !Task.isCancelled {
+                guard let self, self.onScreen, !self.needsSignIn else { return }
+                self.approvalRuns.formUnion(self.waits.map(\.runId))
+                for runID in self.approvalRuns {
+                    guard !Task.isCancelled, self.onScreen, self.approvalPollID == id else { return }
+                    let revision = self.approvalRevision
+                    do {
+                        let run = try await self.client.run(id: runID)
+                        guard !Task.isCancelled, self.onScreen, self.approvalPollID == id else { return }
+                        guard revision == self.approvalRevision else { continue }
+                        self.reconcileApproval(run)
+                    } catch GatewayError.unauthorized {
+                        guard !Task.isCancelled, self.approvalPollID == id else { return }
+                        self.signOut(notice: "You were signed out. Please sign in again."); return
+                    } catch { /* Keep the approval visible until the server confirms resolution. */ }
+                }
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            }
+        }
+    }
+
+    private func reconcileApproval(_ run: RunSummary) {
+        if run.isTerminal { approvalRuns.remove(run.runId) }
+        let current = run.personWait.flatMap { decidedWaits.contains($0.id) ? nil : $0 }
+        let known = waits.filter { $0.runId == run.runId }
+        guard known != current.map({ [$0] }) ?? [] else { return }
+        for previous in known where previous.id != current?.id { markDecided(previous) }
+        approvalRevision += 1
+        waits.removeAll { $0.runId == run.runId }
+        if let current {
+            waits.append(current)
+            waits.sort { ($0.askedAt ?? .distantPast) < ($1.askedAt ?? .distantPast) }
+            noticeNewWaits([current])
+        }
+    }
+
+    private func noticeNewWaits(_ found: [Wait]) {
+        if found.contains(where: { !seenWaitIDs.contains($0.id) }) { WKInterfaceDevice.current().play(.notification) }
+        seenWaitIDs.formUnion(found.map(\.id))
+    }
+
+    private func stopApprovalPolling() {
+        approvalPollTask?.cancel(); approvalPollTask = nil; approvalPollID = nil
+    }
+
+    func stopPolling() { pollTask?.cancel(); pollTask = nil; pollID = nil; stopApprovalPolling() }
 
     /// Someone is looking at the screen (the scene is active): polls go on; otherwise the running
     /// one finishes and none follows.
@@ -528,7 +564,7 @@ final class AppModel: ObservableObject {
     func scene(_ phase: ScenePhase) {
         switch phase {
         case .active: onScreen = true; startPolling()
-        case .inactive: onScreen = false
+        case .inactive: onScreen = false; stopApprovalPolling()
         case .background: onScreen = false; stopPolling()
         @unknown default: onScreen = false
         }
@@ -538,6 +574,8 @@ final class AppModel: ObservableObject {
     /// the cached state, polls. A sign-in kept for this user on this gateway with another
     /// credential is forgotten: the new one replaces it.
     func connect(_ signIn: SavedSignIn) {
+        connectionRevision += 1; approvalRevision += 1
+        approvalRuns = []; decidedWaits = []; approving = []
         signIn.save()                                    // into the Keychain, with a new push handle
         // Push (backlog 1049): the token is registered with this sign-in's handle; the one-time
         // permission question comes now, as a closed app's alerts need it.
@@ -566,6 +604,8 @@ final class AppModel: ObservableObject {
     /// page. Otherwise an account kept for this user on this gateway is forgotten with it: "Sign out
     /// and forget", or the gateway rejecting the credential (a 401), so its row does not come back.
     func signOut(keep: Bool = false, notice: String? = nil) {
+        connectionRevision += 1; approvalRevision += 1
+        approvalRuns = []; decidedWaits = []; approving = []
         var notice = notice
         // The person signing out: the gateway forgets this watch's push token. A credential the
         // gateway rejected (401, `notice`) sends nothing more (it locks out an address after failures).
@@ -610,19 +650,31 @@ final class AppModel: ObservableObject {
     @discardableResult
     func refresh() async -> Bool {
         let approvals = approvalRevision
+        let connection = connectionRevision
+        let refreshClient = client
         do {
             // The three first-poll calls go out together: on the watch's radio each round trip
             // costs seconds, and nothing on Home can be drawn before all three are back.
-            async let waitsCall = client.waits()
-            async let runsCall = client.recentRuns(limit: runsLimit)
-            if principal == nil { principal = try await client.me() }
-            let newWaits = await approveTrusted(try await waitsCall)
-            if newWaits.contains(where: { !seenWaitIDs.contains($0.id) }) {
-                WKInterfaceDevice.current().play(.notification)
+            async let waitsCall = refreshClient.waits()
+            async let runsCall = refreshClient.recentRuns(limit: runsLimit)
+            if principal == nil {
+                let identity = try await refreshClient.me()
+                guard connection == connectionRevision, !Task.isCancelled else { return false }
+                principal = identity
             }
-            seenWaitIDs.formUnion(newWaits.map(\.id))
-            if approvals == approvalRevision { waits = newWaits }
-            runs = try await runsCall
+            let found = try await waitsCall
+            guard connection == connectionRevision, !Task.isCancelled else { return false }
+            approvalRuns.formUnion(found.map(\.runId))
+            let newWaits = await approveTrusted(found, connection: connection)
+            guard connection == connectionRevision, !Task.isCancelled else { return false }
+            if approvals == approvalRevision, waits != newWaits {
+                approvalRevision += 1
+                waits = newWaits
+                noticeNewWaits(newWaits)
+            }
+            let newRuns = try await runsCall
+            guard connection == connectionRevision, !Task.isCancelled else { return false }
+            runs = newRuns
             // The fast part is on screen now. Automations is the slow call on a public gateway
             // (~7 s measured) and its own failure never marks the gateway offline.
             lastError = nil; failures = 0; failingSince = nil; unreachable = false
@@ -651,10 +703,12 @@ final class AppModel: ObservableObject {
             }
             return true
         } catch GatewayError.unauthorized {
+            guard connection == connectionRevision, !Task.isCancelled else { return false }
             // A revoked token or an ended session: back to the sign-in page, saying why.
             signOut(notice: "You were signed out. Please sign in again.")
             return false
         } catch {
+            guard connection == connectionRevision, !Task.isCancelled else { return false }
             lastError = Self.say(error)
             failures += 1
             let since = failingSince ?? Date()
@@ -665,20 +719,31 @@ final class AppModel: ObservableObject {
     }
 
     func answer(_ wait: Wait, with answer: WaitAnswer) async -> Bool {
+        let connection = connectionRevision
+        let answeringClient = client
+        approvalRuns.insert(wait.runId)
         do {
-            try await client.answer(wait, with: answer)
+            try await answeringClient.answer(wait, with: answer)
+            guard connection == connectionRevision else { return false }
+            approvalRevision += 1
+            markDecided(wait)
             if answer == .approve { WKInterfaceDevice.current().play(.success) }
             waits.removeAll { $0.id == wait.id }
             return true
         } catch GatewayError.alreadyHandled {
+            guard connection == connectionRevision else { return false }
+            approvalRevision += 1
+            markDecided(wait)
             WKInterfaceDevice.current().play(.failure)
             waits.removeAll { $0.id == wait.id }
             lastError = Self.say(GatewayError.alreadyHandled)
             return false
         } catch GatewayError.unauthorized {
+            guard connection == connectionRevision else { return false }
             signOut(notice: "You were signed out. Please sign in again.")
             return false
         } catch {
+            guard connection == connectionRevision else { return false }
             WKInterfaceDevice.current().play(.failure)
             lastError = Self.say(error)
             return false
@@ -805,12 +870,14 @@ final class AppModel: ObservableObject {
     /// The waits an Approve all covers, answered by the watch as they come (seen by the poll,
     /// whatever page is open): the rest stay for the person. Only what was explicitly allowed for
     /// that owner: a conversation of another device never gets the watch's defaults.
-    private func approveTrusted(_ found: [Wait]) async -> [Wait] {
+    private func approveTrusted(_ found: [Wait], connection: Int) async -> [Wait] {
         var left: [Wait] = []
         for w in found {
+            guard connection == connectionRevision, !Task.isCancelled else { return [] }
             if case .automation(let id)? = w.owner, definitions[id] == nil, !ToolPrefs.trust(w.owner!.key).isEmpty {
                 _ = try? await definition(of: id)                    // its own tools, to decide by them
             }
+            guard connection == connectionRevision, !Task.isCancelled else { return [] }
             if await approveIfAllowed(w, byDefaults: false) == false { left.append(w) }
         }
         return left
@@ -1319,6 +1386,37 @@ struct LaunchOptions {
         }
         if let i = ProcessInfo.processInfo.arguments.firstIndex(of: "--open-automation"), i + 1 < ProcessInfo.processInfo.arguments.count {
             model.testOpenAutomation = Int(ProcessInfo.processInfo.arguments[i + 1])
+        }
+        if ProcessInfo.processInfo.arguments.contains("--sequential-approvals"),
+           let mock = model.client as? MockGatewayClient {
+            Task { @MainActor [weak model] in
+                guard let model else { return }
+                for _ in 0..<400 where model.waits.isEmpty { try? await Task.sleep(for: .milliseconds(50)) }
+                guard let first = model.waits.first else { return }
+                if ProcessInfo.processInfo.arguments.contains("--approval-index-race") {
+                    for _ in 0..<400 {
+                        if await mock.sequentialOldRunPending { break }
+                        try? await Task.sleep(for: .milliseconds(50))
+                    }
+                    _ = await model.refresh()           // publishes gate 2 before the old run reply
+                    try? await Task.sleep(for: .milliseconds(500))
+                    let second = "sequential-approval-leaf:tool_approval:sequential-approval-leaf:act:gate-2"
+                    assert(!model.decidedWaits.contains(second), "A stale run reply retired the new gate")
+                    let decisions = await mock.approvals
+                    assert(decisions.isEmpty, "The observer must not decide an external gate")
+                } else {
+                    let stale = Task { await model.refresh() } // captured gate 1, released after answer
+                    for _ in 0..<400 where !model.decidedWaits.contains(first.id) { try? await Task.sleep(for: .milliseconds(50)) }
+                    guard model.decidedWaits.contains(first.id) else { stale.cancel(); return }
+                    model.scene(.inactive)
+                    try? await Task.sleep(for: .milliseconds(200))
+                    model.scene(.active)                // the slow poll is still sleeping
+                    _ = await stale.value
+                    assert(!model.waits.contains(where: { $0.id == first.id }), "A stale list restored an answered gate")
+                    let decisions = await mock.approvals
+                    assert(decisions == [first.waitKey], "Only the explicit first decision may be sent")
+                }
+            }
         }
         #endif
         return model
