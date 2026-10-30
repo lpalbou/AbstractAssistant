@@ -33,8 +33,47 @@ public final class AttentionFeed {
     @ObservationIgnored private var foreground = false
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private var connectionID = UUID()
+    @ObservationIgnored private var runID = UUID()
+    @ObservationIgnored private var reconciled = false
+    @ObservationIgnored private var validationWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
     public init(defaults: UserDefaults = .standard) { self.defaults = defaults }
+
+    public func isCurrent(_ notice: AttentionNotice) -> Bool { client != nil && reconciled && state.isCurrent(notice) }
+
+    /// Permission and notification-center calls can suspend. Keep the connection identity as well
+    /// as the unread identity, so a late callback cannot post into a different signed-in account.
+    public func noticeValidator(_ notice: AttentionNotice) -> @MainActor () async -> Bool {
+        let connection = connectionID
+        return { [weak self] in
+            guard let self else { return false }
+            return await self.validate(notice, connection: connection)
+        }
+    }
+
+    private func validate(_ notice: AttentionNotice, connection: UUID) async -> Bool {
+        while connectionID == connection, client != nil, status != .unsupported, !Task.isCancelled {
+            if reconciled { return state.isCurrent(notice) }
+            let id = UUID()
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    if Task.isCancelled { continuation.resume() }
+                    else { validationWaiters[id] = continuation }
+                }
+            } onCancel: {
+                Task { @MainActor [weak self] in self?.resumeValidationWaiter(id) }
+            }
+        }
+        return false
+    }
+
+    private func resumeValidationWaiter(_ id: UUID) { validationWaiters.removeValue(forKey: id)?.resume() }
+    private func resumeValidationWaiters() {
+        let pending = Array(validationWaiters.values)
+        validationWaiters.removeAll()
+        for continuation in pending { continuation.resume() }
+    }
 
     private var key: String { "phone.attention." + scope }
 
@@ -64,58 +103,100 @@ public final class AttentionFeed {
 
     public func stop() {
         task?.cancel(); task = nil; client = nil; status = .idle
+        connectionID = UUID(); runID = UUID(); reconciled = false; state = AttentionState()
+        resumeValidationWaiters()
     }
 
     public func setForeground(_ value: Bool) {
         guard value != foreground else { return }
         foreground = value
-        if value { run() } else { task?.cancel(); task = nil; if status != .unsupported { status = .idle } }
+        if value { run() } else {
+            task?.cancel(); task = nil; runID = UUID(); reconciled = false
+            if status != .unsupported { status = .idle }
+        }
     }
 
     private func run() {
         guard let client, status != .unsupported else { return }
         task?.cancel()
+        reconciled = false
+        let currentRun = UUID(); runID = currentRun
         task = Task { [weak self] in
             guard let self else { return }
-            do { try await self.catchUp(client) } catch {
-                if case GatewayError.http(let code, _) = error, code == 404 { self.status = .unsupported; return }
-            }
-            while !Task.isCancelled, self.foreground {
-                self.status = .following
+            while !Task.isCancelled, self.runID == currentRun {
                 do {
+                    // Every reopened tail first reconciles history as a batch. Replaying SSE
+                    // records one by one would alert before a later desktop-seen record arrives.
+                    try await self.catchUp(client, run: currentRun)
+                    guard !Task.isCancelled, self.runID == currentRun else { return }
+                    guard self.foreground else { self.status = .idle; return }
+                    self.status = .following
                     for try await event in client.userEventStream(lastEventID: self.state.cursor) {
+                        try Task.checkCancellation()
+                        guard self.runID == currentRun else { return }
                         self.fold(UserEventsPage(events: [event], nextAfter: event.sequence, head: event.sequence, more: false))
                     }
                 } catch {
-                    if case GatewayError.http(let code, _) = error, code == 404 { self.status = .unsupported; return }
-                    if case GatewayError.unauthorized = error { self.status = .idle; return }
+                    guard !Task.isCancelled, self.runID == currentRun else { return }
+                    self.reconciled = false
+                    if case GatewayError.http(let code, _) = error, code == 404 {
+                        self.status = .unsupported; self.resumeValidationWaiters(); return
+                    }
+                    if case GatewayError.unauthorized = error {
+                        self.status = .idle; self.connectionID = UUID(); self.resumeValidationWaiters(); return
+                    }
                 }
+                guard !Task.isCancelled, self.runID == currentRun, self.foreground else { return }
                 do { try await Task.sleep(for: .seconds(self.reconnectDelay)) } catch { return }
             }
-            if !Task.isCancelled { self.status = .idle }
         }
     }
 
-    /// Every page after the cursor (the history of a fresh state only takes stock).
-    func catchUp(_ client: any GatewayClient) async throws {
+    /// Publish a complete replay, never a partially folded page. A failure leaves the prior cursor
+    /// intact, so the next attempt cannot lose still-unread candidates from earlier pages.
+    private func catchUp(_ client: any GatewayClient, run: UUID) async throws {
+        reconciled = false
         status = .catchingUp
-        for _ in 0..<100 {
-            let page = try await client.events(after: state.cursor, limit: 1000)
+        var replay = state
+        var candidates: [AttentionNotice] = []
+        var changed = false
+        while true {
+            let previous = replay.cursor
+            let page = try await client.events(after: previous, limit: 1000)
             try Task.checkCancellation()
-            fold(page)
-            if !page.more { return }
+            guard runID == run else { throw CancellationError() }
+            candidates += replay.apply(page)
+            changed = changed || page.events.contains(where: Self.changesLists)
+            if !page.more {
+                state = replay
+                reconciled = true
+                resumeValidationWaiters()
+                save()
+                tell(candidates)
+                if changed { onChange?() }
+                return
+            }
+            guard replay.cursor > previous else { throw GatewayError.invalidResponse }
         }
     }
 
     private func fold(_ page: UserEventsPage) {
         let notices = state.apply(page)
+        save()
+        tell(notices)
+        if page.events.contains(where: Self.changesLists) { onChange?() }
+    }
+
+    private func save() {
         if let data = try? JSONEncoder().encode(state) { defaults.set(data, forKey: key) }
+    }
+
+    private func tell(_ notices: [AttentionNotice]) {
         let device = deviceID
-        for notice in notices {
+        for notice in notices where isCurrent(notice) {
             if let record = notice.recordKey, state.notifiedElsewhere(record, channel: "phone", device: device) { continue }
             onNotice?(notice)
         }
-        if page.events.contains(where: Self.changesLists) { onChange?() }
     }
 
     /// Events after which the inbox or the automations should be read again.

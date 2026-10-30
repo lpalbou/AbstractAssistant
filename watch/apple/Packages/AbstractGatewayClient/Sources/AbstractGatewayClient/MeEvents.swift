@@ -52,7 +52,8 @@ public enum AttentionNotice: Hashable, Sendable {
     case needsYou(runId: String, waitKey: String, kind: String, sessionId: String?, recordKey: String? = nil)
     /// An automation raised a result (or failed): news (passive).
     case news(automationId: String, seq: Int, failed: Bool, recordKey: String? = nil)
-    /// An automation's run finished without raising anything ("Morning digest finished").
+    /// Legacy notice, retained for clients decoding an older notification. Quiet finishes no
+    /// longer create alerts: only attention records have a shared unread/seen identity.
     case automationFinished(automationId: String, occurrence: Int, status: String, runId: String?)
 
     /// The attention record the notice is about (reported back once shown), nil for a quiet finish.
@@ -103,8 +104,15 @@ public struct AttentionState: Codable, Hashable, Sendable {
     /// Per automation: the raised item seqs above the latest seen seq, and that seq.
     public var raised: [String: [Int]] = [:]
     public var seen: [String: Int] = [:]
+    /// Record keys of unread automation results, so a seen cursor closes their exact alerts too.
+    public var resultRecords: [String: [Int: String]] = [:]
     /// Record keys already seen (a seen read before its raise keeps it closed).
     public var resolved: [String] = []
+    /// Exact notification identifiers retired by the replay (separate from internal tombstones).
+    private var dismissed: [String] = []
+    /// An upgraded projection replays old metadata silently, while preserving notifications for
+    /// genuinely new attention beyond the cursor it had already reached.
+    private var notificationBaseline: Int?
     /// `notification.sent` by client channels: record key -> [(channel, device, epoch s)].
     public var shown: [String: [ShownNotice]] = [:]
 
@@ -130,7 +138,7 @@ public struct AttentionState: Codable, Hashable, Sendable {
 
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case cursor, caughtUp, waits, raised, seen, resolved, shown }
+    enum CodingKeys: String, CodingKey { case cursor, caughtUp, waits, raised, seen, resultRecords, resolved, dismissed, notificationBaseline, shown }
     /// A state kept before the two apps shared this type has no `shown` (the watch's): it still reads.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -138,6 +146,16 @@ public struct AttentionState: Codable, Hashable, Sendable {
         waits = try c.decode([OpenWait].self, forKey: .waits); raised = try c.decode([String: [Int]].self, forKey: .raised)
         seen = try c.decode([String: Int].self, forKey: .seen); resolved = try c.decode([String].self, forKey: .resolved)
         shown = try c.decodeIfPresent([String: [ShownNotice]].self, forKey: .shown) ?? [:]
+        resultRecords = try c.decodeIfPresent([String: [Int: String]].self, forKey: .resultRecords) ?? [:]
+        dismissed = try c.decodeIfPresent([String].self, forKey: .dismissed) ?? []
+        notificationBaseline = try c.decodeIfPresent(Int.self, forKey: .notificationBaseline)
+        // Older projections lost the record keys when seen events arrived. Rebuild once, silently,
+        // so notifications already posted by that version can be withdrawn by their actual IDs.
+        if !c.contains(.resultRecords) || !c.contains(.dismissed) {
+            notificationBaseline = caughtUp ? cursor : nil
+            cursor = 0; caughtUp = false; waits = []; raised = [:]; seen = [:]
+            resolved = []; shown = [:]; resultRecords = [:]; dismissed = []
+        }
     }
 
     /// Approvals and questions waiting (the face's "needs you").
@@ -145,12 +163,47 @@ public struct AttentionState: Codable, Hashable, Sendable {
     /// Results not seen yet (the face's "news").
     public var newResults: Int { raised.reduce(0) { n, kv in n + kv.value.filter { $0 > (seen[kv.key] ?? 0) }.count } }
 
+    /// Whether the notice still names unread attention after the complete replay. A new step at
+    /// the same node cannot keep the previous step's notification alive.
+    public func isCurrent(_ notice: AttentionNotice) -> Bool {
+        switch notice {
+        case .needsYou(let run, let key, _, _, let record):
+            return waits.contains { $0.runId == run && $0.waitKey == key && $0.recordKey == record }
+        case .news(let automation, let seq, _, let record):
+            if let record, resolved.contains(record) { return false }
+            if let record, let known = resultRecords[automation]?[seq], known != record { return false }
+            return seq > (seen[automation] ?? 0) && (raised[automation] ?? []).contains(seq)
+        case .automationFinished: return false
+        }
+    }
+
+    /// Only known-resolved records are dismissed; unrelated or still-unread alerts stay intact.
+    public var resolvedNotificationIdentifiers: Set<String> { Set(dismissed) }
+
+    private mutating func rememberResolved(_ records: [String], notificationRecords: Bool = true) {
+        for record in records where !resolved.contains(record) { resolved.append(record) }
+        resolved = Array(resolved.suffix(200))
+        if notificationRecords { dismiss(records.map(AttentionNotice.collapseID)) }
+    }
+
+    private mutating func dismiss(_ identifiers: [String]) {
+        for id in identifiers where !dismissed.contains(id) { dismissed.append(id) }
+        dismissed = Array(dismissed.suffix(200))
+    }
+
+    private mutating func closeWaits(where predicate: (OpenWait) -> Bool) {
+        let closed = waits.filter(predicate)
+        dismiss(closed.map { AttentionNotice.needsYou(runId: $0.runId, waitKey: $0.waitKey,
+                                                      kind: $0.kind, sessionId: $0.sessionId, recordKey: $0.recordKey).identifier })
+        rememberResolved(closed.compactMap(\.recordKey), notificationRecords: false)
+        waits.removeAll(where: predicate)
+    }
+
     /// Folds one page; returns what to tell (nothing while taking stock, nothing already told).
     public mutating func apply(_ page: UserEventsPage) -> [AttentionNotice] {
-        let notify = caughtUp
         var out: [AttentionNotice] = []
-        var raisedOccurrences = Set<String>()
         for e in page.events where e.sequence > cursor {
+            let notify = caughtUp || notificationBaseline.map { e.sequence > $0 } == true
             cursor = e.sequence
             switch e.type {
             case "attention.raised":
@@ -165,25 +218,29 @@ public struct AttentionState: Codable, Hashable, Sendable {
                                           sessionId: e.string("session_id"), recordKey: record, stepId: step))
                     if notify { out.append(.needsYou(runId: runId, waitKey: waitKey, kind: kind, sessionId: e.string("session_id"), recordKey: record)) }
                 } else if let aid = e.string("automation_id"), let seq = e.int("seq"), seq > 0 {
-                    if let index = e.int("index") { raisedOccurrences.insert("\(aid)#\(index)") }
+                    if let record = e.string("record_key"), resolved.contains(record) { continue }
                     guard seq > (seen[aid] ?? 0), !(raised[aid] ?? []).contains(seq) else { continue }
                     raised[aid, default: []].append(seq)
+                    if let record = e.string("record_key") { resultRecords[aid, default: [:]][seq] = record }
                     if notify { out.append(.news(automationId: aid, seq: seq, failed: kind == "failure", recordKey: e.string("record_key"))) }
                 }
             case "attention.seen":
                 if let record = e.string("record_key") {
-                    resolved = Array((resolved + [record]).suffix(200))
-                    waits.removeAll { $0.recordKey == record }
+                    rememberResolved([record])
+                    closeWaits { $0.recordKey == record }
                 }
                 if let run = e.string("run_id"), let key = e.string("wait_key") {
                     // The gateway's seen names the step (`{kind, run_id, wait_key, step_id, outcome}`).
                     let step = e.string("step_id")
-                    if let step { resolved = Array((resolved + ["step:\(run):\(key):\(step)"]).suffix(200)) }
-                    waits.removeAll { $0.runId == run && $0.waitKey == key && (step == nil || $0.stepId == nil || $0.stepId == step) }
+                    if let step { rememberResolved(["step:\(run):\(key):\(step)"], notificationRecords: false) }
+                    closeWaits { $0.runId == run && $0.waitKey == key && (step == nil || $0.stepId == nil || $0.stepId == step) }
                 }
                 if let aid = e.string("automation_id") {
                     let s = max(seen[aid] ?? 0, e.int("seq") ?? 0)
                     seen[aid] = s
+                    rememberResolved((resultRecords[aid] ?? [:]).filter { $0.key <= s }.map(\.value))
+                    resultRecords[aid] = resultRecords[aid]?.filter { $0.key > s }
+                    if resultRecords[aid]?.isEmpty == true { resultRecords[aid] = nil }
                     raised[aid] = (raised[aid] ?? []).filter { $0 > s }
                     if raised[aid]?.isEmpty == true { raised[aid] = nil }
                 }
@@ -195,21 +252,22 @@ public struct AttentionState: Codable, Hashable, Sendable {
                 shown[record, default: []].append(ShownNotice(channel: channel, device: e.string("device"), at: at))
                 if shown.count > 200, let oldest = shown.keys.sorted().first { shown[oldest] = nil }
             case "run.finished":
-                if let run = e.string("run_id") { waits.removeAll { $0.runId == run } }
-                guard notify, case .object(let origin)? = e.data?["origin"], origin["kind"]?.stringValue == "trigger",
-                      case .object(let ref)? = origin["ref"], let aid = ref["automation_id"]?.stringValue else { continue }
-                let occ: Int = { if case .number(let n)? = ref["occurrence_index"] { return Int(n) }; return 0 }()
-                out.append(.automationFinished(automationId: aid, occurrence: occ, status: e.string("status") ?? "completed",
-                                               runId: e.string("run_id")))
+                if let run = e.string("run_id") {
+                    closeWaits { $0.runId == run }
+                }
+                if case .object(let origin)? = e.data?["origin"], origin["kind"]?.stringValue == "trigger",
+                   case .object(let ref)? = origin["ref"], let aid = ref["automation_id"]?.stringValue,
+                   case .number(let occurrence)? = ref["occurrence_index"] {
+                    dismiss([AttentionNotice.automationFinished(automationId: aid, occurrence: Int(occurrence),
+                                                               status: e.string("status") ?? "completed", runId: e.string("run_id")).identifier])
+                }
             default: continue
             }
         }
-        if !page.more { caughtUp = true }
-        // A run that raised a result is told once, as news; its "finished" would say it twice.
-        return out.filter {
-            if case .automationFinished(let a, let occ, _, _) = $0 { return !raisedOccurrences.contains("\(a)#\(occ)") }
-            return true
-        }
+        cursor = max(cursor, page.nextAfter)
+        if !page.more { caughtUp = true; notificationBaseline = nil }
+        // A later seen or terminal record in this page can already have closed a raise.
+        return out.filter(isCurrent)
     }
 }
 

@@ -13,6 +13,13 @@ struct AttentionFeedTests {
                   data: .object(["automation_id": .string(aid), "seq": .number(Double(item)), "kind": .string("notify"),
                                  "record_key": .string("automation:completed:\(aid):\(item)")]))
     }
+    private func seen(_ seq: Int, _ aid: String, _ item: Int) -> UserEvent {
+        UserEvent(id: "seen\(seq)", type: "attention.seen", sequence: seq,
+                  data: .object(["automation_id": .string(aid), "seq": .number(Double(item))]))
+    }
+    private func keep(_ state: AttentionState, in defaults: UserDefaults, scope: String = "s") throws {
+        defaults.set(try JSONEncoder().encode(state), forKey: "phone.attention." + scope)
+    }
     private func until(_ timeout: Double = 5, _ predicate: () async -> Bool) async throws {
         let end = Date().addingTimeInterval(timeout)
         while Date() < end { if await predicate() { return }; try await Task.sleep(for: .milliseconds(20)) }
@@ -65,6 +72,171 @@ struct AttentionFeedTests {
         try await until { feed.status == .unsupported }
         #expect(await mock.streamOpens.isEmpty, "no tail is opened on a gateway without the stream")
         feed.stop()
+    }
+
+    @Test func replayReconcilesSeenOnLaterPagesBeforeAnnouncingPendingAttention() async throws {
+        let defaults = UserDefaults(suiteName: "attention-feed-\(UUID())")!
+        var state = AttentionState(); state.caughtUp = true
+        try keep(state, in: defaults)
+        let client = GatedWaitsClient()
+        await client.configureEvents(pageSize: 1)
+        for event in [raised(1, "old", 1), seen(2, "old", 1), raised(3, "pending", 1)] {
+            await client.mock.appendEvent(event)
+        }
+        let feed = AttentionFeed(defaults: defaults)
+        var told: [AttentionNotice] = []
+        feed.onNotice = { told.append($0) }
+        feed.start(client: client, scope: "s", foreground: false)
+        try await until { feed.state.cursor == 3 }
+        #expect(told.map(\.recordKey) == ["automation:completed:pending:1"])
+        #expect(feed.newResults == 1)
+        #expect(feed.state.resolvedNotificationIdentifiers.contains(AttentionNotice.collapseID("automation:completed:old:1")))
+        feed.stop()
+    }
+
+    @Test func aFailedReplayDoesNotCommitItsCursorOrLoseAnUnreadCandidate() async throws {
+        let defaults = UserDefaults(suiteName: "attention-feed-\(UUID())")!
+        var state = AttentionState(); state.caughtUp = true
+        try keep(state, in: defaults)
+        let client = GatedWaitsClient()
+        await client.configureEvents(pageSize: 1, failOnceAfter: 1)
+        await client.mock.appendEvent(raised(1, "pending", 1))
+        await client.mock.appendEvent(UserEvent(id: "start", type: "run.started", sequence: 2))
+        let feed = AttentionFeed(defaults: defaults)
+        feed.reconnectDelay = 0.2
+        var told: [AttentionNotice] = []
+        feed.onNotice = { told.append($0) }
+        feed.start(client: client, scope: "s", foreground: true)
+        try await until { await client.failedEventRead }
+        #expect(feed.state.cursor == 0 && told.isEmpty)
+        let persisted = try JSONDecoder().decode(AttentionState.self, from: defaults.data(forKey: "phone.attention.s")!)
+        #expect(persisted.cursor == 0)
+        try await until { feed.state.cursor == 2 }
+        #expect(told.map(\.recordKey) == ["automation:completed:pending:1"])
+        feed.stop()
+    }
+
+    @Test func reconnectReconcilesRestBeforeReopeningAnSSETail() async throws {
+        let client = GatedWaitsClient()
+        await client.configureEvents(pageSize: 1)
+        let finished = UserEvent(id: "finished", type: "run.finished", sequence: 1, data: .object([
+            "run_id": .string("r"), "status": .string("completed"),
+            "origin": .object(["kind": .string("trigger"), "ref": .object([
+                "automation_id": .string("digest"), "occurrence_index": .number(1)])])]))
+        await client.injectOnNextTail([finished, raised(2, "digest", 1), seen(3, "digest", 1), raised(4, "new", 1)])
+        let feed = AttentionFeed(defaults: UserDefaults(suiteName: "attention-feed-\(UUID())")!)
+        feed.reconnectDelay = 0.01
+        var told: [AttentionNotice] = []
+        feed.onNotice = { told.append($0) }
+        feed.start(client: client, scope: "s", foreground: true)
+        try await until { await client.tailStarts.count >= 2 }
+        #expect(await client.tailStarts.prefix(2) == [0, 4], "the second tail starts after the reconciled head")
+        #expect(await client.eventReads.count >= 5)
+        #expect(told.map(\.recordKey) == ["automation:completed:new:1"], "neither the quiet finish nor the seen result alerts")
+        feed.stop()
+    }
+
+    @Test func legacyCacheRebuildDismissesHistoryAndStillNotifiesANewOfflineItem() async throws {
+        let defaults = UserDefaults(suiteName: "attention-feed-\(UUID())")!
+        defaults.set(Data(#"{"cursor":10,"caughtUp":true,"waits":[],"raised":{},"seen":{"old":1},"resolved":[],"shown":{}}"#.utf8),
+                     forKey: "phone.attention.s")
+        let client = GatedWaitsClient()
+        await client.configureEvents(pageSize: 1)
+        for event in [raised(1, "old", 1), seen(2, "old", 1), raised(11, "new", 1)] {
+            await client.mock.appendEvent(event)
+        }
+        let feed = AttentionFeed(defaults: defaults)
+        var told: [AttentionNotice] = []
+        feed.onNotice = { told.append($0) }
+        feed.start(client: client, scope: "s", foreground: false)
+        try await until { feed.state.cursor == 11 }
+        #expect(told.map(\.recordKey) == ["automation:completed:new:1"])
+        #expect(feed.state.resolvedNotificationIdentifiers.contains(AttentionNotice.collapseID("automation:completed:old:1")))
+        feed.stop()
+    }
+
+    @Test func queuedNoticeValidationWaitsForReconciliationEvenWhenCatchupIsCanceled() async throws {
+        let client = GatedWaitsClient()
+        await client.mock.appendEvent(raised(1, "digest", 1))
+        let feed = AttentionFeed(defaults: UserDefaults(suiteName: "attention-feed-\(UUID())")!)
+        feed.start(client: client, scope: "s", foreground: true)
+        try await until { feed.status == .following && feed.state.cursor == 1 }
+        let notice = AttentionNotice.news(automationId: "digest", seq: 1, failed: false,
+                                         recordKey: "automation:completed:digest:1")
+        let valid = feed.noticeValidator(notice)
+        #expect(await valid())
+        feed.setForeground(false)
+        var resumed = false
+        let queued = Task { let result = await valid(); resumed = true; return result }
+        await client.mock.appendEvent(seen(2, "digest", 1))
+        await client.gateEvents(after: 1)
+        feed.setForeground(true)
+        try await until { await client.eventsGated }
+        #expect(!resumed && !feed.isCurrent(notice), "validation waits while a seen page is staged")
+        feed.setForeground(false)
+        #expect(!resumed && !feed.isCurrent(notice), "canceling the catch-up must not revalidate its stale snapshot")
+        await client.releaseEvents()
+        feed.setForeground(true)
+        try await until { feed.status == .following && feed.state.cursor == 2 }
+        #expect(await queued.value == false)
+        feed.stop()
+    }
+
+    @Test func queuedNoticeResumesAfterAReconciledHeadIfItIsStillUnread() async throws {
+        let client = GatedWaitsClient()
+        await client.mock.appendEvent(raised(1, "digest", 1))
+        let feed = AttentionFeed(defaults: UserDefaults(suiteName: "attention-feed-\(UUID())")!)
+        feed.start(client: client, scope: "s", foreground: true)
+        try await until { feed.status == .following && feed.state.cursor == 1 }
+        let notice = AttentionNotice.news(automationId: "digest", seq: 1, failed: false,
+                                         recordKey: "automation:completed:digest:1")
+        let valid = feed.noticeValidator(notice)
+        feed.setForeground(false)
+        var resumed = false
+        let queued = Task { let result = await valid(); resumed = true; return result }
+        await client.gateEvents(after: 1)
+        feed.setForeground(true)
+        try await until { await client.eventsGated }
+        #expect(!resumed)
+        await client.releaseEvents()
+        #expect(await queued.value)
+        feed.stop()
+    }
+
+    @Test func cancelingAQueuedValidationDoesNotLeaveItWaitingForAnotherForeground() async throws {
+        let mock = MockGatewayClient(world: .phone)
+        let feed = AttentionFeed(defaults: UserDefaults(suiteName: "attention-feed-\(UUID())")!)
+        feed.start(client: mock, scope: "s", foreground: true)
+        try await until { feed.status == .following }
+        feed.setForeground(false)
+        let valid = feed.noticeValidator(.news(automationId: "a", seq: 1, failed: false))
+        let queued = Task { await valid() }
+        await Task.yield()
+        queued.cancel()
+        #expect(await queued.value == false)
+        feed.stop()
+    }
+
+    @Test func validatorsNeverCrossAccountSwitchesEvenWhenTheRecordIdentityIsTheSame() async throws {
+        let feed = AttentionFeed(defaults: UserDefaults(suiteName: "attention-feed-\(UUID())")!)
+        let a = MockGatewayClient(world: .phone), b = MockGatewayClient(world: .phone)
+        await a.appendEvent(raised(1, "same", 1)); await b.appendEvent(raised(1, "same", 1))
+        let notice = AttentionNotice.news(automationId: "same", seq: 1, failed: false,
+                                         recordKey: "automation:completed:same:1")
+        feed.start(client: a, scope: "a", foreground: true)
+        try await until { feed.status == .following && feed.state.cursor == 1 }
+        let original = feed.noticeValidator(notice)
+        #expect(await original())
+        feed.start(client: b, scope: "b", foreground: true)
+        try await until { feed.status == .following && feed.state.cursor == 1 }
+        #expect(await original() == false)
+        #expect(await feed.noticeValidator(notice)())
+        feed.start(client: a, scope: "a", foreground: true)
+        try await until { feed.status == .following && feed.state.cursor == 1 }
+        #expect(await original() == false)
+        #expect(await feed.noticeValidator(notice)())
+        feed.stop()
+        #expect(await feed.noticeValidator(notice)() == false)
     }
 
     /// The gateway's `attention.raised` for a question (live shape, `events_stream.record_wait_raised`).
@@ -131,12 +303,33 @@ struct AttentionFeedTests {
 }
 
 /// The mock, except that the first `waits()` returns the list as it was when asked, and only once released.
-private actor GatedWaitsClient: GatewayClient {
+actor GatedWaitsClient: GatewayClient {
     nonisolated let isMock = true
     let mock = MockGatewayClient(world: .phone, waits: [])
     private var current: [Wait] = []
     private var calls = 0
     private var continuation: CheckedContinuation<Void, Never>?
+    private var pageSize = 1000
+    private var failAfter: Int?
+    private var gateAfter: Int?
+    private var eventContinuation: CheckedContinuation<Void, Never>?
+    private var injectedTail: [UserEvent]?
+    private var immediateTail = false
+    private(set) var failedEventRead = false
+    private(set) var eventReads: [Int] = []
+    private(set) var tailStarts: [Int] = []
+    var eventsGated: Bool { eventContinuation != nil }
+    func configureEvents(pageSize: Int, failOnceAfter: Int? = nil) { self.pageSize = pageSize; failAfter = failOnceAfter }
+    func gateEvents(after: Int) { gateAfter = after }
+    func releaseEvents() { eventContinuation?.resume(); eventContinuation = nil }
+    func injectOnNextTail(_ events: [UserEvent]) { injectedTail = events }
+    func closeEveryTailImmediately() { immediateTail = true }
+    private func openTail(_ cursor: Int) -> [UserEvent]? {
+        tailStarts.append(cursor)
+        defer { injectedTail = nil }
+        if immediateTail { return [] }
+        return injectedTail
+    }
     var gated: Bool { continuation != nil }
     func setWaits(_ waits: [Wait]) { current = waits }
     func release() { continuation?.resume(); continuation = nil }
@@ -148,8 +341,35 @@ private actor GatedWaitsClient: GatewayClient {
     }
     func me() async throws -> Principal { try await mock.me() }
     func health() async throws -> Bool { true }
-    func events(after: Int, limit: Int) async throws -> UserEventsPage { try await mock.events(after: after, limit: limit) }
-    nonisolated func userEventStream(lastEventID: Int) -> AsyncThrowingStream<UserEvent, Error> { mock.userEventStream(lastEventID: lastEventID) }
+    func reportNotification(_ report: NotificationReport) async throws { try await mock.reportNotification(report) }
+    func events(after: Int, limit: Int) async throws -> UserEventsPage {
+        eventReads.append(after)
+        if failAfter == after {
+            failAfter = nil; failedEventRead = true
+            throw URLError(.networkConnectionLost)
+        }
+        let page = try await mock.events(after: after, limit: min(limit, pageSize))
+        if gateAfter == after {
+            gateAfter = nil
+            await withCheckedContinuation { eventContinuation = $0 }
+        }
+        return page
+    }
+    nonisolated func userEventStream(lastEventID: Int) -> AsyncThrowingStream<UserEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                if let injected = await self.openTail(lastEventID) {
+                    for event in injected { await self.mock.appendEvent(event) }
+                    continuation.finish(); return
+                }
+                do {
+                    for try await event in self.mock.userEventStream(lastEventID: lastEventID) { continuation.yield(event) }
+                    continuation.finish()
+                } catch { continuation.finish(throwing: error) }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
     func recentRuns(limit: Int) async throws -> [RunSummary] { try await mock.recentRuns(limit: limit) }
     func prompt(ofRun id: String) async throws -> String? { try await mock.prompt(ofRun: id) }
     func turns(ofSession id: String) async throws -> [RunSummary] { try await mock.turns(ofSession: id) }

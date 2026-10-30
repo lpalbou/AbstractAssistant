@@ -95,12 +95,16 @@ struct MeEventsTests {
         #expect(s.newResults == 0)
     }
 
-    @Test func aQuietFinishIsToldButNotTwiceWithItsResult() {
+    @Test func onlyRaisedAttentionNotifiesAndAQuietFinishStaysQuiet() {
         var s = AttentionState()
         _ = s.apply(page([]))
         let told = s.apply(page([finished(1, "digest", occurrence: 4), result(2, "news", 1, index: 7), finished(3, "news", occurrence: 7)]))
-        #expect(told == [.automationFinished(automationId: "digest", occurrence: 4, status: "completed", runId: "occ4"),
-                         .news(automationId: "news", seq: 1, failed: false, recordKey: "automation:completed:news:1")])
+        #expect(told == [.news(automationId: "news", seq: 1, failed: false, recordKey: "automation:completed:news:1")])
+        #expect(!s.isCurrent(.automationFinished(automationId: "digest", occurrence: 4, status: "completed", runId: "occ4")))
+        #expect(s.resolvedNotificationIdentifiers.contains("automation-digest-4"), "old quiet-finish alerts can be withdrawn")
+        #expect(s.apply(page([finished(4, "later", occurrence: 8)], more: true)).isEmpty)
+        #expect(s.apply(page([result(5, "later", 2, index: 8)])).count == 1,
+                "a result on another replay page is the only alert")
     }
 
     @Test func theSameNodeAskingAgainIsANewWait() {
@@ -122,11 +126,53 @@ struct MeEventsTests {
         #expect(kept == s)
     }
 
-    @Test func aStateKeptBeforeTheSharedClientStillReads() throws {
-        // What the watch saved before `shown` existed: losing it would take stock again and drop news.
+    @Test func anOldProjectionRebuildsMetadataWithoutDroppingNewOfflineAttention() throws {
+        // A legacy cache rebuilds old record identities silently, but its saved cursor remains the
+        // notification baseline: genuinely new unread items must still be announced on upgrade.
         let old = #"{"cursor":7,"caughtUp":true,"waits":[],"raised":{"a":[6]},"seen":{"a":5},"resolved":["k"]}"#
-        let s = try JSONDecoder().decode(AttentionState.self, from: Data(old.utf8))
-        #expect(s.cursor == 7 && s.caughtUp && s.newResults == 1 && s.resolved == ["k"] && s.shown.isEmpty)
+        var s = try JSONDecoder().decode(AttentionState.self, from: Data(old.utf8))
+        #expect(s.cursor == 0 && !s.caughtUp)
+        #expect(s.apply(page([result(1, "a", 1), ev(2, "attention.seen", ["automation_id": .string("a"), "seq": .number(1)])], more: true)).isEmpty)
+        s = try JSONDecoder().decode(AttentionState.self, from: JSONEncoder().encode(s))
+        let told = s.apply(page([result(8, "a", 2)]))
+        #expect(told.map(\.recordKey) == ["automation:completed:a:2"])
+        #expect(s.resolvedNotificationIdentifiers.contains(AttentionNotice.collapseID("automation:completed:a:1")))
+        #expect(s.caughtUp && s.newResults == 1)
+    }
+
+    @Test func aPageOnlyAnnouncesRaisesStillOpenAfterItsLaterRecords() {
+        var s = AttentionState()
+        _ = s.apply(page([]))
+        let told = s.apply(page([wait(1, run: "answered", key: "k"), result(2, "a", 1),
+                                waitSeen(3, run: "answered", key: "k"),
+                                ev(4, "attention.seen", ["automation_id": .string("a"), "seq": .number(1)]),
+                                wait(5, run: "finished", key: "k"), ev(6, "run.finished", ["run_id": .string("finished")]),
+                                result(7, "a", 2)]))
+        #expect(told.map(\.recordKey) == ["automation:completed:a:2"])
+        #expect(s.needYou == 0 && s.newResults == 1)
+    }
+
+    @Test func currentnessAndDismissalUseTheActualWaitRecordNotAnInternalStepMarker() {
+        var s = AttentionState()
+        _ = s.apply(page([]))
+        let raised = ev(1, "attention.raised", ["run_id": .string("r"), "wait_key": .string("k"),
+                                               "step_id": .string("a"), "record_key": .string("opaque-record")])
+        let old = s.apply(page([raised]))[0]
+        _ = s.apply(page([waitSeen(2, run: "r", key: "k", step: "a"), wait(3, run: "r", key: "k", step: "b")]))
+        #expect(!s.isCurrent(old))
+        #expect(s.needYou == 1)
+        #expect(s.resolvedNotificationIdentifiers.contains(AttentionNotice.collapseID("opaque-record")))
+        #expect(!s.resolvedNotificationIdentifiers.contains(AttentionNotice.collapseID("step:r:k:a")))
+        #expect(!s.resolvedNotificationIdentifiers.contains(AttentionNotice.collapseID("wait:r:k:b")))
+    }
+
+    @Test func aLegacyWaitWithoutARecordKeyRetiresItsOriginalNotificationIdentifier() {
+        var s = AttentionState(); s.caughtUp = true
+        let notices = s.apply(page([ev(1, "attention.raised", ["run_id": .string("r"), "wait_key": .string("k")])]))
+        #expect(notices.first?.identifier == "wait-r:k")
+        #expect(s.apply(page([ev(2, "attention.seen", ["run_id": .string("r"), "wait_key": .string("k")])])).isEmpty)
+        #expect(s.resolvedNotificationIdentifiers.contains("wait-r:k"))
+        #expect(!s.isCurrent(notices[0]))
     }
 
     @Test func theReportBodyIsTheGatewaysShape() throws {

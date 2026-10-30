@@ -1,6 +1,7 @@
 import Foundation
 import UserNotifications
 import AbstractGatewayClient
+import AssistantKit
 
 /// Local notifications from the person's event stream (framework backlog 1047): what needs you is
 /// time-sensitive ("Approval needed", "A question for you"; a tap opens the Inbox, whose wait screens
@@ -18,7 +19,8 @@ final class PhoneNotifier: NSObject, UNUserNotificationCenterDelegate {
 
     func activate() { UNUserNotificationCenter.current().delegate = self }
 
-    func post(_ notice: AttentionNotice, automationNames: [String: String], shown: @escaping @MainActor () -> Void = {}) {
+    func post(_ notice: AttentionNotice, automationNames: [String: String],
+              isCurrent: @escaping @MainActor () async -> Bool, shown: @escaping @MainActor () -> Void = {}) {
         let content = UNMutableNotificationContent()
         content.sound = .default
         switch notice {
@@ -41,15 +43,25 @@ final class PhoneNotifier: NSObject, UNUserNotificationCenterDelegate {
         let request = UNNotificationRequest(identifier: notice.identifier, content: content, trigger: nil)
         Task {
             let center = UNUserNotificationCenter.current()
-            if !asked {
-                asked = true
-                _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
-            }
-            // A push (backlog 1049) showed it already: the same identifier, nothing alerts twice.
-            if await center.deliveredNotifications().contains(where: { $0.request.identifier == request.identifier }) { return }
-            do { try await center.add(request) } catch { return }
-            shown()
+            let posted = await AttentionDelivery.post(isCurrent: isCurrent, prepare: {
+                if !asked {
+                    asked = true
+                    _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
+                }
+                // A push showed it already: the same identifier, nothing alerts twice.
+                return !(await center.deliveredNotifications().contains { $0.request.identifier == request.identifier })
+            }, enqueue: { try await center.add(request) }, withdraw: { self.withdraw([request.identifier]) })
+            if posted { shown() }
         }
+    }
+
+    /// A consumed attention record disappears here too, including a local notice kept by an
+    /// earlier build. Only identifiers proven resolved by the replayed feed are passed in.
+    func withdraw(_ identifiers: Set<String>) {
+        guard !identifiers.isEmpty else { return }
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: Array(identifiers))
+        center.removeDeliveredNotifications(withIdentifiers: Array(identifiers))
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {

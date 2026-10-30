@@ -48,6 +48,9 @@ struct PhoneRoot: View {
         .preferredColorScheme(.dark).tint(PhoneTheme.lavender)
         .foregroundStyle(PhoneTheme.ink)
         .onChange(of: automationNames, initial: true) { _, names in AutomationNameBook.remember(names) }
+        .onChange(of: store.attention.state.resolvedNotificationIdentifiers, initial: true) { _, identifiers in
+            PhoneNotifier.shared.withdraw(identifiers)
+        }
         .task {
             // Push (backlog 1049): this iPhone's device id.
             PhonePush.deviceID = store.attention.deviceID
@@ -58,6 +61,7 @@ struct PhoneRoot: View {
             store.attention.onNotice = { notice in
                 PhoneNotifier.shared.post(notice, automationNames: Dictionary(store.automations.map { ($0.id, $0.name ?? "") }.filter { !$0.1.isEmpty },
                                                                               uniquingKeysWith: { a, _ in a }),
+                                          isCurrent: store.attention.noticeValidator(notice),
                                           shown: { store.attention.reportShown(notice) })
             }
             #if DEBUG
