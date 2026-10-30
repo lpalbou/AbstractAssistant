@@ -356,7 +356,7 @@ final class Speaker: NSObject, ObservableObject {
     private func makePlayer(_ chunk: Chunk) throws -> AVAudioPlayer {
         let p = try AVAudioPlayer(data: chunk.data)
         p.delegate = self
-        p.enableRate = true
+        p.enableRate = chunk.rate != 1
         p.rate = chunk.rate
         guard p.prepareToPlay() else { throw GatewayError.invalidResponse }
         return p

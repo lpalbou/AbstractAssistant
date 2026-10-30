@@ -90,6 +90,21 @@ final class VoiceButtonUITests: XCTestCase {
         XCTAssertEqual(voice.label, "Read aloud")
     }
 
+    func testShortPiecesKeepTheChosenPlaybackSpeed() throws {
+        app = XCUIApplication()
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--screen", "read", "--short-voice",
+                               "-voice.speed", "1.3"]
+        app.launch()
+        XCTAssertTrue(voice.waitForExistence(timeout: 20))
+        let start = Date()
+        while seconds() < 0.5 && Date().timeIntervalSince(start) < 15 { usleep(100_000) }
+        let before = seconds()
+        sleep(4)
+        let advanced = seconds() - before
+        XCTAssertGreaterThan(advanced, 4.5, "the chosen 1.3× speed was not applied")
+        XCTAssertLessThan(advanced, 6.2, "queued pieces overlapped or skipped at 1.3× speed")
+    }
+
     func testShortPiecePauseAndResumeKeepTheirQueue() throws {
         app = XCUIApplication()
         app.launchArguments = ["--mock", "--no-notification-prompt", "--screen", "read", "--short-voice"]
