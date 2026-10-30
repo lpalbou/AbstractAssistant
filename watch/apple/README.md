@@ -27,6 +27,10 @@ voice button beside Back plays, pauses and rewinds. A tap on the orb pauses or r
 and at rest the same hold reads the last answer aloud. Once a conversation has a message, swipe
 to the left from the orb for its numbers and files (each one shareable).
 
+Spoken answers prepare the next piece while the current one plays. A slow connection or voice
+engine can still cause a pause while more audio arrives. If the speech stream ends early or a
+piece cannot play, the watch shows a failure instead of treating a partial reading as complete.
+
 If a voice upload or transcription fails, the watch keeps the recording and shows the error
 with **Retry** and **Discard** in that conversation. Each conversation and responder keeps
 its own pending recording, scoped to its Gateway and sign-in. Retry and Discard affect only
@@ -95,6 +99,7 @@ for new conversations), Voice (the speaking voice, its speed and the transcripti
 groups, Your voices, Engine voices and Shared voices, each with its language and a "Voices that speak"
 filter; voices are created on the iPhone or the desktop), Read
 aloud, Orb style (thirty-four styles in six families: Orbs, Forms, Cosmos, Nature, Faces and Machines, each previewed live through listening, thinking, working and speaking) and About.
+Settings shows your chosen voice by its name. That name stays available when the gateway is offline.
 
 ## Sign in
 

@@ -80,6 +80,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Fixed
 
+- Apple Watch Settings shows the chosen voice's friendly name. Streamed speech prepares the next
+  audio piece ahead of playback, and interrupted streams or playback failures report an error
+  instead of silently completing a partial reading. See the [Watch changelog](watch/apple/CHANGELOG.md).
+
 - Opening the macOS menu-bar palette releases the tray menu before restoring prompt focus, so keyboard input and spaces reach the editor.
 
 - **Settings stack from the top on every tab** (operator QA 2026-10-28; backlog 1076). On Models → Voice output

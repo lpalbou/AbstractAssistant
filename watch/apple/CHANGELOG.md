@@ -17,6 +17,12 @@ iPhone app); the Python package's history is in
 
 ### Fixed
 
+- Settings shows the selected voice's friendly name instead of its internal identifier. An empty
+  saved label, or one that repeats an opaque identifier, reads "Selected voice".
+- Spoken answers prepare and schedule the next audio piece while the current one plays, reducing
+  gaps between short streamed pieces. Incomplete speech streams and playback failures report an
+  error; slow delivery can still cause a buffering pause.
+
 - Pending voice recordings stay with their conversation, responder and Gateway account. Switching discussions does not show another question's Retry/Discard controls; late requests cannot replace or discard a newer recording. Verified sign-ins preserve tenant identity.
 
 - Failed voice uploads and transcriptions show their error while preserving the recording and Retry/Discard actions. Device logs include the error domain and code without recording credentials, audio or transcripts.
@@ -502,8 +508,8 @@ iPhone app); the Python package's history is in
 
 - The orb follows the voice itself, yours and the Assistant's: its loudness within the voice's own
   range and its spectrum in 8 bands; each orb style draws it. At full voice it reaches 8% less far.
-- Read aloud speaks a whole answer from one request, in whole sentences and one language for the
-  reply, and starts once 1.5 s of speech is ready.
+- Read aloud sends a whole answer in one request, streams the gateway's audio chunks, and starts
+  once 1.5 s of speech is ready.
 - The conversation under the orb reads like an automation's page: the last message in full, then
   earlier messages as cards (5, then Show older), each opening on its own page with Read aloud. The
   whole history is read in one request; if it cannot be read, the page says so with Retry.
