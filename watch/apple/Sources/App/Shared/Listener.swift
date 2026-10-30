@@ -1,4 +1,6 @@
 @preconcurrency import AVFoundation
+import AbstractGatewayClient
+import CryptoKit
 import SwiftUI
 import WatchKit
 
@@ -151,43 +153,93 @@ final class Listener: ObservableObject {
     }
 }
 
-/// A question whose sending failed (the upload or the transcription): its recording is kept in its
-/// own file, never the listener's `ask.wav` (the next recording cannot overwrite it), until Retry
-/// sends it again or Discard deletes it. One at a time: a newer one replaces it. Its name is in the
-/// app's defaults, so it outlives leaving the page and relaunching the app. Nothing sends it on its
-/// own.
-enum KeptQuestion {
+/// A failed voice question belongs to the conversation where it was recorded. Each
+/// conversation keeps at most one recording until it is retried or discarded.
+@MainActor enum KeptQuestion {
     private static let key = "ask.keptRecording"
     private static var folder: URL { URL.applicationSupportDirectory.appending(path: "KeptQuestion", directoryHint: .isDirectory) }
-
-    /// The kept recording, while its file is there.
-    static var url: URL? {
-        guard let name = UserDefaults.standard.string(forKey: key) else { return nil }
-        let u = folder.appending(path: name)
-        if FileManager.default.fileExists(atPath: u.path) { return u }
-        UserDefaults.standard.removeObject(forKey: key)
-        return nil
+    private static var records: [String: [String: String]] {
+        get { UserDefaults.standard.dictionary(forKey: key) as? [String: [String: String]] ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: key) }
     }
 
-    /// Keeps `wav` in a file of its own (the one kept before is deleted); nil when it can't be written.
-    static func keep(_ wav: Data) -> URL? {
-        var u = folder.appending(path: "question-\(UUID().uuidString).wav")
+    static func connectionKey(gateway: URL, user: String?, tenant: String?, credential: GatewayCredential) -> String {
+        var address = URLComponents(url: gateway, resolvingAgainstBaseURL: false) ?? URLComponents()
+        address.scheme = address.scheme?.lowercased()
+        address.host = address.host?.lowercased()
+        address.user = nil; address.password = nil; address.query = nil; address.fragment = nil
+        if (address.scheme == "https" && address.port == 443) || (address.scheme == "http" && address.port == 80) { address.port = nil }
+        while address.percentEncodedPath.hasSuffix("/") { address.percentEncodedPath.removeLast() }
+        func digest(_ bytes: Data) -> String { SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined() }
+        let principal: String
+        if let user = user?.trimmingCharacters(in: .whitespacesAndNewlines), !user.isEmpty,
+           let tenant = tenant?.trimmingCharacters(in: .whitespacesAndNewlines), !tenant.isEmpty {
+            principal = "principal:\(tenant.utf8.count):\(tenant)\(user)"
+        } else {
+            let material: String
+            switch credential { case .token(let token): material = token; case .session(let id, _): material = id }
+            principal = "credential:" + digest(Data(material.utf8))
+        }
+        let gatewayIdentity = address.string ?? ""
+        return digest(Data("\(gatewayIdentity.utf8.count):\(gatewayIdentity)\(principal)".utf8))
+    }
+
+    static func conversationScope(connectionKey: String, sessionId: String, responder: String) -> String {
+        "\(connectionKey):chat:\(sessionId.utf8.count):\(sessionId):\(responder)"
+    }
+    static func automationScope(connectionKey: String, _ id: String) -> String { "\(connectionKey):automation:\(id)" }
+
+    /// Bind an older unscoped recording once, before navigation changes the saved session.
+    /// The last saved session is the best available context, not proof of its original owner.
+    static func migrateLegacy(sessionId: String?, connectionKey: String) {
+        guard let filename = UserDefaults.standard.string(forKey: key) else { return }
+        let saved = sessionId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let id = saved.flatMap { $0.isEmpty ? nil : $0 } ?? "watch-recovered-" + UUID().uuidString.lowercased()
+        if saved == nil || saved?.isEmpty == true { UserDefaults.standard.set(id, forKey: "ask.session") }
+        let storedResponder = UserDefaults.standard.string(forKey: "ask.responder") ?? "assistant"
+        let responder = storedResponder.hasPrefix("entity:") ? storedResponder : "assistant"
+        records = [conversationScope(connectionKey: connectionKey, sessionId: id, responder: responder): ["filename": filename, "session": id]]
+    }
+
+    static func url(for scope: String) -> URL? {
+        guard let filename = records[scope]?["filename"] else { return nil }
+        let file = folder.appending(path: filename)
+        guard FileManager.default.fileExists(atPath: file.path) else {
+            var current = records; current.removeValue(forKey: scope); records = current
+            return nil
+        }
+        return file
+    }
+
+    static func session(for scope: String) -> String? { records[scope]?["session"] }
+
+    static func keep(_ wav: Data, scope: String, sessionId: String) -> URL? {
+        var file = folder.appending(path: "question-\(UUID().uuidString).wav")
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            try wav.write(to: u, options: .atomic)
+            try wav.write(to: file, options: .atomic)
         } catch { return nil }
         var values = URLResourceValues(); values.isExcludedFromBackup = true
-        try? u.setResourceValues(values)
-        let before = url
-        UserDefaults.standard.set(u.lastPathComponent, forKey: key)
-        if let before, before != u { try? FileManager.default.removeItem(at: before) }
-        return u
+        try? file.setResourceValues(values)
+        let previous = url(for: scope)
+        var current = records
+        current[scope] = ["filename": file.lastPathComponent, "session": sessionId]
+        records = current
+        if let previous, previous != file { try? FileManager.default.removeItem(at: previous) }
+        return file
     }
 
-    /// Deletes the kept recording (Discard, or it was sent).
-    static func discard() {
-        if let u = url { try? FileManager.default.removeItem(at: u) }
-        UserDefaults.standard.removeObject(forKey: key)
+    /// A late result must not replace a newer recording created while it was waiting.
+    static func keep(_ wav: Data, scope: String, sessionId: String, replacing expected: URL?) -> URL? {
+        guard url(for: scope) == expected else { return nil }
+        return keep(wav, scope: scope, sessionId: sessionId)
+    }
+
+    /// An older request cannot discard a newer recording, or another conversation's.
+    static func discard(scope: String, matching file: URL? = nil) {
+        guard let existing = url(for: scope), file == nil || existing == file else { return }
+        try? FileManager.default.removeItem(at: existing)
+        var current = records; current.removeValue(forKey: scope); records = current
     }
 }
 

@@ -65,9 +65,9 @@ final class KeptQuestionUITests: XCTestCase {
         try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent(name + ".png"))
     }
 
-    private func launch(failing: Bool) -> XCUIApplication {
+    private func launch(failing: Bool, session: String = "watch-test-kept-a", screen: String = "ask") -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--mock", "--no-notification-prompt", "--fresh-conversation", "--screen", "ask"]
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--fresh-conversation", "--test-session-id", session, "--screen", screen]
             + (failing ? ["--test-fail-send"] : [])
         app.launch()
         return app
@@ -107,6 +107,42 @@ final class KeptQuestionUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["ask.status"].waitForExistence(timeout: 20))
         sleep(2)
         XCTAssertFalse(app.buttons["ask.retry"].exists, "a sent question is still offered after a relaunch")
+    }
+
+    func testKeptRecordingStaysWithItsConversationAfterSwitchingAndRelaunching() throws {
+        var app = launch(failing: true, session: "watch-test-kept-owner")
+        assertKept(app, "the originating conversation", status: "No connection.")
+        app.terminate()
+
+        app = launch(failing: false, session: "watch-test-kept-other")
+        XCTAssertTrue(app.staticTexts["ask.status"].waitForExistence(timeout: 20))
+        sleep(2)
+        XCTAssertFalse(app.buttons["ask.retry"].exists, "another conversation offers the original recording")
+        XCTAssertFalse(app.buttons["ask.discard"].exists, "another conversation can discard the original recording")
+        XCTAssertNotEqual(app.staticTexts["ask.status"].label, "Not sent.")
+        app.terminate()
+
+        app = launch(failing: false, session: "watch-test-kept-owner")
+        assertKept(app, "returning to the originating conversation")
+        app.buttons["ask.retry"].tap()
+        XCTAssertTrue(app.buttons["voice.button"].waitForExistence(timeout: 40), app.debugDescription)
+        XCTAssertFalse(app.buttons["ask.retry"].exists, "the successfully retried recording remains")
+    }
+
+    func testKeptRecordingIsNotOfferedToAnotherResponder() throws {
+        var app = launch(failing: true, session: "watch-test-kept-responder")
+        assertKept(app, "the Assistant's failed question", status: "No connection.")
+        app.terminate()
+        app = launch(failing: false, session: "watch-test-kept-responder", screen: "ask-entity")
+        XCTAssertTrue(app.staticTexts["ask.status"].waitForExistence(timeout: 20))
+        sleep(2)
+        XCTAssertFalse(app.buttons["ask.retry"].exists, "the entity offers the Assistant's recording")
+        XCTAssertFalse(app.buttons["ask.discard"].exists, "the entity can discard the Assistant's recording")
+        app.terminate()
+        app = launch(failing: false, session: "watch-test-kept-responder")
+        assertKept(app, "returning to the Assistant")
+        app.buttons["ask.discard"].tap()
+        XCTAssertTrue(app.buttons["ask.retry"].waitForNonExistence(timeout: 3))
     }
 
     func testDiscardDeletesTheKeptRecording() throws {

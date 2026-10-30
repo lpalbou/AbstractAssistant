@@ -434,6 +434,7 @@ final class AppModel: ObservableObject {
 
     @Published private(set) var client: any GatewayClient
     @Published private(set) var gatewayHost: String
+    @Published private(set) var recordingConnectionKey: String
     private var seenWaitIDs: Set<String> = []
     private var pollTask: Task<Void, Never>?
     private var approvalPollTask: Task<Void, Never>?
@@ -463,8 +464,9 @@ final class AppModel: ObservableObject {
     /// After a failed poll, until the gateway is said unreachable.
     static let retryInterval: Duration = .seconds(3)
 
-    init(client: any GatewayClient, gatewayHost: String) {
+    init(client: any GatewayClient, gatewayHost: String, recordingConnectionKey: String = "mock") {
         self.client = client; self.gatewayHost = gatewayHost
+        self.recordingConnectionKey = recordingConnectionKey
         if UserDefaults.standard.string(forKey: "ask.session") == nil { UserDefaults.standard.set(askSessionId, forKey: "ask.session") }
         sessionTools = ToolPrefs.session(askSessionId)
         sessionWorkflow = WorkflowPrefs.session(askSessionId)
@@ -547,6 +549,7 @@ final class AppModel: ObservableObject {
             GatewayBook.forget(gateway: signIn.gateway, user: user)
         }
         stopPolling()
+        recordingConnectionKey = KeptQuestion.connectionKey(gateway: signIn.gateway, user: signIn.user, tenant: signIn.tenant, credential: signIn.credential)
         client = LiveGatewayClient(baseURL: signIn.gateway, credential: signIn.credential)
         gatewayHost = signIn.gateway.host() ?? signIn.gateway.absoluteString
         waits = []; runs = []; automations = []; principal = nil; lastError = nil; failures = 0; failingSince = nil; unreachable = false; seenWaitIDs = []; entities = []; automationsLoaded = false; automationsError = nil; automationsTask?.cancel(); automationsTask = nil; automationsLoading = false; automationsReadAt = nil
@@ -584,7 +587,7 @@ final class AppModel: ObservableObject {
         if !keep && notice == nil { UserDefaults.standard.removeObject(forKey: "gateway.user") }
         if !SavedSignIn.clear() { notice = "The sign-in could not be removed from this watch's Keychain." }
         stopPolling()
-        client = MockGatewayClient(world: .watch); gatewayHost = "—"
+        client = MockGatewayClient(world: .watch); gatewayHost = "—"; recordingConnectionKey = "signed-out"
         waits = []; runs = []; automations = []; principal = nil; lastError = nil; failures = 0; failingSince = nil; unreachable = false; seenWaitIDs = []; entities = []; automationsLoaded = false; automationsError = nil; automationsTask?.cancel(); automationsTask = nil; automationsLoading = false; automationsReadAt = nil
         definitions = [:]; results = [:]; savedAt = [:]
         forgetTools()
@@ -1221,12 +1224,17 @@ struct LaunchOptions {
     var testIdentify: String?
     var testSecret: String?
 
+    @MainActor
     static func parse(_ args: [String] = ProcessInfo.processInfo.arguments) -> LaunchOptions {
         func value(_ flag: String) -> String? {
             guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
             return args[i + 1]
         }
         let defaults = UserDefaults.standard
+        if let previous = SavedSignIn.load(defaults) {
+            let connectionKey = KeptQuestion.connectionKey(gateway: previous.gateway, user: previous.user, tenant: previous.tenant, credential: previous.credential)
+            KeptQuestion.migrateLegacy(sessionId: defaults.string(forKey: "ask.session"), connectionKey: connectionKey)
+        }
         // A pairing passed on the command line is kept: `devicectl device process launch … --gateway U --token T`
         // provisions a watch once from the Mac, without typing on the wrist.
         if let gw = value("--gateway").flatMap(SavedSignIn.normalize), let token = value("--token") {
@@ -1287,7 +1295,8 @@ struct LaunchOptions {
     func makeModel() -> AppModel {
         let model: AppModel
         if !useMock, let s = signIn {
-            model = AppModel(client: LiveGatewayClient(baseURL: s.gateway, credential: s.credential), gatewayHost: s.gateway.host() ?? s.gateway.absoluteString)
+            model = AppModel(client: LiveGatewayClient(baseURL: s.gateway, credential: s.credential), gatewayHost: s.gateway.host() ?? s.gateway.absoluteString,
+                             recordingConnectionKey: KeptQuestion.connectionKey(gateway: s.gateway, user: s.user, tenant: s.tenant, credential: s.credential))
         } else {
             // `--slow-automations`: they answer 3 s after the conversations, as on a public gateway;
             // `--flaky-automations`: the first call fails (it times out), the retry answers;

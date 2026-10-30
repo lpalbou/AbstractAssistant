@@ -12,20 +12,21 @@ import WatchKit
 struct SavedSignIn {
     var gateway: URL
     var user: String?
+    var tenant: String?
     var credential: GatewayCredential
 
     static let defaultGateway = "https://gateway.abstractframework.ai"
     private static let legacyKeys = ["gateway.token", "gateway.session", "gateway.csrf"]
 
-    init(gateway: URL, user: String?, credential: GatewayCredential) {
-        self.gateway = gateway; self.user = user; self.credential = credential
+    init(gateway: URL, user: String?, tenant: String? = nil, credential: GatewayCredential) {
+        self.gateway = gateway; self.user = user; self.tenant = tenant; self.credential = credential
     }
 
     init?(_ s: SharedSignIn) {
         if let token = s.token, !token.isEmpty { credential = .token(token) }
         else if let sid = s.session, let csrf = s.csrf, !sid.isEmpty { credential = .session(id: sid, csrf: csrf) }
         else { return nil }
-        gateway = s.gateway; user = s.user
+        gateway = s.gateway; user = s.user; tenant = s.tenant
     }
 
     /// The sealed record (its push handle and sign-in time).
@@ -55,8 +56,8 @@ struct SavedSignIn {
 
     func shared(at date: Date = Date()) -> SharedSignIn {
         switch credential {
-        case .token(let t): SharedSignIn(gateway: gateway, user: user, token: t, signedInAt: date)
-        case .session(let id, let csrf): SharedSignIn(gateway: gateway, user: user, session: id, csrf: csrf, signedInAt: date)
+        case .token(let t): SharedSignIn(gateway: gateway, user: user, tenant: tenant, token: t, signedInAt: date)
+        case .session(let id, let csrf): SharedSignIn(gateway: gateway, user: user, tenant: tenant, session: id, csrf: csrf, signedInAt: date)
         }
     }
 
@@ -95,6 +96,7 @@ struct SavedSignIn {
 struct KeptSignIn: Codable, Equatable, Identifiable {
     var gateway: String
     var user: String
+    var tenant: String?
     var token: String?
     var session: String?
     var csrf: String?
@@ -103,7 +105,7 @@ struct KeptSignIn: Codable, Equatable, Identifiable {
     var id: String { user.lowercased() }
 
     init(_ s: SavedSignIn, user: String, at date: Date = Date()) {
-        gateway = s.gateway.absoluteString; self.user = user; keptAt = date
+        gateway = s.gateway.absoluteString; self.user = user; tenant = s.tenant; keptAt = date
         switch s.credential {
         case .token(let t): token = t
         case .session(let sid, let c): session = sid; csrf = c
@@ -113,8 +115,8 @@ struct KeptSignIn: Codable, Equatable, Identifiable {
     /// The sign-in to connect with; nil when the stored entry is incomplete.
     var signIn: SavedSignIn? {
         guard let url = SavedSignIn.normalize(gateway) else { return nil }
-        if let session, let csrf { return SavedSignIn(gateway: url, user: user, credential: .session(id: session, csrf: csrf)) }
-        if let token { return SavedSignIn(gateway: url, user: user, credential: .token(token)) }
+        if let session, let csrf { return SavedSignIn(gateway: url, user: user, tenant: tenant, credential: .session(id: session, csrf: csrf)) }
+        if let token { return SavedSignIn(gateway: url, user: user, tenant: tenant, credential: .token(token)) }
         return nil
     }
 }
@@ -462,7 +464,7 @@ struct SignInView: View {
         defer { working = false }
         do {
             let me = try await GatewaySignIn.verify(gateway: gw, user: user, token: token)
-            finish(SavedSignIn(gateway: gw, user: me.userId ?? user, credential: .token(token)))
+            finish(SavedSignIn(gateway: gw, user: me.userId ?? user, tenant: me.tenantId, credential: .token(token)))
         } catch {
             self.error = AppModel.say(error)
             WKInterfaceDevice.current().play(.failure)
@@ -475,7 +477,7 @@ struct SignInView: View {
         defer { working = false }
         do {
             let (cred, me) = try await GatewaySignIn.redeem(gateway: gw, identifier: email, code: secret.filter(\.isNumber))
-            finish(SavedSignIn(gateway: gw, user: me.userId ?? email, credential: cred))
+            finish(SavedSignIn(gateway: gw, user: me.userId ?? email, tenant: me.tenantId, credential: cred))
         } catch {
             self.error = AppModel.say(error)
             WKInterfaceDevice.current().play(.failure)

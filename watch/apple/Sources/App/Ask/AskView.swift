@@ -44,7 +44,7 @@ struct AskView: View {
     @State private var note: String?
     /// A question whose sending failed, its recording kept (`KeptQuestion`): Retry and Discard
     /// under the orb while it is at rest, until the person chooses.
-    @State private var kept: URL? = KeptQuestion.url
+    @State private var kept: URL?
     /// A hold on the orb under way, and how far its ring has closed.
     @State private var holding = false
     @State private var holdProgress: CGFloat = 0
@@ -215,7 +215,11 @@ struct AskView: View {
         .task { await onOpen() }
         // An automation's page notices a run starting (its schedule, or Run now on its details).
         // The task ends when the page is covered or left, and starts again when it is back in front.
-        .onAppear { appearances += 1; kept = KeptQuestion.url }
+        .onAppear { appearances += 1; kept = KeptQuestion.url(for: keptScope) }
+        .onChange(of: keptScope) { _, scope in
+            error = nil; note = nil
+            kept = KeptQuestion.url(for: scope)
+        }
         .task(id: automationFeed.map { "\($0.id)#\(appearances)" }) { await watchAutomation() }
         // A message of the Assistant's conversation on screen: a swipe forward opens its stats page
         // (an entity's exchanges, or an answer opened from a notification, may be another conversation's).
@@ -244,6 +248,11 @@ struct AskView: View {
 
     /// The page's automation while it is one (not yet a conversation about it).
     private var automationFeed: AutomationFeed? { if case .automation = conversation { feed } else { nil } }
+
+    private var keptScope: String {
+        automationFeed.map { KeptQuestion.automationScope(connectionKey: model.recordingConnectionKey, $0.id) }
+            ?? KeptQuestion.conversationScope(connectionKey: model.recordingConnectionKey, sessionId: model.askSessionId, responder: model.responder.storageKey)
+    }
 
     /// Whose Approve all this page shows (its shield): the automation's, or the conversation's.
     private var trustOwner: WaitOwner { automationFeed.map { .automation($0.id) } ?? .session(model.askSessionId) }
@@ -650,27 +659,46 @@ struct AskView: View {
     /// the transcription fails, the recording is kept (Retry, Discard); `retrying`: `wav` is the
     /// kept recording, sent again by Retry (sent, it is deleted; failed again, it stays).
     private func transcribeAndSend(_ wav: Data, turn mine: Int, back: Phase, retrying: Bool = false) {
+        let owner = keptScope
+        let client = model.client
+        let uploadSession = KeptQuestion.session(for: owner) ?? (automationFeed == nil ? model.askSessionId : voiceSession)
+        let original = KeptQuestion.url(for: owner)
         phase = .thinking; transcribing = true; prompt = ""
         if !retrying { WKInterfaceDevice.current().play(.stop) }   // heard: the microphone is closed, sending
         Task {
+            guard keptScope == owner else {
+                if !retrying { _ = KeptQuestion.keep(wav, scope: owner, sessionId: uploadSession, replacing: original) }
+                if mine == turn { transcribing = false; phase = back; RuntimeKeeper.shared.release("ask") }
+                return
+            }
             do {
                 #if DEBUG
                 if FailSendHook.on { try await Task.sleep(for: .milliseconds(1800)); throw URLError(.notConnectedToInternet) }   // long enough for a test to see it sending
                 #endif
-                let text = try await model.client.transcribe(wav: wav, sessionId: automationFeed == nil ? model.askSessionId : voiceSession,
+                let text = try await client.transcribe(wav: wav, sessionId: uploadSession,
                                                              model: VoicePrefs.transcription)
+                guard keptScope == owner else {
+                    if !retrying { _ = KeptQuestion.keep(wav, scope: owner, sessionId: uploadSession, replacing: original) }
+                    if mine == turn { transcribing = false; phase = back; RuntimeKeeper.shared.release("ask") }
+                    return
+                }
                 guard mine == turn else { return }
                 transcribing = false
-                if retrying { KeptQuestion.discard(); kept = nil }
+                if retrying { KeptQuestion.discard(scope: owner, matching: original); kept = KeptQuestion.url(for: owner) }
                 if text.isEmpty { phase = back; note = "I didn't catch that"; RuntimeKeeper.shared.release("ask"); return }
                 send(text)
             } catch {
+                guard keptScope == owner else {
+                    if !retrying { _ = KeptQuestion.keep(wav, scope: owner, sessionId: uploadSession, replacing: original) }
+                    if mine == turn { transcribing = false; phase = back; RuntimeKeeper.shared.release("ask") }
+                    return
+                }
                 guard mine == turn else { return }
                 let failure = error as NSError
                 Logger(subsystem: "ai.abstractframework.assistant.watchkitapp", category: "voice-send")
                     .error("Voice question send failed: domain=\(failure.domain, privacy: .public) code=\(failure.code, privacy: .public)")
                 transcribing = false; phase = back
-                kept = retrying ? KeptQuestion.url : KeptQuestion.keep(wav)
+                kept = retrying ? KeptQuestion.url(for: owner) : KeptQuestion.keep(wav, scope: owner, sessionId: uploadSession)
                 // Keeping the recording must not hide why it could not be sent.
                 // Retry and Discard stay available alongside the actionable error.
                 self.error = Self.human(error)
@@ -682,8 +710,8 @@ struct AskView: View {
 
     /// Retry: the kept recording goes again through the same path as when it was recorded.
     private func retryKept() {
-        guard let url = KeptQuestion.url, let wav = try? Data(contentsOf: url) else {
-            KeptQuestion.discard(); kept = nil; error = "The recording is gone."
+        guard let url = KeptQuestion.url(for: keptScope), let wav = try? Data(contentsOf: url) else {
+            KeptQuestion.discard(scope: keptScope); kept = nil; error = "The recording is gone."
             return
         }
         RuntimeKeeper.shared.hold("ask")
@@ -695,7 +723,7 @@ struct AskView: View {
 
     /// Discard: the kept recording is deleted; the orb is at rest.
     private func discardKept() {
-        KeptQuestion.discard(); kept = nil
+        KeptQuestion.discard(scope: keptScope, matching: kept); kept = nil
         error = nil; note = nil
     }
 
