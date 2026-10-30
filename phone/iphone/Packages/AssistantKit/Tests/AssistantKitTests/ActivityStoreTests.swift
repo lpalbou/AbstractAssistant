@@ -52,6 +52,75 @@ import AbstractGatewayClient
         store.disconnect()
     }
 
+    @Test func queuedDecisionDoesNotReappearAndNextGateStillNeedsItsOwnAnswer() async throws {
+        let client = try await nestedClient()
+        await client.delayDecisionApplication()
+        let store = try await store(client)
+        await store.followActiveRun()
+        let first = try #require(store.conversationWait)
+        #expect(await store.answer(first, .approve))
+        // The command was accepted, but both run and list APIs still expose the old gate.
+        await store.refresh()
+        await store.followActiveRun()
+        #expect(store.conversationWait == nil)
+        #expect(!store.waits.contains { $0.id == first.id })
+        #expect(store.activitySummary == "Decision sent. Waiting for gateway…")
+        #expect(await store.answer(first, .approve))
+        #expect(await client.answered == ["leaf"])
+
+        await client.nextApproval(names: ["write_file"], key: "next")
+        await store.followActiveRun()
+        let next = try #require(store.conversationWait)
+        #expect(next.id != first.id && next.details?.first?.name == "write_file")
+        #expect(store.phase == .waiting)
+        #expect(await client.answered == ["leaf"]) // A new gate is never auto-approved.
+        await client.failAnswers()
+        #expect(!(await store.answer(next, .approve)))
+        #expect(store.waits.contains { $0.id == next.id })
+        store.disconnect()
+    }
+
+    @Test func acceptedDecisionStateDoesNotLeakAcrossConnections() async throws {
+        let client = try await nestedClient()
+        await client.delayDecisionApplication()
+        let store = try await store(client)
+        await store.followActiveRun()
+        let wait = try #require(store.conversationWait)
+        #expect(await store.answer(wait, .approve))
+        store.disconnect()
+        store.connect(nil, client: client)
+        store.send("A different connection")
+        for _ in 0..<1000 where store.activeRunID == nil { await Task.yield() }
+        await store.followActiveRun()
+        #expect(store.conversationWait?.id == wait.id)
+        store.disconnect()
+    }
+
+    @Test func staleApprovalProbeCannotRetireANewerSubmittedGate() async throws {
+        let client = try await nestedClient()
+        await client.delayDecisionApplication()
+        let store = try await store(client)
+        await store.followActiveRun()
+        let first = try #require(store.conversationWait)
+        await client.suspend()
+        let staleProbe = Task { await store.refreshPendingApprovals() }
+        for _ in 0..<1000 { if await client.waiting { break }; await Task.yield() }
+        #expect(await client.waiting)
+        await client.nextApproval(names: ["write_file"], key: "newer")
+        await store.followActiveRun()
+        let next = try #require(store.conversationWait)
+        #expect(next.id != first.id)
+        #expect(await store.answer(next, .approve))
+        await client.release()
+        await staleProbe.value
+        await store.followActiveRun()
+        #expect(store.conversationWait == nil)
+        #expect(!store.waits.contains { $0.id == first.id || $0.id == next.id })
+        #expect(await store.answer(next, .approve))
+        #expect(await client.answered == ["leaf"])
+        store.disconnect()
+    }
+
     @Test func approvalAnswersChildAndOnlyRootReplyCompletesConversation() async throws {
         let client = try await nestedClient()
         let store = try await store(client)
@@ -447,6 +516,8 @@ private actor ActivityClient: GatewayClient {
     var answered: [String] = []
     var answers: [WaitAnswer] = []
     var finishOnAnswer = true
+    var decisionApplicationDelayed = false
+    func delayDecisionApplication() { decisionApplicationDelayed = true }
     var originalStates: [String: RunSummary] = [:]
     var inventory = [ToolInfo(name: "read_file", riskTier: "observe", riskRank: 1),
                      ToolInfo(name: "write_file", riskTier: "act", riskRank: 2),
@@ -490,7 +561,7 @@ private actor ActivityClient: GatewayClient {
     func release() { continuation?.resume(); continuation = nil }
     func me() async throws -> Principal { try await mock.me() }
     func health() async throws -> Bool { true }
-    func waits() async throws -> [Wait] { [] }
+    func waits() async throws -> [Wait] { decisionApplicationDelayed ? states.values.compactMap(\.personWait) : [] }
     func recentRuns(limit: Int) async throws -> [RunSummary] { states.values.filter { $0.parentRunId == nil } }
     func prompt(ofRun id: String) async throws -> String? { try await mock.prompt(ofRun: id) }
     func turns(ofSession id: String) async throws -> [RunSummary] { states.values.filter { $0.parentRunId == nil && $0.sessionId == id } }
@@ -523,6 +594,7 @@ private actor ActivityClient: GatewayClient {
     func answer(_ wait: Wait, with answer: WaitAnswer) async throws {
         if answersFail { throw GatewayError.http(status: 500, body: "Approval failed") }
         answered.append(wait.runId); answers.append(answer)
+        if decisionApplicationDelayed { return }
         if !finishOnAnswer { states["leaf"]?.status = "running"; states["leaf"]?.waiting = nil; return }
         states["leaf"]?.status = "completed"; states["leaf"]?.waiting = nil
         states["leaf"]?.output = .string("CHILD OUTPUT MUST NOT BE FINAL")

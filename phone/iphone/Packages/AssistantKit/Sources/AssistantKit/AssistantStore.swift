@@ -59,6 +59,9 @@ public final class AssistantStore {
     public var conversationWait: Wait? { activityWaits.first }
     @ObservationIgnored private var activityWaits: [Wait] = []
     @ObservationIgnored private var autoAnsweredWaits: Set<String> = []
+    // Accepted exact-key commands can precede the gateway's next run snapshot.
+    // Never redraw that same gate as actionable while its command is queued.
+    @ObservationIgnored private var decidedWaits: [String: Wait] = [:]
     @ObservationIgnored private var activityWaitSteps: [String: String] = [:]
     @ObservationIgnored private var activityRunIDs: Set<String> = []
     @ObservationIgnored private var activityCursors: [String: Int] = [:]
@@ -190,7 +193,7 @@ public final class AssistantStore {
         titles = [:]; entityChatIDs = [:]; entityVisitIDs = [:]; toolSelections = [:]; measuredMessages = []; activeEntityRunID = nil; activeRunID = nil; selectedEntity = nil; restorationID = nil
         completedReply = nil; quietEntityRestoreID = nil
         phase = .ready; error = nil; automationsError = nil; entitiesError = nil; loadingEntities = false; lastRefresh = nil; isRefreshing = false; isOpening = false
-        deciding = []; approvingAll = []; automationBusy = []; sessionID = "iphone-" + UUID().uuidString.lowercased()
+        deciding = []; decidedWaits = [:]; approvalRevision += 1; approvingAll = []; automationBusy = []; sessionID = "iphone-" + UUID().uuidString.lowercased()
     }
     public func setForeground(_ value: Bool) {
         foreground = value
@@ -221,18 +224,28 @@ public final class AssistantStore {
     func refreshPendingApprovals() async {
         guard let client else { return }
         let epoch = generation
-        let pending = Dictionary(grouping: waits + activityWaits, by: \.runId)
-        for (id, known) in pending {
+        let pending = Dictionary(grouping: waits + activityWaits + Array(decidedWaits.values), by: \.runId)
+        for (id, _) in pending {
             guard !Task.isCancelled, epoch == generation else { return }
             do {
+                let revision = approvalRevision
                 let run = try await client.run(id: id)
                 guard !Task.isCancelled, epoch == generation else { return }
-                let current = run.isTerminal ? nil : run.personWait?.id
-                let removed = Set(known.filter { $0.id != current }.map(\.id))
-                guard !removed.isEmpty else { continue }
+                guard revision == approvalRevision else { continue }
+                reconcileDecisions(runID: id, currentID: run.personWait?.id,
+                                   confirmed: run.status != "waiting" || run.waiting?.waitKey != nil)
+                let current = run.personWait.flatMap { decidedWaits[$0.id] == nil ? $0 : nil }
+                let visible = waits + activityWaits
+                let removed = Set(visible.filter { $0.runId == id && $0.id != current?.id }.map(\.id))
+                let insert = current.map { next in !waits.contains { $0.id == next.id } } ?? false
+                guard !removed.isEmpty || insert else { continue }
                 approvalRevision += 1
                 waits.removeAll { removed.contains($0.id) }
                 activityWaits.removeAll { removed.contains($0.id) }
+                if let current, insert {
+                    waits.insert(current, at: 0)
+                    if activityRunIDs.contains(id) { activityWaits.append(current); activityState = .waiting; phase = .waiting }
+                }
                 if activityWaits.isEmpty, activityState == .waiting {
                     activityState = .running; activitySummary = nil
                     if phase == .waiting { phase = .working }
@@ -257,7 +270,7 @@ public final class AssistantStore {
             let me = try await client.me()
             guard epoch == generation else { return }; principal = me
             let newWaits = try await client.waits()
-            guard epoch == generation else { return }; if approvals == approvalRevision { waits = newWaits + waits.filter { $0.runId == activeEntityRunID } }
+            guard epoch == generation else { return }; if approvals == approvalRevision { waits = newWaits.filter { decidedWaits[$0.id] == nil } + waits.filter { $0.runId == activeEntityRunID } }
             let newRuns = try await client.recentRuns(limit: 60)
             guard epoch == generation else { return }; if historyVersion == historyRevision { runs = newRuns; recentHistoryMayBePartial = newRuns.count >= 60 }
             if let saved = restorationID {
@@ -580,7 +593,11 @@ public final class AssistantStore {
             let tree = await activityTree(root: run, client: client, epoch: epoch)
             guard epoch == activityEpoch, activeRunID == id else { return }
             guard approvals == approvalRevision else { return }
-            activityWaits = stopRequested ? [] : tree.compactMap { $0.isTerminal ? nil : $0.personWait }
+            for row in tree {
+                reconcileDecisions(runID: row.runId, currentID: row.personWait?.id,
+                                   confirmed: row.status != "waiting" || row.waiting?.waitKey != nil)
+            }
+            activityWaits = stopRequested ? [] : tree.compactMap { $0.isTerminal ? nil : $0.personWait }.filter { decidedWaits[$0.id] == nil }
             autoAnsweredWaits.formIntersection(Set(activityWaits.map(\.id)))
             waits.removeAll { activityRunIDs.contains($0.runId) }
             waits.insert(contentsOf: activityWaits, at: 0)
@@ -606,7 +623,7 @@ public final class AssistantStore {
                 if run.status == "cancelled" { markStoppedRequest(runID: id); messages.append(.init(role: .notice, text: "Run stopped.")) }
                 phase = .ready; activeRunID = nil
                 if stopRequested {
-                    if let current = try? await client.waits(), epoch == activityEpoch { waits = current }
+                    if let current = try? await client.waits(), epoch == activityEpoch { waits = current.filter { decidedWaits[$0.id] == nil } }
                     guard epoch == activityEpoch else { return }
                     finishStop(requestWasStopped: run.status == "cancelled"); return
                 }
@@ -615,7 +632,7 @@ public final class AssistantStore {
                 phase = activityWaits.isEmpty ? .working : .waiting
                 activityState = activityWaits.isEmpty ? .running : .waiting
                 let leaf = tree.last ?? run
-                activitySummary = leaf.waiting?.reason == "job" ? "Waiting for a background job" : leaf.waiting?.reason == "event" ? "Waiting for an event" : leaf.runId != id && leaf.isTerminal ? "Finishing workflow" : nil
+                activitySummary = tree.contains(where: { $0.personWait.map { decidedWaits[$0.id] != nil } ?? false }) && activityWaits.isEmpty ? "Decision sent. Waiting for gateway…" : leaf.waiting?.reason == "job" ? "Waiting for a background job" : leaf.waiting?.reason == "event" ? "Waiting for an event" : leaf.runId != id && leaf.isTerminal ? "Finishing workflow" : nil
                 for child in tree {
                     guard epoch == activityEpoch, activeRunID == id else { return }
                     if !foreground || child.isTerminal || (activityStreams[child.runId] == nil && activityStreams.count >= 4) {
@@ -644,7 +661,9 @@ public final class AssistantStore {
             guard activityToken == activityEpoch, approvals == approvalRevision else { return }
             // The stop worker owns entity lifecycle until the server confirms closure.
             guard !stopRequested else { return }
-            if let wait = state.personWait {
+            reconcileDecisions(runID: id, currentID: state.personWait?.id,
+                               confirmed: state.status != "waiting" || state.personWait != nil || state.finishedTurn)
+            if let wait = state.personWait, decidedWaits[wait.id] == nil {
                 waits.removeAll { $0.runId == id }; waits.insert(wait, at: 0); activityWaits = [wait]
                 autoAnsweredWaits.formIntersection([wait.id])
                 await applyConversationTrust(epoch: activityToken)
@@ -827,6 +846,7 @@ public final class AssistantStore {
     }
     @discardableResult public func answer(_ wait: Wait, _ answer: WaitAnswer) async -> Bool {
         guard let client, !stopRequested, !deciding.contains(wait.id) else { return false }
+        if decidedWaits[wait.id] != nil { return true }
         let epoch = generation; deciding.insert(wait.id)
         defer { if epoch == generation { deciding.remove(wait.id) } }
         do {
@@ -836,14 +856,32 @@ public final class AssistantStore {
                 _ = try await client.answerEntity(name: entity, runID: wait.runId, waitKey: wait.waitKey, approved: approved)
             } else { try await client.answer(wait, with: answer) }
             guard epoch == generation else { return false }
-            waits.removeAll { $0.id == wait.id }; activityWaits.removeAll { $0.id == wait.id }; await followActiveRun(); return true
+            markDecided(wait); await followActiveRun(); return true
         } catch {
             if epoch == generation {
                 self.error = say(error)
-                if error as? GatewayError == .alreadyHandled { waits.removeAll { $0.id == wait.id } }
+                if error as? GatewayError == .alreadyHandled { markDecided(wait) }
                 handle(error)
             }
             return false
+        }
+    }
+    private func reconcileDecisions(runID: String, currentID: String?, confirmed: Bool) {
+        guard confirmed else { return }
+        let finished = decidedWaits.values.filter { $0.runId == runID && $0.id != currentID }.map(\.id)
+        guard !finished.isEmpty else { return }
+        for id in finished { decidedWaits.removeValue(forKey: id) }
+        // Invalidate reads begun before the transition. A later occurrence may
+        // legitimately reuse its key once this prior occurrence has disappeared.
+        approvalRevision += 1
+    }
+    private func markDecided(_ wait: Wait) {
+        let wasActive = activityWaits.contains { $0.id == wait.id }
+        decidedWaits[wait.id] = wait; approvalRevision += 1
+        waits.removeAll { $0.id == wait.id }; activityWaits.removeAll { $0.id == wait.id }
+        if wasActive && activityWaits.isEmpty {
+            if phase == .waiting { phase = .working }
+            if activityState == .waiting { activityState = .running; activitySummary = "Decision sent. Waiting for gateway…" }
         }
     }
     public func canApproveAll(_ wait: Wait) -> Bool {

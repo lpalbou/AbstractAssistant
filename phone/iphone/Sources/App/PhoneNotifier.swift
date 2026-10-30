@@ -68,9 +68,21 @@ final class PhoneNotifier: NSObject, UNUserNotificationCenterDelegate {
         [.banner, .sound, .list]
     }
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        guard response.actionIdentifier != UNNotificationDismissActionIdentifier,
-              let tab = response.notification.request.content.userInfo["tab"] as? Int else { return }
-        await MainActor.run { PhoneNotifier.shared.open?(tab) }
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                           withCompletionHandler completionHandler: @escaping @Sendable () -> Void) {
+        let tab = response.actionIdentifier == UNNotificationDismissActionIdentifier ? nil : response.notification.request.content.userInfo["tab"] as? Int
+        Self.completeTap(destination: tab, completionHandler: completionHandler)
+    }
+
+    // UIKit's notification completion performs state restoration. The generated
+    // async delegate bridge can invoke it on a cooperative executor after the
+    // actor hop returns; keep routing AND completion explicitly on MainActor.
+    nonisolated static func completeTap(destination: Int?, completionHandler: @escaping @Sendable () -> Void) {
+        Task { @MainActor in
+            defer { completionHandler() }
+            if let destination, destination == 1 || destination == 2 {
+                shared.open?(destination)
+            }
+        }
     }
 }
