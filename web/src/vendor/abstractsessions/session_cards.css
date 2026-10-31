@@ -17,8 +17,14 @@
 .af-session-card__time { overflow: hidden; }
 .af-session-card__time > span { overflow: hidden; text-overflow: ellipsis; }
 .af-session-card__attention { color: var(--warning); font-weight: 400; }
-.af-session-card__archive { display: grid; place-items: center; flex: 0 0 44px; width: 44px; height: 44px; border: 0; border-radius: 50%; margin-right: 3px; background: color-mix(in srgb, var(--error) 10%, transparent); color: var(--error); cursor: pointer; }
+.af-session-card__archive { display: grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px; border: 0; border-radius: 6px; margin-right: 6px; background: transparent; color: var(--error); cursor: pointer; opacity: 0; pointer-events: none; }
+.af-session-card:hover .af-session-card__archive, .af-session-card__open:focus-visible + .af-session-card__archive, .af-session-card__archive:focus-visible { opacity: 1; visibility: visible; pointer-events: auto; }
+.af-session-card__archive:hover { background: color-mix(in srgb, var(--error) 10%, transparent); }
+@media (hover: none), (pointer: coarse) { .af-session-card__archive { flex-basis: 44px; width: 44px; height: 44px; opacity: 1; visibility: visible; pointer-events: auto; } }
 .af-session-card button:disabled { opacity: .5; cursor: not-allowed; }
+.af-session-card .af-session-card__archive:disabled { opacity: 0; }
+.af-session-card:hover .af-session-card__archive:disabled, .af-session-card__open:focus-visible + .af-session-card__archive:disabled { opacity: .5; }
+@media (hover: none), (pointer: coarse) { .af-session-card .af-session-card__archive:disabled { opacity: .5; } }
 @keyframes af-session-working { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .af-session-card__marker.is-working { animation: none; } }
 

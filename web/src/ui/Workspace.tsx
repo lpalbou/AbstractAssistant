@@ -1,4 +1,4 @@
-import {WorkflowChat} from "../vendor/abstractchat/conversation.js";
+import {WorkflowChat, useWorkflowSession} from "../vendor/abstractchat/conversation.js";
 import "../vendor/abstractchat/conversation.css";
 import { SessionReadMarker, sessionContentRevision, sessionReadTarget, type SessionReceipt, type SessionActivity } from "../vendor/abstractsessions/session_cards.js";
 /**
@@ -17,7 +17,6 @@ import { SessionReadMarker, sessionContentRevision, sessionReadTarget, type Sess
 import {
   presentInteraction,
   useAttachmentUploads,
-  useWorkflowSession,
   workflowPendingInteraction,
   workflowSourceLabel,
   type ChatMessage,

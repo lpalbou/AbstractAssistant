@@ -46,6 +46,8 @@ export type ChatMessage = {
      * file chips with its artifactFetch transport; hosts may also supply media.
      */
     artifactIds?: string[];
+    /** Unlisted replay refs require explicit output recovery, never raw-ID chips. */
+    artifactReferencesUnresolved?: boolean;
     artifactRefs?: MessageArtifact[];
 };
 /**

@@ -40,10 +40,10 @@ function view(id) {
     workflow: { id: "assistant@1:main", bundle_id: "assistant", bundle_version: "1", flow_id: "main", entrypoint: "main" },
     cursor: { token: `${id}:2~d1`, records: 2, runs: { [id]: 2 } },
     runs: [{ run_id: id, parent_run_id: null, status: r.status, depth: 0, order: ["", id, 0, id], waiting: null, holds_interaction: false }],
-    interaction: r.interaction || null, open_waits: [], activities: [], artifacts: [], warnings: [], usage: {},
+    interaction: r.interaction || null, open_waits: [], activities: [], artifacts: id === "history" ? [{id:"answer-file",run_id:id,path:"output.attachments[0]"},{id:"scratchpad-file",run_id:id,path:"output.scratchpad.steps"},{id:"session-file",run_id:id,path:"output.session.artifacts[0]"}] : [], warnings: [], usage: {},
     messages: [
       { id: `${id}:input`, role: "user", kind: "prompt", text: r.prompt, run_id: id, order: order(0), step_ids: [], seqs: [], source: "run_input", artifact_ids: [] },
-      { id: `${id}:final`, role: "assistant", kind: "final", text: r.answer, run_id: id, order: order(2), step_ids: ["done"], seqs: [2], source: "ledger", artifact_ids: id === "history" ? ["answer-file"] : [] },
+      { id: `${id}:final`, role: "assistant", kind: "final", text: r.answer, run_id: id, order: order(2), step_ids: ["done"], seqs: [2], source: "ledger", artifact_ids: id === "history" ? ["answer-file","scratchpad-file","session-file"] : [] },
     ],
   };
 }
