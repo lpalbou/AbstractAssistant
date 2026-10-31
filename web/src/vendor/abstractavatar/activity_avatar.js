@@ -16,7 +16,8 @@ export function ActivityAvatar({ design = "halo", pose = "ready", level = 0, ban
         let disposed = false, renderer, visible = true, lost = false;
         let timer, idle;
         let gaze = [0, 0], tracking = false;
-        const motion = matchMedia("(prefers-reduced-motion: reduce)"), started = performance.now();
+        const motion = matchMedia("(prefers-reduced-motion: reduce)");
+        let elapsed = 0, previous;
         const clear = () => {
             if (timer !== undefined) {
                 clearTimeout(timer);
@@ -45,11 +46,17 @@ export function ActivityAvatar({ design = "halo", pose = "ready", level = 0, ban
             const s = latest.current;
             if (!animated || motion.matches || !visible || lost || document.hidden || s.pose !== "ready")
                 resetGaze();
-            if (disposed || !renderer || !visible || lost || document.hidden)
+            if (disposed || !renderer || !visible || lost || document.hidden) {
+                previous = undefined;
                 return;
+            }
             try {
+                const moving = animated && !motion.matches, now = performance.now();
+                if (moving && previous !== undefined)
+                    elapsed = (elapsed + Math.min(1, (now - previous) / 1000)) % 86400;
+                previous = moving ? now : undefined;
                 renderer.renderFrame({ schema_version: 1, style: s.design, state: s.pose, level: s.level,
-                    time: animated && !motion.matches ? ((performance.now() - started) / 1000) % 86400 : 0,
+                    time: moving ? elapsed : 0,
                     gaze, ...(s.bands === undefined ? {} : { bands: s.bands }) });
                 setError(false);
                 if (animated && !motion.matches && s.pose !== "error") {
@@ -135,6 +142,6 @@ export function ActivityAvatar({ design = "halo", pose = "ready", level = 0, ban
     useEffect(() => {
         if (!animated || matchMedia("(prefers-reduced-motion: reduce)").matches)
             canvas.current?.dispatchEvent(new Event("avatar-update"));
-    }, [level, animated]);
+    }, [level, bands, animated]);
     return _jsx("canvas", { ref: canvas, className: className, style: { width: size, height: size, visibility: active ? "visible" : "hidden" }, "aria-hidden": !active, role: "img", "aria-label": error ? "Avatar unavailable" : label ?? `${design} · ${pose}` });
 }

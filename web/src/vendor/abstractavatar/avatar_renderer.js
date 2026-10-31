@@ -121,6 +121,9 @@ export class AvatarRenderer {
         }
     }
     draw(style, pose, level, time, gaze) {
+        this.renderFrame({ schema_version: 1, style, state: pose, level, time, ...(gaze === undefined ? {} : { gaze }) });
+    }
+    paint(style, pose, level, time, gaze) {
         if (!this.handle)
             throw new Error("Avatar renderer disposed");
         const index = this.designs.findIndex(d => d.id === style), phase = poses.indexOf(pose);
@@ -145,10 +148,12 @@ export class AvatarRenderer {
         const frame = parseAvatarFrame(value);
         if (!this.handle)
             throw new Error("Avatar renderer disposed");
-        const bands = frame.bands ?? [0, 0, 0, 0, 0, 0, 0, 0];
+        // Absent measured bands mean the scalar envelope in every band, matching
+        // the native descriptor binding. An explicit zero vector means silence.
+        const bands = frame.bands ?? Array(8).fill(frame.level);
         if (this.core.avatar_set_bands(this.handle, bands[0], bands[1], bands[2], bands[3], bands[4], bands[5], bands[6], bands[7]) !== 0)
             throw new Error("Avatar audio-band update failed");
-        this.draw(frame.style, frame.state, frame.level, frame.time, frame.gaze);
+        this.paint(frame.style, frame.state, frame.level, frame.time, frame.gaze);
     }
     dispose() {
         if (this.handle) {

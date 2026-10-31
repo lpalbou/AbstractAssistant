@@ -41,7 +41,7 @@ describe("the shared top-bar set", () => {
 
   it("renders it through the kit (AfAppShell) and panel-chat's docs panel, never local copies", () => {
     expect((app.match(/<AfAppShell\b[^>]*topBar=\{(?:props\.)?topBar\}/g) || []).length).toBe(2);
-    expect(app).toMatch(/import \{ docsAssistantPanel \} from "@abstractframework\/panel-chat"/);
+    expect(app).toMatch(/import \{ docsAssistantPanel \} from "(?:@abstractframework\/panel-chat|\.\/vendor\/abstractdocs\/docs_assistant\.js)"/);
     expect(app).toMatch(/docsAssistantPanel\(\{ app: "assistant-web", name: "AbstractAssistant" \}/);
     for (const local of [/function \w*About\w*Dialog/, /function \w*Appearance\w*Dialog/, /Signed in as/, /af-topbar__/]) expect(app).not.toMatch(local);
   });

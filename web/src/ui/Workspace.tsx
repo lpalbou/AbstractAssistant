@@ -28,13 +28,13 @@ import {
   sessionToolPolicyCapability,
   streamTtsJsonl,
   gatewayVoiceOptions,
-  useGatewayVoice,
   voiceSttRequest,
   voiceTtsRequest,
   withRunTools,
   type VoiceCaptureMode,
   type VoiceClientPreferences,
 } from "@abstractframework/ui-kit";
+import { useGatewayVoice } from "../vendor/abstractvoice/use_gateway_voice.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { GatewayClient, type AttachmentRef } from "../gateway/client";

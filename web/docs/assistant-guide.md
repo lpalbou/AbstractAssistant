@@ -49,6 +49,10 @@ record or play audio. Your choice applies immediately. The animation switch and
 your system's reduced-motion preference control motion. Hidden pages stop animating.
 The top-bar appearance button changes the theme.
 
+Listening reacts to measured microphone loudness. Speaking reacts to the reply's
+actual playback level after volume and mute. Pauses and silence produce zero
+voice level; the avatar never invents a voice signal to appear active.
+
 Ready means the assistant is available. Listening means recording. Thinking and
 Working reflect the current request. Speaking follows reply playback. Waiting
 means an approval or answer needs you. Error indicates a failed action. The avatar

@@ -1,4 +1,7 @@
-import { AfVoiceMicButton, Icon, useVoiceLevel, type AvatarPalette, type AvatarPose, type GatewayVoice, type VoiceCaptureMode } from "@abstractframework/ui-kit";
+import { AfVoiceMicButton, Icon, type VoiceCaptureMode } from "@abstractframework/ui-kit";
+import { useVoiceLevel } from "../vendor/abstractvoice/af_voice_level_meter.js";
+import type { GatewayVoice } from "../vendor/abstractvoice/use_gateway_voice.js";
+import type { AvatarPalette, AvatarPose } from "../vendor/abstractavatar/avatar_renderer.js";
 import { useState } from "react";
 import { AppAvatar } from "./AppAvatar";
 import type { AssistantPreferences } from "./useAssistantPreferences";
@@ -17,7 +20,9 @@ export function avatarPalette(design: string, pose: AvatarPose): AvatarPalette {
 }
 
 function Orb(props: { voice: GatewayVoice; pose: AvatarPose; prefs: AssistantPreferences; onError: () => void }) {
-  const level = useVoiceLevel(props.voice);
+  const microphone = useVoiceLevel(props.pose === "listening" ? props.voice : null);
+  const playback = useVoiceLevel(props.pose === "speaking" ? props.voice : null, "playback");
+  const level = props.pose === "listening" ? microphone : props.pose === "speaking" ? playback : 0;
   return <AppAvatar design={props.prefs.design} pose={props.pose} size={288} level={level}
     palette={avatarPalette(props.prefs.design, props.pose)} animated={props.prefs.animated} followCursor className="aa-orb" label={`Assistant · ${props.pose}`} onError={props.onError} />;
 }

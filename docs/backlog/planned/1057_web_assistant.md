@@ -31,6 +31,13 @@
   `web/src/vendor/abstractavatar/`, its sync script and the scoped Docs compatibility
   adapter together.** Re-run the browser experience checks after that removal.
   [Iteration evidence](../evidence/1057/2026-10-31_apple_visuals_and_docs.md).
+- Real voice feedback implemented 2026-10-31: the orb selects separate measured
+  microphone and reply-output subscriptions. The shared output observer reads after
+  volume/mute and stops on pause, stop, completion or the last unsubscribe. All 44
+  Listening/Speaking frames are amplitude-sensitive, including legacy Vortex.
+  Adopt the next ui-kit voice exports and remove `web/src/vendor/abstractvoice/`
+  and its sync script alongside the other snapshot adapters.
+  [Validation evidence](../evidence/1057/2026-10-31_reactive_voice.md).
 - Catalog integration completed 2026-10-31: Gateway and its tray list **Assistant (web)**
   (`assistant-web`, port 3008), separate from the desktop Assistant. A local build can
   use Gateway's existing app manager and signed-in handover at `/apps/assistant-web/`.

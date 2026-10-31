@@ -50,10 +50,8 @@ export declare class AvatarRenderer {
         source?: AvatarSource;
     }): Promise<AvatarRenderer>;
     setPalette(p: AvatarPalette): void;
-    draw(style: string, pose: AvatarPose, level: number, time: number, gaze?: readonly [
-        number,
-        number
-    ]): void;
+    draw(style: string, pose: AvatarPose, level: number, time: number, gaze?: readonly [number, number]): void;
+    private paint;
     /** Read a validated frame request using the shared generator's raster contract. */
     renderFrame(value: AvatarFrameDescriptor): void;
     dispose(): void;

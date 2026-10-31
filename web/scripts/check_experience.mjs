@@ -1,21 +1,30 @@
 // Real built UI, virtual microphone and local fake Gateway; no inference or physical audio.
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { chromium } from "playwright";
 import { createAssistantServer } from "../bin/server.js";
 
 const server = createAssistantServer({ defaultGatewayUrl: "http://127.0.0.1:9" });
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const base = `http://127.0.0.1:${server.address().port}/`;
-const browser = await chromium.launch({ args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] });
+let browser;
+const audioDir = mkdtempSync(join(tmpdir(), "assistant-voice-feedback-"));
 const shotsAt = process.argv.indexOf("--shots");
 const shots = shotsAt < 0 ? "" : process.argv[shotsAt + 1];
 if (shots) mkdirSync(shots, { recursive: true });
-// Silent PCM, long enough to pause/resume. No sound is played on the user's devices.
+// Alternating quiet/loud PCM exercises the real audio graph. --mute-audio blocks physical output.
 const wav = Buffer.alloc(44 + 16000 * 2 * 12);
 wav.write("RIFF"); wav.writeUInt32LE(wav.length - 8, 4); wav.write("WAVEfmt ", 8); wav.writeUInt32LE(16, 16);
 wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(16000, 24); wav.writeUInt32LE(32000, 28);
 wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write("data", 36); wav.writeUInt32LE(wav.length - 44, 40);
+for (let i = 0; i < 16000 * 12; i++) {
+  const amplitude = Math.floor(i / 12800) % 2 ? .22 : 0;
+  wav.writeInt16LE(Math.round(32767 * amplitude * Math.sin(2 * Math.PI * 440 * i / 16000)), 44 + i * 2);
+}
+const microphoneFile = join(audioDir, "microphone.wav");
+writeFileSync(microphoneFile, wav);
 const json = (body, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(body) });
 const runs = new Map([["history", { session_id: "history-session", prompt: "An earlier question", answer: "An earlier answer", status: "completed" }]]);
 const calls = { starts: [], speech: 0, recordings: 0, commands: [] };
@@ -37,12 +46,27 @@ function view(id) {
   };
 }
 try {
+  browser = await chromium.launch({ args: ["--mute-audio", "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", `--use-file-for-fake-audio-capture=${microphoneFile}`] });
   const servedDocs = await fetch(new URL("llms.txt", base));
   assert.equal(servedDocs.status, 200);
   assert.match(servedDocs.headers.get("content-type"), /^text\/plain/);
   assert.match(await servedDocs.text(), /^# AbstractAssistant in your browser/);
   report.bundledDocs = true;
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, colorScheme: "dark", permissions: ["microphone"] });
+  await context.addInitScript(() => {
+    window.__avatarFrames = [];
+    const instantiate = WebAssembly.instantiate;
+    WebAssembly.instantiate = async function (...args) {
+      const result = await instantiate.apply(this, args), instance = result.instance ?? result;
+      if (!instance.exports.avatar_render) return result;
+      const exports = { ...instance.exports, avatar_render(...values) {
+        window.__avatarFrames.push({ style: values[1], pose: values[2], level: values[3], time: values[4] });
+        if (window.__avatarFrames.length > 1500) window.__avatarFrames.shift();
+        return instance.exports.avatar_render(...values);
+      } };
+      return result.instance ? { module: result.module, instance: { exports } } : { exports };
+    };
+  });
   await context.addInitScript(() => { document.cookie = "abstractassistant_gateway_csrf=local-test; path=/"; });
   await context.route("**/api/**", async (route) => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname.replace(/^\/api\//, "");
@@ -93,7 +117,12 @@ try {
   // One accessible orb owns the existing microphone pipeline, including transcription after stop.
   await page.getByRole("button", { name: "Tap the orb to talk" }).click();
   await page.getByRole("heading", { name: "Listening", exact: true }).waitFor();
-  await page.waitForTimeout(700);
+  await page.waitForTimeout(2600);
+  const listening = await page.evaluate(() => window.__avatarFrames.filter((f) => f.pose === 3).map((f) => f.level));
+  assert.ok(Math.max(...listening) > .2 && Math.max(...listening) - Math.min(...listening) > .15, `Microphone amplitude reaches Listening frames: ${listening}`);
+  assert.equal(Math.min(...listening), 0, "Microphone silence stays zero");
+  report.microphoneDrivesAvatar = true;
+  report.microphoneLevelRange = [Math.min(...listening), Math.max(...listening)];
   await page.getByRole("button", { name: "Recording — tap to stop" }).click();
   await page.getByRole("textbox", { name: "Message" }).waitFor();
   await page.waitForFunction(() => document.querySelector("textarea")?.value.includes("Words from the virtual microphone"));
@@ -105,6 +134,26 @@ try {
   await page.getByRole("heading", { name: "Speaking", exact: true }).waitFor();
   assert.equal(calls.speech, 1);
   report.newReplyReadOnce = true;
+  await page.waitForTimeout(1800);
+  const speaking = await page.evaluate(() => window.__avatarFrames.filter((f) => f.pose === 4).map((f) => f.level));
+  assert.ok(Math.max(...speaking) > .2 && Math.max(...speaking) - Math.min(...speaking) > .15, `Played amplitude reaches Speaking frames: ${speaking}`);
+  assert.equal(Math.min(...speaking), 0, "Playback silence stays zero");
+  report.playbackDrivesAvatar = true;
+  report.playbackLevelRange = [Math.min(...speaking), Math.max(...speaking)];
+  await page.getByRole("button", { name: "Assistant settings", exact: true }).click();
+  await page.getByRole("slider", { name: "Reply volume", exact: true }).press("Home");
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(250);
+  assert.equal(await page.evaluate(() => window.__avatarFrames.at(-1).level), 0, "Zero reply volume silences the visual envelope");
+  await page.getByRole("button", { name: "Assistant settings", exact: true }).click();
+  await page.getByRole("slider", { name: "Reply volume", exact: true }).press("End");
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(100);
+  const unmuteAt = await page.evaluate(() => window.__avatarFrames.length);
+  await page.waitForTimeout(1700);
+  assert.ok(await page.evaluate((from) => window.__avatarFrames.slice(from).some((f) => f.pose === 4 && f.level > .2), unmuteAt), "Restoring volume restores the real envelope");
+  report.outputVolumeDrivesAvatar = true;
+
   await page.getByRole("button", { name: "Pause reply", exact: true }).last().click();
   await page.getByRole("heading", { name: "Paused", exact: true }).waitFor();
   await page.getByRole("button", { name: "Resume reply", exact: true }).last().click();
@@ -263,4 +312,4 @@ try {
   assert.deepEqual(errors, []);
   report.javascriptErrors = 0;
   console.log(JSON.stringify(report));
-} finally { await browser.close(); server.close(); }
+} finally { await browser?.close(); server.close(); rmSync(audioDir, { recursive: true, force: true }); }

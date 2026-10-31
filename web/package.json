@@ -24,13 +24,14 @@
   ],
   "scripts": {
     "dev": "vite --port 3008",
-    "build": "node scripts/sync_apple_avatars.mjs --check && tsc && vite build && node scripts/build_docs_corpus.mjs && node scripts/check_relative_urls.mjs --dist",
+    "build": "node scripts/sync_gateway_voice.mjs --check && node scripts/sync_apple_avatars.mjs --check && tsc && vite build && node scripts/build_docs_corpus.mjs && node scripts/check_relative_urls.mjs --dist",
     "check:urls": "node scripts/check_relative_urls.mjs",
     "start": "node ./bin/cli.js",
     "test": "vitest run",
     "test:layout": "node scripts/check_layout.mjs",
     "test:experience": "node scripts/check_experience.mjs",
-    "sync:avatars": "node scripts/sync_apple_avatars.mjs"
+    "sync:avatars": "node scripts/sync_apple_avatars.mjs",
+    "sync:voice": "node scripts/sync_gateway_voice.mjs"
   },
   "dependencies": {
     "@abstractframework/app-server": "0.1.13"

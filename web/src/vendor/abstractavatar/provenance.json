@@ -3,17 +3,17 @@
   "owner": "AbstractAvatar",
   "adapter_owner": "@abstractframework/ui-kit",
   "sources": {
-    "src/avatar_renderer.ts": "7a71b246e12ca46a724389e463fbb7de3dad93571214f96e79526c9505830253",
-    "src/activity_avatar.tsx": "8c52140b1d62fe4cdf75059a3559864808f4af2613c31c867278736bf4aa1d70",
-    "src/avatars/avatar_core.wasm": "cc501e5c963be00e414f4d84aa7eca6cdac7b54620ffdc46ed296939de4ff9e3",
-    "src/avatars/provenance.json": "2654a7afb8e51c6221d4f6ddfe312c0b08a07b260a1f41bb93073cc70e7f39cc"
+    "src/avatar_renderer.ts": "db525b76f23c3e9bd609343d2fc4ee92fb7386306379a8fdc02a6dfcaa5b2c93",
+    "src/activity_avatar.tsx": "b157fa5d0fac4c5839268277213b0b5ed475648b858f26151f3e8a350adf6fbe",
+    "src/avatars/avatar_core.wasm": "7aeaffcd3bde0f167901a38a34888a246dd1efd862ed43b2f3fa1534ad04bac5",
+    "src/avatars/provenance.json": "2a68d973d97a58d0023cace8e2394aa5b72a8ea2ac8db77d45510693ff124c5d"
   },
   "artifacts": {
-    "avatar_renderer.js": "e95f24ba823c3da892f8d2b3c776f85a62474d925672b593559e118335db5a3f",
-    "avatar_renderer.d.ts": "4dcc39aa847cc74cf63010c2554a640de62036bca81bea3135c16c186971a472",
-    "activity_avatar.js": "60684e91e823cb2fab36231122b38e9e013d11c038e76e524f3af11cea6e5886",
+    "avatar_renderer.js": "1cdc4e4edbf78cb76ef090581d3a92962481505e7be14cb3a0f35b69bb5adb02",
+    "avatar_renderer.d.ts": "2ae8b5d0ac439f9e179b88216c9e5799599e01a883adbf0352d683837f2c44e4",
+    "activity_avatar.js": "59bed4d1134a6e0ff3dcdceda7c582f42319072eec1a5c452985b59f4357bed9",
     "activity_avatar.d.ts": "5e5b4cecff255b479588cb4bfd7cb5ab771d01cf51d1bbe162bbc32799c42fc8",
-    "avatars/avatar_core.wasm": "cc501e5c963be00e414f4d84aa7eca6cdac7b54620ffdc46ed296939de4ff9e3",
-    "avatars/provenance.json": "2654a7afb8e51c6221d4f6ddfe312c0b08a07b260a1f41bb93073cc70e7f39cc"
+    "avatars/avatar_core.wasm": "7aeaffcd3bde0f167901a38a34888a246dd1efd862ed43b2f3fa1534ad04bac5",
+    "avatars/provenance.json": "2a68d973d97a58d0023cace8e2394aa5b72a8ea2ac8db77d45510693ff124c5d"
   }
 }
