@@ -38,6 +38,8 @@ describe("an ended turn says what happened when the transcript cannot", () => {
     expect(turnOutcome("r", "completed", {}, [])).toBe("The run ended without a written reply.");
     expect(turnOutcome("r", "completed", {}, [{ id: "final:r", role: "assistant" }])).toBe("");
     expect(turnOutcome("r", "completed", {}, [{ id: "answer:r:3", role: "assistant" }])).toBe("");
+    expect(turnOutcome("r", "completed", {}, [{ id: "r:final", runId: "r", role: "assistant", content: "A replay-view answer" }])).toBe("");
+    expect(turnOutcome("r", "completed", {}, [{ id: "r:live", runId: "r", role: "assistant", content: "Still writing", live: {} }])).toMatch(/without a written reply/);
     expect(turnOutcome("r", "completed", {}, [{ id: "final:other", role: "assistant" }])).toMatch(/without a written reply/);
     expect(turnOutcome("r", "cancelled", {}, [])).toBe("");
     expect(turnOutcome("r", "running", {}, [])).toBe("");

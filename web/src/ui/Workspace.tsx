@@ -21,7 +21,7 @@ import {
   type ChatMessage,
 } from "@abstractframework/panel-chat";
 import {
-  AfVoiceMicButton,
+  Icon,
   createSessionToolPolicyClient,
   normalizeToolCatalog,
   planRunTools,
@@ -41,9 +41,11 @@ import { GatewayClient, type AttachmentRef } from "../gateway/client";
 import { createAssistantTransport } from "../gateway/transport";
 import type { AssistantHost } from "../host";
 import { buildRunInputData } from "../lib/run_input";
-import { STATE_WORDS, type SessionState } from "../lib/session_fold";
 import { selectWorkflow } from "../lib/workflow_selection";
 import type { AttentionSeen } from "./useConversations";
+import { assistantPresence, conversationPresentation, replyToRead } from "../lib/presentation";
+import { VoiceStage } from "./VoiceStage";
+import type { AssistantPreferences } from "./useAssistantPreferences";
 
 export function mintSessionId(): string {
   // The desktop mints `sess_<uuid hex>` (core/session_index.py); the gateway learns the id
@@ -74,13 +76,14 @@ export function toolsetsFromDiscovery(payload: unknown): Map<string, string> {
  * (Kit gap: the controller adds no line for a root run that ended failed or without an answer.)
  * A stop is the kit's own Stop state ("Stopped"), not repeated here.
  */
-export function turnOutcome(runId: string, status: string, run: Record<string, unknown> | null, messages: ReadonlyArray<{ id?: string; role: string }>): string {
+export function turnOutcome(runId: string, status: string, run: Record<string, unknown> | null, messages: ReadonlyArray<{ id?: string; role: string; runId?: string; live?: unknown; toolActivity?: unknown; content?: string }>): string {
   if (!runId || !TERMINAL.has(status) || status === "cancelled") return "";
   if (status === "failed") {
     const why = typeof run?.error === "string" ? run.error.trim() : "";
     return why ? `The run failed: ${why}` : "The run failed (the gateway gave no reason).";
   }
-  const answered = messages.some((m) => m.role === "assistant" && (m.id === `final:${runId}` || String(m.id || "").startsWith(`answer:${runId}:`)));
+  const answered = messages.some((m) => m.role === "assistant" && !m.live && !m.toolActivity &&
+    (m.id === `final:${runId}` || String(m.id || "").startsWith(`answer:${runId}:`) || (m.runId === runId && Boolean(m.content?.trim()))));
   return answered ? "" : "The run ended without a written reply.";
 }
 
@@ -99,13 +102,15 @@ export function Workspace(props: {
   /** The root run to follow (the session's latest turn, or the turn just started). */
   runId: string;
   title: string;
-  listState?: SessionState;
   /** The latest `me/events` `attention.seen`: a wait answered or dismissed on another device. */
   seen: AttentionSeen | null;
   /** Why updates from other devices are off ("" = on). */
   eventsNotice: string;
   /** The person's voice preferences (Settings → Voice; `useVoicePreferences`). */
   voicePrefs: VoiceClientPreferences;
+  onVoicePrefsChange: (next: VoiceClientPreferences) => void;
+  appearance: AssistantPreferences;
+  onSettings: () => void;
   /** The microphone button's mode (the preference, else this app's default: tap to talk). */
   captureMode: VoiceCaptureMode;
   /** Send what was said at once (`auto_send`), else the transcript joins the draft for review. */
@@ -118,6 +123,10 @@ export function Workspace(props: {
   const { client, host } = props;
   const [draft, setDraft] = useState("");
   const [notice, setNotice] = useState("");
+  const [technical, setTechnical] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const mounted = useRef(true);
+  const startedHere = useRef("");
   // A new conversation gets its session id on its first upload or send.
   const newSession = useRef("");
   const ensureSession = useCallback(() => {
@@ -239,6 +248,16 @@ export function Workspace(props: {
       : undefined,
     on_error: (message) => setNotice(message),
   });
+  const voiceRef = useRef(voice);
+  voiceRef.current = voice;
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      voiceRef.current.stop_tts();
+      voiceRef.current.cancel_voice_ptt_recording?.();
+    };
+  }, []);
 
   // ---- attachments -----------------------------------------------------------------------
   const uploads = useAttachmentUploads<AttachmentRef>({
@@ -248,6 +267,7 @@ export function Workspace(props: {
   // ---- send ---------------------------------------------------------------------------------
   const send = useCallback(
     async (text: string) => {
+      voiceRef.current.stop_tts();
       const sid = ensureSession();
       const refs = uploads.attached;
       const [bundles, prefs, tools] = await Promise.all([
@@ -256,6 +276,7 @@ export function Workspace(props: {
         client.discoveryTools(),
       ]);
       const start = selectWorkflow(bundles, prefs);
+      if (!mounted.current) return;
       const image = refs.find((r) => String(r.content_type || "").startsWith("image/"));
       // The tools the gateway offers (the kit's plan, backlog 0033). No layer of the person's
       // own yet, so approvals follow the gateway's defaults (its grant at run start).
@@ -266,6 +287,8 @@ export function Workspace(props: {
           ? { flow_id: "@default", interface: start.interface, session_id: sid, input_data }
           : { flow_id: start.flow_id, bundle_id: start.bundle_id, bundle_version: start.bundle_version, registry_scope: start.registry_scope, session_id: sid, input_data },
       );
+      if (!mounted.current) return;
+      startedHere.current = run_id;
       uploads.clear();
       setDraft("");
       setNotice("");
@@ -276,14 +299,47 @@ export function Workspace(props: {
 
   const busy = Boolean(props.runId) && !TERMINAL.has(snapshot.status) && !(snapshot.error && !snapshot.run);
   // The Assistant speaks as "Assistant" (the card's default is "Agent").
-  const messages = useMemo<ChatMessage[]>(
-    () => snapshot.messages.map((m) => (m.role === "assistant" && !m.title ? { ...m, title: "Assistant" } : m)),
+  const presentation = useMemo(
+    () => conversationPresentation(snapshot.messages),
     [snapshot.messages],
   );
-  const listWords = props.listState ? STATE_WORDS[props.listState] : "";
+  const messages = presentation.conversation;
+  const reply = replyToRead(messages, props.runId);
+  useEffect(() => {
+    if (snapshot.status !== "completed" || startedHere.current !== props.runId || !reply) return;
+    startedHere.current = "";
+    if (props.voicePrefs.read_aloud === true && !props.voicePrefs.reply_muted && voice.tts_supported && !voice.voice_ptt_recording && !voice.voice_ptt_busy)
+      void voice.toggle_tts(String(reply.id || props.runId), reply.content);
+  }, [snapshot.status, props.runId, props.voicePrefs.read_aloud, props.voicePrefs.reply_muted, reply, voice]);
+  const listWords = pending && !answeredElsewhere ? "Needs you" : "";
   const outcome = turnOutcome(props.runId, snapshot.status, snapshot.run, snapshot.messages);
+  const presence = assistantPresence({ recording: voice.voice_ptt_recording, transcribing: voice.voice_ptt_busy,
+    playback: voice.tts_playback.status, pending: Boolean(pending && !answeredElsewhere), busy,
+    working: messages.some((m) => m.toolActivity?.status === "running"), failed: snapshot.status === "failed", loading: snapshot.loading });
+  const focusComposer = () => root.current?.querySelector<HTMLTextAreaElement>("textarea")?.focus();
+  const transcript = (said: string) => {
+    const next = draft.trim() ? `${draft.trim()}\n${said}` : said;
+    setDraft(next);
+    focusComposer();
+    if (props.autoSend && !busy) void send(next).catch((err) => setNotice(`Not sent: ${err instanceof Error ? err.message : String(err)}`));
+  };
+  const playback = () => {
+    const current = messages.find((m) => String(m.id || "") === voice.tts_playback.key);
+    if (current) void voice.toggle_tts(String(current.id || props.runId), current.content);
+    else voice.stop_tts();
+  };
+  const stop = () => {
+    voice.stop_tts();
+    voice.cancel_voice_ptt_recording?.();
+    if (busy) void controller.cancel().catch((error) => setNotice(error instanceof Error ? error.message : String(error)));
+  };
 
   return (
+    <div className="aa-experience" ref={root} data-has-messages={messages.length > 0}>
+    <VoiceStage voice={voice} presence={presence} prefs={props.appearance} mode={props.captureMode} busy={busy}
+      microphoneReason={host.capabilities.microphone.available ? null : host.capabilities.microphone.reason}
+      readReplies={props.voicePrefs.read_aloud === true} onReadRepliesChange={(read_aloud) => props.onVoicePrefsChange({ ...props.voicePrefs, read_aloud })}
+      onTranscript={transcript} onPlayback={playback} onStop={stop} onType={focusComposer} onSettings={props.onSettings} autoSend={props.autoSend} />
     <WorkflowChat
       className="aa-chat"
       messages={messages}
@@ -291,21 +347,28 @@ export function Workspace(props: {
       onDraftChange={setDraft}
       onSend={send}
       busy={busy}
+      busyLabel={pending && !answeredElsewhere ? "Waiting for you…" : snapshot.loading ? "Opening…" : presence.pose === "working" ? "Working…" : "Thinking…"}
       onCancel={() => controller.cancel()}
       stopState={snapshot.stop || null}
       placeholder="Message the Assistant"
-      emptyState={<p className="aa-empty">Ask anything. Your conversations are kept on your gateway and follow you on every device.</p>}
+      emptyState={<div className="aa-empty"><h2>What’s on your mind?</h2>
+        <p>Ask a question, work through an idea, or just talk.</p>
+        <div className="aa-starters">{["Help me think through an idea", "Summarize something for me", "What can you help me with?"].map((text) =>
+          <button type="button" key={text} onClick={() => { setDraft(text); focusComposer(); }}>{text}<Icon name="chevronRight" size={14} /></button>)}</div>
+        <span className="aa-empty__foot">Your conversations follow you across devices.</span></div>}
       header={
         <div className="aa-chat__header">
-          <h1 className="aa-chat__title">{props.title}</h1>
-          {listWords ? <span className={`aa-state aa-state--${props.listState}`}>{listWords}</span> : null}
+          <h1 className="aa-chat__title" title={props.title}>{props.title}</h1>
+          {listWords ? <span className="aa-state aa-state--waiting">{listWords}</span> : null}
           {snapshot.connection === "reconnecting" ? <span className="aa-chat__status" role="status">Reconnecting…</span> : null}
-          {snapshot.source === "ledger_fold" ? (
-            <span className="aa-chat__status aa-chat__source" title={workflowSourceLabel(snapshot)}>
-              Rebuilt in this browser
-            </span>
-          ) : null}
           {snapshot.displayStatus ? <span className="aa-chat__status" role="status">{snapshot.displayStatus}</span> : null}
+          <details className="aa-chat-details" onToggle={(e) => setTechnical(e.currentTarget.open)}>
+            <summary><Icon name="info" size={15} /> Details</summary>
+            <div><p className={snapshot.source === "ledger_fold" ? "aa-chat__source" : undefined}>{workflowSourceLabel(snapshot) || "Your conversation is kept on Gateway."}</p>
+              {presentation.diagnostics.map((m) => <p key={m.id}>{m.content}</p>)}
+              {!presentation.diagnostics.length && <p>Message usage and timing appear below each reply while these details are open.</p>}
+            </div>
+          </details>
         </div>
       }
       toolbar={{ onNewSession: props.onNewChat, copyTranscript: true, exportTranscript: { filename: "conversation.md", heading: props.title } }}
@@ -340,21 +403,8 @@ export function Workspace(props: {
       attachmentItems={uploads.items}
       onRemoveAttachment={uploads.remove}
       onRetryAttachment={uploads.retry}
-      composerExtras={
-        <AfVoiceMicButton
-          voice={voice}
-          mode={props.captureMode}
-          unavailableReason={host.capabilities.microphone.available ? null : host.capabilities.microphone.reason}
-          // Review before sending (the iPhone's default, backlog 1048): the transcript joins the
-          // draft, unless the person chose "Send what you say automatically".
-          onTranscript={(said) => {
-            const next = draft.trim() ? `${draft.trim()}\n${said}` : said;
-            setDraft(next);
-            if (props.autoSend && !busy) void send(next).catch((err) => setNotice(`Not sent: ${err instanceof Error ? err.message : String(err)}`));
-          }}
-        />
-      }
       messageProps={{
+        stats: technical ? undefined : [],
         // "link": a model's text cannot make the browser fetch a remote image.
         images: "link",
         ...(voice.tts_supported
@@ -365,5 +415,6 @@ export function Workspace(props: {
           : {}),
       }}
     />
+    </div>
   );
 }

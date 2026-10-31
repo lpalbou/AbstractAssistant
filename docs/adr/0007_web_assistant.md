@@ -5,6 +5,13 @@ Date: 2026-10-26
 Catalog integration accepted and implemented 2026-10-31 at the operator's request:
 `assistant-web`, Assistant (web), port 3008, cookie prefix `abstractassistant`.
 The package remains a private preview; the remaining product phases below are unchanged.
+Implementation amendment 2026-10-31: the operator requested the Watch interaction
+for the web. The shipped composition uses AbstractUIC `AfAppShell`, `WorkflowChat`,
+`useWorkflowSession`, `ActivityAvatar`, `AfVoiceMicButton` and `useGatewayVoice`;
+there is no app-owned renderer or recording/playback engine. Avatar appearance is
+browser-local; Gateway remains authoritative for conversations and permissions.
+This supersedes the original custom reducer/orb proposal below. See the
+[redesign decision and validation](../backlog/evidence/1057/2026-10-31_watch_redesign.md).
 Relates to: [ADR 0001](0001_gateway_native_assistant_v2.md) (gateway as authority, one managed
 workflow), backlog [1057](../backlog/planned/1057_web_assistant.md), backlog
 [0003](../backlog/proposed/0003_tauri_shell_spike.md) (Tauri shell spike), [ADR 0008](0008_desktop_host.md)

@@ -28,7 +28,8 @@
     "check:urls": "node scripts/check_relative_urls.mjs",
     "start": "node ./bin/cli.js",
     "test": "vitest run",
-    "test:layout": "node scripts/check_layout.mjs"
+    "test:layout": "node scripts/check_layout.mjs",
+    "test:experience": "node scripts/check_experience.mjs"
   },
   "dependencies": {
     "@abstractframework/app-server": "0.1.13"

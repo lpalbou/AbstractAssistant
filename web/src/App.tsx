@@ -6,6 +6,7 @@
 import { docsAssistantPanel } from "@abstractframework/panel-chat";
 import {
   AfAppShell,
+  Icon,
   GatewayConnectModal,
   appIdentity,
   useAppearanceSettings,
@@ -28,6 +29,7 @@ import { SessionList } from "./ui/SessionList";
 import { CAPTURE_DEFAULTS, SettingsPanel } from "./ui/SettingsPanel";
 import { useConversations, type AttentionSeen } from "./ui/useConversations";
 import { Workspace } from "./ui/Workspace";
+import { useAssistantPreferences, type AssistantPreferences } from "./ui/useAssistantPreferences";
 
 function systemPrefersLight(): boolean {
   try {
@@ -58,22 +60,25 @@ function Splash(props: { conn: GatewayConnection }) {
 
 const VOICE_KEY = "abstractassistant.voice";
 
-function ConnectedApp(props: { client: GatewayClient; host: AssistantHost; conn: GatewayConnection; topBar: AfAppShellTopBar; drawers: Drawers }) {
-  const [voicePrefs] = useVoicePreferences(VOICE_KEY);
+function ConnectedApp(props: { client: GatewayClient; host: AssistantHost; conn: GatewayConnection; topBar: AfAppShellTopBar; drawers: Drawers;
+  appearance: AssistantPreferences; onSettings: () => void }) {
+  const [voicePrefs, setVoicePrefs] = useVoicePreferences(VOICE_KEY);
   const { client, conn } = props;
   const [selected, setSelected] = useState<{ sessionId: string; runId: string }>({ sessionId: "", runId: "" });
   const [seen, setSeen] = useState<AttentionSeen | null>(null);
   const [navOpen, setNavOpen] = useState(false);
+  const [selectionEpoch, setSelectionEpoch] = useState(0);
   const onSignedOut = useCallback(() => void conn.refresh(), [conn]);
   const conversations = useConversations(client, { onSignedOut, onAttentionSeen: setSeen });
-  const row = conversations.rows.find((r) => r.session_id === selected.sessionId);
   const title = selected.sessionId ? conversations.titles[selected.sessionId] || "Conversation" : "New conversation";
   return (
     <AfAppShell
+      className="aa-shell"
       topBar={props.topBar}
       drawers={props.drawers}
       nav={{
         label: "Conversations",
+        width: 264,
         open: navOpen,
         onOpenChange: setNavOpen,
         content: (
@@ -85,35 +90,41 @@ function ConnectedApp(props: { client: GatewayClient; host: AssistantHost; conn:
             notice={conversations.notice}
             activeId={selected.sessionId}
             onOpen={(r) => {
+              setSelectionEpoch((n) => n + 1);
               setNavOpen(false);
               setSelected({ sessionId: r.session_id, runId: r.latest_run_id });
             }}
             onNew={() => {
+              setSelectionEpoch((n) => n + 1);
               setNavOpen(false);
               setSelected({ sessionId: "", runId: "" });
             }}
             onRefresh={() => void conversations.refresh()}
+            onSettings={props.onSettings}
           />
         ),
       }}
     >
       <Workspace
+        key={selectionEpoch}
         client={client}
         host={props.host}
         sessionId={selected.sessionId}
         runId={selected.runId}
         title={title}
-        {...(row ? { listState: row.state } : {})}
         seen={seen}
         eventsNotice={conversations.eventsError}
         voicePrefs={voicePrefs}
+        onVoicePrefsChange={setVoicePrefs}
+        appearance={props.appearance}
+        onSettings={props.onSettings}
         captureMode={voicePrefs.capture_mode ? voiceCaptureMode(voicePrefs.capture_mode) : CAPTURE_DEFAULTS.capture_mode}
         autoSend={typeof voicePrefs.auto_send === "boolean" ? voicePrefs.auto_send : CAPTURE_DEFAULTS.auto_send}
         onStarted={(runId, sessionId) => {
           setSelected({ sessionId, runId });
           void conversations.refresh();
         }}
-        onNewChat={() => setSelected({ sessionId: "", runId: "" })}
+        onNewChat={() => { setSelectionEpoch((n) => n + 1); setSelected({ sessionId: "", runId: "" }); }}
         onTurnEnded={() => void conversations.refresh()}
         onSignedOut={onSignedOut}
       />
@@ -134,6 +145,7 @@ function BrowserApp({ host }: { host: AssistantHost }) {
   const [panel, setPanel] = useState<string | null>(null);
   const identity = useMemo(() => appIdentity("abstractassistant", APP_VERSION), []);
   const [voicePrefs, setVoicePrefs] = useVoicePreferences(VOICE_KEY);
+  const companion = useAssistantPreferences();
   const voiceDefaults = useVoiceDefaults(conn.connected ? () => client.voiceDefaults() as Promise<VoiceDefaults> : null, client);
   const panels = useMemo(
     () => [
@@ -151,16 +163,18 @@ function BrowserApp({ host }: { host: AssistantHost }) {
               id: "settings",
               label: "Settings",
               icon: "settings" as const,
-              mode: "rail" as const,
-              content: <SettingsPanel client={client} prefs={voicePrefs} onPrefsChange={setVoicePrefs} defaults={voiceDefaults.value} />,
+              mode: "drawer" as const,
+              defaultWidth: 420,
+              content: <SettingsPanel client={client} prefs={voicePrefs} onPrefsChange={setVoicePrefs} defaults={voiceDefaults.value}
+                appearance={companion.value} onAppearanceChange={companion.change} preferenceError={companion.error} active={panel === "settings"} />,
             },
           ]
         : []),
     ],
-    [client, conn.connected, panel, voicePrefs, setVoicePrefs, voiceDefaults.value],
+    [client, conn.connected, panel, voicePrefs, setVoicePrefs, voiceDefaults.value, companion.value, companion.change, companion.error],
   );
   const topBar: AfAppShellTopBar = {
-    brand: { name: "Assistant" },
+    brand: { name: "Assistant", mark: <span className="aa-brand-mark"><Icon name="sparkle" size={18} /></span> },
     connection: conn,
     identity: "menu",
     appearance: { value: appearance, onChange: setAppearance },
@@ -173,12 +187,15 @@ function BrowserApp({ host }: { host: AssistantHost }) {
     onActiveChange: (id) => setPanel(id),
     ariaLabel: "Assistant panels",
     storageKey: "abstractassistant.panels",
+    overlay: true,
+    restoreActive: false,
   };
   return (
     <>
       <GatewayConnectModal {...conn.modalProps} />
       {conn.connected ? (
-        <ConnectedApp client={client} host={host} conn={conn} topBar={topBar} drawers={drawers} />
+        <ConnectedApp client={client} host={host} conn={conn} topBar={topBar} drawers={drawers}
+          appearance={companion.value} onSettings={() => setPanel("settings")} />
       ) : (
         <AfAppShell topBar={topBar} drawers={drawers}>
           <Splash conn={conn} />

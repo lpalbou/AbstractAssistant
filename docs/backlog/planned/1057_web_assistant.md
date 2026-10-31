@@ -18,7 +18,11 @@
   history, voice) and a first Assistant space in `src/ui/`. `npm test` 58 tests, `npm run build`
   green; the fold, the follower and the reducer were run read-only against the local gateway
   (evidence: `untracked/apple-web-wave/w3-web-architecture.md`).
-- `web/design/` (W4) holds the design tokens; the scaffold consumes them, the orb is not built.
+- Watch-inspired redesign implemented 2026-10-31: shared AbstractUIC avatar and
+  voice controls, searchable conversations, compact message cards, optional delivery
+  diagnostics, browser-local avatar selection and seven activity previews. The shared
+  voice preference now controls automatic reading of this tab's new replies; history
+  opens silently and conversation changes stop audio. [Design and validation evidence](../evidence/1057/2026-10-31_watch_redesign.md).
 - Catalog integration completed 2026-10-31: Gateway and its tray list **Assistant (web)**
   (`assistant-web`, port 3008), separate from the desktop Assistant. A local build can
   use Gateway's existing app manager and signed-in handover at `/apps/assistant-web/`.
@@ -47,8 +51,8 @@ token in the browser, no copy of a conversation in the browser, no workflow inst
 | 0 | ADR 0007 accepted (or amended) by the operator; the catalog id, port and display name decided | operator + assistant | S |
 | 1 | **Live v1 proof on a local gateway, by the operator or with their go-ahead (runs cost tokens):** send, streamed answer, stop, a tool approval on a child run, an `ask_user`, an answer from another device closing the card, attachments, read aloud, dictation on `http://127.0.0.1`; fix what breaks. Decide here whether panel-chat's `WorkflowSessionController` passes `src/lib/run_events.test.ts` (adopt it and delete the reducer) or not | assistant (+ uic for the controller) | M |
 | 2 | **Gateway catalog row completed 2026-10-31** (G1): console and tray entries, managed launch and one-time signed-in handover. Remaining: publish npm package `@abstractframework/assistant` (drop `private`) for registry installation | gateway + assistant | M |
-| 2b | **Apply the design to the built app.** The scaffold renders plain (lead's look at the 1280x900 and 420x700 renders, 2026-10-26: default type, no sidebar grouping, bare cards, text buttons). `web/design/mockup.html` is the spec: sidebar with recency groups and the three spaces, answer cards with Cycles/Tools/speaker, the approval card in plain words with Technical details folded, the ask_user card, the composer with + / keyboard / orb placement, light and dark, the 1024/600 breakpoints and the compact ~420 px layout with the collapsed "Approval needed · Review tools" row and a sheet. Done when side-by-side renders of app and mockup match at 1280 and 420 and the layout check still passes | assistant | M |
-| 3 | v1.1: the orb (W4 design) on the same voice flows, hands-free turn; generated media and attachment previews in the conversation (`runs/{id}/artifacts/{id}/content`); "load more" conversations; rename and archive | assistant | L |
+| 2b | **Watch-inspired conversation redesign completed 2026-10-31**, superseding the original mockup at the operator's request: shared procedural orb and voice controls, sidebar grouping/search, quiet message cards with optional Details, light/dark and phone/tablet/desktop layouts. Inbox and Automations remain phase 5 | assistant | M |
+| 3 | **Orb and tap/hold voice integration completed 2026-10-31.** Remaining: hands-free silence-to-send, generated media and attachment previews (`runs/{id}/artifacts/{id}/content`), "load more" conversations, rename and archive | assistant | L |
 | 4 | Browser tests: a Playwright flow test against a fake gateway (send, approve, answer, stop; the layout check already runs in CI), the compact palette layout if ADR 0008's gate opens | assistant | M |
 | 5 | v2 Inbox (open waits across conversations and automations, the `attention.raised` − `attention.seen` fold) and Automations (ui-kit `AutomationPanel`) | assistant + uic | L |
 | 6 | v2 web push while the tab is closed (ask G2) | gateway + assistant | L |

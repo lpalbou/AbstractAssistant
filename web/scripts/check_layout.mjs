@@ -167,7 +167,7 @@ try {
       for (const e of errors) failures.push(`${tag}: page error ${e}`);
       if (shots) await page.screenshot({ path: join(shots, `conversation-${tag}.png`) });
       // Settings → Voice (a drawer panel): it opens, names the gateway default, and fits.
-      await page.getByRole("tab", { name: "Settings" }).click();
+      await page.getByRole("button", { name: "Assistant settings", exact: true }).click();
       await page.getByRole("heading", { name: "Voice" }).waitFor();
       await page.waitForTimeout(150);
       const settings = await page.evaluate(() => ({

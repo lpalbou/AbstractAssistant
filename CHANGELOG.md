@@ -8,6 +8,13 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Changed
 
+- **Web Assistant:** Watch-inspired animated orb, tap/hold voice, playback controls,
+  searchable conversations, avatar/state previews and responsive layouts, composed
+  from AbstractUIC. Streaming diagnostics and usage move into optional Details.
+  Read aloud now follows the existing voice setting; opening history stays silent,
+  and sending or changing conversations stops previous speech. Replay-view answers
+  no longer show a false “without a written reply” notice.
+
 - Apple Watch's **Needs you** page refreshes on open and shows checking, retry and
   confirmed-empty states. Overlapping waits reads cannot restore older requests.
 

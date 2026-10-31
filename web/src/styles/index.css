@@ -2,7 +2,7 @@
  *
  * Design tokens are W4's (web/design/tokens.css, owned by web/design/). The shell, the chat,
  * the approval panel and the dialogs are the kit's (ADR 0001), so this file styles only the
- * little the app still owns (the conversation list, the splash, a few notes) and reads the
+ * app's voice stage and conversation layout and reads the
  * kit's colour tokens for it: a theme the person picks in Appearance reaches every pixel.
  *
  * The Assistant's own palette is the default look: under the kit's two generic themes
@@ -14,6 +14,7 @@
 @import "@abstractframework/ui-kit/theme.css";
 @import "@abstractframework/panel-chat/panel_chat.css";
 @import "../../design/tokens.css";
+@import "./experience.css";
 
 :root.theme-dark,
 :root.theme-light {
@@ -44,7 +45,6 @@
   --tap-min: var(--aa-tap-min);
   --reading-max: var(--aa-reading-max);
 }
-
 *,
 *::before,
 *::after {
@@ -70,180 +70,4 @@ body {
   max-width: var(--aa-reading-max);
   margin: 15vh auto 0;
   padding: 0 var(--aa-gutter);
-}
-
-/* The conversations (AfAppShell nav: docked from 1024 px, a drawer below). */
-.aa-sidebar {
-  display: flex;
-  flex-direction: column;
-  gap: var(--aa-space-2);
-  padding: var(--aa-space-3);
-  height: 100%;
-  overflow: auto;
-  background: var(--bg-secondary);
-  border-right: 1px solid var(--ui-border-1);
-}
-.aa-sidebar__top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--aa-space-2);
-}
-.aa-sidebar__heading {
-  font-weight: var(--aa-weight-semibold);
-}
-.aa-sidebar__error,
-.aa-sidebar__more {
-  font-size: var(--aa-text-sm);
-  color: var(--text-secondary);
-}
-.aa-sessions {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--aa-space-1);
-}
-.aa-session {
-  width: 100%;
-  min-height: var(--aa-tap-min);
-  text-align: left;
-  padding: var(--aa-space-2) var(--aa-space-3);
-  border: 1px solid transparent;
-  border-radius: var(--aa-radius-md);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-.aa-session:hover {
-  background: var(--ui-overlay-bg);
-}
-.aa-session--active {
-  background: var(--accent-subtle);
-  border-color: var(--accent-border);
-}
-.aa-session__title {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.aa-session__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--aa-space-2);
-  font-size: var(--aa-text-xs);
-  color: var(--text-secondary);
-}
-
-.aa-state--waiting {
-  color: var(--warning);
-}
-.aa-state--running {
-  color: var(--success);
-}
-.aa-state--failed {
-  color: var(--error);
-}
-
-/* The conversation: the kit's WorkflowChat fills the shell's main area. */
-.aa-chat {
-  height: 100%;
-  min-height: 0;
-}
-.aa-chat__header {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  min-width: 0;
-  gap: var(--aa-space-3);
-}
-.aa-chat__title {
-  flex: 1 1 12rem;
-  min-width: 0;
-  margin: 0;
-  font-size: var(--aa-text-lg);
-  font-weight: var(--aa-weight-semibold);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.aa-chat__status {
-  font-size: var(--aa-text-sm);
-  color: var(--text-secondary);
-}
-.aa-chat__notes {
-  display: flex;
-  flex-direction: column;
-  gap: var(--aa-space-1);
-}
-.aa-note {
-  margin: 0;
-  overflow-wrap: anywhere;
-  font-size: var(--aa-text-sm);
-  color: var(--text-secondary);
-}
-.aa-note--error {
-  color: var(--error);
-}
-.aa-empty {
-  color: var(--text-secondary);
-}
-
-.aa-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: var(--aa-tap-min);
-  min-width: var(--aa-tap-min);
-  flex: 0 0 auto;
-  padding: 0 var(--aa-space-4);
-  border-radius: var(--aa-radius-pill);
-  border: 1px solid var(--ui-border-2);
-  background: var(--bg-tertiary);
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-/* Contrast holds in every kit theme: text on a tint of the accent, as the kit's own buttons. */
-.aa-button--primary {
-  background: var(--accent-subtle);
-  border-color: var(--accent-border);
-  color: var(--text-primary);
-  font-weight: var(--aa-weight-semibold);
-}
-.aa-button:focus-visible,
-.aa-link:focus-visible,
-.aa-session:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-/* Every target is at least 44 px (--aa-tap-min), text links included. */
-.aa-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: var(--aa-tap-min);
-  min-width: var(--aa-tap-min);
-  background: none;
-  border: none;
-  padding: 0 var(--aa-space-2);
-  color: var(--accent);
-  font: inherit;
-  cursor: pointer;
-  text-decoration: underline;
-}
-
-/* Settings (a drawer panel): the kit's voice section. */
-.aa-settings {
-  display: flex;
-  flex-direction: column;
-  gap: var(--aa-space-3);
-}
-.aa-settings__heading {
-  margin: 0;
-  font-size: var(--aa-text-md);
-  font-weight: var(--aa-weight-semibold);
 }

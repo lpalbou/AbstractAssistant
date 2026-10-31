@@ -72,3 +72,5 @@ jobs:
         run: |
           npx playwright install --with-deps chromium
           npm run test:layout
+      - name: Orb, dictation review, playback and conversation ownership (virtual audio)
+        run: npm run test:experience

@@ -11,6 +11,8 @@
 import { AfVoiceSection, type VoiceCatalog, type VoiceClientPreferences, type VoiceDefaults } from "@abstractframework/ui-kit";
 
 import type { GatewayClient } from "../gateway/client";
+import { AvatarSettings } from "./AvatarSettings";
+import type { AssistantPreferences } from "./useAssistantPreferences";
 
 /** What an unset preference means in this app (shown as the selected state). */
 export const CAPTURE_DEFAULTS = { capture_mode: "toggle" as const, auto_send: false };
@@ -20,10 +22,15 @@ export function SettingsPanel(props: {
   prefs: VoiceClientPreferences;
   onPrefsChange: (next: VoiceClientPreferences) => void;
   defaults: VoiceDefaults | null;
+  appearance: AssistantPreferences;
+  onAppearanceChange: (next: AssistantPreferences) => void;
+  active: boolean;
+  preferenceError: string;
 }) {
   const { client } = props;
   return (
     <div className="aa-settings">
+      <AvatarSettings value={props.appearance} onChange={props.onAppearanceChange} active={props.active} error={props.preferenceError} />
       <h2 className="aa-settings__heading">Voice</h2>
       <AfVoiceSection
         nested
