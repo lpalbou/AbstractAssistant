@@ -133,3 +133,11 @@ answers or dismisses a pending approval. Read receipts are local to this browser
 Code and Assistant share them when served on the same origin. Existing history is baselined
 on first use. Regenerate the canonical compatibility snapshot with `npm run sync:sessions`;
 the normal build verifies its provenance. Other devices keep independent read state.
+
+### Message files and tool results
+
+The canonical AbstractUIC conversation snapshot (`npm run sync:conversation`) supplies the
+same message attachments, safe clickable links and structured tool-result viewer in both web
+clients. Files accompany the original user or assistant message, including restored history
+and file-only replies. File bytes load when opened through authenticated reads. The build
+verifies snapshot hashes; no sibling checkout is required to build the committed web app.

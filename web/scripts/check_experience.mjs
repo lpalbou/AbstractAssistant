@@ -43,7 +43,7 @@ function view(id) {
     interaction: r.interaction || null, open_waits: [], activities: [], artifacts: [], warnings: [], usage: {},
     messages: [
       { id: `${id}:input`, role: "user", kind: "prompt", text: r.prompt, run_id: id, order: order(0), step_ids: [], seqs: [], source: "run_input", artifact_ids: [] },
-      { id: `${id}:final`, role: "assistant", kind: "final", text: r.answer, run_id: id, order: order(2), step_ids: ["done"], seqs: [2], source: "ledger", artifact_ids: [] },
+      { id: `${id}:final`, role: "assistant", kind: "final", text: r.answer, run_id: id, order: order(2), step_ids: ["done"], seqs: [2], source: "ledger", artifact_ids: id === "history" ? ["answer-file"] : [] },
     ],
   };
 }
@@ -98,7 +98,8 @@ try {
       if (id && failViews.has(id) && suffix === "/view") result = json({ detail: "History unavailable" }, 503);
       else if (id && runs.has(id) && suffix === "/view") result = json(view(id));
       else if (id && runs.has(id) && ["/turns", "/history_bundle"].includes(suffix)) result = json({ session: { session_id: runs.get(id).session_id, turns: [...runs].filter(([,r]) => r.session_id === runs.get(id).session_id && !r.parent_run_id).map(([run_id]) => ({ run_id })) } });
-      else if (id && runs.has(id) && suffix === "/input_data") result = json({ input_data: { prompt: runs.get(id).prompt } });
+      else if (id && runs.has(id) && suffix === "/input_data") result = json({ input_data: { prompt: runs.get(id).prompt, ...(id === "history" ? {context:{attachments:[{$artifact:"history-file",filename:"session-note.txt",run_id:"history"}]}} : {}) } });
+      else if (id && suffix?.startsWith("/artifacts/")) result = json({tags:{filename:suffix.includes("history-file") ? "session-note.txt" : "answer-file.txt"}});
       else if (id && runs.has(id) && suffix === "") result = json({ run_id: id, ...runs.get(id) });
       else if (path.endsWith("/stream")) result = { status: 200, contentType: "text/event-stream", body: "" };
       else result = json({ detail: `Unexpected test route: ${path}` }, 404);
@@ -107,7 +108,7 @@ try {
   });
   const page = await context.newPage();
   const errors = [];
-  page.on("pageerror", (e) => errors.push(String(e)));
+  page.on("pageerror", (e) => { errors.push(String(e)); console.error(e.stack || String(e)); });
   await page.goto(base);
   await page.getByRole("heading", { name: "Ready when you are" }).waitFor();
   await page.waitForFunction(() => document.querySelector(".aa-orb")?.width > 0);
@@ -117,6 +118,9 @@ try {
   await page.locator(".aa-session").click();
   await page.getByText("An earlier answer", { exact: true }).waitFor();
   assert.equal(calls.speech, 0);
+  await page.locator('.pc-chat-item--user').getByRole('button',{name:'session-note.txt',exact:true}).waitFor();
+  await page.locator('.pc-chat-item--assistant').getByRole('button',{name:'answer-file.txt',exact:true}).waitFor();
+  report.messageAttachmentsRetained = true;
   report.historySilent = true;
   // One accessible orb owns the existing microphone pipeline, including transcription after stop.
   await page.getByRole("button", { name: "Tap the orb to talk" }).click();

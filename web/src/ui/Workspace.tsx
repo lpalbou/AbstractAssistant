@@ -1,3 +1,5 @@
+import {WorkflowChat} from "../vendor/abstractchat/conversation.js";
+import "../vendor/abstractchat/conversation.css";
 import { SessionReadMarker, sessionContentRevision, sessionReadTarget, type SessionReceipt, type SessionActivity } from "../vendor/abstractsessions/session_cards.js";
 /**
  * The open conversation, composed from the kit (ADR 0001; backlog 0030, 0032):
@@ -13,7 +15,6 @@ import { SessionReadMarker, sessionContentRevision, sessionReadTarget, type Sess
  * Everything comes from the gateway; this page keeps no conversation and no token.
  */
 import {
-  WorkflowChat,
   presentInteraction,
   useAttachmentUploads,
   useWorkflowSession,
@@ -346,6 +347,9 @@ export function Workspace(props: {
       readReplies={props.voicePrefs.read_aloud === true} onReadRepliesChange={(read_aloud) => props.onVoicePrefsChange({ ...props.voicePrefs, read_aloud })}
       onTranscript={transcript} onPlayback={playback} onStop={stop} onType={focusComposer} onSettings={props.onSettings} autoSend={props.autoSend} />
     <WorkflowChat
+                artifactFetch={client.fetchGateway}
+                attachmentScope={JSON.stringify([props.readScope,props.sessionId])}
+                attachmentRun={{runId:props.runId,output:snapshot.run?.output}}
       className="aa-chat"
       messages={messages}
       draft={draft}
@@ -412,7 +416,7 @@ export function Workspace(props: {
         renderFooter: (m) => {
           const status = m.runId === props.runId ? snapshot.status : props.sessionActivity?.content.find((c) => c.runId === m.runId)?.status;
           if (!status) return null;
-          const target = sessionReadTarget(messages, m.runId || "", status);
+          const target = sessionReadTarget(m.kind === "attachments" ? [...messages,m] : messages, m.runId || "", status);
           return target.message === m && !snapshot.loading && !snapshot.error && props.readScope ? <><span>{target.outcome}</span><SessionReadMarker ownerKey={props.readScope} receipt={{ sessionId: props.sessionId, revision: sessionContentRevision(m.runId || "", status), updatedAt: "" }} enabled={props.canConsume} onRead={props.onRead} /></> : null;
         },
         stats: technical ? undefined : [],
