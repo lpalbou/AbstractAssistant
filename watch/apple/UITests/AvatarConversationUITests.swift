@@ -32,7 +32,7 @@ final class AvatarConversationUITests: XCTestCase {
 
     func testAcceptedHumanGuidanceReturnsAfterLeavingAndReopeningTheConversation() {
         let app = XCUIApplication()
-        app.launchArguments = ["--mock", "--no-notification-prompt", "-ask.conversation", "YES", "-ask.speak", "NO"]
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--test-public-history", "-ask.conversation", "YES", "-ask.speak", "YES", "-conversation.cue.completion.audio", "YES", "-conversation.cue.question.audio", "YES"]
         app.launch()
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Sessions'")).firstMatch.tap()
         let qc = app.buttons.matching(NSPredicate(format: "label CONTAINS 'QC'")).firstMatch
@@ -46,6 +46,18 @@ final class AvatarConversationUITests: XCTestCase {
         XCTAssertTrue(receipt.waitForExistence(timeout: 20), app.debugDescription)
         XCTAssertEqual(app.staticTexts.matching(identifier: "ask.guidance.3e9a10c4:guidance:1").count, 1)
         XCTAssertEqual(receipt.label, "You: Keep the flagged plates in the report.")
+        XCTAssertTrue(app.staticTexts["ask.history.3e9a10c4:reply1:answer"].exists, app.debugDescription)
+        XCTAssertTrue(app.staticTexts["ask.history.3e9a10c4:question:q2:expired"].exists, app.debugDescription)
+        let late = app.staticTexts["ask.history.3e9a10c4:late:retained_reply"]
+        app.bring(late)
+        XCTAssertTrue(late.exists, app.debugDescription)
+        XCTAssertTrue(late.label.contains("You: Keep last week’s report."))
+        XCTAssertTrue(late.label.contains("did not answer the question"))
+        XCTAssertFalse(app.buttons["Read the question"].exists, "restoration reopened a historical question")
+        XCTAssertFalse(app.staticTexts["conversation.hostOutcome"].exists, "restoration selected a stale timeout caption")
+        XCTAssertFalse(app.buttons["ask.stop"].exists, "restoring history started speech despite having no new event")
+        XCTAssertTrue(app.buttons["Share"].exists, "restoration unexpectedly started live work or narration")
+        let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); screenshot.lifetime = .keepAlways; add(screenshot)
     }
 
 }

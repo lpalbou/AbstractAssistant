@@ -186,4 +186,89 @@ private final class ConversationWire: URLProtocol, @unchecked Sendable {
         #expect(active.messages.count == 2)
     }
 
+
+    private func historyRow(id: String, kind: String, role: String, source: String, seq: Int, extra: [String: JSONValue] = [:]) -> JSONValue {
+        var row: [String: JSONValue] = ["id": .string("r:" + id), "run_id": .string("r"), "text": .string(id),
+            "role": .string(role), "kind": .string(kind), "source": .string(source),
+            "order": .array([.string("2026-11-01T10:00:00Z"), .string("r"), .number(Double(seq))])]
+        row.merge(extra, uniquingKeysWith: { _, value in value }); return .object(row)
+    }
+
+    @Test func answeredExpiredAndLateRepliesRestoreInCanonicalOrderAtTheirOriginalQuestions() throws {
+        let q1 = historyRow(id: "z-question", kind: "question", role: "assistant", source: "wait", seq: 1,
+            extra: ["wait_key": .string("question:q1"), "question": .object(["id": .string("q1")])])
+        let answer = historyRow(id: "a-answer", kind: "answer", role: "user", source: "resume", seq: 2,
+            extra: ["wait_key": .string("question:q1"), "question_id": .string("q1")])
+        let q2 = historyRow(id: "question-2", kind: "question", role: "assistant", source: "wait", seq: 3,
+            extra: ["wait_key": .string("question:q2"), "question": .object(["id": .string("q2")])])
+        let expired = historyRow(id: "expired", kind: "question_outcome", role: "system", source: "emit_event", seq: 4,
+            extra: ["text": .string("No answer arrived before the deadline. Continuing with: Keep both reports."),
+                    "question": .object(["id": .string("q2"), "outcome": .string("expired"), "fallback": .string("Keep both reports.")])])
+        let q3 = historyRow(id: "new-question", kind: "question", role: "assistant", source: "wait", seq: 5,
+            extra: ["wait_key": .string("question:q3"), "question": .object(["id": .string("q3")])])
+        let late = historyRow(id: "late", kind: "retained_reply", role: "user", source: "emit_event", seq: 6,
+            extra: ["question_id": .string("q2"), "reply_status": .string("retained")])
+        let rows = [late, q3, answer, expired, q2, q1]
+        let data = try JSONEncoder().encode(JSONValue.object(["messages": .array(rows)]))
+        let replay = try JSONDecoder().decode(PublicConversationView.self, from: data)
+        var active = PublicConversationHistory(); active.merge(replay.entries); active.merge(replay.entries)
+        #expect(active.entries.map(\.kind) == [.question, .answer, .question, .outcome, .question, .retained])
+        #expect(active.originalQuestion(for: try #require(active.entries.first { $0.kind == .answer }))?.questionId == "q1")
+        #expect(active.originalQuestion(for: try #require(active.entries.last))?.questionId == "q2")
+        #expect(active.entries.filter(\.isHuman).count == 2) // Expiry never invents an answer.
+        #expect(active.entries[3].displayText == "No answer arrived before the deadline. Continuing with: Keep both reports.")
+        #expect(active.entries.last?.displayText.contains("did not answer") == true)
+        var reopened = PublicConversationHistory(); reopened.merge(replay.entries)
+        #expect(reopened.entries == active.entries) // Restore is pure; there are no cue/speech callbacks.
+        #expect(reopened.latestHostOutcome == nil) // A later question/reply prevents stale expiry captions.
+        var atDeadline = PublicConversationHistory(); atDeadline.merge(Array(active.entries.prefix(4)))
+        #expect(atDeadline.latestHostOutcome?.kind == .outcome)
+    }
+
+    @Test func mixedBriefsGuidanceAndQuestionHistoryUseServerOrderRatherThanCategoryOrID() throws {
+        let update = historyRow(id: "z-update", kind: "public_update", role: "assistant", source: "emit_event", seq: 1)
+        let guidance = historyRow(id: "guidance:8", kind: "guidance", role: "user", source: "user_guidance", seq: 2,
+                                 extra: ["guidance_status": .string("accepted")])
+        let question = historyRow(id: "a-question", kind: "question", role: "assistant", source: "wait", seq: 3,
+                                 extra: ["wait_key": .string("question:q")])
+        var history = PublicConversationHistory()
+        history.merge(try [question, guidance, update].map { try PublicConversationEntry(row: $0) })
+        #expect(history.entries.map(\.kind) == [.update, .guidance, .question])
+    }
+
+    @Test func onlyTrustedTypedQuestionRowsAndNoPrivateFencesReachPublicHistory() throws {
+        let fake = historyRow(id: "fake", kind: "question_outcome", role: "assistant", source: "emit_event", seq: 1,
+            extra: ["question": .object(["id": .string("q"), "outcome": .string("expired"), "fallback": .string("Keep both")])])
+        let privateText = historyRow(id: "private", kind: "question", role: "assistant", source: "wait", seq: 2,
+            extra: ["wait_key": .string("q"), "text": .string("<think>PRIVATE</think>")])
+        let privateMetadata = historyRow(id: "private-meta", kind: "question", role: "assistant", source: "wait", seq: 3,
+            extra: ["wait_key": .string("q"), "question": .object(["fallback": .string("```diary PRIVATE")])])
+        let fakeAnswer = historyRow(id: "timeout-as-answer", kind: "answer", role: "system", source: "emit_event", seq: 4,
+            extra: ["wait_key": .string("q")])
+        let bytes = try JSONEncoder().encode(JSONValue.object(["messages": .array([fake, privateText, privateMetadata, fakeAnswer])]))
+        #expect(try JSONDecoder().decode(PublicConversationView.self, from: bytes).entries.isEmpty)
+    }
+
+    @Test func omittedAndWindowedPublicHistoryIsExplicitAndCountsAreNotInvented() throws {
+        let wire = #"{"run_id":"v","status":"waiting","turn_n":1,"public_updates_omitted":2,"public_messages_omitted":3,"public_questions_omitted":4,"conversation_runs_omitted":5}"#
+        let state = try JSONDecoder().decode(EntitySessionState.self, from: Data(wire.utf8))
+        #expect(state.omissionNotice == "Some earlier exchanges are not loaded. (2 updates, 3 replies, 4 question entries, 5 runs)")
+        let view = try JSONDecoder().decode(PublicConversationView.self, from: Data(#"{"messages":[],"warnings":["run r: records before seq 6 were not folded (windowed history)"]}"#.utf8))
+        #expect(view.omissions.notice == "Some earlier exchanges are not loaded.")
+        #expect(try JSONDecoder().decode(PublicConversationView.self, from: Data(#"{"messages":[],"warnings":[]}"#.utf8)).omissions.notice == nil)
+    }
+
+    @Test func entityStateRestoresScreenedQuestionsAnswersAndOutcomesWithoutHomeLedger() throws {
+        let question = historyRow(id: "q:question", kind: "question", role: "assistant", source: "wait", seq: 1,
+            extra: ["wait_key": .string("question:q"), "question": .object(["id": .string("q")])])
+        let answer = historyRow(id: "reply:answer", kind: "answer", role: "user", source: "resume", seq: 2,
+            extra: ["wait_key": .string("question:q")])
+        let bytes = try JSONEncoder().encode(JSONValue.object(["run_id": .string("r"), "status": .string("waiting"),
+            "turn_n": .number(1), "ready_for_input": .bool(true), "public_questions": .array([question, answer])]))
+        let state = try JSONDecoder().decode(EntitySessionState.self, from: bytes)
+        #expect(state.publicQuestions?.count == 2)
+        #expect(state.conversationEntries.map(\.kind) == [.question, .answer])
+        #expect(state.personWait == nil) // History does not recreate a pending interaction.
+    }
+
 }

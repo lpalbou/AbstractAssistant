@@ -35,7 +35,20 @@ public struct EntitySessionState: Decodable, Sendable {
     public var error: String?
     public var publicUpdates: [PublicConversationUpdate]? = nil
     public var publicMessages: [PublicUserGuidance]? = nil
-    enum CodingKeys: String, CodingKey { case runID = "run_id", status, turn = "turn_n", reply, pendingWait = "pending_wait", stats, turnComplete = "turn_complete", readyForInput = "ready_for_input", error, publicUpdates = "public_updates", publicMessages = "public_messages" }
+    public var publicQuestions: [PublicConversationEntry]? = nil
+    public var publicUpdatesOmitted: Int? = nil
+    public var publicMessagesOmitted: Int? = nil
+    public var publicQuestionsOmitted: Int? = nil
+    public var conversationRunsOmitted: Int? = nil
+    public var conversationEntries: [PublicConversationEntry] {
+        ((publicUpdates ?? []).map(PublicConversationEntry.init(update:)) + (publicMessages ?? []).map(PublicConversationEntry.init(guidance:)) + (publicQuestions ?? []))
+            .filter { !PublicConversationEntry.containsPrivateFence(.string($0.text)) }
+    }
+    public var omissionNotice: String? {
+        PublicHistoryOmissions(counts: ["public_updates_omitted": publicUpdatesOmitted ?? 0, "public_messages_omitted": publicMessagesOmitted ?? 0,
+            "public_questions_omitted": publicQuestionsOmitted ?? 0, "conversation_runs_omitted": conversationRunsOmitted ?? 0]).notice
+    }
+    enum CodingKeys: String, CodingKey { case runID = "run_id", status, turn = "turn_n", reply, pendingWait = "pending_wait", stats, turnComplete = "turn_complete", readyForInput = "ready_for_input", error, publicUpdates = "public_updates", publicMessages = "public_messages", publicQuestions = "public_questions", publicUpdatesOmitted = "public_updates_omitted", publicMessagesOmitted = "public_messages_omitted", publicQuestionsOmitted = "public_questions_omitted", conversationRunsOmitted = "conversation_runs_omitted" }
     public var personWait: Wait? {
         RunSummary(runId: pendingWait?.runId ?? runID, workflowId: nil, status: pendingWait == nil ? status : "waiting", waiting: pendingWait).personWait
     }

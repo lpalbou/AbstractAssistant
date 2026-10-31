@@ -28,8 +28,9 @@ struct AskView: View {
     @State private var pinnedBrief: PublicConversationUpdate?
     @State private var expandedBrief: PublicConversationUpdate?
     @State private var visitApproval: Wait?
-    @State private var humanGuidance = PublicGuidanceHistory()
-    @State private var liveReplies: [String] = [] // Question answers use their own existing resume history.
+    @State private var publicHistory = PublicConversationHistory()
+    @State private var historyOmissions: [String: String] = [:]
+    @State private var hostOutcomeCaption: String?
     @State private var restoredGuidanceRuns: Set<String> = []
     @State private var replyDraft = ""
     @State private var failedReplyTarget: PublicConversationUpdate?
@@ -347,7 +348,7 @@ struct AskView: View {
     }
 
     private var hasBelow: Bool {
-        !exchanges.isEmpty || (!prompt.isEmpty && phase == .thinking) || conversationView && (!briefs.isEmpty || !liveReplies.isEmpty || !humanGuidance.messages.isEmpty)
+        !exchanges.isEmpty || (!prompt.isEmpty && phase == .thinking) || conversationView && (!briefs.isEmpty || !publicHistory.entries.isEmpty || !historyOmissions.isEmpty)
     }
 
     /// The message shown in full (the conversation's last), the one the voice button reads.
@@ -420,17 +421,27 @@ struct AskView: View {
                     }
                 }
             }
-            ForEach(humanGuidance.messages) { message in
-                Text("You: \(message.text)").font(.rounded(.footnote)).foregroundStyle(Theme.text2)
-                    .accessibilityIdentifier("ask.guidance.\(message.id)")
+            if !historyOmissions.isEmpty {
+                Text(historyOmissions.count == 1 ? (historyOmissions.values.first ?? "") : "Some earlier exchanges are not loaded.")
+                    .font(.rounded(.footnote)).foregroundStyle(Theme.amber).accessibilityIdentifier("conversation.historyOmitted")
             }
-            ForEach(Array(liveReplies.enumerated()), id: \.offset) { _, text in
-                Text("You: \(text)").font(.rounded(.footnote)).foregroundStyle(Theme.text2)
-            }
-            ForEach(briefs.reversed()) { brief in
-                Button { pinnedBrief = brief; expandedBrief = brief } label: {
-                    Text(brief.text).font(.rounded(.footnote)).foregroundStyle(Theme.text).frame(maxWidth: .infinity, alignment: .leading)
-                }.buttonStyle(.tap)
+            ForEach(publicHistory.entries) { entry in
+                if entry.kind == .update {
+                    Button {
+                        let brief = briefs.first(where: { $0.id == entry.id }) ?? .init(id: entry.id, text: entry.text, runId: entry.runId)
+                        pinnedBrief = brief; expandedBrief = brief
+                    } label: {
+                        Text(entry.text).font(.rounded(.footnote)).foregroundStyle(Theme.text).frame(maxWidth: .infinity, alignment: .leading)
+                    }.buttonStyle(.tap)
+                } else {
+                    VStack(alignment: .leading, spacing: 3) {
+                        if let original = publicHistory.originalQuestion(for: entry) {
+                            Text("In reply to: \(original.text)").font(.rounded(.caption)).foregroundStyle(Theme.muted)
+                        }
+                        Text(entry.displayText).font(.rounded(.footnote)).foregroundStyle(entry.isHuman ? Theme.text2 : Theme.text)
+                            .accessibilityIdentifier(entry.kind == .guidance ? "ask.guidance.\(entry.id)" : "ask.history.\(entry.id)")
+                    }
+                }
             }
             messages
         } else {
@@ -493,6 +504,9 @@ struct AskView: View {
             Text(wait.kind == .askUser ? wait.headline : "Your approval is needed.")
                 .font(.rounded(.body)).foregroundStyle(Theme.text).multilineTextAlignment(.center).lineLimit(3)
                 .accessibilityIdentifier("conversation.subtitle")
+        } else if pinnedBrief == nil, phase == .thinking, let hostOutcomeCaption {
+            Text(hostOutcomeCaption).font(.rounded(.body)).foregroundStyle(Theme.text).multilineTextAlignment(.center).lineLimit(3)
+                .accessibilityIdentifier("conversation.hostOutcome")
         } else if let current {
             Button { pinnedBrief = current; expandedBrief = current } label: {
                 Text(current.text).font(.rounded(.body)).foregroundStyle(Theme.text)
@@ -515,11 +529,27 @@ struct AskView: View {
         }
     }
 
-    private func mergeBriefs(_ updates: [PublicConversationUpdate]) {
+    private func mergeBriefs(_ updates: [PublicConversationUpdate], current: Bool = true) {
         var ids = Set(briefs.map(\.id))
-        for update in updates where ids.insert(update.id).inserted {
-            briefs.append(update); currentBriefIds.insert(update.id)
+        let publicUpdates = updates.filter { !PublicConversationEntry.containsPrivateFence(.string($0.text)) }
+        for update in publicUpdates where ids.insert(update.id).inserted {
+            briefs.append(update)
         }
+        if current { currentBriefIds.formUnion(publicUpdates.map(\.id)) }
+    }
+
+    /// Restoring communication has no speech/haptic effects and cannot reopen a historical wait.
+    private func mergePublicHistory(_ entries: [PublicConversationEntry], notice: String?, scope: String, current: Bool) {
+        publicHistory.merge(entries); historyOmissions[scope] = notice
+        if current {
+            var ordered = PublicConversationHistory(); ordered.merge(entries)
+            hostOutcomeCaption = ordered.latestHostOutcome?.displayText
+        }
+    }
+
+    private func mergeVisitHistory(_ state: EntitySessionState, current: Bool) {
+        mergeBriefs(state.publicUpdates ?? [], current: current)
+        mergePublicHistory(state.conversationEntries, notice: state.omissionNotice, scope: state.runID, current: current)
     }
 
     private func conversationCue(_ cue: ConversationCue, key: String, text: String) {
@@ -603,8 +633,18 @@ struct AskView: View {
                     try await client.answer(wait, with: .respond(text))
                 } else { receipt = try await client.guideRun(runId: workingRun, text: addressed, displayText: text) }
                 guard mine == turn, owner == keptScope else { return }
+                if receipt == nil { // An answer has no invented local receipt; read its canonical public row.
+                    if let entity, let visit, let state = try? await client.entitySession(name: entity, runID: visit) {
+                        guard mine == turn, owner == keptScope else { return }
+                        mergeVisitHistory(state, current: true)
+                    } else if entity == nil, let history = try? await client.conversationHistory(runId: id) {
+                        guard mine == turn, owner == keptScope else { return }
+                        mergePublicHistory(history.entries, notice: history.omissions.notice, scope: id, current: true)
+                    }
+                }
+                guard mine == turn, owner == keptScope else { return }
                 sendingReply = false
-                if let receipt { humanGuidance.merge([receipt]) } else { liveReplies.append(text) }
+                if let receipt { publicHistory.merge([.init(guidance: receipt)]) }
                 replyDraft = ""; failedReplyTarget = nil; failedReplyWait = nil
                 note = "Message sent." // Accepted does not mean the model has adopted the change.
                 if wait?.kind == .askUser {
@@ -625,7 +665,7 @@ struct AskView: View {
             guard mine == turn else { return }
             entityVisitName = name; entityVisitId = state.runID
             UserDefaults.standard.set(state.runID, forKey: "ask.conversation.visit." + keptScope)
-            mergeBriefs(state.publicUpdates ?? []); humanGuidance.merge(state.publicMessages ?? [])
+            mergeVisitHistory(state, current: true)
         }
         guard let id = entityVisitId else { throw GatewayError.invalidResponse }
         runId = id; answerEntity = name
@@ -666,7 +706,7 @@ struct AskView: View {
             if scenePhase != .active { try await Task.sleep(for: .seconds(1)); continue }
             let state = try await model.client.entitySession(name: name, runID: id)
             guard mine == turn else { return }
-            mergeBriefs(state.publicUpdates ?? []); humanGuidance.merge(state.publicMessages ?? [])
+            mergeVisitHistory(state, current: true)
             if let wait = state.personWait {
                 pendingWait = wait
                 conversationCue(wait.kind == .askUser ? .question : .approval, key: wait.id,
@@ -1071,7 +1111,7 @@ struct AskView: View {
         prompt = text; answer = ""; error = nil; note = nil; runId = nil; answerEntity = nil; pendingWait = nil
         phase = .thinking; transcribing = false
         activity.reset()
-        currentBriefIds = []; pinnedBrief = nil; replyDraft = ""; failedReplyWait = nil; cueKeys = []; stopping = false
+        currentBriefIds = []; hostOutcomeCaption = nil; pinnedBrief = nil; replyDraft = ""; failedReplyWait = nil; cueKeys = []; stopping = false
         Task {
             do {
                 if let a = automationFeed {
@@ -1181,7 +1221,8 @@ struct AskView: View {
                 do {
                     let history = try await model.client.conversationHistory(runId: id)
                     guard mine == turn else { return }
-                    mergeBriefs(history.updates); humanGuidance.merge(history.guidance)
+                    mergeBriefs(history.updates)
+                    mergePublicHistory(history.entries, notice: history.omissions.notice, scope: id, current: true)
                 } catch {
                     guard mine == turn else { return }
                     note = "Public updates unavailable. The task is still running."
@@ -1329,8 +1370,8 @@ struct AskView: View {
         RuntimeKeeper.shared.release("ask")                      // a turn dropped here must not keep the watch awake
         if let id = runId { AnswerNotifier.shared.unwatch(runId: id) }
         prompt = ""; answer = ""; runId = nil; answerEntity = nil; note = nil; error = nil; pendingWait = nil
-        briefs = []; pinnedBrief = nil; expandedBrief = nil; liveReplies = []; replyDraft = ""; liveRecording = false; stopping = false
-        currentBriefIds = []; humanGuidance = .init(); restoredGuidanceRuns = []
+        briefs = []; pinnedBrief = nil; expandedBrief = nil; replyDraft = ""; liveRecording = false; stopping = false
+        currentBriefIds = []; publicHistory = .init(); restoredGuidanceRuns = []; historyOmissions = [:]; hostOutcomeCaption = nil
         failedReplyWait = nil; typedQuestionTarget = nil; typingCaptured = false; sendingReply = false
         entityVisitId = nil; entityVisitName = nil; cueKeys = []
         exchanges = []; readingId = nil; shownCount = 5; historyFailed = nil; mediaFailed = nil
@@ -1419,7 +1460,7 @@ struct AskView: View {
         do {
             let state = try await client.entitySession(name: name, runID: id)
             guard mine == turn, owner == keptScope else { return }
-            mergeBriefs(state.publicUpdates ?? []); humanGuidance.merge(state.publicMessages ?? [])
+            mergeVisitHistory(state, current: false)
             runId = id; answerEntity = name
             if !["completed", "failed", "cancelled"].contains(state.status) {
                 entityVisitName = name; entityVisitId = id
@@ -1611,8 +1652,8 @@ struct AskView: View {
             do {
                 let history = try await client.conversationHistory(runId: id)
                 guard mine == turn, owner == keptScope else { return }
-                humanGuidance.merge(history.guidance); restoredGuidanceRuns.insert(id)
-                if id == runId { mergeBriefs(history.updates) }
+                mergePublicHistory(history.entries, notice: history.omissions.notice, scope: id, current: false)
+                mergeBriefs(history.updates, current: id == runId); restoredGuidanceRuns.insert(id)
             } catch {
                 guard mine == turn, owner == keptScope else { return }
                 note = "Some conversation history is unavailable. Reopen to retry."

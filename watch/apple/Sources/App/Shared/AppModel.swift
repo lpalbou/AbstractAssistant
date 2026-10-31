@@ -1429,7 +1429,8 @@ struct LaunchOptions {
                                                        automationsFailures: args.contains("--flaky-automations") ? 1 : 0,
                                                        pollFailures: args.contains("--offline") ? .max : args.contains("--slow-start") ? 3 : 0,
                                                        definitionDelay: args.contains("--slow-definitions") ? .seconds(3) : .zero,
-                                                       runDelay: args.contains("--slow-run") ? .seconds(4) : .zero), gatewayHost: "mbp")
+                                                       runDelay: args.contains("--slow-run") ? .seconds(4) : .zero,
+                                                       publicHistoryFixture: args.contains("--test-public-history")), gatewayHost: "mbp")
         }
         model.needsSignIn = showSignIn
         model.testIdentify = testIdentify; model.testSecret = testSecret

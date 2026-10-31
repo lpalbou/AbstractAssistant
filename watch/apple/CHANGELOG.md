@@ -9,6 +9,7 @@ iPhone app); the Python package's history is in
 
 ### Added
 
+- Restore questions, actual answers, timeout fallbacks and late replies in canonical chronological order; late words remain attached to their original question. Label omitted history and restore without speech or stale question prompts.
 - Preserve original human corrections separately from the context quoted to the assistant.
 - Restore accepted corrections from screened task replay and entity visit state; reconcile by server acceptance ID across polling, reconnects and view recreation. Identical words sent twice remain separate messages.
 - Restore visible task turns on opening, load older corrections with Show older, and retain the canonical entity visit reference per account, conversation and responder. Acceptance continues to mean sent, not considered.

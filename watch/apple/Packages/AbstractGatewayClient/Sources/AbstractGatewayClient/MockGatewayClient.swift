@@ -165,6 +165,7 @@ public actor MockGatewayClient: GatewayClient {
     private let mediaImage: Data?
     private let mediaVoice: Data?
     private let historyFixture: Bool
+    private let publicHistoryFixture: Bool
     private let conversationListFixture: Bool
     private let categoryFixture: Bool
     private let emailFixture: Bool
@@ -176,9 +177,10 @@ public actor MockGatewayClient: GatewayClient {
                 automationsFailures: Int = 0, pollFailures: Int = 0, definitionDelay: Duration = .zero, runDelay: Duration = .zero,
                 emptyAutomations: Bool = false, activityScenario: String? = nil, historyFixture: Bool = false, conversationListFixture: Bool = false,
                 categoryFixture: Bool = false, emailFixture: Bool = false, accessFixture: Bool = false, mediaImage: Data? = nil, mediaVoice: Data? = nil,
-                speechPreparationDelay: TimeInterval = 0) {
+                speechPreparationDelay: TimeInterval = 0, publicHistoryFixture: Bool = false) {
         self.world = world
-        self.pending = waits ?? world.sampleWaits; self.wordInterval = wordInterval; self.automationsDelay = automationsDelay
+        self.publicHistoryFixture = publicHistoryFixture
+        self.pending = (waits ?? world.sampleWaits).filter { !publicHistoryFixture || $0.runId != "3e9a10c4" }; self.wordInterval = wordInterval; self.automationsDelay = automationsDelay
         self.automationsFailures = automationsFailures; self.pollFailures = pollFailures; self.definitionDelay = definitionDelay
         self.runDelay = runDelay
         self.emptyAutomations = emptyAutomations; self.activityScenario = activityScenario
@@ -1169,10 +1171,14 @@ public actor MockGatewayClient: GatewayClient {
         [.init(id: runId + ":public_update:1", text: "I’m comparing the options. You can tell me what matters to you.", runId: runId)]
     }
     public func conversationHistory(runId: String) async throws -> PublicConversationView {
-        let saved = conversationGuidance[runId]?.messages
+        if publicHistoryFixture, runId == "3e9a10c4" {
+            let fixture = #"{"messages":[{"id":"$RUN:public_update:1","run_id":"$RUN","role":"assistant","kind":"public_update","source":"emit_event","text":"I am checking which reports to keep.","order":["2026-10-31T10:00:01Z","$RUN",1]},{"id":"$RUN:guidance:1","run_id":"$RUN","role":"user","kind":"guidance","source":"user_guidance","guidance_status":"accepted","text":"Keep the flagged plates in the report.","order":["2026-10-31T10:00:02Z","$RUN",2]},{"id":"$RUN:ask1:question","run_id":"$RUN","role":"assistant","kind":"question","source":"wait","text":"Should I include both flagged plates?","wait_key":"question:q1","question":{"id":"q1"},"order":["2026-10-31T10:00:03Z","$RUN",3]},{"id":"$RUN:reply1:answer","run_id":"$RUN","role":"user","kind":"answer","source":"resume","text":"Include both plates.","wait_key":"question:q1","question_id":"q1","order":["2026-10-31T10:00:04Z","$RUN",4]},{"id":"$RUN:ask2:question","run_id":"$RUN","role":"assistant","kind":"question","source":"wait","text":"Should I set aside the older report?","wait_key":"question:q2","question":{"id":"q2"},"order":["2026-10-31T10:00:05Z","$RUN",5]},{"id":"$RUN:question:q2:expired","run_id":"$RUN","role":"system","kind":"question_outcome","source":"emit_event","text":"No answer arrived before the deadline. Continuing with: Keep both reports.","question":{"id":"q2","outcome":"expired","fallback":"Keep both reports."},"order":["2026-10-31T10:03:05Z","$RUN",6]},{"id":"$RUN:late:retained_reply","run_id":"$RUN","role":"user","kind":"retained_reply","source":"emit_event","text":"Keep last week’s report.","question_id":"q2","reply_status":"retained","reason":"expired","order":["2026-10-31T10:04:05Z","$RUN",7]}]}"#
+            return try JSONDecoder().decode(PublicConversationView.self, from: Data(fixture.replacingOccurrences(of: "$RUN", with: runId).utf8))
+        }
+        if publicHistoryFixture { return .init(updates: [], guidance: []) }
         let fixture: [PublicUserGuidance] = runId == "3e9a10c4"
             ? [try .init(runId: runId, seq: 1, text: "Keep the flagged plates in the report.")] : []
-        return .init(updates: try await publicConversation(runId: runId), guidance: saved ?? fixture)
+        return .init(updates: try await publicConversation(runId: runId), guidance: conversationGuidance[runId]?.messages ?? fixture)
     }
     public func guideRun(runId: String, text: String) async throws { _ = try await guideRun(runId: runId, text: text, displayText: text) }
     public func guideRun(runId: String, text: String, displayText: String) async throws -> PublicUserGuidance {

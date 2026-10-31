@@ -305,4 +305,16 @@ checks. The server enforces the reserved host node and idempotency-key provenanc
 projection. Visible task turns restore on opening; Show older restores earlier turns without
 loading every run immediately. Entity restoration remembers only a scoped canonical visit ID;
 all words are re-read from that visit's authorized state route. These changes apply only to the
-optional view. Question answers continue to use the existing question/resume path.
+optional view. Questions and actual responses now restore from canonical `question`/`answer`
+messages, while trusted `question_outcome` and `retained_reply` rows preserve deadline outcomes
+and late words. Entity visits expose the same screened rows as `public_questions`; the Watch
+never reads the home ledger. A retained reply cites its original question by run and question ID,
+and explicitly says it did not answer that question. Expiry is a host outcome, never user speech.
+
+The single public timeline merges briefs, guidance and question interactions using the server's
+`order=[timestamp, run_id, ledger_seq]`. It never invents an order from UUIDs, categories or text.
+Restoration is silent and cannot reopen a resolved wait. A trusted expiry can replace a stale
+question caption while work continues, without automatic narration. The canonical entity
+projection's positive omission counters and task replay window warnings produce “Some earlier
+exchanges are not loaded”; counts are shown only when supplied by the server. This timeline is
+public communication history, not a claim to display the model's complete context.
