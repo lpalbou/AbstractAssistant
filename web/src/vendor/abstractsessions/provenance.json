@@ -29,26 +29,26 @@
     "dist/session_cards.d.ts": "deec2e185885abbcfad624f9ed2bfa658b85607139649beea30ea8414a625fba",
     "dist/session_card.d.ts": "4c10067a42ce071e25fce9bfa6191c876203a6e3199548e6a1a4d4ed1d1c8a7e",
     "dist/session_activity.d.ts": "600dc9baf2e936985c87328184c48a6b8b336d6e11a7f8b3a734579934122f92",
-    "dist/session_reads.d.ts": "6376f03e2092d182fcf305ae8422fd154f530b6f236520a5d1de52d937ee49b1",
+    "dist/session_reads.d.ts": "3bbdcc4692e25c94f133ef9b64b18f1be50f84414331c83b8c6983c5b381568b",
     "dist/automation_card.d.ts": "be7144fd6221029d9adae561b3dc00be6b7dbe50db763d029d910f73960c2c81",
     "dist/relative_time.js": "da07fc7ef465673ae20f3c7ee9900cbd9c760e7798f731ca1ab25707d6bf7cf4",
     "dist/compact_activity_card.js": "540ea848d4653ac65afea3714bfad7dead3333bf2c720de7c42c3fb4ce294d2f",
     "dist/session_card.js": "da03c7c60fd9fd969589e6cafbff54f66c3f3bc93bbb0f1343a9eaaf5e675e3a",
     "dist/automation_card.js": "e49947a82e7110a365831817a4b2901d3c4f2cd25d8537932c5db7e465673ff3",
     "dist/session_activity.js": "b3186e8d0c6dd97412cf4f9d2ab699ba3fd4679781c5ad9ace5169a689561239",
-    "dist/session_reads.js": "ff9cf88403a719014c1699ac90ffd1a904da87e1ae850eb3a458f0c299beb45b",
+    "dist/session_reads.js": "1517f6c703d99dfddd78c0196dce1e7a4e079f89b8b5a4dd7864b4f52582c8d4",
     "dist/session_cards.js": "388718778f2a966c79c0ea66d01835e0540f736435c45537c4595b8ed0e46c25",
-    "src/theme.css": "3718c10644ed9dc18e6ee78741cb2e772dc8dc55f3c24f1615a90ac7743411a9"
+    "src/theme.css": "506504bca20e0ffa176bccf20fbed87bb6b9199f5e3454089fdcc01b5af6baae"
   },
   "artifacts": {
-    "session_cards.js": "b8ba02128a5806dfa95c33ae35329c716b105ecb27e417a9b32b24d2dde04d2a",
+    "session_cards.js": "13ee1a890b09088c1b298e97056a3bcfb93cb38063767c928ced81d38953bd11",
     "automation_panel.js": "64cac3baeddf737d05e35ea427d86efe6e24d8a8def0c754eeaa84ad42da2690",
     "automation_panel.d.ts": "b2cf19b70e6fdaaab7593e4718ff542a112830ff7188f082a7c211d81d4bf5dc",
     "session_cards.d.ts": "deec2e185885abbcfad624f9ed2bfa658b85607139649beea30ea8414a625fba",
     "session_card.d.ts": "4c10067a42ce071e25fce9bfa6191c876203a6e3199548e6a1a4d4ed1d1c8a7e",
     "session_activity.d.ts": "600dc9baf2e936985c87328184c48a6b8b336d6e11a7f8b3a734579934122f92",
-    "session_reads.d.ts": "6376f03e2092d182fcf305ae8422fd154f530b6f236520a5d1de52d937ee49b1",
+    "session_reads.d.ts": "3bbdcc4692e25c94f133ef9b64b18f1be50f84414331c83b8c6983c5b381568b",
     "automation_card.d.ts": "0153b7b0322fada0563eebb3b203138920d08f4a131e26104e002c724b5644a1",
-    "session_cards.css": "49c746bdda243af8e2eaa52fd002d55fd83c46b9cf6a5f11b0bdcd706b1335a2"
+    "session_cards.css": "0520271603f9d68d5147cbd5fd4c0ff45ebb0572cb7edcaa406a4ba546aa061d"
   }
 }

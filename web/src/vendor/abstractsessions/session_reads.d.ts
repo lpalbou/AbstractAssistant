@@ -11,6 +11,7 @@ export declare function SessionReadMarker(p: {
     receipt: SessionReceipt;
     enabled: boolean;
     ownerKey?: string;
+    relatedReceipts?: readonly SessionReceipt[];
     onRead: (p: SessionReceipt) => void;
 }): React.ReactElement;
 //# sourceMappingURL=session_reads.d.ts.map

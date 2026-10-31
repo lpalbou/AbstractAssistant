@@ -1,9 +1,9 @@
 /* Session facts are controlled by the host; opening never clears attention. */
-.af-session-card { --af-session-new: #28c5dc; display: flex; align-items: center; gap: 2px; min-width: 0; width: 100%; box-sizing: border-box; border: 1px solid transparent; border-radius: 16px; background: var(--ui-surface-2); color: var(--text-primary); }
-:root:is(.theme-light, .theme-solarized-light, .theme-catppuccin-latte, .theme-rose-pine-dawn, .theme-one-light, .theme-everforest-light) .af-session-card { --af-session-new: #087f94; }
-.af-session-card[data-selected] { background: var(--ui-surface-3); box-shadow: inset 0 0 0 1px var(--ui-border-2); }
-.af-session-card[data-unread] { border-color: var(--af-session-new); background: color-mix(in srgb, var(--af-session-new) 8%, var(--bg-secondary, #151622)); }
-.af-session-card[data-attention] { border-color: var(--warning); background: color-mix(in srgb, var(--warning) 10%, var(--bg-secondary, #151622)); }
+.af-session-card { --af-session-bg: color-mix(in srgb, var(--bg-primary) 88%, #000); --af-session-fg: var(--text-primary); --af-session-muted: color-mix(in srgb, var(--text-secondary) 75%, var(--text-primary)); --af-session-new: #28c5dc; display: flex; align-items: center; gap: 2px; min-width: 0; width: 100%; box-sizing: border-box; border: 1px solid transparent; border-radius: 16px; background: var(--af-session-bg); color: var(--af-session-fg); }
+:root:is(.theme-light, .theme-solarized-light, .theme-catppuccin-latte, .theme-rose-pine-dawn, .theme-one-light, .theme-everforest-light) .af-session-card { --af-session-new: #087f94; --af-session-fg: color-mix(in srgb, var(--text-primary) 75%, #000); --af-session-muted: color-mix(in srgb, var(--text-secondary) 75%, #000); }
+.af-session-card[data-selected] { background: color-mix(in srgb, var(--accent) 4%, var(--af-session-bg)); box-shadow: inset 0 0 0 1px var(--ui-border-2); }
+.af-session-card[data-unread] { border-color: var(--af-session-new); background: color-mix(in srgb, var(--af-session-new) 6%, var(--af-session-bg)); }
+.af-session-card[data-attention] { border-color: var(--warning); background: color-mix(in srgb, var(--warning) 6%, var(--af-session-bg)); }
 .af-session-card__open { flex: 1; min-width: 0; min-height: 64px; padding: 9px 10px; border: 0; border-radius: inherit; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .af-session-card__open:focus-visible, .af-session-card__archive:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .af-session-card__heading { display: flex; align-items: center; gap: 7px; min-width: 0; }
@@ -12,12 +12,12 @@
 .af-session-card__marker.is-attention { background: var(--warning); border-radius: 1px; transform: rotate(45deg); }
 .af-session-card__marker.is-failed { background: var(--error); }
 .af-session-card__marker.is-working { background: transparent; border: 2px solid var(--af-session-new); border-right-color: transparent; box-sizing: border-box; width: 9px; height: 9px; flex-basis: 9px; animation: af-session-working 1s linear infinite; }
-.af-session-card__meta { display: flex; align-items: center; gap: 9px; margin-top: 4px; color: var(--text-secondary); font-size: var(--font-size-xs, 12px); line-height: 1.3; min-width: 0; }
+.af-session-card__meta { display: flex; align-items: center; gap: 9px; margin-top: 4px; color: var(--af-session-muted); font-size: var(--font-size-xs, 12px); line-height: 1.3; min-width: 0; }
 .af-session-card__meta > span { display: inline-flex; align-items: center; gap: 4px; min-width: 0; white-space: nowrap; }
 .af-session-card__meta svg { flex-shrink: 0; }
 .af-session-card__time { overflow: hidden; }
 .af-session-card__time > span { overflow: hidden; text-overflow: ellipsis; }
-.af-session-card__attention { color: var(--warning); font-weight: 400; }
+.af-session-card__attention { color: color-mix(in srgb, var(--warning) 75%, var(--af-session-fg)); font-weight: 400; }
 .af-session-card__archive { display: grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px; border: 0; border-radius: 6px; margin-right: 6px; background: transparent; color: var(--error); cursor: pointer; opacity: 0; pointer-events: none; }
 .af-session-card:hover .af-session-card__archive, .af-session-card__open:focus-visible + .af-session-card__archive, .af-session-card__archive:focus-visible { opacity: 1; visibility: visible; pointer-events: auto; }
 .af-session-card__archive:hover { background: color-mix(in srgb, var(--error) 10%, transparent); }

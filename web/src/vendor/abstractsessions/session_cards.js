@@ -512,7 +512,15 @@ function useSessionReads(scope, observed = []) {
   return { isUnread: (p) => Boolean(scope) && store.isUnread(p), markRead, error: store.error };
 }
 function SessionReadMarker(p) {
-  return _jsx6(VisibleContentMarker, { ownerKey: p.ownerKey, contentKey: `${p.receipt.sessionId}:${p.receipt.revision}:${p.receipt.updatedAt || ""}`, enabled: p.enabled, onConsume: () => p.onRead(p.receipt) });
+  return _jsx6(VisibleContentMarker, { ownerKey: p.ownerKey, contentKey: `${p.receipt.sessionId}:${p.receipt.revision}:${p.receipt.updatedAt || ""}`, enabled: p.enabled, onConsume: () => {
+    const seen = /* @__PURE__ */ new Set();
+    for (const receipt of [...p.relatedReceipts || [], p.receipt]) {
+      if (receipt.sessionId !== p.receipt.sessionId || seen.has(receipt.revision))
+        continue;
+      seen.add(receipt.revision);
+      p.onRead(receipt);
+    }
+  } });
 }
 export {
   AutomationCard,
