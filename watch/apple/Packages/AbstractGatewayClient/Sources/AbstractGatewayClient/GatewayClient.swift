@@ -146,6 +146,12 @@ public protocol GatewayClient: Sendable {
     func messageStats(runID: String) async throws -> MessageStats?
     /// `POST /api/gateway/commands` `{type: "cancel"}`.
     func cancel(runId: String) async throws
+    func publicConversation(runId: String) async throws -> [PublicConversationUpdate]
+    func guideRun(runId: String, text: String) async throws
+    func startConversationRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?, workflow: WorkflowChoice?, primaryImage: MediaItem?) async throws -> String
+    func openConversationVisit(name: String, sessionId: String) async throws -> EntitySessionState
+    func guideEntityVisit(name: String, runId: String, text: String) async throws
+    func answerEntityQuestion(name: String, runId: String, wait: Wait, text: String) async throws
     /// `GET /api/gateway/automations/{id}/occurrences?limit=N`.
     func occurrences(automationId: String, limit: Int) async throws -> [LastOccurrence]
     /// `POST /api/gateway/automations/{id}/seen` `{attention_cursor}`.
@@ -523,6 +529,38 @@ public actor LiveGatewayClient: GatewayClient {
     }
     public func startRun(_ body: StartRunRequest) async throws -> String {
         try JSONDecoder().decode(StartRunResponse.self, from: await request("POST", "api/gateway/runs/start", body: body)).runId
+    }
+    public func startConversationRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?, workflow: WorkflowChoice?, primaryImage: MediaItem?) async throws -> String {
+        var body = StartRunRequest(prompt: prompt, sessionId: sessionId, toolPolicy: toolPolicy, tools: tools,
+                                   system: AssistantPersona.watch, workflow: workflow, primaryImage: primaryImage)
+        body.conversation = true
+        return try await startRun(body)
+    }
+    public func publicConversation(runId: String) async throws -> [PublicConversationUpdate] {
+        try await get("api/gateway/runs/\(runId)/view", as: PublicConversationView.self).updates
+    }
+    public func guideRun(runId: String, text: String) async throws {
+        struct Command: Encodable {
+            var command_id = UUID().uuidString; var run_id: String; var type = "inject_guidance"; var payload: [String: String]
+        }
+        let data = try await request("POST", "api/gateway/commands", body: Command(run_id: runId, payload: ["guidance": text]))
+        let ack = try JSONDecoder().decode(CommandAck.self, from: data)
+        guard ack.accepted == true else { throw GatewayError.invalidResponse }
+    }
+    public func openConversationVisit(name: String, sessionId: String) async throws -> EntitySessionState {
+        let body: JSONValue = .object(["session_id": .string(sessionId), "conversation": .bool(true),
+                                      "tool_policy": .object(["modes": .null])])
+        let data = try await request("POST", "api/gateway/entities/\(name)/visit/open", body: body, timeout: 120)
+        return try JSONDecoder().decode(EntitySessionState.self, from: data)
+    }
+    public func guideEntityVisit(name: String, runId: String, text: String) async throws {
+        let data = try await request("POST", "api/gateway/entities/\(name)/visit/\(runId)/guidance", body: ChatTurnRequest(text: text))
+        let ack = try JSONDecoder().decode(CommandAck.self, from: data)
+        guard ack.accepted == true else { throw GatewayError.invalidResponse }
+    }
+    public func answerEntityQuestion(name: String, runId: String, wait: Wait, text: String) async throws {
+        let body: JSONValue = .object(["wait_key": .string(wait.waitKey), "response": .string(text), "target_run_id": .string(wait.runId)])
+        _ = try await request("POST", "api/gateway/entities/\(name)/visit/\(runId)/answer", body: body)
     }
     /// The iPhone's turn: the account's Assistant workflow, the tools it may use (on every turn, as the
     /// tray), the person's files and the image an edit starts from.

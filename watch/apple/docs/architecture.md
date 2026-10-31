@@ -92,6 +92,24 @@ sequenceDiagram
 
 ## Components
 
+The optional Avatar conversation view reads task subtitles only from `GET /runs/{root}/view`
+messages whose kind is `public_update`; it never derives them from activity text or reasoning.
+Task starts explicitly send `conversation: true`. A live correction uses the active foreground
+run's `inject_guidance` command, quoting the pinned public message. The receipt means accepted,
+not that a model has adopted the correction.
+
+Opted-in entity conversations use `/entities/{name}/visit/open` with `conversation: true`, then
+`/turn` and the privacy-screened `/state` response's `public_updates`. Corrections use `/guidance`;
+question answers use `/answer` with the exact wait key and target run. Entity tool approvals use
+the existing `/decision` route only for its matching visit run. A child approval not supported by
+that route is left for the main app; there is no generic-command fallback for an entity.
+
+`ConversationQuestion` validates purpose, importance, timestamps, a 120–300-second clarification
+deadline and its nonempty fallback. Essential questions cannot contain a deadline or fallback.
+Countdown display never resumes work: the server alone resolves expiration. Public-update source
+identity establishes lineage rather than semantic truth. Foreground cues are keyed by actual wait
+or live-result identity, and historical messages do not replay completion cues.
+
 | Component | Responsibility |
 |---|---|
 | `Sources/App` (SwiftUI) | Screens and navigation (one `NavigationStack`); see [design.md](design.md). |

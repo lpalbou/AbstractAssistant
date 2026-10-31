@@ -100,6 +100,7 @@ public struct Wait: Codable, Hashable, Sendable, Identifiable {
     /// one of its runs (an agent's run below an occurrence carries them too).
     public var sessionId: String?
     public var automationId: String?
+    public var question: ConversationQuestion? = nil
 
     // --- Display-only fields, NOT part of the gateway wait payload. ---
     /// Workflow label shown on the watch (from the run row's `workflow_id` in live mode).
@@ -122,17 +123,19 @@ public struct Wait: Codable, Hashable, Sendable, Identifiable {
     public init(runId: String, waitKey: String, kind: WaitKind, reason: String? = nil, prompt: String? = nil,
                 choices: [String]? = nil, allowFreeText: Bool? = nil, details: [ToolCallDetail]? = nil,
                 workflow: String? = nil, riskTier: String? = nil, askedAt: Date? = nil,
-                sessionId: String? = nil, automationId: String? = nil) {
+                sessionId: String? = nil, automationId: String? = nil, question: ConversationQuestion? = nil) {
         self.runId = runId; self.waitKey = waitKey; self.kind = kind; self.reason = reason; self.prompt = prompt
         self.choices = choices; self.allowFreeText = allowFreeText; self.details = details
         self.workflow = workflow; self.riskTier = riskTier; self.askedAt = askedAt
         self.sessionId = sessionId; self.automationId = automationId
+        self.question = question
     }
 
     enum CodingKeys: String, CodingKey {
         case runId = "run_id", waitKey = "wait_key", kind, reason, prompt, choices
         case allowFreeText = "allow_free_text", details, workflow, riskTier = "risk_tier", askedAt = "asked_at"
         case sessionId = "session_id", automationId = "automation_id"
+        case question
     }
 }
 
@@ -150,6 +153,7 @@ public enum WaitOwner: Hashable, Sendable {
 /// `waiting` block of a run summary (service.py run_summary). It carries `reason`
 /// (runtime WaitReason: user|event|until|job|subworkflow), not `kind`.
 public struct RunWaiting: Codable, Hashable, Sendable {
+    public var runId: String? = nil
     public var reason: String?
     public var waitKey: String?
     public var prompt: String?
@@ -157,7 +161,7 @@ public struct RunWaiting: Codable, Hashable, Sendable {
     public var allowFreeText: Bool?
     public var details: JSONValue?
     enum CodingKeys: String, CodingKey {
-        case reason, waitKey = "wait_key", prompt, choices, allowFreeText = "allow_free_text", details
+        case runId = "run_id", reason, waitKey = "wait_key", prompt, choices, allowFreeText = "allow_free_text", details
     }
 }
 
@@ -266,7 +270,8 @@ public struct RunSummary: Codable, Hashable, Sendable, Identifiable {
         else { kind = .other(w.reason ?? "user") }
         return Wait(runId: runId, waitKey: key, kind: kind, reason: w.reason, prompt: w.prompt, choices: w.choices,
                     allowFreeText: w.allowFreeText, details: details.isEmpty ? nil : details, workflow: workflowId,
-                    askedAt: updatedAt.flatMap(ISO8601.date), sessionId: sessionId, automationId: automationId)
+                    askedAt: updatedAt.flatMap(ISO8601.date), sessionId: sessionId, automationId: automationId,
+                    question: ConversationQuestion.parse(w.details?["question"]))
     }
 }
 
@@ -1130,6 +1135,7 @@ public struct StartRunRequest: Encodable, Sendable {
     public var registryScope: String?
     public var sessionId: String?
     public var inputData: InputData
+    public var conversation: Bool? = nil
 
     /// `system`: who answers (`AssistantPersona.watch`, `AssistantPersona.iPhone`; nil: the agent's own).
     public init(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy? = nil, tools: [String]? = nil,
@@ -1153,6 +1159,7 @@ public struct StartRunRequest: Encodable, Sendable {
     enum CodingKeys: String, CodingKey {
         case flowId = "flow_id", interface, sessionId = "session_id", inputData = "input_data"
         case bundleId = "bundle_id", bundleVersion = "bundle_version", registryScope = "registry_scope"
+        case conversation
     }
 }
 

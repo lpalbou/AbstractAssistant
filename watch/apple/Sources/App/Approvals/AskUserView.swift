@@ -11,6 +11,7 @@ struct AskUserView: View {
         FitScroll {
             VStack(alignment: .leading, spacing: 6) {
                 Text(wait.headline).font(.rounded(.headline)).foregroundStyle(Theme.text)
+                if let question = wait.question { ConversationQuestionInfo(question: question) }
                 Spacer(minLength: 8)
                 ForEach(Array((wait.choices ?? []).enumerated()), id: \.offset) { i, choice in
                     Button(choice) { send(choice) }

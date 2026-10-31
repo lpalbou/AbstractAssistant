@@ -13,6 +13,7 @@ public actor MockGatewayClient: GatewayClient {
     public enum World: Sendable { case watch, phone }
     public nonisolated let world: World
     private var sessionReadReceipts: Set<SessionReadReceipt> = []
+    private var conversationVisits: [String: (Date, String)] = [:]
     public func sessionReads(runIDs: [String]) async throws -> [SessionReadReceipt] {
         let ids = Set(runIDs); return sessionReadReceipts.filter { ids.contains($0.runID) }
     }
@@ -1159,6 +1160,28 @@ public actor MockGatewayClient: GatewayClient {
         }
         return id
     }
+
+    public func startConversationRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?, workflow: WorkflowChoice?, primaryImage: MediaItem?) async throws -> String {
+        try await startRun(prompt: prompt, sessionId: sessionId, toolPolicy: toolPolicy, tools: tools, workflow: workflow, primaryImage: primaryImage)
+    }
+    public func publicConversation(runId: String) async throws -> [PublicConversationUpdate] {
+        [.init(id: runId + ":public_update:1", text: "I’m comparing the options. You can tell me what matters to you.", runId: runId)]
+    }
+    public func guideRun(runId: String, text: String) async throws {}
+    public func openConversationVisit(name: String, sessionId: String) async throws -> EntitySessionState {
+        .init(runID: "mock-visit-" + name, status: "waiting", turn: 0, readyForInput: true)
+    }
+    public func sendEntityTurn(name: String, runID: String, text: String) async throws -> JSONValue {
+        conversationVisits[runID] = (Date(), text)
+        return .object(["accepted": .bool(true)])
+    }
+    public func entitySession(name: String, runID: String) async throws -> EntitySessionState {
+        let ready = conversationVisits[runID].map { Date().timeIntervalSince($0.0) > 3 } ?? true
+        return .init(runID: runID, status: "waiting", turn: 1, reply: ready ? world.cannedAnswer : nil,
+                     readyForInput: ready, publicUpdates: try await publicConversation(runId: runID))
+    }
+    public func guideEntityVisit(name: String, runId: String, text: String) async throws {}
+    public func answerEntityQuestion(name: String, runId: String, wait: Wait, text: String) async throws {}
 
     /// The iPhone's turn (its activity scenarios start a root run waiting on its agent's child).
     public func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?) async throws -> String {

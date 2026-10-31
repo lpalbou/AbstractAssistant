@@ -23,6 +23,7 @@ final class RunActivity: ObservableObject {
     @Published private(set) var since = Date()
     @Published private(set) var ended: Date?
     @Published private(set) var runId: String?
+    @Published private(set) var focusRunId: String?
 
     private var task: Task<Void, Never>?
     private var cursors: [String: Int] = [:]
@@ -76,7 +77,7 @@ final class RunActivity: ObservableObject {
 
     func reset() {
         task?.cancel(); task = nil
-        log = ActivityLog(); cursors = [:]; delegated = []; pulses = []; ended = nil; runId = nil; lastFocus = nil; seen = [:]
+        log = ActivityLog(); cursors = [:]; delegated = []; pulses = []; ended = nil; runId = nil; focusRunId = nil; lastFocus = nil; seen = [:]
     }
 
     private func tick(root: String, client: any GatewayClient, final: Bool = false) async throws {
@@ -95,6 +96,7 @@ final class RunActivity: ObservableObject {
             try await read(last, root: root, client: client)
         }
         lastFocus = focus
+        focusRunId = focus
         guard !delegated.contains(focus) || depth == 4 else { return }
         // Nothing changed in that run since its last read: nothing to read (the gateway loads a
         // run's whole step log to answer any page of it).

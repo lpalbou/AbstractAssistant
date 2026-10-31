@@ -9,6 +9,13 @@ iPhone app); the Python package's history is in
 
 ### Added
 
+- Optional **Avatar conversation** view with public subtitles, pinned replies, Talk/Type during
+  work and accessible update history. Agent corrections use live guidance; entity conversations
+  use the canonical visit routes and preserve entity approval and privacy policy.
+- Server-owned clarification deadlines and declared fallback display, plus separate foreground
+  visual, spoken and haptic preferences for questions, approvals and completion. Task stopping in
+  this view remains pending until the Gateway reports the outcome.
+
 - **Voices in groups, with their language (AbstractGateway 0.16.0 voice library).** Settings → Voice
   lists **Your voices** (cloned or designed on the iPhone or the desktop), **Engine voices** and
   **Shared voices** (the gateway's built-in voices and the ones its administrator shares), each with

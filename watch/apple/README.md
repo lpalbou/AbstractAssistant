@@ -37,6 +37,22 @@ its own pending recording, scoped to its Gateway and sign-in. Retry and Discard 
 that question. After relaunching, **Not sent.** means a recording is still kept in this
 conversation; it does not describe the status of other discussions.
 
+**An optional avatar conversation.** Settings → Avatar conversation adds short public subtitles
+beside the orb and an explicit Talk button while the assistant works. Type or speak a correction;
+the screen says “Message sent” when accepted, and the assistant explains any changed plan when
+it next responds. Tap a subtitle to read it fully or pin a reply to that idea; Latest returns to
+following new updates. Scroll for earlier updates and the complete answer. The original view
+remains the default. New tasks and entity visits request public conversation support from a
+Gateway with the conversation endpoints; an older Gateway reports an error rather than inventing
+updates from technical activity or private reasoning.
+
+Questions show their declared time limit and fallback when supplied by the Gateway; essential
+questions have no time limit. The Watch does not continue a task on its own timer, and silence
+never approves an action. Settings → Conversation cues independently controls visual, spoken and
+haptic cues for questions, approvals and completion while this view is in front. Existing background
+notification policy remains in charge when the app is away. Microphone, haptic and background
+delivery depend on the Watch's permissions and device settings.
+
 **Swipe as in a browser.** A swipe to the right (your finger moving right, as with watchOS's Back)
 goes back to the page before, down to Home; a swipe to the left goes forward again to a page you
 came back from, and does nothing when there is none.

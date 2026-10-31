@@ -5,6 +5,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @AppStorage("ask.speak") private var speakAnswers = true
+    @AppStorage("ask.conversation") private var conversationView = false
     @AppStorage(AutomationNotices.key) private var automationNotices = true
     @AppStorage(OrbDesign.storageKey) private var orbDesign = OrbDesign.a.rawValue
     @State private var confirmingSignOut = false
@@ -40,6 +41,12 @@ struct SettingsView: View {
                     Toggle("Read aloud", isOn: $speakAnswers)
                         .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text).tint(Theme.indigoButton)
                 }
+                Card {
+                    Toggle("Avatar conversation", isOn: $conversationView)
+                        .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text).tint(Theme.indigoButton)
+                        .accessibilityIdentifier("settings.conversation")
+                }
+                Card { ConversationCueSettings() }
                 // A notification when an automation finishes a run.
                 Card {
                     Toggle("Notifications", isOn: $automationNotices)

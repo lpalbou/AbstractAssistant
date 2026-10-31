@@ -64,6 +64,11 @@ permission question would stop them.
   real tap matters (for example, editing an automation's task starts from its current text).
   Screenshots of each step are written to the folder named by `TEST_RUNNER_SHOTS_DIR`.
 
+`AvatarConversationUITests` checks the optional subtitles view, Talk/Type availability while work
+continues, pinning and return to latest, and the unchanged default view. Package
+`PublicConversationTests` verifies strict question decoding and the task/entity wire routes.
+Simulator tests do not establish physical Watch microphone, haptic or background delivery behavior.
+
 ```sh
 TEST_RUNNER_SHOTS_DIR=/tmp/shots xcodebuild test -project ../../phone/iphone/AbstractAssistant.xcodeproj \
   -scheme AbstractAssistantWatchUITests -destination 'platform=watchOS Simulator,id=<simulator>' \

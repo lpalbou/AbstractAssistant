@@ -22,6 +22,24 @@ struct AskView: View {
     /// The run working on the question: its steps under the orb, its pulses in the orb.
     @StateObject private var activity = RunActivity()
     @AppStorage("ask.speak") private var speakAnswers = true
+    @AppStorage("ask.conversation") private var conversationView = false
+    @State private var briefs: [PublicConversationUpdate] = []
+    @State private var currentBriefIds: Set<String> = []
+    @State private var pinnedBrief: PublicConversationUpdate?
+    @State private var expandedBrief: PublicConversationUpdate?
+    @State private var visitApproval: Wait?
+    @State private var liveReplies: [String] = []
+    @State private var replyDraft = ""
+    @State private var failedReplyTarget: PublicConversationUpdate?
+    @State private var failedReplyWait: Wait?
+    @State private var typedQuestionTarget: Wait?
+    @State private var typingCaptured = false
+    @State private var sendingReply = false
+    @State private var liveRecording = false
+    @State private var stopping = false
+    @State private var entityVisitId: String?
+    @State private var entityVisitName: String?
+    @State private var cueKeys: Set<String> = []
 
     @State private var phase: Phase
     @State private var prompt = ""
@@ -109,7 +127,7 @@ struct AskView: View {
                     VStack(spacing: 6) {
                         // The orb fills the screen, centred on it; everything else is below.
                         ScreenCentered(width: geo.size.width, top: geo.frame(in: .global).minY) { side in
-                            Orb(mode: orbMode, size: side * 0.9, voice: orbVoice, countdown: orbCountdown, since: listenSince, look: orbLook,
+                            Orb(mode: orbMode, size: side * (conversationView ? 0.72 : 0.9), voice: orbVoice, countdown: orbCountdown, since: listenSince, look: orbLook,
                                 work: phase == .thinking && activity.isFollowing ? { @MainActor @Sendable t in activity.orb(at: t) } : nil)
                                 .contentShape(Circle())
                                 .onTapGesture(perform: orbTapped)
@@ -134,6 +152,7 @@ struct AskView: View {
                         } bottom: {
                             VStack(spacing: 4) {
                                 // Who answers, below the orb: only while the orb is at rest.
+                                if conversationView { conversationSubtitles }
                                 if controlsShown { if let a = automationFeed { automationName(a) } else { responderSwitch } }
                                 Text(status).font(.rounded(.footnote)).foregroundStyle(statusColor)
                                     .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.85)
@@ -147,7 +166,7 @@ struct AskView: View {
                         // The keyboard, top right under the time: only while the orb is at rest (the
                         // same moments as who answers).
                         .overlay(alignment: .topTrailing) {
-                            if controlsShown {
+                            if controlsShown || conversationView && phase == .thinking {
                                 keyboardLink.buttonStyle(GlassPress()).padding(.trailing, 6 - Self.reach).padding(.top, 2 - Self.reach)
                             }
                         }
@@ -172,7 +191,7 @@ struct AskView: View {
                 }
                 // Nothing below the orb yet (no question, no answer): the page does not move.
                 .scrollDisabled(!hasBelow)
-                .onChange(of: phase) { _, _ in withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo("orb", anchor: .top) } }
+                .onChange(of: phase) { _, _ in if !conversationView { withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo("orb", anchor: .top) } } }
             }
         }
         .background(Theme.ground)
@@ -196,7 +215,8 @@ struct AskView: View {
                 if busy {
                     Button(action: stopBusy) { GlassIcon(symbol: "stop.fill", size: CornerButton.size).rowReach() }
                         .buttonStyle(GlassPress())
-                        .accessibilityLabel(phase == .listening ? "Stop listening" : "Stop")
+                        .accessibilityLabel(phase == .listening || liveRecording ? "Stop listening" : conversationView ? "Stop task" : "Stop")
+                        .disabled(stopping)
                         .accessibilityIdentifier("ask.stop")
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 } else if !exchanges.isEmpty {
@@ -208,17 +228,53 @@ struct AskView: View {
             if phase == .thinking, !model.trust(trustOwner).isEmpty {
                 TrustShield(owner: trustOwner).transition(.scale(scale: 0.6).combined(with: .opacity))
             }
-            if phase != .listening, phase != .thinking, let e = selected, !e.answer.isEmpty, e.scope != nil {
+            if phase != .listening, phase != .thinking, !liveRecording, let e = selected, !e.answer.isEmpty, e.scope != nil {
                 VoiceButton(speaker: speaker, isCurrent: readingId == e.id) { read(e) }
             }
         }
         .task { await onOpen() }
+        .sheet(item: $expandedBrief) { brief in
+            FitScroll {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(brief.text).font(.rounded(.body)).foregroundStyle(Theme.text)
+                    Button("Reply to this") { pinnedBrief = brief; expandedBrief = nil }
+                        .buttonStyle(FilledButtonStyle(fill: Theme.indigoButton))
+                    Button(speaker.isActive ? "Silence" : "Read aloud") {
+                        if speaker.isActive { speaker.stop() }
+                        else { speaker.read(brief.text, scope: entityVisitName.map(SpeechScope.entity) ?? .run(brief.runId), client: model.client) }
+                    }.buttonStyle(.tap)
+                    Button("Follow latest") { pinnedBrief = nil; expandedBrief = nil }
+                        .buttonStyle(.tap)
+                }.padding(8)
+            }
+        }
+        .sheet(item: $visitApproval) { wait in
+            FitScroll {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(wait.headline).font(.rounded(.headline))
+                    ForEach(Array((wait.details ?? []).enumerated()), id: \.offset) { _, detail in
+                        Text(detail.name).font(.rounded(.footnote, weight: .semibold))
+                        ForEach(detail.arguments.keys.sorted(), id: \.self) { key in
+                            Text("\(key): \(detail.arguments[key]?.displayText ?? "")").font(.rounded(.footnote))
+                        }
+                    }
+                    Button("Allow") { decideVisitApproval(wait, approved: true) }
+                        .buttonStyle(FilledButtonStyle(fill: Theme.indigoButton)).disabled(sendingReply)
+                    Button("Deny") { decideVisitApproval(wait, approved: false) }
+                        .buttonStyle(FilledButtonStyle(fill: Theme.neutralButton)).disabled(sendingReply)
+                }.padding(8)
+            }
+        }
         // An automation's page notices a run starting (its schedule, or Run now on its details).
         // The task ends when the page is covered or left, and starts again when it is back in front.
         .onAppear { appearances += 1; kept = KeptQuestion.url(for: keptScope) }
         .onChange(of: keptScope) { _, scope in
             error = nil; note = nil
             kept = KeptQuestion.url(for: scope)
+            if conversationView {
+                clearConversation()
+                kept = KeptQuestion.url(for: scope)
+            }
         }
         .task(id: automationFeed.map { "\($0.id)#\(appearances)" }) { await watchAutomation() }
         // A message of the Assistant's conversation on screen: a swipe forward opens its stats page
@@ -250,7 +306,7 @@ struct AskView: View {
                     model.markSeen(session: session, run: id, status: status)
                 }
             }
-            if p == .background, phase == .thinking, !transcribing, pendingWait == nil, let id = runId, !model.client.isMock {
+            if p == .background, phase == .thinking, !transcribing, pendingWait == nil, entityVisitId == nil, let id = runId, !model.client.isMock {
                 AnswerNotifier.shared.watch(runId: id, title: speakerTitle, prompt: prompt)
             }
         }
@@ -289,7 +345,7 @@ struct AskView: View {
     }
 
     private var hasBelow: Bool {
-        !exchanges.isEmpty || (!prompt.isEmpty && phase == .thinking)
+        !exchanges.isEmpty || (!prompt.isEmpty && phase == .thinking) || conversationView && (!briefs.isEmpty || !liveReplies.isEmpty)
     }
 
     /// The message shown in full (the conversation's last), the one the voice button reads.
@@ -334,11 +390,47 @@ struct AskView: View {
     /// answer), then the earlier messages as small cards (5, Show older for the rest); a card opens
     /// that message.
     @ViewBuilder private var belowContent: some View {
+        if conversationView {
+            if let wait = pendingWait {
+                Button(wait.kind == .askUser ? "Read the question" : "Review approval") {
+                    if entityVisitName != nil, wait.kind != .askUser { visitApproval = wait }
+                    else if entityVisitName == nil { open(wait) }
+                    else { expandedBrief = .init(id: wait.id, text: wait.headline, runId: wait.runId) }
+                }
+                    .buttonStyle(FilledButtonStyle(fill: Theme.indigoButton))
+                if let question = wait.question { ConversationQuestionInfo(question: question) }
+                if wait.kind == .askUser {
+                    ForEach(wait.choices ?? [], id: \.self) { choice in
+                        Button(choice) { sendLiveReply(choice, to: nil) }
+                            .buttonStyle(FilledButtonStyle(fill: Theme.indigoButton)).disabled(sendingReply)
+                    }
+                }
+            }
+            if !replyDraft.isEmpty {
+                Text("You: \(replyDraft)").font(.rounded(.footnote)).foregroundStyle(Theme.text)
+                if !sendingReply {
+                    Button("Retry sending") { sendLiveReply(replyDraft, to: failedReplyTarget, questionTarget: .some(failedReplyWait)) }.buttonStyle(.tap)
+                    if phase != .thinking, failedReplyWait != nil {
+                        Button("Send as a new message") { let text = replyDraft; replyDraft = ""; send(text) }.buttonStyle(.tap)
+                    }
+                }
+            }
+            ForEach(Array(liveReplies.enumerated()), id: \.offset) { _, text in
+                Text("You: \(text)").font(.rounded(.footnote)).foregroundStyle(Theme.text2)
+            }
+            ForEach(briefs.reversed()) { brief in
+                Button { pinnedBrief = brief; expandedBrief = brief } label: {
+                    Text(brief.text).font(.rounded(.footnote)).foregroundStyle(Theme.text).frame(maxWidth: .infinity, alignment: .leading)
+                }.buttonStyle(.tap)
+            }
+            messages
+        } else {
         // While it works: its steps, live, in place of the conversation (which returns with the answer).
         if phase == .thinking, activity.runId != nil, automationFeed != nil || model.responder == .assistant {
             ActivityPanel(activity: activity, prompt: prompt, openWait: pendingWait.map { w in { open(w) } })
         } else {
             messages
+        }
         }
     }
 
@@ -381,6 +473,203 @@ struct AskView: View {
     }
 
     // MARK: - Pieces
+
+    private var conversationalBrief: PublicConversationUpdate? {
+        pinnedBrief ?? briefs.last(where: { currentBriefIds.contains($0.id) })
+    }
+
+    @ViewBuilder private var conversationSubtitles: some View {
+        let current = conversationalBrief
+        if let wait = pendingWait {
+            Text(wait.kind == .askUser ? wait.headline : "Your approval is needed.")
+                .font(.rounded(.body)).foregroundStyle(Theme.text).multilineTextAlignment(.center).lineLimit(3)
+                .accessibilityIdentifier("conversation.subtitle")
+        } else if let current {
+            Button { pinnedBrief = current; expandedBrief = current } label: {
+                Text(current.text).font(.rounded(.body)).foregroundStyle(Theme.text)
+                    .multilineTextAlignment(.center).lineLimit(3)
+            }.buttonStyle(.tap).accessibilityIdentifier("conversation.subtitle")
+        } else if phase == .answer, !answer.isEmpty {
+            Text(answer).font(.rounded(.body)).foregroundStyle(Theme.text).lineLimit(3)
+        }
+        HStack(spacing: 8) {
+            Button(listener.isListening ? "Send" : "Talk") { conversationTalk() }
+                .buttonStyle(.tap).font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.cyan)
+                .disabled(sendingReply || stopping).accessibilityIdentifier("conversation.talk")
+            if pinnedBrief != nil {
+                Button("Latest") { pinnedBrief = nil }
+                    .buttonStyle(.tap).font(.rounded(.footnote)).foregroundStyle(Theme.cyan)
+            }
+            if speaker.isActive || speaker.isPaused {
+                Button("Silence") { speaker.stop() }.buttonStyle(.tap).font(.rounded(.footnote)).foregroundStyle(Theme.cyan)
+            }
+        }
+    }
+
+    private func mergeBriefs(_ updates: [PublicConversationUpdate]) {
+        var ids = Set(briefs.map(\.id))
+        for update in updates where ids.insert(update.id).inserted {
+            briefs.append(update); currentBriefIds.insert(update.id)
+        }
+    }
+
+    private func conversationCue(_ cue: ConversationCue, key: String, text: String) {
+        guard conversationView, scenePhase == .active, model.path.last?.isOrbPage == true,
+              cueKeys.insert("\(cue.rawValue):\(key)").inserted else { return }
+        if cue.enabled("visual", default: true) { note = text }
+        if cue.enabled("haptic", default: true) { WKInterfaceDevice.current().play(cue == .completion ? .success : .notification) }
+        if cue.enabled("audio", default: false), !listener.isListening, !liveRecording {
+            let scope = entityVisitName.map(SpeechScope.entity) ?? runId.map(SpeechScope.run)
+            speaker.read(text, scope: scope, client: model.client)
+        }
+    }
+
+    private func conversationTalk() {
+        if listener.isListening { listener.send(); return }
+        guard !sendingReply, !stopping else { return }
+        if phase == .thinking, runId == nil { note = "The task is starting. You can type a message while it starts."; return }
+        speaker.stop() // Reply silences speech before the microphone opens.
+        guard phase == .thinking, runId != nil else { startListening(); return }
+        let mine = turn, owner = keptScope, target = conversationalBrief, question = pendingWait
+        liveRecording = true; error = nil; note = nil
+        listener.start { outcome in
+            guard mine == turn, owner == keptScope else { return }
+            liveRecording = false
+            switch outcome {
+            case .nothingHeard: note = "I didn't hear anything."
+            case .failed(let why): error = why
+            case .speech(let wav): transcribeLiveReply(wav, to: target, question: question)
+            }
+        }
+    }
+
+    private func transcribeLiveReply(_ wav: Data, to target: PublicConversationUpdate?, question: Wait?, retrying: Bool = false) {
+        let mine = turn, owner = keptScope, client = model.client, session = model.askSessionId
+        let original = KeptQuestion.url(for: owner)
+        sendingReply = true
+        Task {
+            do {
+                let text = try await client.transcribe(wav: wav, sessionId: session, model: VoicePrefs.transcription)
+                guard mine == turn, owner == keptScope else { return }
+                sendingReply = false
+                if retrying { KeptQuestion.discard(scope: owner, matching: original); kept = KeptQuestion.url(for: owner) }
+                if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { note = "I didn't catch that."; return }
+                sendLiveReply(text, to: target, questionTarget: .some(question))
+            } catch {
+                guard mine == turn, owner == keptScope else { return }
+                sendingReply = false; failedReplyTarget = target; failedReplyWait = question
+                kept = retrying ? KeptQuestion.url(for: owner) : KeptQuestion.keep(wav, scope: owner, sessionId: session)
+                self.error = Self.human(error)
+            }
+        }
+    }
+
+    /// An explicit `.some(nil)` means the input began outside a question; never retarget it to a new wait.
+    private func sendLiveReply(_ text: String, to target: PublicConversationUpdate?, questionTarget: Wait?? = nil) {
+        guard let id = runId, !sendingReply, !stopping else { return }
+        let wait = questionTarget ?? pendingWait
+        if phase != .thinking {
+            if wait?.kind == .askUser {
+                replyDraft = text; failedReplyTarget = target; failedReplyWait = wait
+                error = "That question has ended. Your reply is kept."; return
+            }
+            send(ConversationReply.text(text, to: target)); return
+        }
+        let mine = turn, owner = keptScope, client = model.client
+        if let wait, wait.kind == .askUser, wait.allowFreeText == false, !(wait.choices ?? []).contains(text) {
+            replyDraft = text; failedReplyTarget = target; error = "Choose one of the offered answers."; return
+        }
+        let visit = entityVisitId, entity = entityVisitName
+        let workingRun = activity.focusRunId ?? id
+        let addressed = ConversationReply.text(text, to: target)
+        replyDraft = text; failedReplyTarget = target; failedReplyWait = wait; sendingReply = true; error = nil; note = "Sending…"
+        Task {
+            do {
+                if let entity, let visit {
+                    if let wait, wait.kind == .askUser {
+                        try await client.answerEntityQuestion(name: entity, runId: visit, wait: wait, text: text)
+                    } else { try await client.guideEntityVisit(name: entity, runId: visit, text: addressed) }
+                } else if let wait, wait.kind == .askUser {
+                    try await client.answer(wait, with: .respond(text))
+                } else { try await client.guideRun(runId: workingRun, text: addressed) }
+                guard mine == turn, owner == keptScope else { return }
+                sendingReply = false; liveReplies.append(text); replyDraft = ""; failedReplyTarget = nil; failedReplyWait = nil
+                note = "Message sent." // Accepted does not mean the model has adopted the change.
+                if wait?.kind == .askUser {
+                    pendingWait = nil
+                    // The follower remains active while this view displays its wait.
+                }
+            } catch {
+                guard mine == turn, owner == keptScope else { return }
+                sendingReply = false; note = nil; self.error = "Not sent. \(Self.human(error))"
+            }
+        }
+    }
+
+    private func sendVisitTurn(_ name: String, text: String, turn mine: Int) async throws {
+        let client = model.client
+        if entityVisitName != name || entityVisitId == nil {
+            let state = try await client.openConversationVisit(name: name, sessionId: model.askSessionId)
+            guard mine == turn else { return }
+            entityVisitName = name; entityVisitId = state.runID
+        }
+        guard let id = entityVisitId else { throw GatewayError.invalidResponse }
+        runId = id; answerEntity = name
+        if stopping {
+            try await model.client.endEntitySession(name: name, runID: id)
+            stopping = false; entityVisitId = nil; entityVisitName = nil; phase = .idle; note = "Conversation paused."
+            RuntimeKeeper.shared.release("ask"); return
+        }
+        _ = try await client.sendEntityTurn(name: name, runID: id, text: text)
+        guard mine == turn else { return }
+        if stopping {
+            try await client.endEntitySession(name: name, runID: id)
+            stopping = false; entityVisitId = nil; entityVisitName = nil; phase = .idle; note = "Conversation paused."
+            RuntimeKeeper.shared.release("ask"); return
+        }
+        try await followVisit(name, id: id, turn: mine)
+    }
+
+    private func decideVisitApproval(_ wait: Wait, approved: Bool) {
+        guard let name = entityVisitName, let id = entityVisitId else { return }
+        guard wait.runId == id else { error = "This approval must be reviewed in the main app."; return }
+        let mine = turn, client = model.client
+        sendingReply = true
+        Task {
+            do {
+                _ = try await client.answerEntity(name: name, runID: id, waitKey: wait.waitKey, approved: approved)
+                guard mine == turn else { return }
+                sendingReply = false; visitApproval = nil; pendingWait = nil
+            } catch {
+                guard mine == turn else { return }
+                sendingReply = false; self.error = Self.human(error)
+            }
+        }
+    }
+
+    private func followVisit(_ name: String, id: String, turn mine: Int) async throws {
+        while mine == turn {
+            if scenePhase != .active { try await Task.sleep(for: .seconds(1)); continue }
+            let state = try await model.client.entitySession(name: name, runID: id)
+            guard mine == turn else { return }
+            mergeBriefs(state.publicUpdates ?? [])
+            if let wait = state.personWait {
+                pendingWait = wait
+                conversationCue(wait.kind == .askUser ? .question : .approval, key: wait.id,
+                                text: wait.kind == .askUser ? "I have a question for you." : "Your approval is needed.")
+                RuntimeKeeper.shared.release("ask")
+                // Poll remains authoritative for another device answering/expiry; input can also answer here.
+            } else { pendingWait = nil }
+            if state.finishedTurn {
+                stopping = false
+                if let text = state.reply, !text.isEmpty { show(text) }
+                else if let why = state.error { fail(why) }
+                else if ["failed", "cancelled"].contains(state.status) { fail("The conversation stopped.") }
+                return
+            }
+            try await Task.sleep(for: .seconds(1))
+        }
+    }
 
     /// Who answers, below the orb: "Assistant ⌄", one tap opens the choice.
     private var responderSwitch: some View {
@@ -442,9 +731,23 @@ struct AskView: View {
             GlassIcon(symbol: "keyboard").padding(Self.reach).contentShape(Rectangle())
         } onSubmit: { text in
             let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !t.isEmpty { speaker.stop(); send(t) }
+            if !t.isEmpty {
+                speaker.stop()
+                if conversationView, phase == .thinking {
+                    if runId == nil { replyDraft = t; failedReplyTarget = conversationalBrief; note = "The task is starting. Your message is kept." }
+                    else { sendLiveReply(t, to: conversationalBrief, questionTarget: typingCaptured ? .some(typedQuestionTarget) : nil) }
+                }
+                else { send(t) }
+                typingCaptured = false
+            }
         }
         .accessibilityLabel("Type or dictate")
+        .simultaneousGesture(TapGesture().onEnded {
+            if conversationView {
+                if pinnedBrief == nil { pinnedBrief = conversationalBrief }
+                typedQuestionTarget = pendingWait; typingCaptured = true
+            }
+        })
     }
 
     /// The orb of whoever answers: the entity that wrote the answer on screen (it may not be the
@@ -517,6 +820,8 @@ struct AskView: View {
     private var controlsShown: Bool { phase == .idle || (phase == .answer && !speaker.isActive) }
 
     private var orbMode: Orb.Mode {
+        if liveRecording { return listener.isListening ? .listening : .thinking }
+        if conversationView, speaker.state == .speaking { return .speaking }
         switch phase {
         case .listening: return .listening
         case .thinking: return pendingWait == nil ? .thinking : .idle
@@ -531,13 +836,13 @@ struct AskView: View {
     }
 
     private var orbVoice: (@MainActor (Double) -> VoiceFeatures)? {
-        if phase == .listening, listener.isListening { return { listener.features(at: $0) } }
+        if phase == .listening || liveRecording, listener.isListening { return { listener.features(at: $0) } }
         if speaker.state == .speaking { return { speaker.features(at: $0) } }
         return nil
     }
 
     private var orbCountdown: (@MainActor () -> Double)? {
-        guard phase == .listening else { return nil }
+        guard phase == .listening || liveRecording else { return nil }
         return { listener.sendProgress() }
     }
 
@@ -559,6 +864,8 @@ struct AskView: View {
     }
 
     private var status: String {
+        if stopping { return "Stopping…" }
+        if liveRecording { return listener.isListening ? "Listening…" : "Opening microphone…" }
         if loadingConversation { return "Loading…" }
         // While the orb speaks its line is empty: nothing said before (a note, an error) shows over it.
         if phase == .answer, speaker.isActive { return "" }
@@ -580,6 +887,7 @@ struct AskView: View {
     }
 
     private var statusColor: Color {
+        if liveRecording { return Theme.cyan }
         if error != nil { return Theme.red }
         if keptShown, note == nil { return Theme.amber }
         if case .failed = speaker.state, phase == .answer { return Theme.red }
@@ -594,7 +902,7 @@ struct AskView: View {
     static let keptLine = "Not sent."   // short: the line shares its row with the tools icon
 
     /// A kept recording is offered while the orb is at rest (not while it listens, works or speaks).
-    private var keptShown: Bool { kept != nil && controlsShown && !loadingConversation }
+    private var keptShown: Bool { kept != nil && (controlsShown || conversationView) && !loadingConversation }
 
     /// Under the kept line: Retry sends the recording again, Discard deletes it.
     private var keptActions: some View {
@@ -612,6 +920,7 @@ struct AskView: View {
     // MARK: - Actions
 
     private func orbTapped() {
+        if conversationView { conversationTalk(); return }
         // A hold let go before the ring closed is not a tap: nothing happens.
         defer { pressedAt = nil }
         if let at = pressedAt, Date().timeIntervalSince(at) > 0.35 { return }
@@ -639,6 +948,7 @@ struct AskView: View {
         // Back on the orb from the approval or question: follow again only if it was decided.
         if model.decidedWaits.contains(w.id), let id = runId {
             pendingWait = nil
+            if conversationView { return }
             resumeFollowing(id)
         }
     }
@@ -724,6 +1034,9 @@ struct AskView: View {
             KeptQuestion.discard(scope: keptScope); kept = nil; error = "The recording is gone."
             return
         }
+        if conversationView, phase == .thinking, runId != nil {
+            speaker.stop(); transcribeLiveReply(wav, to: failedReplyTarget, question: failedReplyWait, retrying: true); return
+        }
         RuntimeKeeper.shared.hold("ask")
         speaker.stop()
         turn += 1
@@ -744,6 +1057,7 @@ struct AskView: View {
         prompt = text; answer = ""; error = nil; note = nil; runId = nil; answerEntity = nil; pendingWait = nil
         phase = .thinking; transcribing = false
         activity.reset()
+        currentBriefIds = []; pinnedBrief = nil; replyDraft = ""; failedReplyWait = nil; cueKeys = []; stopping = false
         Task {
             do {
                 if let a = automationFeed {
@@ -773,19 +1087,30 @@ struct AskView: View {
                     guard mine == turn else { return }
                     // The conversation's newest image: what "edit it", "make it simpler" start from.
                     let source = exchanges.reversed().lazy.flatMap(\.media).first { $0.kind == .image }
-                    let id = try await model.client.startRun(prompt: text, sessionId: model.askSessionId, toolPolicy: plan.policy,
-                                                                  tools: plan.offered, workflow: workflow, primaryImage: source)
+                    let id: String
+                    if conversationView {
+                        id = try await model.client.startConversationRun(prompt: text, sessionId: model.askSessionId, toolPolicy: plan.policy,
+                                                                        tools: plan.offered, workflow: workflow, primaryImage: source)
+                    } else {
+                        id = try await model.client.startRun(prompt: text, sessionId: model.askSessionId, toolPolicy: plan.policy,
+                                                           tools: plan.offered, workflow: workflow, primaryImage: source)
+                    }
                     guard mine == turn else {
                         // Cancelled (or left) while the run was starting: stop it on the gateway too.
                         try? await model.client.cancel(runId: id); return
                     }
                     runId = id
+                    if stopping { try await model.client.cancel(runId: id) }
                     activity.start(runId: id, client: model.client)
                     if scenePhase == .background, !model.client.isMock {   // sent, then the wrist went down
                         AnswerNotifier.shared.watch(runId: id, title: model.responder.title, prompt: text)
                     }
                     try await follow(id, turn: mine)
                 case .entity(let name):
+                    if conversationView || entityVisitId != nil {
+                        try await sendVisitTurn(name, text: text, turn: mine)
+                        return
+                    }
                     let reply = try await model.entityTurn(name, text: text)
                     guard mine == turn else { return }
                     answerEntity = name
@@ -814,6 +1139,7 @@ struct AskView: View {
     private func fail(_ message: String) {
         // Following gave up (or the run ended without an answer): its steps are not read any more.
         if activity.isFollowing { activity.reset() }
+        stopping = false
         error = message
         phase = answer.isEmpty ? .idle : .answer
         RuntimeKeeper.shared.release("ask")
@@ -837,6 +1163,16 @@ struct AskView: View {
                 try await Task.sleep(for: .seconds(2)); continue
             }
             guard mine == turn else { return }
+            if conversationView, scenePhase == .active {
+                do {
+                    let updates = try await model.client.publicConversation(runId: id)
+                    guard mine == turn else { return }
+                    mergeBriefs(updates)
+                } catch {
+                    guard mine == turn else { return }
+                    note = "Public updates unavailable. The task is still running."
+                }
+            }
             if run.status == "waiting" {
                 // The turn needs a person (approval/question) on this run or on the agent's child run.
                 // The Assistant's workflow starts the agent two runs down: walk to the run that waits.
@@ -856,18 +1192,21 @@ struct AskView: View {
                         // A person decides now; the screen is on. Waiting on them must not keep the app
                         // awake, nor the radio (the background refresh posts a wait left undecided).
                         pendingWait = w
+                        conversationCue(w.kind == .askUser ? .question : .approval, key: w.id,
+                                        text: w.kind == .askUser ? "I have a question for you." : "Your approval is needed.")
                         RuntimeKeeper.shared.release("ask")
                         AnswerNotifier.shared.unwatch(runId: id)
-                        open(w)
-                        return
+                        if !conversationView { open(w); return }
                     }
                 }
             }
+            if run.status != "waiting" { pendingWait = nil }
             if run.isTerminal {
+                stopping = false
                 AnswerNotifier.shared.unwatch(runId: id)       // seen here: nothing to post
                 keepWork(id, success: run.status == "completed")
                 let media = MediaItem.of(output: run.output, runId: id)
-                if let out = run.outputText, !out.isEmpty { show(out, media: media) }
+                if let out = conversationView ? run.conversationText : run.outputText, !out.isEmpty { show(out, media: media) }
                 else if !media.isEmpty { show("", media: media) }
                 else {
                     fail(run.status == "cancelled" ? "Stopped" : automationFeed != nil ? "The run failed." : "That didn't work. Try again.")
@@ -898,6 +1237,7 @@ struct AskView: View {
 
     /// The answer arrives: shown below the orb, spoken by it (then its recordings play).
     private func show(_ text: String, media: [MediaItem] = []) {
+        let arrivedLive = phase == .thinking
         answer = text; phase = .answer
         // A followed turn already listed (a resumed conversation) gets its answer; else it is new.
         var e = Exchange(id: runId ?? UUID().uuidString, prompt: prompt, answer: text,
@@ -907,8 +1247,10 @@ struct AskView: View {
         if let i = exchanges.firstIndex(where: { $0.id == e.id }) { e.when = exchanges[i].when ?? e.when; exchanges[i] = e } else { exchanges.append(e) }
         if let a = automationFeed { Task { await a.markSeen(model) } }
         else if answerEntity == nil, let id = runId { model.markSeen(session: model.askSessionId, run: id, status: "completed") }
-        WKInterfaceDevice.current().play(.notification)
-        speak()                                     // the speaker holds the app awake while it reads
+        if conversationView {
+            if arrivedLive { conversationCue(.completion, key: e.id, text: "The answer is ready.") }
+        } else { WKInterfaceDevice.current().play(.notification) }
+        if !conversationView || arrivedLive && !ConversationCue.completion.enabled("audio", default: false) && !liveRecording && !sendingReply { speak() }
         RuntimeKeeper.shared.release("ask")
         // Asked once, after the first answer (never over the orb while it listens): answers that
         // arrive while the app is not on screen come back as notifications.
@@ -922,11 +1264,32 @@ struct AskView: View {
     }
 
     private func cancel() {
+        if liveRecording { listener.cancel(); liveRecording = false; note = "Recording stopped."; return }
         if phase == .listening {
             listener.cancel(); turn += 1; phase = answer.isEmpty ? .idle : .answer
             RuntimeKeeper.shared.release("ask"); return
         }
         if phase == .thinking {
+            if conversationView {
+                guard !stopping else { return }
+                if transcribing { turn += 1; transcribing = false; phase = .idle; note = "Recording stopped."; RuntimeKeeper.shared.release("ask"); return }
+                stopping = true; note = "Stopping…"
+                guard let id = runId else { return } // cancel as soon as the starting request returns
+                Task {
+                    do {
+                        if let name = entityVisitName, let visit = entityVisitId {
+                            try await model.client.endEntitySession(name: name, runID: visit)
+                            stopping = false; entityVisitId = nil; entityVisitName = nil; turn += 1; phase = .idle; note = "Conversation paused."
+                            RuntimeKeeper.shared.release("ask")
+                        } else {
+                            try await model.client.cancel(runId: id)
+                            if pendingWait != nil { pendingWait = nil; resumeFollowing(id) }
+                            // follow() waits for the server's terminal state.
+                        }
+                    } catch { stopping = false; self.error = "Couldn't stop the task. \(Self.human(error))" }
+                }
+                return
+            }
             turn += 1
             activity.reset()
             if let id = runId, !transcribing {
@@ -952,6 +1315,10 @@ struct AskView: View {
         RuntimeKeeper.shared.release("ask")                      // a turn dropped here must not keep the watch awake
         if let id = runId { AnswerNotifier.shared.unwatch(runId: id) }
         prompt = ""; answer = ""; runId = nil; answerEntity = nil; note = nil; error = nil; pendingWait = nil
+        briefs = []; pinnedBrief = nil; expandedBrief = nil; liveReplies = []; replyDraft = ""; liveRecording = false; stopping = false
+        currentBriefIds = []
+        failedReplyWait = nil; typedQuestionTarget = nil; typingCaptured = false; sendingReply = false
+        entityVisitId = nil; entityVisitName = nil; cueKeys = []
         exchanges = []; readingId = nil; shownCount = 5; historyFailed = nil; mediaFailed = nil
         phase = .idle
     }
