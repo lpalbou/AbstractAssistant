@@ -83,19 +83,15 @@ Summon it from the menu-bar icon or with the global shortcut (default `cmd+shift
   start a new chat (⌘N), open Tools & permissions, schedule this conversation (clock, on a
   gateway that offers automations), toggle spoken replies, and open Settings (⌘,); the orb at
   the right shows whether the gateway is reachable.
-- **Chat switcher**: click the chat name in the header. Its **Sessions** tab lists every session
-  on the gateway, whichever client started it (the Assistant on any device, AbstractCode,
-  AbstractObserver), 100 at a time; its **Automations** tab lists the gateway's automations with
-  their controls. Chats are grouped by recency (today,
-  yesterday, previous 7 and 30 days, older) and each row shows what that chat holds: its topic,
-  its latest question, when it was last active, its turns and state, and once opened on this Mac
-  its tool calls, tokens, running time and workspace. A chat whose tools failed or whose
-  last question was never answered is flagged. Type to filter by topic, folder or tool name; ↑↓
-  move, Return opens, Esc closes. The pencil renames a chat on this device; there is no delete
-  (the gateway has none). How sessions work: [architecture.md](architecture.md#sessions).
-- **Automations**: on a gateway that offers them, the switcher also lists your automations above
-  the chats, and the clock button schedules the current conversation to run on a fixed UTC
-  interval. See [automations.md](automations.md).
+- **Chat switcher**: click the chat name in the header. **Conversations** lists the gateway's
+  chats and discussions, whichever client started them, 100 at a time. Cards have regular-weight,
+  two-line titles and compact turn/tool/time facts. Cyan means unread content; orange `Needs you`
+  means a question or approval. Read marks use the same gateway ledger as web and Apple clients.
+  Search by topic, folder or tool; ↑↓ moves, Return opens, Esc closes. Rename and folder access
+  are in the card's context menu. The small archive icon appears on hover or keyboard focus and
+  asks for confirmation; history remains on the gateway.
+- **Automations**: the second tab uses the same compact cards with run count, cadence and
+  next-run/status facts. Open one for its controls. See [automations.md](automations.md).
 - **Transcript**: your messages and the assistant's replies. Each reply ends with a statistics
   line (tokens, tools, files, duration, model); the tools and files segments open detail views.
   While a run works, an activity card at the bottom shows the current step, the elapsed time and

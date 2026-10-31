@@ -88,7 +88,7 @@ The order is in [api.md](api.md#which-gateway-the-app-connects-to).
 
 Sessions live on the gateway. A session is the set of root runs that share a `session_id`.
 
-- **Scope.** Every client sees the same pool of sessions: the switcher's **Sessions** tab lists
+- **Scope.** Every client sees the same pool of sessions: the switcher's **Conversations** tab lists
   every chat and discussion session on the gateway, whichever client started it (the Assistant on
   any device, AbstractCode, AbstractObserver, flows, other channels). There is no "this app's
   sessions" filter and no toggle; nothing is ever classified by its id.
@@ -121,9 +121,15 @@ Sessions live on the gateway. A session is the set of root runs that share a `se
   fetch requests one follow-up fetch; results from a previous session cannot repaint the new selection.
 - **New sessions.** The app mints the id; the session is listed while it is the active one and
   becomes a gateway session with its first run.
-- **No local sessions, no removal.** A session exists if and only if the gateway lists it. The
-  gateway has no session delete, so the switcher has none either; nothing is hidden or kept aside
-  on this device.
+- **Archive.** The compact card action calls the Gateway's session archive endpoint after inline
+  confirmation. History is retained and the session disappears from regular lists across clients.
+  There is no local hiding or deletion. Archiving the current session opens a new conversation.
+- **Consumption.** `core/session_reads.py` projects the account-wide read ledger. Listings never
+  consume content. A successfully restored transcript captures immutable run revisions; only
+  a focused, visible, unobscured palette acknowledges them after its display dwell. The request
+  cannot acknowledge a later answer, and stale account/session callbacks are rejected. Failed
+  writes retain unread marks and retry the captured proof on refresh. `session.read` events
+  refresh the projection. Local last-seen timestamps remain cache recency, not consumption.
 - **Offline.** The switcher shows the cached rows under a "Cached — gateway unreachable" line
   and cached transcripts stay readable; nothing is deleted, and the next successful fetch
   reconciles.
@@ -137,9 +143,9 @@ The cache under `~/.abstractassistant/`:
   succeeds a `session.unreadable.json` marker in the session folder keeps the
   problem on record, and the palette says so on every start.
 
-Deleting the cache loses only local labels. The chat switcher's metrics (tool calls,
-tokens, running time) are computed from the cached transcripts and appear once a session has been
-opened on this device.
+Deleting the cache loses only local labels. The chat switcher's tool counts come from cached transcripts once opened on this device.
+Tokens, running time and workspace details remain in tooltips/context actions rather than crowding
+the card overview. Both card types share the same native layout and theme-derived surfaces.
 
 Local overrides never write the gateway's shared configuration. Every screen that shows a value
 says whether it is the gateway default or this app's override.

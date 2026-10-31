@@ -5700,6 +5700,7 @@ class AssistantPalette(QMainWindow):
     session_sync_failed = pyqtSignal(str)
     # A sync ended after the user had switched to another session: sync that one.
     session_sync_again = pyqtSignal()
+    session_archive_completed = pyqtSignal(dict)
     session_sync_completed = pyqtSignal(object)
     # Meter readings arrive on the audio thread; this hops them to the GUI.
     speech_level_received = pyqtSignal(object)
@@ -5861,6 +5862,7 @@ class AssistantPalette(QMainWindow):
         self.session_sync_failed.connect(self._on_session_sync_failed)
         self.session_sync_again.connect(self._sync_session_from_gateway)
         self.session_sync_completed.connect(self._on_session_sync_completed)
+        self.session_archive_completed.connect(self._on_session_archive_completed)
         # Automations (contract F): the hub does every call off the GUI thread.
         self._automations = AutomationsHub(
             client_factory=self._controller.automations_client,
@@ -6524,9 +6526,25 @@ class AssistantPalette(QMainWindow):
             self._warm_session_digests()
             digests = self._state("_session_digests")
         if isinstance(digests, list) and digests:
-            return list(digests)
+            attention = self._state("_attention")
+            waiting = (
+                {wait.session_id for wait in attention.waits()} if attention is not None else set()
+            )
+            return [
+                {
+                    **d,
+                    "needs_attention": bool(
+                        d.get("needs_attention") or d.get("session_id") in waiting
+                    ),
+                }
+                for d in digests
+            ]
         try:
-            return [dict(rec) for rec in (self._controller.list_sessions() or []) if isinstance(rec, dict)]
+            return [
+                dict(rec)
+                for rec in (self._controller.list_sessions() or [])
+                if isinstance(rec, dict)
+            ]
         except Exception:
             return []
 
@@ -6601,6 +6619,7 @@ class AssistantPalette(QMainWindow):
             switcher.session_chosen.connect(self._switch_to_session)
             switcher.new_chat_requested.connect(self._create_session)
             switcher.rename_requested.connect(self._rename_session)
+            switcher.archive_requested.connect(self._archive_session_from_switcher)
             switcher.automation_chosen.connect(self._open_automation)
             switcher.automation_open_requested.connect(self._open_automation)
             switcher.automation_control_requested.connect(self._on_switcher_automation_control)
@@ -6628,6 +6647,39 @@ class AssistantPalette(QMainWindow):
         # The rows above are the cache; the gateway's answer replaces them.
         self._refresh_sessions_from_gateway()
         self._poll_automations()
+
+    def _archive_session_from_switcher(self, session_id: str) -> None:
+        if session_id == self._active_session_id() and self._state("_worker") is not None:
+            self._set_banner(
+                "Stop the current reply before archiving this conversation.", tone="info"
+            )
+            return
+        controller = self._controller
+        archive_owner = controller.gateway_client()
+        switcher = self._state("_session_switcher")
+        if switcher is not None:
+            switcher.close()
+
+        def work() -> None:
+            try:
+                controller.archive_session(session_id, owner=archive_owner)
+                self.session_archive_completed.emit(
+                    {"controller": controller, "session_id": session_id}
+                )
+            except Exception as exc:
+                self.session_archive_completed.emit({"controller": controller, "error": str(exc)})
+
+        threading.Thread(target=work, name="session-archive", daemon=True).start()
+
+    def _on_session_archive_completed(self, payload: Dict[str, Any]) -> None:
+        if self._controller is not payload.get("controller"):
+            return
+        if payload.get("error"):
+            self._set_banner(str(payload["error"]), tone="error")
+            return
+        if payload.get("session_id") == self._active_session_id():
+            self._create_session()
+        self._refresh_sessions_from_gateway()
 
     # ------------------------------------------------------------ automations
 
@@ -6691,6 +6743,8 @@ class AssistantPalette(QMainWindow):
         if event.get("type") == "attention.open":
             self._on_attention_open(event.get("data") or {})
             return
+        if event.get("type") == "session.read":
+            self._refresh_sessions_from_gateway()
         previous_waits = self._attention.waits()
         raised = self._attention.apply(event)
         if event.get("type") in {"attention.seen", "run.finished"}:
@@ -7904,6 +7958,10 @@ class AssistantPalette(QMainWindow):
             lines.append("Cached — gateway unreachable")
             tone = "warn"
             tooltip = str(state.get("error"))
+        elif state.get("read_error"):
+            lines.append("Read status unavailable")
+            tone = "warn"
+            tooltip = str(state["read_error"])
         elif state.get("refreshing") and not state.get("fetched_at"):
             lines.append("Loading sessions from the gateway…")
         setter("\n".join(lines), tone=tone, tooltip=tooltip)
@@ -7986,7 +8044,12 @@ class AssistantPalette(QMainWindow):
             result: Dict[str, Any] = {}
             candidate = None
             try:
+                read_owner = getattr(controller, "gateway_client", lambda: None)()
                 result = dict(controller.sync_session_from_gateway() or {})
+                result["read_owner"] = read_owner
+                read_receipts = getattr(controller, "loaded_session_read_receipts", None)
+                if callable(read_receipts):
+                    result["read_receipts"] = read_receipts(started_for)
                 after = str(controller.last_run_id() or "").strip()
                 # The same root can be running after its prompt was cached, or
                 # finish on another device. A cached ID is not a live follower.
@@ -8016,16 +8079,61 @@ class AssistantPalette(QMainWindow):
                 self._on_session_sync_failed(str(result["error"]))
             if result.get("changed"):
                 self.refresh_history()
+            receipts = list(result.get("read_receipts") or [])
+            if receipts:
+                controller = self._controller
+
+                def consume_visible() -> None:
+                    from PyQt5 import sip
+
+                    if sip.isdeleted(self):
+                        return
+                    if (
+                        self._controller is not controller
+                        or self._active_session_id() != started_for
+                        or not self.isVisible()
+                        or not self.isActiveWindow()
+                        or self._state("_automation_view_id", "")
+                        or QApplication.activePopupWidget()
+                        or QApplication.activeModalWidget()
+                    ):
+                        return
+                    scroll = self._state("history_scroll")
+                    if scroll is not None and not scroll.isVisibleTo(self):
+                        return
+
+                    def save_read() -> None:
+                        controller.mark_session_read(
+                            started_for, receipts, owner=result.get("read_owner")
+                        )
+
+                    threading.Thread(target=save_read, name="session-read", daemon=True).start()
+
+                QTimer.singleShot(250, consume_visible)
             candidate = payload.get("candidate")
             request = payload.get("attention_request")
             requested_here = bool(request and request[0] == started_for)
-            if (candidate and request is self._state("_attention_reattach_request")
-                    and (not requested_here or (
+            if (
+                candidate
+                and request is self._state("_attention_reattach_request")
+                and (
+                    not requested_here
+                    or (
                         str(candidate.get("run_id") or "") == request[1]
-                        and str(candidate.get("status") or "") in {"running", "waiting"}))):
-                self.reattach_candidate.emit({**candidate, "session_id": started_for,
-                                              **({"attention_request": request} if requested_here else {})})
-        rerun = self._state("_session_sync_pending", False) or started_for != self._active_session_id()
+                        and str(candidate.get("status") or "") in {"running", "waiting"}
+                    )
+                )
+            ):
+                self.reattach_candidate.emit(
+                    {
+                        **candidate,
+                        "session_id": started_for,
+                        **({"attention_request": request} if requested_here else {}),
+                    }
+                )
+        rerun = (
+            self._state("_session_sync_pending", False) or started_for != self._active_session_id()
+        )
         self._session_sync_pending = False
         if rerun:
             self.session_sync_again.emit()

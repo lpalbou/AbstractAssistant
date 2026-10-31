@@ -61,6 +61,9 @@ class FakeGateway:
                 outer.requests.append(self.path)
                 url = urlparse(self.path)
                 parts = url.path.strip("/").split("/")
+                if url.path == "/api/gateway/me/session-reads":
+                    self._send(200, {"items": [], "more": False})
+                    return
                 if url.path == "/api/gateway/runs":
                     unknown = sorted(set(parse_qs(url.query)) - _KNOWN_RUNS_PARAMS)
                     if unknown:

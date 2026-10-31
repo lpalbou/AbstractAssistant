@@ -1,7 +1,7 @@
 """The session list, as the gateway knows it.
 
 The gateway is the only source of truth for which sessions exist: a session is
-the set of ROOT runs that carry the same ``session_id``. This module turns one
+the set of turn roots that carry the same ``session_id``. This module turns one
 ``GET /api/gateway/runs`` page into one row per session, with the rules
 AbstractCode uses (``abstractcode/tui/src/runner.rs`` ``fold_session_rows``,
 ``abstractcode/web/src/workspace/catalog.ts`` ``normalizeSessionSummaries``) —
@@ -13,8 +13,9 @@ divergence from those is a bug in one of the three:
   ``automation_id``), never here. ``chat`` and ``discussion`` stay; a row
   without ``session_kind`` (a gateway that does not stamp it) is a chat. The
   kind is the gateway's own stamp — never inferred from an id prefix;
-- a child run (``parent_run_id`` set) is never a turn;
-- turns = the root runs of the session in the page;
+- a child run is not a turn, except a canonical chat wake occurrence; automation
+  controllers and execution descendants do not count;
+- turns = the turn roots of the session in the page;
 - recency = the newest ``updated_at`` (``created_at`` when absent) — the field
   the gateway pages on, so the order matches the page's membership;
 - state = the liveliest run: waiting > running > failed/cancelled > completed;
@@ -173,7 +174,9 @@ def fold_session_rows(payload: Any) -> Tuple[List[GatewaySession], bool]:
             continue
         if not is_regular_session_kind(_text(run.get("session_kind"))):
             continue
-        if _text(run.get("parent_run_id")):
+        if run.get("role") == "controller" or (
+            _text(run.get("parent_run_id")) and run.get("role") != "occurrence"
+        ):
             continue
         sid = _text(run.get("session_id"))
         rid = _text(run.get("run_id"))

@@ -3,26 +3,28 @@
 The header's session control opens this popup instead of a plain dropdown.
 Every row shows what the session actually holds — when it was last touched, how many
 turns and tool calls it ran, the tokens and wall time it spent, the folder it
-worked in, and whether the last question went unanswered — so picking one
-is a decision made on facts rather than on a truncated first sentence.
+worked in and any pending human attention. Overview cards show just the
+turn/tool/time facts; the rest stays in tooltips and context actions.
 
 The rows are the gateway's sessions (see `core/gateway_sessions`); the popup
 first paints the cached list and is re-rendered when the gateway answers, with
 a header line when the rows are only cached. Rows are grouped by recency,
-filtered as you type, and can be renamed (a local label) or removed from the
-list in place (asked inside the row, never with a modal — the gateway keeps
-the runs). The widget owns no data: it renders `SessionDigest` values and emits
+filtered as you type, and can be renamed (a local label) or archived on the
+gateway after inline confirmation. The gateway keeps their runs and history. The widget owns no data: it renders `SessionDigest` values and emits
 what the user chose.
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Sequence
+from datetime import datetime, timezone
+from functools import lru_cache
 
 from pathlib import Path
 
-from PyQt5.QtCore import QEvent, QSize, Qt, QUrl, pyqtSignal
-from PyQt5.QtGui import QDesktopServices, QFontMetrics
+from PyQt5 import sip
+from PyQt5.QtCore import QEvent, QSize, Qt, QUrl, QTimer, pyqtSignal
+from PyQt5.QtGui import QDesktopServices, QFontMetrics, QTextLayout, QTextOption, QColor
 from PyQt5.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -31,6 +33,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -42,14 +45,13 @@ from PyQt5.QtWidgets import (
 from ..core.session_digest import (
     RECENCY_GROUPS,
     SessionDigest,
+    parse_timestamp,
     format_count,
     format_duration_ms,
     format_tokens,
     recency_group,
-    relative_time,
     session_matches_query,
     sort_digests,
-    workspace_label,
 )
 from ..core.automations import (
     AUTOMATION_CONTROLS,
@@ -64,7 +66,6 @@ from ..core.automations import (
     last_run_text,
     next_run_text,
     current_run,
-    status_pill,
     trigger_summary,
     is_event_trigger,
 )
@@ -74,258 +75,169 @@ from .automations import automation_row_qss
 from .switch import AfSwitch
 
 ACTIVE_LABEL = AUTOMATION_CONTROLS["labels"]["active"]
-from .styles import alpha, dialog_stylesheet, refresh_style
+from .styles import dialog_stylesheet, refresh_style
 
-__all__ = ["AutomationTabRow", "SessionRow", "SessionSwitcher", "SESSION_SWITCHER_QSS", "folder_button", "open_folder"]
+__all__ = [
+    "AutomationTabRow",
+    "SessionRow",
+    "SessionSwitcher",
+    "SESSION_SWITCHER_QSS",
+    "folder_button",
+    "open_folder",
+]
 
 
 SWITCHER_WIDTH = 460
 SWITCHER_HEIGHT = 560
-# Chips beyond this would push the row wider than the popup; the rest of the
-# facts stay in the row's tooltip.
-_MAX_METRICS = 5
 
 
-def _same_text(left: str, right: str) -> str:
-    """Do two strings say the same thing (ignoring case and any ellipsis)?"""
-    def _key(value: str) -> str:
-        return " ".join(str(value or "").lower().replace("…", "").split()).strip()
+def _luminance(color: QColor) -> float:
+    rgb = (color.redF(), color.greenF(), color.blueF())
+    linear = [v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4 for v in rgb]
+    return sum(a * b for a, b in zip(linear, (0.2126, 0.7152, 0.0722)))
 
-    a, b = _key(left), _key(right)
-    return bool(a and b and (a == b or a.startswith(b) or b.startswith(a)))
+
+def _mix(left: QColor, right: QColor, amount: float) -> QColor:
+    return QColor(
+        *(
+            round(a * (1 - amount) + b * amount)
+            for a, b in zip(
+                (left.red(), left.green(), left.blue()), (right.red(), right.green(), right.blue())
+            )
+        )
+    )
+
+
+@lru_cache(maxsize=32)
+def _card_palette(
+    header: str, primary: str, secondary: str, attention: str, attention_text: str, danger_text: str
+) -> Dict[str, str]:
+    raised = QColor(header)
+    base = _mix(raised, QColor("black"), 0.20)
+
+    def tinted(color: str) -> QColor:
+        amount = 0.06
+        while amount > 0.0001:
+            result = _mix(base, QColor(color), amount)
+            if _luminance(result) < _luminance(raised):
+                return result
+            amount /= 2
+        return base
+
+    unread, needs = tinted("#20c5df"), tinted(attention)
+    backgrounds = (base, unread, needs)
+
+    def readable(color: str, minimum: float = 4.5) -> str:
+        original = QColor(color)
+        target = QColor("white" if _luminance(base) < 0.18 else "black")
+        for step in range(21):
+            candidate = _mix(original, target, step / 20)
+            ratios = [
+                (max(_luminance(candidate), _luminance(bg)) + 0.05)
+                / (min(_luminance(candidate), _luminance(bg)) + 0.05)
+                for bg in backgrounds
+            ]
+            if min(ratios) >= minimum:
+                return candidate.name()
+        return target.name()
+
+    return {
+        "base": base.name(),
+        "unread": unread.name(),
+        "attention": needs.name(),
+        "primary": readable(primary),
+        "secondary": readable(secondary),
+        "attention_text": readable(attention_text),
+        "danger": readable(danger_text),
+        "unread_marker": readable("#20c5df", 3),
+        "attention_marker": readable(attention, 3),
+    }
+
+
+def card_palette() -> Dict[str, str]:
+    return _card_palette(
+        THEME.surface_raised,
+        THEME.text_primary,
+        THEME.text_secondary,
+        THEME.attention,
+        THEME.attention_text,
+        THEME.danger_text,
+    )
 
 
 def _build_qss() -> str:
+    palette = card_palette()
+    card = palette["base"]
     return f"""
-    QFrame#switcherCard {{
-        background: {THEME.surface_sunken};
-        border: 1px solid {THEME.border_strong};
-        border-radius: {METRICS.radius_card}px;
-    }}
-    QLabel#switcherTitle {{
-        color: {THEME.text_strong};
-        font-size: 13px;
-        font-weight: 800;
-        letter-spacing: 0.01em;
-    }}
-    QLabel#switcherCount {{
-        color: {THEME.text_faint};
-        font-size: 11px;
-        font-weight: 600;
-    }}
-    QLineEdit#switcherSearch {{
-        background: {THEME.surface_raised};
-        border: 1px solid {THEME.border_subtle};
-        border-radius: 9px;
-        padding: 6px 10px;
-        color: {THEME.text_primary};
-        font-size: 12px;
-        selection-background-color: {alpha(THEME.accent, 0.35)};
-    }}
-    QLineEdit#switcherSearch:focus {{
-        border-color: {THEME.accent_border};
-        background: {THEME.surface_raised};
-    }}
-    QLabel#switcherGroup {{
-        color: {THEME.text_faint};
-        font-size: 10px;
-        font-weight: 800;
-        letter-spacing: 0.10em;
-        padding: 10px 2px 2px 2px;
-    }}
-    QLabel#switcherStatus {{
-        color: {THEME.text_faint};
-        font-size: 11px;
-    }}
-    QLabel#switcherStatus[tone="warn"] {{ color: {THEME.attention}; }}
-    QLabel#switcherEmpty {{
-        color: {THEME.text_faint};
-        font-size: 12px;
-        padding: 28px 8px;
-    }}
-
-    QFrame#sessionRow {{
-        background: transparent;
-        border: 1px solid transparent;
-        border-radius: 10px;
-    }}
-    QFrame#sessionRow:hover {{
-        background: {THEME.overlay_faint};
-        border-color: {THEME.border_subtle};
-    }}
-    QFrame#sessionRow[selected="true"] {{
-        background: {alpha(THEME.accent, 0.10)};
-        border-color: {THEME.accent_border};
-    }}
-    QFrame#sessionRow[active="true"] {{
-        background: {alpha(THEME.accent, 0.14)};
-        border-color: {THEME.accent_border};
-    }}
-    QFrame#rowSpine {{
-        background: {THEME.border_subtle};
-        border: none;
-        border-radius: 2px;
-    }}
-    QFrame#rowSpine[tone="active"] {{ background: {THEME.accent}; }}
-    QFrame#rowSpine[tone="fresh"] {{ background: {THEME.positive}; }}
-    QFrame#rowSpine[tone="warn"] {{ background: {THEME.attention}; }}
-    QFrame#rowSpine[tone="idle"] {{ background: {alpha(THEME.text_faint, 0.45)}; }}
-
-    QLabel#rowTitle {{
-        color: {THEME.text_primary};
-        font-size: 12px;
-        font-weight: 700;
-    }}
-    QFrame#sessionRow[active="true"] QLabel#rowTitle {{ color: {THEME.text_strong}; }}
-    QLabel#rowTime {{
-        color: {THEME.text_faint};
-        font-size: 10px;
-        font-weight: 700;
-    }}
-    QLabel#rowPreview {{
-        color: {THEME.text_muted};
-        font-size: 11px;
-    }}
-    QLabel#rowMetric {{
-        color: {THEME.text_muted};
-        font-size: 10px;
-        font-weight: 600;
-    }}
-    QLabel#rowMetric[tone="warn"] {{ color: {THEME.attention}; }}
-    QLabel#rowMetric[tone="danger"] {{ color: {THEME.danger_text}; }}
-    QLabel#rowMetric[tone="accent"] {{ color: {THEME.accent_text}; }}
+    QFrame#switcherCard {{ background: {THEME.surface_raised}; border: 1px solid {THEME.border_strong}; border-radius: {METRICS.radius_card}px; }}
+    QLabel#switcherTitle {{ color: {THEME.text_strong}; font-size: {METRICS.font_body}px; font-weight: 600; }}
+    QLabel#switcherGroup {{ color: {THEME.text_muted}; font-size: {METRICS.font_caption}px; font-weight: 400; padding: 8px 0 0 0; }}
+    QLabel#switcherStatus, QLabel#switcherHint {{ color: {THEME.text_muted}; font-size: {METRICS.font_caption}px; }}
+    QLabel#switcherStatus[tone="warn"] {{ color: {THEME.attention_text}; }}
+    QLabel#switcherEmpty {{ color: {THEME.text_muted}; font-size: {METRICS.font_ui}px; padding: 24px 8px; }}
+    QLineEdit#switcherSearch, QLineEdit#rowRename {{ background: {card}; color: {THEME.text_primary}; border: 1px solid {THEME.border_subtle}; border-radius: 9px; padding: 7px 10px; font-size: {METRICS.font_ui}px; }}
+    QLineEdit#switcherSearch:focus, QLineEdit#rowRename:focus {{ border-color: {THEME.accent}; }}
+    QFrame#sessionRow {{ background: {card}; border: 1px solid transparent; border-radius: 16px; }}
+    QFrame#sessionRow:hover {{ border-color: {THEME.border_strong}; }}
+    QFrame#sessionRow[active="true"] {{ border-color: {THEME.border_strong}; }}
+    QFrame#sessionRow[selected="true"] {{ border-color: {THEME.border_strong}; }}
+    QFrame#sessionRow:focus {{ border: 1px dashed {THEME.text_secondary}; }}
+    QFrame#sessionRow[unread="true"] {{ background: {palette["unread"]}; border-color: {palette["unread_marker"]}; }}
+    QFrame#sessionRow[automation="true"][unread="true"] {{ background: {palette["attention"]}; border-color: {palette["attention_marker"]}; }}
+    QFrame#sessionRow[attention="true"] {{ background: {palette["attention"]}; border-color: {palette["attention_marker"]}; }}
+    QLabel#rowTitle {{ color: {palette["primary"]}; font-size: {METRICS.font_body}px; font-weight: 400; }}
+    QLabel#rowTime, QLabel#rowPreview, QLabel#rowMetric {{ color: {palette["secondary"]}; font-size: {METRICS.font_ui}px; font-weight: 400; }}
+    QLabel#rowMetric[tone="warn"] {{ color: {palette["attention_text"]}; }}
+    QLabel#rowMetric[tone="danger"] {{ color: {palette["danger"]}; }}
     QLabel#rowMetricIcon {{ background: transparent; border: none; }}
-    QLabel#rowBadge {{
-        color: {THEME.accent_text};
-        background: {alpha(THEME.accent, 0.16)};
-        border: 1px solid {THEME.accent_border};
-        border-radius: 7px;
-        padding: 0px 6px;
-        font-size: 9px;
-        font-weight: 800;
-        letter-spacing: 0.06em;
-    }}
-    QLineEdit#rowRename {{
-        background: {THEME.surface_raised};
-        border: 1px solid {THEME.accent_border};
-        border-radius: 7px;
-        padding: 3px 7px;
-        color: {THEME.text_strong};
-        font-size: 12px;
-        font-weight: 700;
-    }}
-    QPushButton#rowAction {{
-        min-width: 22px; max-width: 22px; min-height: 22px; max-height: 22px;
-        padding: 0px;
-        border: none;
-        border-radius: 7px;
-        background: transparent;
-    }}
-    QPushButton#rowAction:hover {{ background: {THEME.overlay_hover}; }}
-    QLabel#rowConfirm {{
-        color: {THEME.danger_text};
-        font-size: 11px;
-        font-weight: 700;
-    }}
-    QPushButton#rowConfirmYes {{
-        color: {THEME.text_strong};
-        background: {THEME.danger_bg};
-        border: 1px solid {alpha(THEME.danger, 0.55)};
-        border-radius: 8px;
-        padding: 3px 10px;
-        font-size: 11px;
-        font-weight: 700;
-    }}
-    QPushButton#rowConfirmYes:hover {{ background: {alpha(THEME.danger, 0.28)}; }}
-    QPushButton#rowConfirmNo {{
-        color: {THEME.text_secondary};
-        background: {THEME.overlay_faint};
-        border: 1px solid {THEME.border_subtle};
-        border-radius: 8px;
-        padding: 3px 10px;
-        font-size: 11px;
-        font-weight: 600;
-    }}
-    QPushButton#rowConfirmNo:hover {{ background: {THEME.overlay_hover}; }}
-
-    QPushButton#switcherPrimary {{
-        color: {THEME.primary_text};
-        background: {THEME.primary};
-        border: none;
-        border-radius: 9px;
-        padding: 5px 12px;
-        font-size: 11px;
-        font-weight: 700;
-    }}
+    QPushButton#rowAction, QPushButton#rowIcon, QPushButton#rowFolder {{ min-width: 28px; max-width: 28px; min-height: 28px; max-height: 28px; padding: 0; border: none; border-radius: 7px; background: transparent; }}
+    QPushButton#rowAction:hover, QPushButton#rowIcon:hover, QPushButton#rowFolder:hover {{ background: {THEME.overlay_hover}; }}
+    QPushButton#rowAction:focus, QPushButton#rowIcon:focus {{ border: 1px solid {THEME.accent}; }}
+    QPushButton#switcherPrimary {{ color: {THEME.primary_text}; background: {THEME.primary}; border: none; border-radius: 9px; padding: 6px 10px; font-size: {METRICS.font_ui}px; font-weight: 400; }}
     QPushButton#switcherPrimary:hover {{ background: {THEME.primary_hover}; }}
-    QPushButton#switcherScope {{
-        color: {THEME.text_muted};
-        background: transparent;
-        border: 1px solid {THEME.border_subtle};
-        border-radius: 9px;
-        padding: 4px 10px;
-        font-size: 11px;
-        font-weight: 600;
-    }}
-    QPushButton#switcherScope:checked {{
-        color: {THEME.accent_text};
-        border-color: {THEME.accent_border};
-    }}
-    QPushButton#switcherTab {{
-        color: {THEME.text_muted};
-        background: {THEME.overlay_faint};
-        border: 1px solid {THEME.border_subtle};
-        padding: 4px 10px;
-        font-size: 11px;
-        font-weight: 700;
-    }}
-    QPushButton#switcherTab:checked {{
-        color: {THEME.accent_text};
-        background: {alpha(THEME.accent, 0.14)};
-        border-color: {THEME.accent_border};
-    }}
-    QPushButton#rowFolder, QPushButton#rowIcon {{
-        background: transparent;
-        border: 1px solid transparent;
-        border-radius: 6px;
-        padding: 0px;
-    }}
-    AfSwitch#rowActive, QCheckBox#rowActive {{
-        font-size: 11px;
-    }}
-    QPushButton#rowFolder:hover, QPushButton#rowIcon:hover {{
-        background: {THEME.overlay_hover};
-        border-color: {THEME.border_subtle};
-    }}
-    QPushButton#switcherLoadMore {{
-        color: {THEME.accent_text};
-        background: {THEME.overlay_faint};
-        border: 1px solid {THEME.border_subtle};
-        border-radius: 8px;
-        padding: 6px;
-        font-size: 11px;
-        font-weight: 700;
-    }}
-    QPushButton#switcherLoadMore:hover {{ background: {THEME.overlay_hover}; }}
-    QLabel#rowBadge[tone="active"] {{ color: {THEME.positive}; background: {THEME.positive_bg}; border-color: {alpha(THEME.positive, 0.45)}; }}
-    QLabel#rowBadge[tone="paused"] {{ color: {THEME.warning}; background: {THEME.warning_bg}; border-color: {alpha(THEME.warning, 0.45)}; }}
-    QLabel#rowBadge[tone="waiting"] {{ color: {THEME.attention_text}; background: {THEME.attention_bg}; border-color: {THEME.attention_border}; }}
-    QLabel#rowBadge[tone="failed"] {{ color: {THEME.danger_text}; background: {THEME.danger_bg}; border-color: {alpha(THEME.danger, 0.55)}; }}
-    QLabel#rowBadge[tone="ended"] {{ color: {THEME.text_muted}; background: {alpha(THEME.text_faint, 0.16)}; border-color: {alpha(THEME.text_faint, 0.35)}; }}
-    QLabel#rowPreview[tone="failed"] {{ color: {THEME.danger_text}; }}
-    QLabel#switcherHint {{
-        color: {THEME.text_faint};
-        font-size: 10px;
-    }}
-    QFrame#switcherFooter, QFrame#switcherHeader {{
-        background: transparent;
-        border: none;
-    }}
-    QScrollArea#switcherScroll, QWidget#switcherList {{
-        background: transparent;
-        border: none;
-    }}
+    QPushButton#switcherTab, QPushButton#switcherScope, QPushButton#switcherLoadMore {{ color: {THEME.text_secondary}; background: {card}; border: 1px solid {THEME.border_subtle}; border-radius: 8px; padding: 6px 10px; font-size: {METRICS.font_ui}px; font-weight: 400; }}
+    QPushButton#switcherTab:checked, QPushButton#switcherScope:checked {{ color: {THEME.text_primary}; border-color: {THEME.accent}; }}
+    QPushButton#switcherTab:focus, QPushButton#switcherLoadMore:focus {{ border-color: {THEME.accent}; }}
+    QFrame#switcherFooter, QFrame#switcherHeader, QScrollArea#switcherScroll, QWidget#switcherList {{ background: transparent; border: none; }}
     """
+
+
+class TwoLineTitle(QLabel):
+    """Plain-text, word-wrapped title with a genuine two-line ellipsis."""
+
+    def __init__(self, text: str, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.full_text = " ".join(str(text or "").split())
+        self.setTextFormat(Qt.PlainText)
+        self.setObjectName("rowTitle")
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.setToolTip(self.full_text)
+        self.fit(300)
+
+    def fit(self, width: int) -> None:
+        width = max(40, int(width))
+        layout = QTextLayout(self.full_text, self.font())
+        option = QTextOption()
+        option.setWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+        layout.setTextOption(option)
+        layout.beginLayout()
+        first = layout.createLine()
+        first.setLineWidth(width)
+        split = first.textLength()
+        layout.endLayout()
+        metrics = QFontMetrics(self.font())
+        lines = [self.full_text]
+        if split < len(self.full_text):
+            lines = [
+                self.full_text[:split].rstrip(),
+                metrics.elidedText(self.full_text[split:].strip(), Qt.ElideRight, width),
+            ]
+        self.setText("\n".join(lines))
+        self.setFixedHeight(metrics.lineSpacing() * len(lines))
+
+    def resizeEvent(self, event) -> None:
+        self.fit(event.size().width())
+        super().resizeEvent(event)
 
 
 def build_switcher_qss() -> str:
@@ -343,11 +255,17 @@ def _metric(icon: str, text: str, tooltip: str, tone: str = "", *, wrap: bool = 
     row = QHBoxLayout(host)
     row.setContentsMargins(0, 0, 0, 0)
     row.setSpacing(3)
-    color = {"warn": THEME.attention, "accent": THEME.accent_text, "danger": THEME.danger_text}.get(tone, THEME.text_muted)
+    palette = card_palette()
+    color = {
+        "warn": palette["attention_text"],
+        "accent": palette["primary"],
+        "danger": palette["danger"],
+    }.get(tone, palette["secondary"])
     if icon:
         glyph = QLabel()
         glyph.setObjectName("rowMetricIcon")
-        glyph.setPixmap(symbol_icon(icon, color=color, size=11).pixmap(11, 11))
+        glyph.setPixmap(symbol_icon(icon, color=color, size=13).pixmap(13, 13))
+        host.metric_icon = (icon, tone, glyph)
         row.addWidget(glyph, 0, Qt.AlignTop if wrap else Qt.AlignVCenter)
     label = QLabel(text)
     label.setObjectName("rowMetric")
@@ -362,10 +280,22 @@ def _metric(icon: str, text: str, tooltip: str, tone: str = "", *, wrap: bool = 
     return host
 
 
+def card_relative_time(stamp: str) -> str:
+    at = parse_timestamp(stamp)
+    if at is None:
+        return ""
+    seconds = max(0, (datetime.now(timezone.utc) - at).total_seconds())
+    if seconds < 60:
+        return "Just now"
+    if seconds < 3600:
+        return f"{int(seconds // 60)}m ago"
+    if seconds < 86400:
+        return f"{int(seconds // 3600)}h ago"
+    return f"{int(seconds // 86400)}d ago"
+
+
 class RowCard(QFrame):
-    """The switcher's one card: a frame (`sessionRow` style), a coloured
-    status bar on the left and a column of lines. Sessions and automations are
-    both this card; only their content differs."""
+    """Shared compact card shell with independent selection, unread and attention facts."""
 
     def __init__(self, parent: Optional[QWidget] = None, *, active: bool = False) -> None:
         super().__init__(parent)
@@ -374,27 +304,136 @@ class RowCard(QFrame):
         self.setProperty("active", "true" if active else "false")
         self.setProperty("selected", "false")
         self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.StrongFocus)
         self.setAttribute(Qt.WA_Hover, True)
         self.setMinimumWidth(0)
         # Never wider than the list: long content elides, it never pushes.
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
 
         root = QHBoxLayout(self)
-        root.setContentsMargins(8, 7, 8, 7)
-        root.setSpacing(9)
-        self.spine = QFrame(self)
-        self.spine.setObjectName("rowSpine")
-        self.spine.setFixedWidth(3)
+        root.setContentsMargins(12, 10, 10, 10)
+        root.setSpacing(8)
+        self.spine = QLabel(self)
+        self.spine.setObjectName("rowStateMarker")
+        self.spine.setFixedSize(12, 14)
+        self.spine.setAlignment(Qt.AlignCenter)
         self.spine.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
-        root.addWidget(self.spine)
+        root.addWidget(self.spine, 0, Qt.AlignVCenter)
         self.column = QVBoxLayout()
         self.column.setContentsMargins(0, 0, 0, 0)
-        self.column.setSpacing(3)
+        self.column.setSpacing(6)
         root.addLayout(self.column, 1)
 
+    def archive_action(self, callback) -> QPushButton:
+        button = _icon_button(
+            "archive",
+            "Archive conversation",
+            parent=self,
+            name="rowAction",
+            tint=card_palette()["danger"],
+        )
+        button.setAccessibleName("Archive " + self.accessibleName())
+        button.clicked.connect(lambda: self._confirm_archive(callback))
+        policy = button.sizePolicy()
+        policy.setRetainSizeWhenHidden(True)
+        button.setSizePolicy(policy)
+        button.hide()
+        return button
+
+    def _confirm_archive(self, callback) -> None:
+        if getattr(self, "_archive_confirm", None) is not None:
+            return
+        host = QWidget(self)
+        layout = QHBoxLayout(host)
+        layout.setContentsMargins(0, 4, 0, 0)
+        label = QLabel(f"Archive this {getattr(self, 'archive_kind', 'conversation')}?", host)
+        label.setObjectName("rowMetric")
+        layout.addWidget(label, 1)
+        yes = QPushButton("Archive", host)
+        no = QPushButton("Cancel", host)
+        layout.addWidget(yes)
+        layout.addWidget(no)
+
+        def close() -> None:
+            self.column.removeWidget(host)
+            host.hide()
+            host.deleteLater()
+            self._archive_confirm = None
+
+        def confirm() -> None:
+            close()
+            callback()
+
+        yes.clicked.connect(confirm)
+        no.clicked.connect(close)
+        self._archive_confirm = host
+        self.column.addWidget(host)
+        no.setFocus()
+
+    def _reveal_actions(self) -> None:
+        if sip.isdeleted(self):
+            return
+        action = getattr(self, "archive_button", None)
+        if action is not None:
+            focus = QApplication.focusWidget()
+            action.setVisible(
+                self.underMouse()
+                or focus is self
+                or (focus is not None and self.isAncestorOf(focus))
+            )
+
+    def focusInEvent(self, event) -> None:
+        super().focusInEvent(event)
+        self._reveal_actions()
+
+    def focusOutEvent(self, event) -> None:
+        super().focusOutEvent(event)
+        QTimer.singleShot(0, self._reveal_actions)
+
+    def set_card_state(
+        self,
+        *,
+        unread: bool = False,
+        attention: bool = False,
+        working: bool = False,
+        failed: bool = False,
+    ) -> None:
+        self.setProperty("unread", "true" if unread else "false")
+        self.setProperty("attention", "true" if attention else "false")
+        self.setProperty("working", "true" if working else "false")
+        self.setProperty("failed", "true" if failed else "false")
+        automation = getattr(self, "archive_kind", "") == "automation"
+        palette = card_palette()
+        color = (
+            palette["attention_marker"]
+            if attention or (unread and automation)
+            else palette["unread_marker"]
+            if unread
+            else palette["secondary"]
+            if working
+            else THEME.danger
+        )
+        self.spine.setText("◆" if attention else "◌" if working else "●")
+        self.spine.setStyleSheet(
+            f"color: {color}; background: transparent; border: none; font-size: 13px; font-weight: 400;"
+        )
+        self.spine.setToolTip(
+            "Needs you"
+            if attention
+            else "Working"
+            if working
+            else "New results"
+            if automation and unread
+            else "New messages"
+            if unread
+            else "Failed"
+        )
+        self.spine.setVisible(bool(unread or attention or working or failed))
+        refresh_style(self)
+
     def set_spine_tone(self, tone: str) -> None:
-        self.spine.setProperty("tone", tone)
-        refresh_style(self.spine)
+        # Compatibility for the existing automation state/command callbacks.
+        self.set_card_state(attention=tone == "warn", working=tone == "active")
 
     def set_selected(self, selected: bool) -> None:
         self._selected = bool(selected)
@@ -410,6 +449,7 @@ class SessionRow(RowCard):
     """One session: title, preview, metrics, and in-place rename. (No delete:
     a session exists iff the gateway lists it, and the gateway has none.)"""
 
+    archive_requested = pyqtSignal(str)
     chosen = pyqtSignal(str)
     rename_committed = pyqtSignal(str, str)
     focus_requested = pyqtSignal(object)
@@ -428,172 +468,119 @@ class SessionRow(RowCard):
         self.digest = digest
         self.session_id = digest.session_id
         self._active = bool(active)
-        self.set_spine_tone(self._spine_tone())
-        column = self.column
-
-        # -- line 1: title, badges, time, actions -------------------------- #
+        self.set_card_state(
+            unread=digest.unread,
+            attention=digest.needs_attention,
+            working=digest.state == "running",
+        )
+        self.setAccessibleName(
+            digest.display_title
+            + (
+                ". Needs you"
+                if digest.needs_attention
+                else ". New messages"
+                if digest.unread
+                else ""
+            )
+        )
         head = QHBoxLayout()
         head.setContentsMargins(0, 0, 0, 0)
         head.setSpacing(6)
-        self.title_label = QLabel(digest.display_title)
-        self.title_label.setObjectName("rowTitle")
-        self.title_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.title_label = TwoLineTitle(digest.display_title, self)
         head.addWidget(self.title_label, 1)
-
         self.rename_edit = QLineEdit(self)
         self.rename_edit.setObjectName("rowRename")
         self.rename_edit.hide()
         self.rename_edit.returnPressed.connect(self._commit_rename)
         self.rename_edit.installEventFilter(self)
         head.addWidget(self.rename_edit, 1)
-
-        # A discussion is an ordinary session forked from an automation: the
-        # gateway's `session_kind` says so (never the id), and the badge names
-        # the automation and opens it.
-        self.about_button: Optional[QPushButton] = None
-        if digest.session_kind == "discussion":
-            label = f"about automation {automation_title}" if automation_title else "about an automation"
-            # Elided: a long automation title never widens the row.
-            shown = QFontMetrics(self.font()).elidedText(label, Qt.ElideRight, 150)
-            self.about_button = QPushButton(shown, self)
-            self.about_button.full_text = label
-            self.about_button.setObjectName("aboutAutomation")
-            self.about_button.setCursor(Qt.PointingHandCursor)
-            self.about_button.setToolTip(
-                "A session seeded with this automation's history up to one run; the automation's "
-                "files are mounted read-only and the session has its own writable workspace. "
-                "Click to open the automation."
-            )
-            self.about_button.clicked.connect(
-                lambda: self.automation_requested.emit(self.digest.automation_id)
-            )
-            head.addWidget(self.about_button, 0, Qt.AlignVCenter)
-
-        if active:
-            badge = QLabel("ACTIVE")
-            badge.setObjectName("rowBadge")
-            head.addWidget(badge, 0, Qt.AlignVCenter)
-
-        self.time_label = QLabel(relative_time(digest.last_activity))
-        self.time_label.setObjectName("rowTime")
-        self.time_label.setToolTip(self._time_tooltip())
-        head.addWidget(self.time_label, 0, Qt.AlignVCenter)
-
-        self.rename_button = QPushButton()
-        self.rename_button.setObjectName("rowAction")
-        self.rename_button.setIcon(symbol_icon("square-pen", color=THEME.text_muted, size=12))
-        self.rename_button.setIconSize(QSize(12, 12))
-        self.rename_button.setToolTip("Rename this session")
-        self.rename_button.setCursor(Qt.PointingHandCursor)
+        self.rename_button = _icon_button(
+            "square-pen", "Rename this conversation", parent=self, name="rowAction"
+        )
         self.rename_button.clicked.connect(self.start_rename)
         self.rename_button.hide()
-        head.addWidget(self.rename_button, 0, Qt.AlignVCenter)
-
-        column.addLayout(head)
-
-        # -- line 2: preview ----------------------------------------------- #
-        # The preview is the chat's latest question; when that is also its
-        # title (a one-turn chat) repeating it says nothing.
-        preview_text = "" if _same_text(digest.preview, digest.display_title) else digest.preview
-        self._preview_text = preview_text
-        # Parented on construction, like every other widget here: `setVisible`
-        # on a PARENTLESS widget shows a real top-level window. Two of those per
-        # row cost ~16 ms and four window-activation flips, which for 74 chats
-        # meant a 1.2 s rebuild and — because macOS closes popups when another
-        # window takes key status — the switcher closing itself.
-        self.preview_label = QLabel(preview_text, self)
-        self.preview_label.setObjectName("rowPreview")
-        self.preview_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.preview_label.setVisible(bool(preview_text))
-        column.addWidget(self.preview_label)
-
-        # -- line 3: metrics ------------------------------------------------ #
+        self.archive_button = self.archive_action(
+            lambda: self.archive_requested.emit(self.session_id)
+        )
+        head.addWidget(self.archive_button, 0, Qt.AlignVCenter)
+        self.column.addLayout(head)
+        self.about_button = None
+        if digest.session_kind == "discussion":
+            self.about_button = QPushButton(f"About {automation_title or 'an automation'}", self)
+            self.about_button.full_text = (
+                f"about automation {automation_title}"
+                if automation_title
+                else "about an automation"
+            )
+            self.about_button.setObjectName("aboutAutomation")
+            self.about_button.clicked.connect(
+                lambda: self.automation_requested.emit(digest.automation_id)
+            )
+            self.column.addWidget(self.about_button, 0, Qt.AlignLeft)
+        self.time_label = QLabel(card_relative_time(digest.last_activity), self)
+        self.time_label.hide()
+        self._preview_text = digest.preview
+        self.preview_label = QLabel(digest.preview, self)
+        self.preview_label.hide()
         self.metrics_host = QWidget(self)
         metrics = QHBoxLayout(self.metrics_host)
-        metrics.setContentsMargins(0, 1, 0, 0)
+        metrics.setContentsMargins(0, 0, 0, 0)
         metrics.setSpacing(10)
-        for widget in self._metric_widgets()[:_MAX_METRICS]:
+        for widget in self._metric_widgets():
             metrics.addWidget(widget, 0, Qt.AlignVCenter)
         metrics.addStretch(1)
-        # Never let the chips widen the row: the popup's width rules, and any
-        # metric that does not fit is in the row's tooltip.
         self.metrics_host.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.metrics_host.setVisible(self._has_metrics())
-        column.addWidget(self.metrics_host)
-
+        self.column.addWidget(self.metrics_host)
         self.setToolTip(self._tooltip())
-
-    # ------------------------------------------------------------- appearance
-
-    def _spine_tone(self) -> str:
-        digest = self.digest
-        if self._active:
-            return "active"
-        if digest.detailed and (digest.failed_tools or digest.unanswered):
-            return "warn"
-        group = recency_group(digest.last_activity)
-        if group in {"Today", "Yesterday"}:
-            return "fresh"
-        if group == "Older":
-            return "idle"
-        return "normal"
-
-    def _has_metrics(self) -> bool:
-        # A gateway row whose transcript is not cached yet still knows its turns.
-        return bool(self.digest.detailed or self.digest.turns)
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._menu)
 
     def _metric_widgets(self) -> List[QWidget]:
         digest = self.digest
-        out: List[QWidget] = []
-        if digest.empty:
-            out.append(_metric("message-square", "empty", "This session has no messages yet.", tone="warn"))
-            return out
+        out = []
+        prefix = "" if digest.detailed else "≥"
         if digest.turns:
-            tooltip = (
-                f"{digest.turns} question(s) you asked · {digest.answers} answer(s)"
-                if digest.detailed
-                else f"{digest.turns} turn(s) on the gateway"
+            out.append(
+                _metric(
+                    "message-square",
+                    prefix + format_count(digest.turns),
+                    f"{prefix}{digest.turns} turns",
+                )
             )
-            out.append(_metric("message-square", format_count(digest.turns), tooltip))
-        if digest.state == "waiting":
-            out.append(_metric("hand", "waiting", "A run of this session is waiting for you.", tone="warn"))
-        elif digest.state == "running":
-            out.append(_metric("clock", "running", "A run of this session is still running.", tone="accent"))
         if digest.tool_calls:
-            tools = ", ".join(digest.top_tools) if digest.top_tools else ""
-            tooltip = f"{digest.tool_calls} tool call(s)"
-            if tools:
-                tooltip += f" · most used: {tools}"
-            out.append(_metric("wrench", format_count(digest.tool_calls), tooltip))
-        if digest.total_tokens:
             out.append(
                 _metric(
-                    "",
-                    format_tokens(digest.total_tokens),
-                    f"{digest.input_tokens:,} input + {digest.output_tokens:,} output tokens across {digest.runs} run(s)",
+                    "wrench",
+                    prefix + format_count(digest.tool_calls),
+                    f"{prefix}{digest.tool_calls} tool calls",
                 )
             )
-        duration = format_duration_ms(digest.duration_ms)
-        if duration:
-            out.append(_metric("clock", duration, "Total time the gateway spent running this session."))
-        if digest.workspace_root:
-            # Clickable: opens the folder when it is on this machine.
-            out.append(folder_button(digest.workspace_root, parent=self))
-        elif digest.state and not digest.workspace_reported:
-            # A gateway session whose `/runs` row does not carry the folder.
-            out.append(missing_folder_button("/runs row workspace_root", parent=self))
-        if digest.failed_tools:
+        if digest.needs_attention:
             out.append(
                 _metric(
-                    "circle-alert",
-                    format_count(digest.failed_tools),
-                    f"{digest.failed_tools} tool call(s) reported a failure.",
-                    tone="warn",
+                    "hand", "Needs you", "A question or approval needs your response.", tone="warn"
                 )
             )
-        if digest.unanswered:
-            out.append(_metric("hand", "no reply", "The last message is yours: this session never got an answer.", tone="warn"))
+        elif digest.state == "running":
+            out.append(_metric("loader", "Working", "A turn is running."))
+        elif digest.last_activity:
+            out.append(
+                _metric("clock", card_relative_time(digest.last_activity), self._time_tooltip())
+            )
+        elif digest.empty:
+            out.append(_metric("", "Ready when you are", "No messages yet."))
         return out
+
+    def _menu(self, point) -> None:
+        menu = QMenu(self)
+        menu.addAction("Rename conversation", self.start_rename)
+        if self.digest.workspace_root:
+            menu.addAction("Open folder", lambda: open_folder(self.digest.workspace_root))
+        menu.addAction(
+            "Archive conversation…",
+            lambda: self._confirm_archive(lambda: self.archive_requested.emit(self.session_id)),
+        )
+        menu.exec_(self.mapToGlobal(point))
 
     def _time_tooltip(self) -> str:
         digest = self.digest
@@ -612,19 +599,13 @@ class SessionRow(RowCard):
             lines.append(digest.preview)
         if digest.workspace_root:
             lines.append(f"Files: {digest.workspace_root}")
-        lines.append(f"Session id: {digest.session_id}")
+        lines.append(
+            f"{digest.turns} turns · {digest.tool_calls} tool calls · {format_tokens(digest.total_tokens)} · {format_duration_ms(digest.duration_ms)}"
+        )
         return "\n".join(lines)
 
     def elide_labels(self, width: int) -> None:
-        """Keep one line per label whatever the popup's width is."""
-        available = max(80, int(width) - 150)
-        metrics = QFontMetrics(self.title_label.font())
-        self.title_label.setText(metrics.elidedText(self.digest.display_title, Qt.ElideRight, available))
-        if self._preview_text:
-            preview_metrics = QFontMetrics(self.preview_label.font())
-            self.preview_label.setText(
-                preview_metrics.elidedText(self._preview_text, Qt.ElideRight, max(80, int(width) - 60))
-            )
+        self.title_label.fit(max(80, int(width) - 55))
 
     # ---------------------------------------------------------------- actions
 
@@ -648,18 +629,22 @@ class SessionRow(RowCard):
     # ----------------------------------------------------------------- events
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802 (Qt API)
-        if obj is self.rename_edit and event.type() == QEvent.KeyPress and event.key() == Qt.Key_Escape:
+        if (
+            obj is self.rename_edit
+            and event.type() == QEvent.KeyPress
+            and event.key() == Qt.Key_Escape
+        ):
             self.cancel_rename()
             return True
         return super().eventFilter(obj, event)
 
     def enterEvent(self, event) -> None:  # noqa: N802 (Qt API)
-        self.rename_button.show()
+        self._reveal_actions()
         self.focus_requested.emit(self)
         super().enterEvent(event)
 
     def leaveEvent(self, event) -> None:  # noqa: N802 (Qt API)
-        self.rename_button.hide()
+        QTimer.singleShot(0, self._reveal_actions)
         super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802 (Qt API)
@@ -677,7 +662,9 @@ def open_folder(path: str) -> bool:
     return bool(QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))))
 
 
-def _icon_button(icon: str, tooltip: str, *, parent: QWidget, name: str = "rowIcon", tint: str = "") -> QPushButton:
+def _icon_button(
+    icon: str, tooltip: str, *, parent: QWidget, name: str = "rowIcon", tint: str = ""
+) -> QPushButton:
     """A compact icon-only control; what it does is in its tooltip."""
     button = QPushButton(parent)
     button.setObjectName(name)
@@ -696,7 +683,9 @@ def folder_button(path: str, *, parent: QWidget) -> QPushButton:
     local = bool(path) and Path(path).expanduser().is_dir()
     button = _icon_button(
         "folder",
-        f"Open workspace folder\n{path}" if local else f"Workspace folder on the gateway host:\n{path}",
+        f"Open workspace folder\n{path}"
+        if local
+        else f"Workspace folder on the gateway host:\n{path}",
         parent=parent,
         name="rowFolder",
         tint=THEME.text_secondary if local else THEME.text_faint,
@@ -712,7 +701,10 @@ def missing_folder_button(field: str, *, parent: QWidget) -> QPushButton:
     """The folder glyph when the gateway does not report the folder:
     disabled, naming the missing field."""
     button = _icon_button(
-        "folder", f"The gateway does not report this folder ({field}).", parent=parent, name="rowFolder",
+        "folder",
+        f"The gateway does not report this folder ({field}).",
+        parent=parent,
+        name="rowFolder",
         tint=THEME.text_faint,
     )
     button.setEnabled(False)
@@ -724,19 +716,8 @@ def missing_folder_button(field: str, *, parent: QWidget) -> QPushButton:
 # --------------------------------------------------------- automation tab
 
 
-_PILL_SPINE = {"active": "fresh", "running": "active", "waiting": "warn", "failed": "warn", "paused": "idle", "ended": "idle"}
-
-
 class AutomationTabRow(RowCard):
-    """One automation: the SAME card as a session row, clean and simple.
-
-    Line 1: title … the time since the last run ("40 min ago"), plus a state
-    chip only when it waits for you or failed. Line 2: the last result. Line 3
-    (metric chips): "every 5 min" · "next in 2 min" · "#32" · folder icon, and
-    at the far right ONE control, the "Active" switch (on = runs on its
-    schedule, off = paused; a click sends pause / resume, the kit's
-    ``activeToggleCommand``). Clicking the card opens the automation view,
-    where the other controls live."""
+    """Watch-style title, run count, cadence and next/status facts. Controls live in its view."""
 
     open_requested = pyqtSignal(str, str)  # automation_id, "latest"
     control_requested = pyqtSignal(str, str)  # automation_id, pause|resume
@@ -744,78 +725,106 @@ class AutomationTabRow(RowCard):
 
     def __init__(self, summary: Dict[str, Any], *, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+        self.archive_kind = "automation"
+        self.setProperty("automation", "true")
         self.summary = dict(summary)
         self.automation_id = str(summary.get("automation_id") or "")
-        aid = self.automation_id
-        _pill_text, tone = status_pill(summary)
-        self.set_spine_tone(_PILL_SPINE.get(tone, "normal"))
-        column = self.column
-
-        # -- line 1: title … state chip · last run time ------------------------
-        head = QHBoxLayout()
-        head.setContentsMargins(0, 0, 0, 0)
-        head.setSpacing(6)
-        self.title_label = QLabel(str(summary.get("title") or "Automation"), self)
-        self.title_label.setObjectName("rowTitle")
-        self.title_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        head.addWidget(self.title_label, 1)
-        self.state_chip: Optional[QWidget] = None
-        if tone == "waiting":
-            self.state_chip = _metric("hand", "waiting for you", "A run is waiting for your answer.", tone="warn")
-        elif tone == "failed" or (summary.get("last_occurrence") or {}).get("status") == "failed":
-            self.state_chip = _metric("circle-alert", "failed", "The last run failed.", tone="danger")
-        if self.state_chip is not None:
-            head.addWidget(self.state_chip, 0, Qt.AlignVCenter)
+        attention = summary.get("attention") if isinstance(summary.get("attention"), dict) else {}
+        unseen = int(attention.get("unseen_count") or 0)
+        needs_you = bool(attention.get("pending_waits"))
+        self.set_card_state(
+            unread=bool(unseen),
+            attention=needs_you,
+            working=current_run(summary) is not None and not needs_you,
+            failed=(summary.get("last_occurrence") or {}).get("status") == "failed",
+        )
+        self.setAccessibleName(
+            str(summary.get("title") or "Automation")
+            + (". Needs you" if needs_you else f". {unseen} new results" if unseen else "")
+        )
+        self.title_label = TwoLineTitle(str(summary.get("title") or "Automation"), self)
+        title_row = QHBoxLayout()
+        title_row.addWidget(self.title_label, 1)
+        self.archive_button = self.archive_action(
+            lambda: self.control_requested.emit(self.automation_id, "archive")
+        )
+        archive_enabled, archive_reason = automation_controls(summary)["archive"]
+        self.archive_button.setEnabled(archive_enabled)
+        self.archive_button.setToolTip("Archive automation" if archive_enabled else archive_reason)
+        title_row.addWidget(self.archive_button)
+        self.column.addLayout(title_row)
+        self.state_chip = None
         self.time_label = QLabel("", self)
-        self.time_label.setObjectName("rowTime")
-        head.addWidget(self.time_label, 0, Qt.AlignVCenter)
-        column.addLayout(head)
-
-        # -- line 2: the last result (the session preview line) ---------------
-        last = summary.get("last_occurrence") if isinstance(summary.get("last_occurrence"), dict) else None
-        self._result_text_full = self._result_text(summary, last)
+        self.time_label.hide()
+        self._result_text_full = self._result_text(summary, summary.get("last_occurrence"))
         self.result_label = QLabel(self._result_text_full, self)
-        self.result_label.setObjectName("rowPreview")
-        self.result_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.result_label.setToolTip(self._result_text_full)
-        column.addWidget(self.result_label)
-
-        # -- line 3: the schedule, the gateway's served rule, WHOLE (it wraps) ---
-        # -- line 4: next run · runs · folder … the Active switch ---------------
+        self.result_label.hide()
         self.metrics_host = QWidget(self)
-        stack = QVBoxLayout(self.metrics_host)
-        stack.setContentsMargins(0, 1, 0, 0)
-        stack.setSpacing(2)
-        metrics = QHBoxLayout()
+        metrics = QHBoxLayout(self.metrics_host)
         metrics.setContentsMargins(0, 0, 0, 0)
         metrics.setSpacing(10)
         trigger = summary.get("trigger") if isinstance(summary.get("trigger"), dict) else {}
-        # schedule@2 (round 16): the gateway's served rule; schedule@1 keeps its UTC wording.
         self._schedule = trigger_summary(trigger, summary)
-        # Every schedule row: the gateway's served rule, verbatim (the kit's compactCadence).
-        short = self._schedule
-        # The served rule is shown whole: its own line, full card width, wrapping.
-        self.schedule_chip = _metric("clock", short, f"Schedule: {self._schedule}", wrap=True)
-        stack.addWidget(self.schedule_chip)
-        stack.addLayout(metrics)
-        self._next_chip = _metric("chevron-right", "", "Next run")
-        metrics.addWidget(self._next_chip, 0, Qt.AlignVCenter)
-        count = int(summary.get("occurrence_count") or 0)
-        metrics.addWidget(_metric("message-square", f"#{count}", f"{count} run(s)"), 0, Qt.AlignVCenter)
-        root = summary.get("workspace_root")
-        if isinstance(root, str) and root:
-            self.folder = folder_button(root, parent=self)
-        else:
-            self.folder = missing_folder_button("AutomationSummary.workspace_root", parent=self)
-        metrics.addWidget(self.folder, 0, Qt.AlignVCenter)
+        metrics.addWidget(
+            _metric(
+                "refresh-cw", str(int(summary.get("occurrence_count") or 0)), "Served run count"
+            )
+        )
+        self.schedule_chip = _metric("clock", self._compact_schedule(summary), self._schedule)
+        metrics.addWidget(self.schedule_chip)
+        self._next_chip = _metric("play", "", "Next run")
+        metrics.addWidget(self._next_chip)
+        if needs_you:
+            self.state_chip = _metric(
+                "hand", "Needs you", "A question or approval needs your response.", tone="warn"
+            )
+            metrics.addWidget(self.state_chip)
+        elif unseen:
+            metrics.addWidget(
+                _metric(
+                    "message-square", str(unseen) + " new", f"{unseen} unseen results", tone="warn"
+                )
+            )
         metrics.addStretch(1)
+        # Keep compatibility with command callbacks; the visible switch lives in AutomationView.
         self.active_switch = self._active_switch(summary)
-        metrics.addWidget(self.active_switch, 0, Qt.AlignVCenter)
-        self.metrics_host.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        column.addWidget(self.metrics_host)
-
+        self.active_switch.hide()
+        self.column.addWidget(self.metrics_host)
+        self.folder = (
+            folder_button(summary["workspace_root"], parent=self)
+            if summary.get("workspace_root")
+            else missing_folder_button("AutomationSummary.workspace_root", parent=self)
+        )
+        self.folder.hide()
         self.refresh_times()
-        self.setToolTip(f"{summary.get('title') or ''}\nAutomation id: {aid}")
+        self.setToolTip(f"{summary.get('title') or ''}\n{self._schedule}\n{self._result_text_full}")
+
+    @staticmethod
+    def _compact_schedule(summary: Dict[str, Any]) -> str:
+        trigger = summary.get("trigger") or {}
+        config = trigger.get("config") or {}
+        kind = config.get("kind")
+        if kind in {"daily", "weekly", "monthly"}:
+            return str(kind).title()
+        if kind == "once":
+            return "Once"
+        if is_event_trigger(trigger):
+            return "Email" if "email" in str(trigger.get("source_id")) else "Event"
+        every = str(config.get("every") or "")
+        if every.endswith("m"):
+            try:
+                minutes = int(every[:-1])
+                return (
+                    f"{minutes // 1440}d"
+                    if minutes and minutes % 1440 == 0
+                    else f"{minutes // 60}h"
+                    if minutes and minutes % 60 == 0
+                    else every
+                )
+            except ValueError:
+                pass
+        return every or "Scheduled"
 
     def _active_switch(self, summary: Dict[str, Any]) -> AfSwitch:
         """The automation's state as a switch labelled "Active" (operator
@@ -860,17 +869,21 @@ class AutomationTabRow(RowCard):
     def set_pending(self, control: str) -> None:
         """Busy until the gateway confirms (or refuses)."""
         self._pending = control
+        self.archive_button.setEnabled(False)
         self.active_switch.set_busy(True)
         self.active_switch.setToolTip(PENDING_TEXT[control])
 
     def restore_state(self, reason: str = "") -> None:
         """Back to the gateway's state (the command failed or was never confirmed)."""
         self._pending = None
+        self.archive_button.setEnabled(automation_controls(self.summary)["archive"][0])
         layout = self.active_switch.parentWidget().layout()
         fresh = self._active_switch(self.summary)
         if reason:
             fresh.setToolTip(f"{fresh.toolTip()}\nLast attempt failed: {reason}")
-        layout.replaceWidget(self.active_switch, fresh)
+        if layout is not None:
+            layout.replaceWidget(self.active_switch, fresh)
+        fresh.hide()
         self.active_switch.hide()
         self.active_switch.deleteLater()
         self.active_switch = fresh
@@ -887,8 +900,12 @@ class AutomationTabRow(RowCard):
             return "No run yet."
         text = " ".join(str(last.get("excerpt") or "").split())
         if not text and last.get("status") == "waiting":
-            attention = summary.get("attention") if isinstance(summary.get("attention"), dict) else {}
-            waits = [w for w in attention.get("waits") or [] if isinstance(w, dict) and w.get("prompt")]
+            attention = (
+                summary.get("attention") if isinstance(summary.get("attention"), dict) else {}
+            )
+            waits = [
+                w for w in attention.get("waits") or [] if isinstance(w, dict) and w.get("prompt")
+            ]
             text = " ".join(str(waits[0]["prompt"]).split()) if waits else ""
         status = str(last.get("status") or "")
         # Never "running" from the last occurrence: that is current_occurrence's job.
@@ -904,13 +921,32 @@ class AutomationTabRow(RowCard):
         """Last and next run times, relative to ``now`` (again on every poll)."""
         last = last_run_text(self.summary, now=now)  # "last 40 min ago" / "last —"
         nxt = next_run_text(self.summary, now=now)  # "next in 2 min" / "next —" / "next: now"
-        trigger = self.summary.get("trigger") if isinstance(self.summary.get("trigger"), dict) else {}
+        trigger = (
+            self.summary.get("trigger") if isinstance(self.summary.get("trigger"), dict) else {}
+        )
         if is_event_trigger(trigger):
             nxt = ""  # it runs when something happens: no next run to show
-        self.time_label.setText(last[len("last "):])
-        self.time_label.setToolTip(f"Last run: {last[len('last '):]}")
-        self._chip_label(self._next_chip).setText(nxt.replace("next: ", "next "))
-        self._next_chip.setVisible(bool(nxt))
+        self.time_label.setText(last[len("last ") :])
+        self.time_label.setToolTip(f"Last run: {last[len('last ') :]}")
+        state = str(self.summary.get("status") or "")
+        text = (
+            "Paused"
+            if state == "paused"
+            else "Ended"
+            if state in {"completed", "archived"}
+            else nxt.replace("next in ", "").replace("next: ", "").replace("next —", "")
+        )
+        text = (
+            text.replace(" minutes", "m")
+            .replace(" minute", "m")
+            .replace(" min", "m")
+            .replace(" hours", "h")
+            .replace(" hour", "h")
+            .replace(" days", "d")
+            .replace(" day", "d")
+        )
+        self._chip_label(self._next_chip).setText(text)
+        self._next_chip.setVisible(bool(text))
         self._meta_text = " · ".join(p for p in (self._schedule, last, nxt) if p)
         self.metrics_host.setToolTip(self._meta_text)
 
@@ -928,20 +964,23 @@ class AutomationTabRow(RowCard):
         needle = " ".join(str(query or "").lower().split())
         if not needle:
             return True
-        hay = " ".join(str(x or "").lower() for x in (self.summary.get("title"), self._meta_text, self._result_text_full))
+        hay = " ".join(
+            str(x or "").lower()
+            for x in (self.summary.get("title"), self._meta_text, self._result_text_full)
+        )
         return all(word in hay for word in needle.split())
 
     def elide_labels(self, width: int) -> None:
-        metrics = QFontMetrics(self.title_label.font())
-        self.title_label.setText(
-            metrics.elidedText(str(self.summary.get("title") or ""), Qt.ElideRight, max(60, int(width) - 170))
-        )
-        result_metrics = QFontMetrics(self.result_label.font())
-        self.result_label.setText(result_metrics.elidedText(self._result_text_full, Qt.ElideRight, max(60, int(width) - 60)))
+        self.title_label.fit(max(80, int(width) - 35))
 
     def enterEvent(self, event) -> None:  # noqa: N802 (Qt API)
+        self._reveal_actions()
         self.focus_requested.emit(self)
         super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        QTimer.singleShot(0, self._reveal_actions)
+        super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802 (Qt API)
         if event.button() == Qt.LeftButton:
@@ -960,6 +999,7 @@ class SessionSwitcher(QDialog):
     """The popup: two tabs (Sessions | Automations), search, keyboard
     navigation, row actions."""
 
+    archive_requested = pyqtSignal(str)
     session_chosen = pyqtSignal(str)
     new_chat_requested = pyqtSignal()
     rename_requested = pyqtSignal(str, str)
@@ -1010,7 +1050,7 @@ class SessionSwitcher(QDialog):
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
         header.setSpacing(8)
-        self.title_label = QLabel("Sessions")
+        self.title_label = QLabel("Conversations")
         self.title_label.setObjectName("switcherTitle")
         header.addWidget(self.title_label, 0, Qt.AlignVCenter)
         # The counts live in the tab labels ("Sessions · 146+"), the detail in
@@ -1029,10 +1069,12 @@ class SessionSwitcher(QDialog):
         self.new_automation_button.setCursor(Qt.PointingHandCursor)
         self.new_automation_button.setIcon(symbol_icon("plus", color=THEME.text_strong, size=12))
         self.new_automation_button.setIconSize(QSize(12, 12))
-        self.new_automation_button.setToolTip("Create an automation: a task that runs on a schedule")
+        self.new_automation_button.setToolTip(
+            "Create an automation: a task that runs on a schedule"
+        )
         self.new_automation_button.clicked.connect(self._on_new_automation)
         header.addWidget(self.new_automation_button, 0, Qt.AlignVCenter)
-        self.new_button = QPushButton("New session")
+        self.new_button = QPushButton("New conversation")
         self.new_button.setObjectName("switcherPrimary")
         self.new_button.setCursor(Qt.PointingHandCursor)
         self.new_button.setIcon(symbol_icon("plus", color=THEME.text_strong, size=12))
@@ -1050,7 +1092,10 @@ class SessionSwitcher(QDialog):
         self.tab_buttons: Dict[str, QPushButton] = {}
         group = QButtonGroup(self)
         group.setExclusive(True)
-        for key, text, tip in (("sessions", "Sessions", "⌘1"), ("automations", "Automations", "⌘2")):
+        for key, text, tip in (
+            ("sessions", "Conversations", "⌘1"),
+            ("automations", "Automations", "⌘2"),
+        ):
             button = QPushButton(text, self.tab_bar)
             button.setObjectName("switcherTab")
             button.setCheckable(True)
@@ -1087,8 +1132,8 @@ class SessionSwitcher(QDialog):
         self.list_host = QWidget()
         self.list_host.setObjectName("switcherList")
         self.list_layout = QVBoxLayout(self.list_host)
-        self.list_layout.setContentsMargins(0, 0, 6, 0)
-        self.list_layout.setSpacing(2)
+        self.list_layout.setContentsMargins(0, 0, 4, 0)
+        self.list_layout.setSpacing(8)
         self.list_layout.addStretch(1)
         self.scroll.setWidget(self.list_host)
         self.pages.addWidget(self.scroll)
@@ -1102,7 +1147,7 @@ class SessionSwitcher(QDialog):
         self.auto_host.setObjectName("switcherList")
         self.auto_layout = QVBoxLayout(self.auto_host)
         self.auto_layout.setContentsMargins(0, 0, 6, 0)
-        self.auto_layout.setSpacing(6)
+        self.auto_layout.setSpacing(8)
         self.auto_layout.addStretch(1)
         self.auto_scroll.setWidget(self.auto_host)
         self.pages.addWidget(self.auto_scroll)
@@ -1129,8 +1174,28 @@ class SessionSwitcher(QDialog):
     def restyle(self) -> None:
         """Re-read the palette (the theme changed, or this is the first paint)."""
         self.setStyleSheet(dialog_stylesheet() + build_switcher_qss() + automation_row_qss())
-        for row in list(getattr(self, "_rows", ()) or ()) + list(getattr(self, "_auto_rows", ()) or ()):
-            refresh_style(row)
+        for row in list(getattr(self, "_rows", ()) or ()) + list(
+            getattr(self, "_auto_rows", ()) or ()
+        ):
+            row.set_card_state(
+                unread=row.property("unread") == "true",
+                attention=row.property("attention") == "true",
+                working=row.property("working") == "true",
+                failed=row.property("failed") == "true",
+            )
+            palette = card_palette()
+            for metric in row.findChildren(QWidget):
+                details = getattr(metric, "metric_icon", None)
+                if details:
+                    icon, tone, glyph = details
+                    color = {
+                        "warn": palette["attention_text"],
+                        "accent": palette["primary"],
+                        "danger": palette["danger"],
+                    }.get(tone, palette["secondary"])
+                    glyph.setPixmap(symbol_icon(icon, color=color, size=13).pixmap(13, 13))
+            row.archive_button.setIcon(symbol_icon("archive", color=palette["danger"], size=12))
+            row.title_label.fit(row.title_label.width())
 
     # ------------------------------------------------------------------ tabs
 
@@ -1157,13 +1222,15 @@ class SessionSwitcher(QDialog):
             button.setChecked(key == self._tab)
             button.blockSignals(False)
         self.pages.setCurrentIndex(0 if sessions else 1)
-        self.title_label.setText("Sessions" if sessions else "Automations")
+        self.title_label.setText("Conversations" if sessions else "Automations")
         self.new_button.setVisible(sessions)
         self.show_archived.setVisible(not sessions)
         self.new_automation_button.setVisible(not sessions)
         self.hint_label.setText(TAB_HINTS[self._tab])
         self.search_edit.setPlaceholderText(
-            "Filter by topic, folder or tool…" if sessions else "Filter by title, schedule or result…"
+            "Filter by topic, folder or tool…"
+            if sessions
+            else "Filter by title, schedule or result…"
         )
         self._refresh_count()
         self._apply_filter()
@@ -1184,7 +1251,9 @@ class SessionSwitcher(QDialog):
     def status_text(self) -> str:
         return self.status_label.text() if self.status_label.isVisibleTo(self) else ""
 
-    def set_digests(self, digests: Sequence[Any], *, active_session_id: str = "", more: bool = False) -> None:
+    def set_digests(
+        self, digests: Sequence[Any], *, active_session_id: str = "", more: bool = False
+    ) -> None:
         """Render the Sessions tab. Accepts `SessionDigest` values or dicts.
         ``more``: the gateway has more sessions than those given ("Load more")."""
         active = str(active_session_id or "").strip()
@@ -1207,12 +1276,18 @@ class SessionSwitcher(QDialog):
         self._more = bool(more)
         self._rebuild()
 
-    def set_automations(self, summaries: Sequence[Any], *, status: str = "", available: bool = True) -> None:
+    def set_automations(
+        self, summaries: Sequence[Any], *, status: str = "", available: bool = True
+    ) -> None:
         """Render the Automations tab: one row per ``automation_id``.
         ``available`` = the gateway offers automations (else no tab at all)."""
         grouped = [dict(s) for s in group_by_automation(summaries or [])]
         text = str(status or "").strip()
-        if grouped == self._automations and text == self._automation_status and bool(available) == self._automations_available:
+        if (
+            grouped == self._automations
+            and text == self._automation_status
+            and bool(available) == self._automations_available
+        ):
             # Same rows: only their relative times move ("last 3 min ago").
             for row in self._auto_rows:
                 row.refresh_times()
@@ -1270,6 +1345,7 @@ class SessionSwitcher(QDialog):
                     automation_title=titles.get(digest.automation_id, ""),
                 )
                 row.automation_requested.connect(self._on_automation_chosen)
+                row.archive_requested.connect(self.archive_requested.emit)
                 row.chosen.connect(self._on_row_chosen)
                 row.rename_committed.connect(self.rename_requested.emit)
                 row.focus_requested.connect(self._on_row_hovered)
@@ -1360,7 +1436,7 @@ class SessionSwitcher(QDialog):
         if today:
             detail.append(f"{today} today")
         self._sessions_detail = " · ".join(detail)
-        self.tab_buttons["sessions"].setText(f"Sessions · {total}{plus}")
+        self.tab_buttons["sessions"].setText(f"Conversations · {total}{plus}")
         self.tab_buttons["sessions"].setToolTip(f"{self._sessions_detail} (⌘1)")
 
         archived = sum(1 for s in self._automations if s.get("status") == "archived")
@@ -1368,13 +1444,19 @@ class SessionSwitcher(QDialog):
         unread = attention_total(self._automations)
         detail = [f"{listed} automation{'s' if listed != 1 else ''}"]
         if archived:
-            detail.append(f"{archived} archived" + (" (hidden)" if not self.show_archived.isChecked() else ""))
+            detail.append(
+                f"{archived} archived" + (" (hidden)" if not self.show_archived.isChecked() else "")
+            )
         if unread:
             detail.append(f"{unread} new")
         self._automations_detail = " · ".join(detail)
-        self.tab_buttons["automations"].setText(f"Automations · {listed}" + (f" · {unread} new" if unread else ""))
+        self.tab_buttons["automations"].setText(
+            f"Automations · {listed}" + (f" · {unread} new" if unread else "")
+        )
         self.tab_buttons["automations"].setToolTip(f"{self._automations_detail} (⌘2)")
-        self._count_text = self._sessions_detail if self._tab == "sessions" else self._automations_detail
+        self._count_text = (
+            self._sessions_detail if self._tab == "sessions" else self._automations_detail
+        )
 
     @property
     def count_text(self) -> str:
@@ -1413,7 +1495,9 @@ class SessionSwitcher(QDialog):
                 self.empty_label.hide()
         else:
             if not self._auto_rows and not self._automation_status:
-                self.empty_label.setText("No automation yet. Schedule a conversation with the clock button.")
+                self.empty_label.setText(
+                    "No automation yet. Schedule a conversation with the clock button."
+                )
                 self.empty_label.show()
             elif self._auto_rows and not any_automation:
                 self.empty_label.setText("No automation matches this filter.")
@@ -1480,7 +1564,11 @@ class SessionSwitcher(QDialog):
     @property
     def selected_automation_id(self) -> str:
         row = self._row_at(self._selected_index)
-        return str(getattr(row, "automation_id", "") or "") if row is not None and self._tab == "automations" else ""
+        return (
+            str(getattr(row, "automation_id", "") or "")
+            if row is not None and self._tab == "automations"
+            else ""
+        )
 
     # ---------------------------------------------------------------- actions
 
@@ -1505,7 +1593,9 @@ class SessionSwitcher(QDialog):
     def _on_row_control(self, automation_id: str, control: str) -> None:
         from PyQt5.QtCore import QTimer
 
-        summary = next((s for s in self._automations if s.get("automation_id") == automation_id), {})
+        summary = next(
+            (s for s in self._automations if s.get("automation_id") == automation_id), {}
+        )
         self._pending_token += 1
         token = self._pending_token
         self._pending[automation_id] = (control, dict(summary), token)
@@ -1515,6 +1605,9 @@ class SessionSwitcher(QDialog):
         timer.timeout.connect(lambda: self._expire_pending(automation_id, token))
         timer.timeout.connect(timer.deleteLater)
         timer.start(self.PENDING_TIMEOUT_MS)
+        for row in self._auto_rows:
+            if row.automation_id == automation_id:
+                row.set_pending(control)
         self.automation_control_requested.emit(automation_id, control)
 
     def is_pending(self, automation_id: str) -> bool:
@@ -1533,7 +1626,8 @@ class SessionSwitcher(QDialog):
         pending = self._pending.get(automation_id)
         if pending is not None and pending[2] == token:
             self.command_failed(
-                automation_id, "The gateway has not confirmed the change yet; it may still be applying it."
+                automation_id,
+                "The gateway has not confirmed the change yet; it may still be applying it.",
             )
 
     def _on_new_automation(self) -> None:
@@ -1574,8 +1668,14 @@ class SessionSwitcher(QDialog):
             screen = QApplication.screenAt(global_pos) or QApplication.primaryScreen()
             screen_geometry = screen.availableGeometry() if screen is not None else None
         if screen_geometry is not None:
-            x = max(screen_geometry.x() + 8, min(x, screen_geometry.x() + screen_geometry.width() - width - 8))
-            y = max(screen_geometry.y() + 8, min(y, screen_geometry.y() + screen_geometry.height() - height - 8))
+            x = max(
+                screen_geometry.x() + 8,
+                min(x, screen_geometry.x() + screen_geometry.width() - width - 8),
+            )
+            y = max(
+                screen_geometry.y() + 8,
+                min(y, screen_geometry.y() + screen_geometry.height() - height - 8),
+            )
         self.move(x, y)
         self.show()
         self.raise_()
@@ -1593,8 +1693,16 @@ class SessionSwitcher(QDialog):
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802 (Qt API)
         # ←/→ switch tabs while the filter is empty (else they move the caret).
-        if obj is self.search_edit and event.type() == QEvent.KeyPress and not self.search_edit.text():
-            if event.key() in (Qt.Key_Left, Qt.Key_Right) and not event.modifiers() and self._automations_available:
+        if (
+            obj is self.search_edit
+            and event.type() == QEvent.KeyPress
+            and not self.search_edit.text()
+        ):
+            if (
+                event.key() in (Qt.Key_Left, Qt.Key_Right)
+                and not event.modifiers()
+                and self._automations_available
+            ):
                 self.set_tab("sessions" if event.key() == Qt.Key_Left else "automations", emit=True)
                 return True
         return super().eventFilter(obj, event)
@@ -1613,6 +1721,9 @@ class SessionSwitcher(QDialog):
         if key in (Qt.Key_Down, Qt.Key_Up):
             step = 1 if key == Qt.Key_Down else -1
             self._select_index(max(0, self._selected_index + step))
+            selected = self._row_at(self._selected_index)
+            if selected is not None:
+                selected.setFocus(Qt.TabFocusReason)
             event.accept()
             return
         if key in (Qt.Key_Return, Qt.Key_Enter):

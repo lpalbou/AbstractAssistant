@@ -30,29 +30,21 @@ The managed Assistant workflow supplies baseline file, web and command tools whe
 ## Where automations appear
 
 Click the chat name in the palette header. On a gateway that offers automations, the switcher has
-two tabs, **Sessions | Automations** (⌘1 / ⌘2, or ← / → while the filter is empty; the last tab is
+two tabs, **Conversations | Automations** (⌘1 / ⌘2, or ← / → while the filter is empty; the last tab is
 remembered). The **Automations** tab lists every automation, whichever app created it (the
 Assistant, AbstractObserver or another client); archived ones are hidden until you turn on **Show
 archived** in the tab's header, and **+ New automation** creates one (below). Each row shows:
 
-- the title, and on the right when it last ran (`40 min ago`, `1 h 06 min ago`) — with
-  "✋ waiting for you" when a run waits for your answer, or a red "failed" when the last run failed;
-- the last result, on one line;
-- the schedule in the gateway's own words, for every kind (`Every 30 minutes (UTC)`,
-  `Every day at 08:00 (Europe/Paris)`), the next run
-  (`next in 2 min`, `next —` when paused), the number of
-  runs (`#32`), the workspace folder icon (it opens in the file manager when the gateway reports the
-  folder and it is on this Mac), and at the far right the card's one control, the **Active**
-  switch: on (accent track, check mark, bold label) while the automation runs on its schedule,
-  off while it is paused. Clicking it pauses or resumes the automation. The switch shows the
-  gateway's status and moves only when the gateway reports the new state: after a click it is busy
-  until then, and if the gateway refuses it stays where it was, with the reason in its tooltip.
-  An archived, ended or legacy automation's switch is unavailable, the reason after the label
-  ("Active — Archived") and in its tooltip. While a run is in progress, line 2 reads "Run #37
-  running", plus "· paused after this run" when paused.
+- a regular-weight, two-line title;
+- the served run count, compact cadence (`2m`, `2h`, `Daily`, `Email`), and time until
+  the gateway's next run, or `Paused` / `Ended`;
+- an amber outline and new-result count for unseen results, or `Needs you` for a question
+  or approval. The list does not acknowledge results merely by rendering them.
 
-The card looks like a session card. Click it (or press Enter) to open the automation, where
-**Run now**, **Stop**, **Edit**, **Archive** and **Discuss** live. The times follow each refresh.
+Full schedule wording and the last result remain in the tooltip. Click the card (or press Enter)
+to open the automation, where **Active**, **Run now**, **Stop**, **Edit** and **Discuss** live.
+The compact archive icon appears on card hover or keyboard focus, asks for inline confirmation,
+and is unavailable when the gateway does not permit archiving. Times follow each refresh.
 
 The tab's label counts what needs you (`Automations · 3 new`: unseen items plus waiting runs).
 Typing in the switcher filters automations by title, cadence and last result, like chats. When
@@ -63,7 +55,7 @@ The **Automations…** entry in the menu-bar icon's menu carries the same count
 
 ### Automations and your sessions
 
-The sessions an automation runs in are listed under their automation, never in the Sessions tab. The
+The sessions an automation runs in are listed under their automation, never in the Conversations tab. The
 gateway stamps every session with a kind (`chat`, `automation`, `occurrence`, `discussion`), and
 the switcher lists only `chat` and `discussion` sessions; it never guesses from a session's id.
 A session from a gateway that does not stamp kinds counts as a chat. When the gateway advertises

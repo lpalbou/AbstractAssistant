@@ -146,3 +146,13 @@ def test_opening_prompt_reads_input_data_prompt_or_a_bare_prompt() -> None:
     assert prompt_from_input_data(answers["run_hot_1"]) == "Refactor the router module"
     assert prompt_from_input_data(answers["run_unknown_1"]) == ""
     assert prompt_from_input_data({"input_data": {"context": {"task": "from the task"}}}) == "from the task"
+
+
+def test_chat_wake_is_a_conversation_turn_despite_its_parent():
+    rows, _ = fold_session_rows({"items": [
+        {"run_id": "wake", "session_id": "chat", "session_kind": "chat", "role": "occurrence", "parent_run_id": "caller", "status": "completed"},
+        {"run_id": "child", "session_id": "chat", "session_kind": "chat", "role": "descendant", "parent_run_id": "wake", "status": "completed"},
+        {"run_id": "controller", "session_id": "auto", "session_kind": "automation", "role": "controller", "status": "running"},
+    ], "has_more": False})
+    assert len(rows) == 1 and rows[0].session_id == "chat"
+    assert rows[0].turns == 1 and rows[0].latest_run_id == "wake"

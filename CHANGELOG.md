@@ -27,6 +27,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Changed
 
+- Tray conversation and automation cards use regular two-line titles, compact facts, darker
+  surfaces, clear unread/attention markers and small hover/focus archive actions. Conversation
+  reads synchronize through the Gateway ledger; automation controls live in the detail view.
+
 - **Web Assistant:** Watch-inspired animated orb, tap/hold voice, playback controls,
   searchable conversations, avatar/state previews and responsive layouts, composed
   from AbstractUIC. Streaming diagnostics and usage move into optional Details.

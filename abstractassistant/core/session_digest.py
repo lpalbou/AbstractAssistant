@@ -100,6 +100,9 @@ class SessionDigest:
     automation_id: str = ""
     # The gateway `/runs` row reports `workspace_root` (older gateways do not).
     workspace_reported: bool = False
+    # Account-wide Gateway facts; selection, recency and a tool failure are not attention.
+    unread: bool = False
+    needs_attention: bool = False
 
     @property
     def total_tokens(self) -> int:

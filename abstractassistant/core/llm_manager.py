@@ -28,6 +28,7 @@ from .gateway_sessions import (
 )
 from .session_cache import SessionCache
 from .session_digest import SessionDigestCache, digest_from_record
+from .session_reads import SessionReads
 from .session_store import SessionSnapshotUnreadable, SessionStore, SessionSnapshot
 from ..gateway import GatewayClient, GatewayClientConfig, get_cached_assistant_capabilities
 from ..gateway.history_seed import seed_messages_from_history_bundle
@@ -480,6 +481,32 @@ class LLMManager:
             for d in self.session_digests()
         ]
 
+    def _read_state(self) -> SessionReads:
+        if not hasattr(self, "_session_reads"):
+            self._session_reads = SessionReads()
+        return self._session_reads
+
+    def archive_session(self, session_id: str, *, owner: GatewayClient) -> None:
+        if owner is not self.gateway_client():
+            raise ValueError("The account changed before archiving. Open the conversation again.")
+        result = owner.archive_session(session_id)
+        if result.get("session_id") != session_id or result.get("archived") is not True:
+            raise ValueError("The gateway did not confirm the archive")
+
+    def loaded_session_read_receipts(self, session_id: str) -> List[Dict[str, Any]]:
+        with self._snapshot_lock:
+            loaded = getattr(self, "_loaded_session_reads", None)
+            if not loaded or loaded[0] is not self._gateway_snapshot or loaded[1] != session_id:
+                return []
+            return [dict(receipt) for receipt in loaded[2]]
+
+    def mark_session_read(
+        self, session_id: str, receipts: List[Dict[str, Any]], *, owner: GatewayClient
+    ) -> bool:
+        if owner is not self.gateway_client() or session_id != self.active_session_id:
+            return False
+        return self._read_state().consume(self.gateway_client(), receipts)
+
     def session_digests(self) -> List[Dict[str, Any]]:
         """The session list for the switcher, from the cache only (no network).
 
@@ -537,6 +564,7 @@ class LLMManager:
                 # Not on the gateway (yet): no folder is shown, whatever the
                 # local cache remembers.
                 digest = replace(digest, workspace_root="", workspace_reported=False)
+            digest = replace(digest, **self._read_state().facts(session_id))
             payload = asdict(digest)
             payload["display_title"] = digest.display_title
             payload["on_gateway"] = row is not None
@@ -555,6 +583,7 @@ class LLMManager:
         store = self._session_cache
         return {
             "error": self._session_list_error,
+            "read_error": self._read_state().error,
             "fetched_at": store.fetched_at,
             "truncated": store.truncated,
             "shown": min(len(store.rows()), self._session_target),
@@ -613,6 +642,7 @@ class LLMManager:
             except Exception as exc:
                 self._session_list_error = f"{type(exc).__name__}: {exc}"
                 return {"ok": False, "error": self._session_list_error}
+            self._read_state().refresh(client, items)
             self._session_target = target
             self._session_list_error = ""
             with self._snapshot_lock:
@@ -673,6 +703,7 @@ class LLMManager:
             # No gateway run yet (a new session), or the synthetic upload run.
             error = f"{problem} The gateway has no run for it to rebuild from." if problem else ""
             return {"changed": False, "error": error}
+        read_runs = self._read_state().snapshot(sid)
         try:
             client = self.gateway_client()
             bundle = client.get_run_history_bundle(
@@ -699,6 +730,7 @@ class LLMManager:
             if self._gateway_snapshot is not snap:
                 return {"changed": False, "error": ""}
             changed = self.replace_gateway_messages(messages, last_run_id=run_id)
+            self._loaded_session_reads = (self._gateway_snapshot, sid, self._read_state().displayed(sid, messages, read_runs))
         self._session_cache.clear_unreadable(sid)
         return {"changed": bool(changed), "error": ""}
 

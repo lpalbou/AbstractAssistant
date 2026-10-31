@@ -531,19 +531,15 @@ Summon it from the menu-bar icon or with the global shortcut (default `cmd+shift
   start a new chat (⌘N), open Tools & permissions, schedule this conversation (clock, on a
   gateway that offers automations), toggle spoken replies, and open Settings (⌘,); the orb at
   the right shows whether the gateway is reachable.
-- **Chat switcher**: click the chat name in the header. Its **Sessions** tab lists every session
-  on the gateway, whichever client started it (the Assistant on any device, AbstractCode,
-  AbstractObserver), 100 at a time; its **Automations** tab lists the gateway's automations with
-  their controls. Chats are grouped by recency (today,
-  yesterday, previous 7 and 30 days, older) and each row shows what that chat holds: its topic,
-  its latest question, when it was last active, its turns and state, and once opened on this Mac
-  its tool calls, tokens, running time and workspace. A chat whose tools failed or whose
-  last question was never answered is flagged. Type to filter by topic, folder or tool name; ↑↓
-  move, Return opens, Esc closes. The pencil renames a chat on this device; there is no delete
-  (the gateway has none). How sessions work: [architecture.md](architecture.md#sessions).
-- **Automations**: on a gateway that offers them, the switcher also lists your automations above
-  the chats, and the clock button schedules the current conversation to run on a fixed UTC
-  interval. See [automations.md](automations.md).
+- **Chat switcher**: click the chat name in the header. **Conversations** lists the gateway's
+  chats and discussions, whichever client started them, 100 at a time. Cards have regular-weight,
+  two-line titles and compact turn/tool/time facts. Cyan means unread content; orange `Needs you`
+  means a question or approval. Read marks use the same gateway ledger as web and Apple clients.
+  Search by topic, folder or tool; ↑↓ moves, Return opens, Esc closes. Rename and folder access
+  are in the card's context menu. The small archive icon appears on hover or keyboard focus and
+  asks for confirmation; history remains on the gateway.
+- **Automations**: the second tab uses the same compact cards with run count, cadence and
+  next-run/status facts. Open one for its controls. See [automations.md](automations.md).
 - **Transcript**: your messages and the assistant's replies. Each reply ends with a statistics
   line (tokens, tools, files, duration, model); the tools and files segments open detail views.
   While a run works, an activity card at the bottom shows the current step, the elapsed time and
@@ -1007,29 +1003,21 @@ The managed Assistant workflow supplies baseline file, web and command tools whe
 ## Where automations appear
 
 Click the chat name in the palette header. On a gateway that offers automations, the switcher has
-two tabs, **Sessions | Automations** (⌘1 / ⌘2, or ← / → while the filter is empty; the last tab is
+two tabs, **Conversations | Automations** (⌘1 / ⌘2, or ← / → while the filter is empty; the last tab is
 remembered). The **Automations** tab lists every automation, whichever app created it (the
 Assistant, AbstractObserver or another client); archived ones are hidden until you turn on **Show
 archived** in the tab's header, and **+ New automation** creates one (below). Each row shows:
 
-- the title, and on the right when it last ran (`40 min ago`, `1 h 06 min ago`) — with
-  "✋ waiting for you" when a run waits for your answer, or a red "failed" when the last run failed;
-- the last result, on one line;
-- the schedule in the gateway's own words, for every kind (`Every 30 minutes (UTC)`,
-  `Every day at 08:00 (Europe/Paris)`), the next run
-  (`next in 2 min`, `next —` when paused), the number of
-  runs (`#32`), the workspace folder icon (it opens in the file manager when the gateway reports the
-  folder and it is on this Mac), and at the far right the card's one control, the **Active**
-  switch: on (accent track, check mark, bold label) while the automation runs on its schedule,
-  off while it is paused. Clicking it pauses or resumes the automation. The switch shows the
-  gateway's status and moves only when the gateway reports the new state: after a click it is busy
-  until then, and if the gateway refuses it stays where it was, with the reason in its tooltip.
-  An archived, ended or legacy automation's switch is unavailable, the reason after the label
-  ("Active — Archived") and in its tooltip. While a run is in progress, line 2 reads "Run #37
-  running", plus "· paused after this run" when paused.
+- a regular-weight, two-line title;
+- the served run count, compact cadence (`2m`, `2h`, `Daily`, `Email`), and time until
+  the gateway's next run, or `Paused` / `Ended`;
+- an amber outline and new-result count for unseen results, or `Needs you` for a question
+  or approval. The list does not acknowledge results merely by rendering them.
 
-The card looks like a session card. Click it (or press Enter) to open the automation, where
-**Run now**, **Stop**, **Edit**, **Archive** and **Discuss** live. The times follow each refresh.
+Full schedule wording and the last result remain in the tooltip. Click the card (or press Enter)
+to open the automation, where **Active**, **Run now**, **Stop**, **Edit** and **Discuss** live.
+The compact archive icon appears on card hover or keyboard focus, asks for inline confirmation,
+and is unavailable when the gateway does not permit archiving. Times follow each refresh.
 
 The tab's label counts what needs you (`Automations · 3 new`: unseen items plus waiting runs).
 Typing in the switcher filters automations by title, cadence and last result, like chats. When
@@ -1040,7 +1028,7 @@ The **Automations…** entry in the menu-bar icon's menu carries the same count
 
 ### Automations and your sessions
 
-The sessions an automation runs in are listed under their automation, never in the Sessions tab. The
+The sessions an automation runs in are listed under their automation, never in the Conversations tab. The
 gateway stamps every session with a kind (`chat`, `automation`, `occurrence`, `discussion`), and
 the switcher lists only `chat` and `discussion` sessions; it never guesses from a session's id.
 A session from a gateway that does not stamp kinds counts as a chat. When the gateway advertises
@@ -1417,6 +1405,16 @@ See also:
 - [architecture.md](architecture.md)
 - [troubleshooting.md](troubleshooting.md)
 
+## Shared conversation read state
+
+Web, Watch and iPhone use the Gateway's account-scoped conversation read ledger at
+`GET/POST /api/gateway/me/session-reads`. The shared Apple client exposes
+`SessionReadReceipt` and `SessionReadState`; consumption records the displayed run revision,
+and failed writes retain its unread mark. The web client uses AbstractUIC's shared read client.
+A new answer remains unread independently of its request. Other clients refresh after
+`session.read` on the personal event stream or when reconnecting. Installed native apps need a
+build supporting this API. Existing device-local first-use baselines are not uploaded as reads.
+
 ## CLI entry points
 
 From `pyproject.toml`: `assistant`, `abstractassistant` (same program) and `build-macos-app`.
@@ -1623,6 +1621,10 @@ the stream. Whether the gateway offers live replies is read from
   the gateway lists `session_kind` among `runs.list.filters` in its capabilities); titles come from a session's first run's
   `input_data` and transcripts from its latest run's `history_bundle`
   ([architecture.md](architecture.md#sessions))
+- Conversation reads: `GET/POST /api/gateway/me/session-reads` (immutable account-scoped
+  run revisions; filtered GETs and POST batches contain at most 100 turns). The native client
+  exposes `session_reads` and `mark_session_reads`. `archive_session` calls
+  `POST /api/gateway/sessions/{session_id}/archive`; the response must confirm that same session.
 - Runs: `/api/gateway/runs/start`, `/api/gateway/runs/{run_id}`,
   `/api/gateway/runs/{run_id}/input_data`, `/api/gateway/runs/{run_id}/history_bundle` (the
   session transcript seed), `/api/gateway/runs/{run_id}/ledger` (older gateways only: folded here),
@@ -1791,7 +1793,7 @@ The order is in [api.md](api.md#which-gateway-the-app-connects-to).
 
 Sessions live on the gateway. A session is the set of root runs that share a `session_id`.
 
-- **Scope.** Every client sees the same pool of sessions: the switcher's **Sessions** tab lists
+- **Scope.** Every client sees the same pool of sessions: the switcher's **Conversations** tab lists
   every chat and discussion session on the gateway, whichever client started it (the Assistant on
   any device, AbstractCode, AbstractObserver, flows, other channels). There is no "this app's
   sessions" filter and no toggle; nothing is ever classified by its id.
@@ -1824,9 +1826,15 @@ Sessions live on the gateway. A session is the set of root runs that share a `se
   fetch requests one follow-up fetch; results from a previous session cannot repaint the new selection.
 - **New sessions.** The app mints the id; the session is listed while it is the active one and
   becomes a gateway session with its first run.
-- **No local sessions, no removal.** A session exists if and only if the gateway lists it. The
-  gateway has no session delete, so the switcher has none either; nothing is hidden or kept aside
-  on this device.
+- **Archive.** The compact card action calls the Gateway's session archive endpoint after inline
+  confirmation. History is retained and the session disappears from regular lists across clients.
+  There is no local hiding or deletion. Archiving the current session opens a new conversation.
+- **Consumption.** `core/session_reads.py` projects the account-wide read ledger. Listings never
+  consume content. A successfully restored transcript captures immutable run revisions; only
+  a focused, visible, unobscured palette acknowledges them after its display dwell. The request
+  cannot acknowledge a later answer, and stale account/session callbacks are rejected. Failed
+  writes retain unread marks and retry the captured proof on refresh. `session.read` events
+  refresh the projection. Local last-seen timestamps remain cache recency, not consumption.
 - **Offline.** The switcher shows the cached rows under a "Cached — gateway unreachable" line
   and cached transcripts stay readable; nothing is deleted, and the next successful fetch
   reconciles.
@@ -1840,9 +1848,9 @@ The cache under `~/.abstractassistant/`:
   succeeds a `session.unreadable.json` marker in the session folder keeps the
   problem on record, and the palette says so on every start.
 
-Deleting the cache loses only local labels. The chat switcher's metrics (tool calls,
-tokens, running time) are computed from the cached transcripts and appear once a session has been
-opened on this device.
+Deleting the cache loses only local labels. The chat switcher's tool counts come from cached transcripts once opened on this device.
+Tokens, running time and workspace details remain in tooltips/context actions rather than crowding
+the card overview. Both card types share the same native layout and theme-derived surfaces.
 
 Local overrides never write the gateway's shared configuration. Every screen that shows a value
 says whether it is the gateway default or this app's override.
@@ -3247,6 +3255,12 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Fixed
 
+- Web conversation read receipts wait for earlier history to finish restoring before acknowledging the opening snapshot.
+
+
+- Conversation consumption persists through the Gateway for shared web, Watch and iPhone unread state. Web cards have clearer spacing and attachment previews use one fitted header.
+
+
 - Paused streamed speech no longer expires or trusts a stale completion callback. Output
   stalls get one attempt to reopen and continue pending speech with the matching AbstractVoice
   player. Stop remains responsive while an output opens; late completions cannot reset a replayed
@@ -3260,6 +3274,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   `avatar` extra to enable support. The menu-bar icon and its controls are unchanged.
 
 ### Changed
+
+- Tray conversation and automation cards use regular two-line titles, compact facts, darker
+  surfaces, clear unread/attention markers and small hover/focus archive actions. Conversation
+  reads synchronize through the Gateway ledger; automation controls live in the detail view.
 
 - **Web Assistant:** Watch-inspired animated orb, tap/hold voice, playback controls,
   searchable conversations, avatar/state previews and responsive layouts, composed
@@ -4705,6 +4723,14 @@ you and the **Automations** tab's badge counts results you have not seen. iOS as
 the first time there is something to show. What happened before the app first looked is never
 notified. A gateway without the event stream keeps the app's regular refresh; notifications then
 do not appear.
+
+Conversation cards outline unread answers in teal and requests needing you in amber. Read status
+belongs to your Gateway account, shared with the Watch and web clients through
+`/api/gateway/me/session-reads`. Opening history alone does not mark it read: the loaded answer’s
+footer must be visible for 250 ms in the active chat, without a sheet covering it. Only those
+captured run/status revisions are acknowledged, so an older turn finishing later stays new.
+A failed write leaves the highlight intact and retries on a later foreground refresh. The old
+Watch-local baseline is not treated as proof of reading. Native apps need a rebuild to use this API.
 
 ## Voice and files
 
@@ -7253,7 +7279,7 @@ sequenceDiagram
 | Component | Responsibility |
 |---|---|
 | `Sources/App` (SwiftUI) | Screens and navigation (one `NavigationStack`); see [design.md](design.md). |
-| `AppModel` (`@MainActor`) | The client, the state on screen (waits, sessions, automations, entities), each automation's definition and latest results once read (shared by its pages, updated by a save), the 15 s poll while the scene is active (the automations list at most once a minute; none while the screen is dimmed or the app is in the background), haptics, tool and workflow choices, the tools Accept all allowed, the answers seen on this watch. |
+| `AppModel` (`@MainActor`) | The client, the state on screen (waits, sessions, automations, entities), each automation's definition and latest results once read (shared by its pages, updated by a save), the 15 s poll while the scene is active (the automations list at most once a minute; none while the screen is dimmed or the app is in the background), haptics, tool and workflow choices, the tools Accept all allowed, the Gateway-backed conversation read projection. |
 | `Orb`, `OrbScenes`, `OrbConcepts`, `OrbCosmos`, `OrbNature`, `OrbAvatars`, `OrbLines`, `OrbRobots`, `OrbMachines` | The orb (every style drawn from `OrbPhases`, the five phases' weights and the voice): a planet of points whose style answers the voice (Halo, Vortex, Nebula, Liquid, Galaxy), and scenes of their own: Rings, the five state shapes (Lotus, Crystal, Eclipse, Synapse, Drop), Face, Imprint, Contour, Membrane, Eye (one relief of the face, computed once on a grid for the line styles), the eleven machines (six robots, a floating robot, a robot on tracks, a car, an android and a chrome sentinel, drawn as lit metal under a fine texture of points), the Cosmos scenes (Well, Black hole, Accretion) and the Nature scenes (Ocean, Aurora, Murmuration); every motion at a fixed pace, the phases blending how much of each shows, so a change of state is always a smooth morph; all frame-rate independent and drawn in one `Canvas`, with the light of its work. |
 | `Listener` | Records 16 kHz mono WAV with metering; detects speech against the room's noise floor; sends after 3 s of silence. |
 | `KeptQuestion` | Keeps one failed voice recording per connection, conversation and responder in local files until Retry or Discard. Metadata is updated on the main actor; replacement and deletion check the captured file so older requests cannot remove newer questions. |
@@ -7285,7 +7311,7 @@ sequenceDiagram
 | Voices | `GET /api/gateway/voice/voices` and `GET /api/gateway/audio/transcriptions/models`; voices grouped Your voices / Engine voices / Shared voices with their language (`VoiceCatalog.parse`, `VoiceLibrary`, shared with the iPhone) and a "Voices that speak" filter; Settings displays the saved catalog label, including offline, with "Selected voice" for an empty label or one that repeats an opaque identifier; no creation on the watch (the iPhone and the desktop create voices) |
 | Tools | `GET /api/gateway/discovery/tools` (group `toolset`, `description`, `risk_tier`, `enabled`, `approval_default`); each run sends the tools on Auto or Ask as `tools` and `_runtime.allowed_tools`, and `_runtime.tool_policy {auto_approve_tools, require_approval_tools}`; choices are kept on the watch (defaults, then each conversation's changes) |
 | Workflow | `GET /api/gateway/bundles?executable_for=abstractcode.agent.v1` and `…=abstractassistant.agent.v1` (newest version per bundle); a chosen one starts as `bundle_id`, `bundle_version`, `flow_id`, `interface`, `registry_scope`; none chosen: `flow_id: "@default"` of `abstractcode.agent.v1`; kept on the watch per conversation (defaults in Settings → Tools) |
-| New answers | a conversation is new when its newest turn ended after the watch started counting and is not the turn last seen there (kept on the watch, `sessions.seen`); automations: the gateway's `attention.unseen_count` |
+| New answers | `GET /api/gateway/me/session-reads?run_id=…&limit=1000` reads the account’s durable consumption log for listed turns; `POST /api/gateway/me/session-reads` commits `{receipts: [{session_id, run_id, status}]}` after an answer is displayed. Immutable run/status receipts keep late older answers new; request receipts do not consume later completion. Pending writes retry on foreground refresh, badges clear only after server commit, and account changes reset the projection. Automation results keep using `attention.unseen_count`. |
 | Automation on/off, archive | `POST /api/gateway/automations/{id}/commands` `{type: "automation.pause" \| "automation.resume" \| "automation.archive" \| "automation.unarchive"}`; `GET /api/gateway/automations?archived_only=true` lists the archived ones; the automations list is read with up to 60 s per request and retried |
 | Archive | `POST /api/gateway/sessions/{id}/archive` (and `/unarchive`): out of `GET /runs?root_only=true` on every client, nothing deleted; `GET /api/gateway/runs?archived_only=true&root_only=true` lists them |
 | Search | `GET /api/gateway/sessions/search?q=…&limit=25` (AbstractRuntime `ConversationSearch`, the caller's own plane): one item per session with `snippet` and `highlights`; 404 on a gateway without it |
@@ -7417,7 +7443,7 @@ sequenceDiagram
 | Released gateways list only the retired push topics (`….assistant.watch`, `….assistant.iphone`) | the apps' registrations (`….assistant`, `….assistant.watchkitapp`) are refused (422) until the gateway's next release, which lists them |
 | No risk level in the wait payload | the risk comes from the tool catalog; Double Tap allows only approvals that neither send nor destroy |
 | No compact view of a run's records | the live steps read the run's full records (a thinking record carries the conversation); reads are skipped when the run has not changed |
-| No "seen" state for conversations | new answers are tracked on each watch |
+| Older Gateways without `/me/session-reads` | conversation read status is reported as unavailable. Current Gateway-owned read events are shared across updated clients; the watch’s old `sessions.seen` baseline is never uploaded as actual consumption. |
 
 ## Build and verification
 
@@ -7744,6 +7770,19 @@ answers or dismisses a pending approval. Read receipts are local to this browser
 Code and Assistant share them when served on the same origin. Existing history is baselined
 on first use. Regenerate the canonical compatibility snapshot with `npm run sync:sessions`;
 the normal build verifies its provenance. Other devices keep independent read state.
+
+### Message files and tool results
+
+The canonical AbstractUIC conversation snapshot (`npm run sync:conversation`) supplies the
+same message attachments, safe clickable links and structured tool-result viewer in both web
+clients. Files accompany the original user or assistant message, including restored history
+and file-only replies. File bytes load when opened through authenticated reads. The build
+verifies snapshot hashes; no sibling checkout is required to build the committed web app.
+
+Conversation unread marks use the Gateway's account-wide read ledger. Confirmed consumption
+is shared with Code and native clients; failed writes retain the mark. Native clients need
+a build that supports `/api/gateway/me/session-reads`. Attachment previews fit the media
+with one filename, Download, and Close in the shared AbstractUIC dialog.
 
 --- pyproject.toml ---
 [build-system]
@@ -12541,6 +12580,40 @@ class GatewayClient:
             ),
             label="list_session_runs failed",
             timeout_s=timeout_s,
+        )
+
+    def session_reads(self, run_ids: List[str]) -> Dict[str, Any]:
+        ids = sorted(set(str(x) for x in run_ids if x))
+        if not ids:
+            return {"items": [], "more": False}
+        if len(ids) > 100:
+            raise ValueError("Read filters are limited to 100 turns")
+        query = urlencode([("limit", "1000")] + [("run_id", rid) for rid in ids])
+        return self._request_json(
+            method="GET",
+            url=self._url("/api/gateway/me/session-reads") + "?" + query,
+            timeout_s=8,
+            label="Read status unavailable",
+        )
+
+    def mark_session_reads(self, receipts: List[Dict[str, Any]]) -> Dict[str, Any]:
+        if not 1 <= len(receipts) <= 100:
+            raise ValueError("Read batches contain 1–100 revisions")
+        return self._request_json(
+            method="POST",
+            url=self._url("/api/gateway/me/session-reads"),
+            body={"receipts": receipts},
+            timeout_s=8,
+            label="Read status could not be saved",
+        )
+
+    def archive_session(self, session_id: str) -> Dict[str, Any]:
+        return self._request_json(
+            method="POST",
+            url=self._url(f"/api/gateway/sessions/{quote(str(session_id), safe='')}/archive"),
+            body={},
+            timeout_s=8,
+            label="Conversation could not be archived",
         )
 
     def list_runs(self, *, limit: int = 50, status: str = "", session_id: str = "", root_only: bool = False) -> Dict[str, Any]:
@@ -19899,7 +19972,7 @@ class GatewayVoiceManager:
 """The session list, as the gateway knows it.
 
 The gateway is the only source of truth for which sessions exist: a session is
-the set of ROOT runs that carry the same ``session_id``. This module turns one
+the set of turn roots that carry the same ``session_id``. This module turns one
 ``GET /api/gateway/runs`` page into one row per session, with the rules
 AbstractCode uses (``abstractcode/tui/src/runner.rs`` ``fold_session_rows``,
 ``abstractcode/web/src/workspace/catalog.ts`` ``normalizeSessionSummaries``) —
@@ -19911,8 +19984,9 @@ divergence from those is a bug in one of the three:
   ``automation_id``), never here. ``chat`` and ``discussion`` stay; a row
   without ``session_kind`` (a gateway that does not stamp it) is a chat. The
   kind is the gateway's own stamp — never inferred from an id prefix;
-- a child run (``parent_run_id`` set) is never a turn;
-- turns = the root runs of the session in the page;
+- a child run is not a turn, except a canonical chat wake occurrence; automation
+  controllers and execution descendants do not count;
+- turns = the turn roots of the session in the page;
 - recency = the newest ``updated_at`` (``created_at`` when absent) — the field
   the gateway pages on, so the order matches the page's membership;
 - state = the liveliest run: waiting > running > failed/cancelled > completed;
@@ -20071,7 +20145,9 @@ def fold_session_rows(payload: Any) -> Tuple[List[GatewaySession], bool]:
             continue
         if not is_regular_session_kind(_text(run.get("session_kind"))):
             continue
-        if _text(run.get("parent_run_id")):
+        if run.get("role") == "controller" or (
+            _text(run.get("parent_run_id")) and run.get("role") != "occurrence"
+        ):
             continue
         sid = _text(run.get("session_id"))
         rid = _text(run.get("run_id"))

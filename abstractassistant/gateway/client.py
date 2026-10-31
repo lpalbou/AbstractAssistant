@@ -580,6 +580,40 @@ class GatewayClient:
             timeout_s=timeout_s,
         )
 
+    def session_reads(self, run_ids: List[str]) -> Dict[str, Any]:
+        ids = sorted(set(str(x) for x in run_ids if x))
+        if not ids:
+            return {"items": [], "more": False}
+        if len(ids) > 100:
+            raise ValueError("Read filters are limited to 100 turns")
+        query = urlencode([("limit", "1000")] + [("run_id", rid) for rid in ids])
+        return self._request_json(
+            method="GET",
+            url=self._url("/api/gateway/me/session-reads") + "?" + query,
+            timeout_s=8,
+            label="Read status unavailable",
+        )
+
+    def mark_session_reads(self, receipts: List[Dict[str, Any]]) -> Dict[str, Any]:
+        if not 1 <= len(receipts) <= 100:
+            raise ValueError("Read batches contain 1–100 revisions")
+        return self._request_json(
+            method="POST",
+            url=self._url("/api/gateway/me/session-reads"),
+            body={"receipts": receipts},
+            timeout_s=8,
+            label="Read status could not be saved",
+        )
+
+    def archive_session(self, session_id: str) -> Dict[str, Any]:
+        return self._request_json(
+            method="POST",
+            url=self._url(f"/api/gateway/sessions/{quote(str(session_id), safe='')}/archive"),
+            body={},
+            timeout_s=8,
+            label="Conversation could not be archived",
+        )
+
     def list_runs(self, *, limit: int = 50, status: str = "", session_id: str = "", root_only: bool = False) -> Dict[str, Any]:
         query: Dict[str, Any] = {"limit": max(1, int(limit))}
         if status:

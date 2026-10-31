@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QLabel
 
 from abstractassistant.core.session_digest import (
     SessionDigest,
@@ -287,15 +287,12 @@ def test_switcher_groups_rows_and_marks_the_active_session() -> None:
 def test_switcher_rows_show_metrics_and_never_repeat_the_title() -> None:
     switcher = _switcher()
     row = switcher.visible_rows()[0]
-    texts = [w.text() for w in row.metrics_host.findChildren(type(row.title_label)) if w.objectName() == "rowMetric"]
+    texts = [w.text() for w in row.metrics_host.findChildren(QLabel) if w.objectName() == "rowMetric"]
     assert "3" in texts                       # turns
     assert "12" in texts                      # tool calls
-    assert "10k tk" in texts
-    assert "2 min" in texts
-    # The folder is a glyph (never the word "folder"), its path in the tooltip.
-    folders = [w for w in row.metrics_host.findChildren(type(switcher.new_button)) if w.objectName() == "rowFolder"]
-    assert [(f.text(), f.icon().isNull()) for f in folders] == [("", False)]
-    assert folders[0].toolTip() == "Workspace folder on the gateway host:\n/Users/x/proj"
+    assert "10k tk" not in texts and "2 min" not in texts
+    assert "10k tk" in row.toolTip()
+    assert "Files: /Users/x/proj" in row.toolTip()
     # The second row's preview equals its title: showing it twice says nothing.
     row_two = switcher.visible_rows()[1]
     assert row_two.preview_label.isVisibleTo(row_two) is False
@@ -681,3 +678,88 @@ def test_there_is_no_way_to_remove_a_session() -> None:
         assert not hasattr(row, "delete_button")
     assert not hasattr(switcher, "delete_requested")
     assert not hasattr(AssistantPalette, "_delete_session")
+
+
+@pytest.mark.basic
+def test_compact_cards_have_two_plain_title_lines_and_separate_semantic_states():
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtGui import QFont
+    from abstractassistant.ui.session_switcher import SessionRow, SESSION_SWITCHER_QSS
+    _app()
+    title = "A very long conversation title with <b>literal markup</b> and enough words to use two lines without crowding"
+    unread = SessionRow(SessionDigest(session_id="u", title=title, unread=True), active=False)
+    unread.setStyleSheet(SESSION_SWITCHER_QSS)
+    unread.resize(400, 88); unread.show(); _app().processEvents(); unread.elide_labels(350)
+    assert unread.title_label.textFormat() == Qt.PlainText
+    assert len(unread.title_label.text().splitlines()) == 2
+    assert unread.title_label.font().weight() == QFont.Normal
+    assert unread.property("unread") == "true" and unread.property("attention") == "false"
+    recent = SessionRow(SessionDigest(session_id="r", title="Read conversation", updated_at=datetime.now(timezone.utc).isoformat()), active=True)
+    assert recent.property("unread") == "false" and recent.spine.isHidden()
+    attention = SessionRow(SessionDigest(session_id="a", title="Approval", needs_attention=True), active=False)
+    assert attention.property("attention") == "true" and attention.spine.text() == "◆"
+    for row in (unread, recent, attention): row.close(); row.deleteLater()
+
+
+@pytest.mark.basic
+def test_archive_is_a_small_keyboard_action_with_an_inline_confirmation():
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtWidgets import QPushButton
+    switcher = _switcher(); switcher.show(); _app().processEvents()
+    row = switcher.visible_rows()[0]; events = []; switcher.archive_requested.connect(events.append)
+    assert row.archive_button.isHidden()
+    row.setFocus(Qt.TabFocusReason); _app().processEvents()
+    assert row.archive_button.isVisibleTo(row)
+    assert row.archive_button.width() == 28
+    row.archive_button.click(); _app().processEvents()
+    assert not events
+    buttons = row._archive_confirm.findChildren(QPushButton)
+    next(b for b in buttons if b.text() == "Cancel").click(); assert not events
+    row.archive_button.click(); _app().processEvents()
+    next(b for b in row._archive_confirm.findChildren(QPushButton) if b.text() == "Archive").click()
+    assert events == [row.session_id]
+    switcher.close(); switcher.deleteLater()
+
+
+@pytest.mark.basic
+def test_card_surfaces_and_regular_text_remain_readable_in_every_shared_theme():
+    from copy import deepcopy
+    from PyQt5.QtGui import QColor
+    from abstractassistant.theme import THEME, activate
+    from abstractassistant.ui_themes import THEME_SPECS, build_theme
+    from abstractassistant.ui.session_switcher import card_palette, _luminance
+    original = deepcopy(THEME)
+    try:
+        for theme_id in THEME_SPECS:
+            theme = build_theme(theme_id); activate(theme)
+            palette = card_palette()
+            for surface in ("base", "unread", "attention"):
+                bg = _luminance(QColor(palette[surface]))
+                assert bg < _luminance(QColor(theme.surface_raised)), (theme_id, surface)
+                for foreground in ("primary", "secondary", "attention_text"):
+                    fg = _luminance(QColor(palette[foreground]))
+                    assert (max(bg, fg) + .05) / (min(bg, fg) + .05) >= 4.5, (theme_id, surface, foreground)
+    finally:
+        activate(original)
+
+
+@pytest.mark.basic
+def test_automation_card_archive_uses_its_capability_and_never_marks_results_seen():
+    from PyQt5.QtWidgets import QPushButton
+    switcher = _switcher(); controls = []
+    summary = {"automation_id": "a", "title": "Process notes", "status": "active",
+               "capabilities": ["archive", "pause"], "occurrence_count": 150,
+               "trigger": {"source_id": "schedule", "source_version": 2, "config": {"kind": "every", "every": "120m"}},
+               "attention": {"unseen_count": 3, "pending_waits": 0}}
+    switcher.set_automations([summary]); switcher.set_tab("automations")
+    switcher.automation_control_requested.connect(lambda aid, command: controls.append((aid, command)))
+    row = switcher.automation_rows[0]
+    assert row.property("unread") == "true" and row.property("attention") == "false"
+    assert row.active_switch.isHidden()
+    row.archive_button.click(); _app().processEvents()
+    assert "automation" in next(label.text() for label in row._archive_confirm.findChildren(QLabel))
+    assert not controls
+    next(b for b in row._archive_confirm.findChildren(QPushButton) if b.text() == "Archive").click()
+    assert controls == [("a", "archive")] and not row.archive_button.isEnabled()
+    assert row.property("unread") == "true"
+    switcher.close(); switcher.deleteLater()
