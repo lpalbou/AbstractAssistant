@@ -1,5 +1,5 @@
 // dist/session_card.js
-import { jsx as _jsx2, jsxs as _jsxs2 } from "react/jsx-runtime";
+import { jsx as _jsx3, jsxs as _jsxs3, Fragment as _Fragment2 } from "react/jsx-runtime";
 
 // dist/icon.js
 import { jsx as _jsx, Fragment as _Fragment, jsxs as _jsxs } from "react/jsx-runtime";
@@ -218,16 +218,83 @@ function formatRelativeTime(ts, nowMs) {
   return formatShortDate(ms, nowMs);
 }
 
+// dist/compact_activity_card.js
+import { jsx as _jsx2, jsxs as _jsxs2 } from "react/jsx-runtime";
+function CompactActivityCard(p) {
+  const marker = p.needsAttention ? "attention" : p.working ? "working" : p.failed ? "failed" : p.unread ? "unread" : "";
+  return _jsxs2("div", { className: `af-session-card${p.className ? ` ${p.className}` : ""}`, "data-selected": p.selected || void 0, "data-unread": p.unread || void 0, "data-attention": p.needsAttention || void 0, "data-working": p.working || void 0, "data-failed": p.failed || void 0, children: [_jsxs2("button", { type: "button", className: "af-session-card__open", ...p.openAttributes, disabled: p.disabled, "aria-current": p.selected ? "page" : void 0, "aria-label": `${p.title}${p.description ? `. ${p.description}` : ""}`, onClick: p.onOpen, children: [_jsxs2("span", { className: "af-session-card__heading", children: [marker && _jsx2("span", { className: `af-session-card__marker is-${marker}`, "aria-hidden": "true" }), _jsx2("span", { className: "af-session-card__title", title: p.title, children: p.title })] }), _jsx2("span", { className: "af-session-card__meta", children: p.metadata })] }), p.onArchive && _jsx2("button", { type: "button", className: "af-session-card__archive", "aria-label": `Archive ${p.title}`, title: p.archiveTitle || "Archive conversation", disabled: p.disabled || p.archiveDisabled, onClick: p.onArchive, children: _jsx2(Icon, { name: "archive", size: 14 }) })] });
+}
+
 // dist/session_card.js
 function SessionCard(p) {
   const status = [p.needsAttention ? "Needs you" : "", p.unread ? "New messages" : "", p.working ? "Working" : ""].filter(Boolean).join(". ");
-  const marker = p.needsAttention ? "attention" : p.working ? "working" : p.unread ? "unread" : "";
   const count = (n) => typeof n === "number" && Number.isSafeInteger(n) && n >= 0;
   const stamp = formatRelativeTime(p.updatedAt, p.nowMs);
   const number = (n) => `${p.countsPartial ? "\u2265" : ""}${n}`;
   const label = (n, word) => `${p.countsPartial ? "At least " : ""}${n} ${word}${n === 1 ? "" : "s"}`;
   const description = [status, count(p.turnCount) ? label(p.turnCount, "turn") : "", count(p.toolCount) && p.toolCount > 0 ? label(p.toolCount, "tool call") : "", stamp].filter(Boolean).join(". ");
-  return _jsxs2("div", { className: `af-session-card${p.className ? ` ${p.className}` : ""}`, "data-selected": p.selected || void 0, "data-unread": p.unread || void 0, "data-attention": p.needsAttention || void 0, "data-working": p.working || void 0, children: [_jsxs2("button", { type: "button", className: "af-session-card__open", "data-session-id": p.sessionId, disabled: p.disabled, "aria-current": p.selected ? "page" : void 0, "aria-label": `${p.title}${description ? `. ${description}` : ""}`, onClick: p.onOpen, children: [_jsxs2("span", { className: "af-session-card__heading", children: [marker && _jsx2("span", { className: `af-session-card__marker is-${marker}`, "aria-hidden": "true" }), _jsx2("span", { className: "af-session-card__title", title: p.title, children: p.title })] }), _jsxs2("span", { className: "af-session-card__meta", children: [count(p.turnCount) && _jsxs2("span", { "aria-label": label(p.turnCount, "turn"), title: label(p.turnCount, "turn"), children: [_jsx2(Icon, { name: "chat", size: 14 }), _jsx2("span", { "aria-hidden": "true", children: number(p.turnCount) })] }), count(p.toolCount) && p.toolCount > 0 && _jsxs2("span", { "aria-label": label(p.toolCount, "tool call"), title: label(p.toolCount, "tool call"), children: [_jsx2(Icon, { name: "wrench", size: 14 }), _jsx2("span", { "aria-hidden": "true", children: number(p.toolCount) })] }), p.needsAttention ? _jsx2("span", { className: "af-session-card__attention", children: "Needs you" }) : stamp && _jsxs2("span", { className: "af-session-card__time", title: formatExactTime(p.updatedAt), children: [_jsx2(Icon, { name: "clock", size: 14 }), _jsx2("span", { children: stamp })] })] })] }), p.onArchive && _jsx2("button", { type: "button", className: "af-session-card__archive", "aria-label": `Archive ${p.title}`, title: "Archive conversation", disabled: p.disabled || p.archiveDisabled, onClick: p.onArchive, children: _jsx2(Icon, { name: "archive", size: 14 }) })] });
+  return _jsx3(CompactActivityCard, { ...p, description, openAttributes: { "data-session-id": p.sessionId }, metadata: _jsxs3(_Fragment2, { children: [count(p.turnCount) && _jsxs3("span", { "aria-label": label(p.turnCount, "turn"), title: label(p.turnCount, "turn"), children: [_jsx3(Icon, { name: "chat", size: 14 }), _jsx3("span", { "aria-hidden": "true", children: number(p.turnCount) })] }), count(p.toolCount) && p.toolCount > 0 && _jsxs3("span", { "aria-label": label(p.toolCount, "tool call"), title: label(p.toolCount, "tool call"), children: [_jsx3(Icon, { name: "wrench", size: 14 }), _jsx3("span", { "aria-hidden": "true", children: number(p.toolCount) })] }), p.needsAttention ? _jsx3("span", { className: "af-session-card__attention", children: "Needs you" }) : stamp && _jsxs3("span", { className: "af-session-card__time", title: formatExactTime(p.updatedAt), children: [_jsx3(Icon, { name: "clock", size: 14 }), _jsx3("span", { children: stamp })] })] }) });
+}
+
+// dist/automation_card.js
+import { jsx as _jsx4, jsxs as _jsxs4, Fragment as _Fragment3 } from "react/jsx-runtime";
+function automationCardSchedule(s) {
+  const config = s.trigger.config;
+  if (typeof config.every === "string") {
+    const match = /^([1-9][0-9]*)([smhd])$/.exec(config.every);
+    if (match) {
+      const seconds = Number(match[1]) * ({ s: 1, m: 60, h: 3600, d: 86400 }[match[2]] || 1);
+      if (Number.isSafeInteger(seconds)) {
+        for (const [size, unit] of [[86400, "d"], [3600, "h"], [60, "m"], [1, "s"]])
+          if (seconds % size === 0)
+            return `${seconds / size}${unit}`;
+      }
+    }
+  }
+  if (s.trigger.source_id === "schedule") {
+    const words = { daily: "Daily", weekly: "Weekly", monthly: "Monthly", once: "Once" };
+    return words[String(config.kind)] || (s.trigger.source_version === 1 && !config.every ? "Once" : s.schedule_rule_text || "Schedule");
+  }
+  if (s.trigger.source_id.startsWith("email"))
+    return "Email";
+  if (s.trigger.source_id === "manual")
+    return "Manual";
+  return s.trigger_text || s.schedule_rule_text || "Event";
+}
+function automationCardNext(at, nowMs) {
+  const ms = at ? Date.parse(at) : NaN;
+  if (!Number.isFinite(ms) || !Number.isFinite(nowMs))
+    return "";
+  const seconds = Math.floor((ms - nowMs) / 1e3);
+  if (seconds <= 30)
+    return "now";
+  if (seconds < 3600)
+    return `${Math.max(1, Math.floor(seconds / 60))}m`;
+  if (seconds < 172800)
+    return `${Math.floor(seconds / 3600)}h`;
+  return `${Math.floor(seconds / 86400)}d`;
+}
+function AutomationCard(p) {
+  const s = p.summary;
+  const pending = s.attention.pending_waits > 0;
+  const unseen = Math.max(0, s.attention.unseen_count);
+  const working = Boolean(s.current_occurrence) && !pending;
+  const failed = s.last_occurrence?.status === "failed" || s.status === "failed";
+  const cadence = automationCardSchedule(s);
+  const nextAt = s.next_run_at || s.next_fire_at;
+  const next = s.status === "active" ? automationCardNext(nextAt, p.nowMs) : "";
+  const state = s.status === "paused" ? "Paused" : s.status === "archived" ? "Archived" : s.status === "failed" ? "Failed" : s.status === "completed" ? "Ended" : "";
+  const count = Number.isSafeInteger(s.occurrence_count) && s.occurrence_count >= 0 ? s.occurrence_count : null;
+  const rule = s.trigger_text || s.schedule_rule_text || cadence;
+  const description = [
+    pending ? "Needs you" : working ? "Running" : "",
+    failed ? "Last run failed" : "",
+    unseen ? `${unseen} new results` : "",
+    count !== null ? `Ran ${count} ${count === 1 ? "time" : "times"}` : "",
+    state || rule,
+    next ? `Next run ${next === "now" ? "due now" : `in ${next}`}` : ""
+  ].filter(Boolean).join(". ");
+  return _jsx4(CompactActivityCard, { title: s.title || "Automation", description, selected: p.selected, className: `af-automation-card${p.className ? ` ${p.className}` : ""}`, unread: unseen > 0 || s.attention.unread, needsAttention: pending, working, failed, openAttributes: { "data-automation-id": s.automation_id, "data-status": s.status }, disabled: p.disabled, onOpen: p.onOpen, onArchive: p.onArchive, archiveDisabled: p.archiveDisabled, archiveTitle: p.archiveTitle || "Archive automation", metadata: _jsxs4(_Fragment3, { children: [count !== null && _jsxs4("span", { "data-field": "runs", title: `Ran ${count} times`, "aria-label": `${count} runs`, children: [_jsx4(Icon, { name: "loop", size: 14 }), _jsx4("span", { "aria-hidden": "true", children: count })] }), _jsxs4("span", { className: "af-automation-card__schedule", "data-field": "cadence", title: rule, "aria-label": state || rule, children: [_jsx4(Icon, { name: s.status === "paused" ? "pause" : state ? "stop" : "clock", size: 14 }), _jsx4("span", { "aria-hidden": "true", children: state || cadence })] }), next && _jsxs4("span", { "data-field": "next", title: `Next run: ${nextAt}`, "aria-label": `Next run ${next === "now" ? "due now" : `in ${next}`}`, children: [_jsx4(Icon, { name: "playCircle", size: 14 }), _jsx4("span", { "aria-hidden": "true", children: next })] }), pending && _jsx4("span", { className: "af-session-card__attention", children: "Needs you" }), unseen > 0 && _jsx4("span", { className: "af-automation-card__unseen", "aria-label": `${unseen} new results`, title: `${unseen} new results`, children: unseen })] }) });
 }
 
 // dist/session_activity.js
@@ -358,7 +425,7 @@ function sessionReadTarget(messages, runId, status) {
 }
 
 // dist/session_reads.js
-import { jsx as _jsx3 } from "react/jsx-runtime";
+import { jsx as _jsx5 } from "react/jsx-runtime";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 function useSessionReads(scope, observed = []) {
   const [, refresh] = useState(0);
@@ -437,12 +504,15 @@ function SessionReadMarker(p) {
       document.removeEventListener("visibilitychange", check);
     };
   }, [p.enabled, p.ownerKey, sessionId, revision, updatedAt]);
-  return _jsx3("span", { ref, "aria-hidden": "true", className: "af-session-read-marker", style: { display: "block", width: "100%", height: 1 } });
+  return _jsx5("span", { ref, "aria-hidden": "true", className: "af-session-read-marker", style: { display: "block", width: "100%", height: 1 } });
 }
 export {
+  AutomationCard,
   SessionCard,
   SessionReadMarker,
   SessionReadStore,
+  automationCardNext,
+  automationCardSchedule,
   sessionActivityFromRuns,
   sessionContentRevision,
   sessionNeedsAttention,
