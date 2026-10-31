@@ -6,8 +6,7 @@ export declare function useSessionReads(scope: string, observed?: readonly Sessi
     markRead: (p: SessionReceipt) => void;
     error: string;
 };
-/** Mount after loaded content, normally in ChatMessageCard.renderFooter.
- * A selected row or background subscription cannot acknowledge content. */
+/** Mount after loaded content; selection and background loads cannot acknowledge it. */
 export declare function SessionReadMarker(p: {
     receipt: SessionReceipt;
     enabled: boolean;

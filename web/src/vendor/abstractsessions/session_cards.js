@@ -425,44 +425,15 @@ function sessionReadTarget(messages, runId, status) {
 }
 
 // dist/session_reads.js
+import { jsx as _jsx6 } from "react/jsx-runtime";
+import { useCallback, useEffect as useEffect2, useMemo, useState } from "react";
+
+// dist/visible_content.js
 import { jsx as _jsx5 } from "react/jsx-runtime";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-function useSessionReads(scope, observed = []) {
-  const [, refresh] = useState(0);
-  const store = useMemo(() => {
-    let storage = null;
-    try {
-      storage = window.localStorage;
-    } catch {
-    }
-    return new SessionReadStore(scope, scope ? storage : null);
-  }, [scope]);
-  useEffect(() => {
-    if (scope)
-      for (const p of observed)
-        store.observe(p);
-  }, [scope, store, observed]);
-  useEffect(() => {
-    const changed = (e) => {
-      if (!e.key || e.key.startsWith(store.prefix))
-        refresh((n) => n + 1);
-    };
-    window.addEventListener("storage", changed);
-    return () => window.removeEventListener("storage", changed);
-  }, [store]);
-  const markRead = useCallback((p) => {
-    if (!scope)
-      return;
-    store.markRead(p);
-    refresh((n) => n + 1);
-    window.dispatchEvent(new StorageEvent("storage", { key: store.prefix }));
-  }, [scope, store]);
-  return { isUnread: (p) => Boolean(scope) && store.isUnread(p), markRead, error: store.error };
-}
-function SessionReadMarker(p) {
-  const ref = useRef(null), callback = useRef(p.onRead);
-  callback.current = p.onRead;
-  const { sessionId, revision, updatedAt } = p.receipt;
+import { useEffect, useRef } from "react";
+function VisibleContentMarker(p) {
+  const ref = useRef(null), callback = useRef(p.onConsume);
+  callback.current = p.onConsume;
   useEffect(() => {
     const el = ref.current;
     if (!el || !p.enabled)
@@ -486,7 +457,7 @@ function SessionReadMarker(p) {
         timer = setTimeout(() => {
           if (visible()) {
             done = true;
-            notify({ sessionId, revision, updatedAt });
+            notify();
           }
         }, 250);
     };
@@ -503,8 +474,45 @@ function SessionReadMarker(p) {
         window.removeEventListener(event, check, true);
       document.removeEventListener("visibilitychange", check);
     };
-  }, [p.enabled, p.ownerKey, sessionId, revision, updatedAt]);
+  }, [p.enabled, p.ownerKey, p.contentKey]);
   return _jsx5("span", { ref, "aria-hidden": "true", className: "af-session-read-marker", style: { display: "block", width: "100%", height: 1 } });
+}
+
+// dist/session_reads.js
+function useSessionReads(scope, observed = []) {
+  const [, refresh] = useState(0);
+  const store = useMemo(() => {
+    let storage = null;
+    try {
+      storage = window.localStorage;
+    } catch {
+    }
+    return new SessionReadStore(scope, scope ? storage : null);
+  }, [scope]);
+  useEffect2(() => {
+    if (scope)
+      for (const p of observed)
+        store.observe(p);
+  }, [scope, store, observed]);
+  useEffect2(() => {
+    const changed = (e) => {
+      if (!e.key || e.key.startsWith(store.prefix))
+        refresh((n) => n + 1);
+    };
+    window.addEventListener("storage", changed);
+    return () => window.removeEventListener("storage", changed);
+  }, [store]);
+  const markRead = useCallback((p) => {
+    if (!scope)
+      return;
+    store.markRead(p);
+    refresh((n) => n + 1);
+    window.dispatchEvent(new StorageEvent("storage", { key: store.prefix }));
+  }, [scope, store]);
+  return { isUnread: (p) => Boolean(scope) && store.isUnread(p), markRead, error: store.error };
+}
+function SessionReadMarker(p) {
+  return _jsx6(VisibleContentMarker, { ownerKey: p.ownerKey, contentKey: `${p.receipt.sessionId}:${p.receipt.revision}:${p.receipt.updatedAt || ""}`, enabled: p.enabled, onConsume: () => p.onRead(p.receipt) });
 }
 export {
   AutomationCard,
