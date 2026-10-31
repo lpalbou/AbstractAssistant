@@ -4156,6 +4156,7 @@ var EMPTY = {
   status: "idle",
   displayStatus: "",
   loading: false,
+  historyLoading: false,
   error: null,
   connection: "idle",
   toolApprovalGranted: false,
@@ -4638,7 +4639,7 @@ var WorkflowSessionController = class {
     const abort = new AbortController();
     this.controller = abort;
     this.rootRunId = id;
-    this.set({ ...this.snapshot, loading: true, status: "loading", error: null, connection: "connecting" });
+    this.set({ ...this.snapshot, loading: true, historyLoading: true, status: "loading", error: null, connection: "connecting" });
     try {
       if (await this.loadView(id, generation, abort.signal))
         return;
@@ -4659,6 +4660,7 @@ var WorkflowSessionController = class {
         run: liveRun,
         status: runStatus,
         loading: false,
+        historyLoading: false,
         ...currentWait && !terminal(runStatus) ? { interaction: this.interactionWith({ runId: id, wait: currentWait }) } : {}
       });
       if (liveRun)
@@ -4980,6 +4982,8 @@ var WorkflowSessionController = class {
     void this.followView(id, generation);
     void this.followLiveReplies(id, generation);
     await this.loadEarlierTurns(id, text2(read.view.session_id), generation, signal);
+    if (this.live(generation))
+      this.set({ ...this.snapshot, historyLoading: false });
     return true;
   }
   /** Read the views of the conversation's turns before `runId` and keep their messages. */

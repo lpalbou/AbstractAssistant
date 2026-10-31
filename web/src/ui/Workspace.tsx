@@ -416,7 +416,7 @@ export function Workspace(props: {
           const status = m.runId === props.runId ? snapshot.status : props.sessionActivity?.content.find((c) => c.runId === m.runId)?.status;
           if (!status) return null;
           const target = sessionReadTarget(m.kind === "attachments" ? [...messages,m] : messages, m.runId || "", status);
-          return target.message === m && !snapshot.loading && !snapshot.error && props.readScope ? <><span>{target.outcome}</span><SessionReadMarker ownerKey={props.readScope} receipt={{ sessionId: props.sessionId, revision: sessionContentRevision(m.runId || "", status), updatedAt: "" }} relatedReceipts={sessionOpeningReceipts(messages, props.sessionActivity?.content, m.runId || "")} enabled={props.canConsume} onRead={props.onRead} /></> : null;
+          return target.message === m && !snapshot.loading && !snapshot.historyLoading && !snapshot.error && props.readScope ? <><span>{target.outcome}</span><SessionReadMarker ownerKey={props.readScope} receipt={{ sessionId: props.sessionId, revision: sessionContentRevision(m.runId || "", status), updatedAt: "" }} relatedReceipts={sessionOpeningReceipts(messages, props.sessionActivity?.content, m.runId || "")} enabled={props.canConsume} onRead={props.onRead} /></> : null;
         },
         stats: technical ? undefined : [],
         // "link": a model's text cannot make the browser fetch a remote image.

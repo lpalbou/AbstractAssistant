@@ -95,6 +95,9 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Fixed
 
+- Web conversation read receipts wait for earlier history to finish restoring before acknowledging the opening snapshot.
+
+
 - Conversation consumption persists through the Gateway for shared web, Watch and iPhone unread state. Web cards have clearer spacing and attachment previews use one fitted header.
 
 
