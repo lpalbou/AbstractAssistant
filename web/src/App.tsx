@@ -149,14 +149,7 @@ function BrowserApp({ host }: { host: AssistantHost }) {
   const voiceDefaults = useVoiceDefaults(conn.connected ? () => client.voiceDefaults() as Promise<VoiceDefaults> : null, client);
   const panels = useMemo(
     () => [
-      // The gateway's docs corpus has no "assistant" id yet (backlog 0036): the drawer is wired
-      // and the first question answers with the gateway's own refusal until it has one.
-      docsAssistantPanel({ app: "assistant", name: "AbstractAssistant" }, client.fetchGateway, {
-        connected: conn.connected,
-        visible: panel === "docs",
-        voicePreferences: voicePrefs,
-        placeholder: "Ask about AbstractAssistant (from the gateway's Assistant docs, docs/corpus?app=assistant)",
-      }),
+      docsPanel(),
       ...(conn.connected
         ? [
             {
@@ -173,6 +166,18 @@ function BrowserApp({ host }: { host: AssistantHost }) {
     ],
     [client, conn.connected, panel, voicePrefs, setVoicePrefs, voiceDefaults.value, companion.value, companion.change, companion.error],
   );
+  // Compatibility with published panel-chat 0.6.4. The shared component now owns
+  // this fill/layout fix; remove the wrapper when that package update is adopted.
+  function docsPanel() {
+    const docs = docsAssistantPanel({ app: "assistant", name: "AbstractAssistant" }, client.fetchGateway, {
+        connected: conn.connected,
+        visible: panel === "docs",
+        voicePreferences: voicePrefs,
+        placeholder: "Ask about the Assistant…",
+        suggestions: ["How do I use voice?", "How do conversations work?", "What can the Assistant do?"],
+      });
+    return { ...docs, fill: true, content: <div className="aa-docs-panel">{docs.content}<p className="aa-docs-grounding">Answers use the Assistant documentation.</p></div> };
+  }
   const topBar: AfAppShellTopBar = {
     brand: { name: "Assistant", mark: <span className="aa-brand-mark"><Icon name="sparkle" size={18} /></span> },
     connection: conn,

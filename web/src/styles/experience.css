@@ -108,6 +108,9 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
 .aa-button--primary { color: var(--aa-accent); background: var(--aa-accent-bg); border-color: var(--aa-accent-border); }
 .aa-link { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; background: transparent; border: 0; padding: 0 8px; color: var(--aa-accent); text-decoration: underline; }
 .aa-settings { display: grid; gap: 24px; }
+.aa-docs-panel, .aa-docs-panel .pc-docs-assistant-panel { display: flex; flex: 1 1 auto; flex-direction: column; height: 100%; min-height: 0; min-width: 0; overflow: hidden; }
+.aa-docs-panel .pc-docs-assistant__footer { display: none; }
+.aa-docs-grounding { margin: 0; padding: 8px 16px max(12px, env(safe-area-inset-bottom)); font-size: 11px; color: var(--aa-text-muted); }
 .aa-settings__heading { font-family: var(--aa-font-rounded); font-size: 21px; font-weight: 600; letter-spacing: -.03em; margin: 0 0 8px; }
 .aa-avatar-settings { display: grid; gap: 12px; padding-bottom: 24px; border-bottom: 1px solid var(--aa-border); }
 .aa-avatar-preview { display: grid; place-items: center; min-height: 230px; background: radial-gradient(ellipse, var(--aa-accent-bg), transparent 70%); }
