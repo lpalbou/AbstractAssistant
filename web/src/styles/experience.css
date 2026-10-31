@@ -31,6 +31,8 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
 .aa-state--running { color: var(--aa-success-text); }
 .aa-state--failed { color: var(--aa-danger); }
 .aa-experience { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(300px, .8fr) minmax(0, 1.5fr); max-width: 1440px; margin: auto; }
+.aa-experience[data-view=avatar] { grid-template-columns: minmax(0, 1fr); }
+.aa-experience[data-view=avatar] .aa-chat { border-left: 0; }
 .aa-presence { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 28px 24px 54px; min-width: 0; overflow: auto; background: radial-gradient(ellipse at 50% 42%, color-mix(in srgb, var(--aa-lavender) 6%, transparent), transparent 63%); }
 .aa-presence__eyebrow, .aa-eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .16em; color: var(--aa-text-muted); }
 .aa-presence__light { width: 5px; height: 5px; border-radius: 50%; background: var(--aa-accent); box-shadow: 0 0 12px var(--aa-accent-border); }
@@ -161,3 +163,5 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
 
 .aa-archive-confirm { padding: 8px 10px; font-size: 12px; }
 .aa-archive-confirm button { min-height: 44px; margin-right: 8px; padding: 6px 10px; }
+
+.aa-view-choice{display:flex;gap:4px}.aa-view-choice button{font:inherit;font-size:12px;border:1px solid var(--af-border,#434858);background:transparent;color:inherit;border-radius:8px;padding:5px 9px;cursor:pointer}.aa-view-choice button[aria-pressed="true"]{background:var(--af-surface-2,#282c39)}

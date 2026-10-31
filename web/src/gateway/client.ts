@@ -56,6 +56,7 @@ async function errorFrom(resp: Response, label: string): Promise<GatewayHttpErro
 }
 
 export type StartRunRequest = {
+  conversation?: boolean;
   flow_id: string;
   input_data: Json;
   session_id: string;

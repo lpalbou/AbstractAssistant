@@ -1,4 +1,4 @@
-import {WorkflowChat, useWorkflowSession} from "../vendor/abstractchat/conversation.js";
+import {WorkflowChat, useWorkflowSession, conversationSnapshot, useAvatarConversationPreferences, playConversationCue, conversationReply, presentInteraction} from "../vendor/abstractchat/conversation.js";
 import "../vendor/abstractchat/conversation.css";
 import { SessionReadMarker, sessionContentRevision, sessionReadTarget, sessionOpeningReceipts, type SessionReceipt, type SessionActivity } from "../vendor/abstractsessions/session_cards.js";
 /**
@@ -15,7 +15,6 @@ import { SessionReadMarker, sessionContentRevision, sessionReadTarget, sessionOp
  * Everything comes from the gateway; this page keeps no conversation and no token.
  */
 import {
-  presentInteraction,
   useAttachmentUploads,
   workflowPendingInteraction,
   workflowSourceLabel,
@@ -23,6 +22,7 @@ import {
 } from "@abstractframework/panel-chat";
 import {
   Icon,
+  AfVoiceMicButton,
   createSessionToolPolicyClient,
   normalizeToolCatalog,
   planRunTools,
@@ -45,7 +45,8 @@ import { buildRunInputData } from "../lib/run_input";
 import { selectWorkflow } from "../lib/workflow_selection";
 import type { AttentionSeen } from "./useConversations";
 import { assistantPresence, conversationPresentation, replyToRead } from "../lib/presentation";
-import { VoiceStage } from "./VoiceStage";
+import { VoiceStage, avatarPalette } from "./VoiceStage";
+import { AppAvatar } from "./AppAvatar";
 import type { AssistantPreferences } from "./useAssistantPreferences";
 
 export function mintSessionId(): string {
@@ -127,6 +128,11 @@ export function Workspace(props: {
 }) {
   const { client, host } = props;
   const [draft, setDraft] = useState("");
+  const avatarPreferences = useAvatarConversationPreferences(`abstractassistant:${props.readScope}`);
+  const avatarMode = avatarPreferences.mode === "avatar";
+  const [replyContext, setReplyContext] = useState<ChatMessage | null>(null);
+  const [avatarAttended, setAvatarAttended] = useState(false);
+  useEffect(() => setReplyContext(null), [props.readScope, props.sessionId]);
   const [notice, setNotice] = useState("");
   const [technical, setTechnical] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -269,10 +275,27 @@ export function Workspace(props: {
     upload: async (file) => (await client.uploadAttachment(ensureSession(), file, file.name, file.type ? { content_type: file.type } : {})).ref,
   });
 
+  const busy = Boolean(props.runId) && !TERMINAL.has(snapshot.status) && !(snapshot.error && !snapshot.run);
+
   // ---- send ---------------------------------------------------------------------------------
   const send = useCallback(
     async (text: string) => {
       voiceRef.current.stop_tts();
+      if (busy) {
+        if (!avatarMode) throw new Error("The assistant is still working.");
+        if (interaction?.kind === "ask-user") {
+          await interaction.onSubmit(text);
+        } else {
+          if (interaction) throw new Error("Use the request controls to answer it. A message does not grant permission.");
+          const guidance = conversationReply(text, replyContext, props.runId);
+          const answer = await controller.sendCommand("inject_guidance", { guidance, display_text: text }) as { accepted?: boolean } | null;
+          if (answer?.accepted === false) throw new Error("Your message was not accepted. Please try again.");
+        }
+        if (!mounted.current) return;
+        setDraft(""); setReplyContext(null);
+        setNotice("Sent. Your message is available to the assistant.");
+        return;
+      }
       const sid = ensureSession();
       const refs = uploads.attached;
       const [bundles, prefs, tools] = await Promise.all([
@@ -289,8 +312,8 @@ export function Workspace(props: {
       // Never retried here: a failure keeps the draft and says why; the person resends.
       const { run_id } = await client.startRun(
         start.source === "gateway_default"
-          ? { flow_id: "@default", interface: start.interface, session_id: sid, input_data }
-          : { flow_id: start.flow_id, bundle_id: start.bundle_id, bundle_version: start.bundle_version, registry_scope: start.registry_scope, session_id: sid, input_data },
+          ? { flow_id: "@default", interface: start.interface, session_id: sid, input_data, ...(avatarMode ? { conversation: true } : {}) }
+          : { flow_id: start.flow_id, bundle_id: start.bundle_id, bundle_version: start.bundle_version, registry_scope: start.registry_scope, session_id: sid, input_data, ...(avatarMode ? { conversation: true } : {}) },
       );
       if (!mounted.current) return;
       startedHere.current = run_id;
@@ -299,10 +322,9 @@ export function Workspace(props: {
       setNotice("");
       props.onStarted(run_id, sid);
     },
-    [client, ensureSession, uploads, props],
+    [client, ensureSession, uploads, props, busy, avatarMode, interaction, replyContext, controller],
   );
 
-  const busy = Boolean(props.runId) && !TERMINAL.has(snapshot.status) && !(snapshot.error && !snapshot.run);
   // The Assistant speaks as "Assistant" (the card's default is "Agent").
   const presentation = useMemo(
     () => conversationPresentation(snapshot.messages),
@@ -313,7 +335,7 @@ export function Workspace(props: {
   useEffect(() => {
     if (snapshot.status !== "completed" || startedHere.current !== props.runId || !reply) return;
     startedHere.current = "";
-    if (props.voicePrefs.read_aloud === true && !props.voicePrefs.reply_muted && voice.tts_supported && !voice.voice_ptt_recording && !voice.voice_ptt_busy)
+    if (props.voicePrefs.read_aloud === true && !props.voicePrefs.reply_muted && voice.tts_supported && !voice.voice_ptt_recording && !voice.voice_ptt_busy && (!avatarMode || (!avatarAttended && !draft.trim())))
       void voice.toggle_tts(String(reply.id || props.runId), reply.content);
   }, [snapshot.status, props.runId, props.voicePrefs.read_aloud, props.voicePrefs.reply_muted, reply, voice]);
   const listWords = pending && !answeredElsewhere ? "Needs you" : "";
@@ -326,11 +348,11 @@ export function Workspace(props: {
     const next = draft.trim() ? `${draft.trim()}\n${said}` : said;
     setDraft(next);
     focusComposer();
-    if (props.autoSend && !busy) void send(next).catch((err) => setNotice(`Not sent: ${err instanceof Error ? err.message : String(err)}`));
+    if (props.autoSend && (!busy || avatarMode)) void send(next).catch((err) => setNotice(`Not sent: ${err instanceof Error ? err.message : String(err)}`));
   };
   const playback = () => {
-    const current = messages.find((m) => String(m.id || "") === voice.tts_playback.key);
-    if (current) void voice.toggle_tts(String(current.id || props.runId), current.content);
+    const current = messages.find((m) => String(m.id || "") === voice.tts_playback.key.replace(/^brief:/, ""));
+    if (current) void voice.toggle_tts(voice.tts_playback.key, current.content);
     else voice.stop_tts();
   };
   const stop = () => {
@@ -340,12 +362,33 @@ export function Workspace(props: {
   };
 
   return (
-    <div className="aa-experience" ref={root} data-has-messages={messages.length > 0}>
-    <VoiceStage voice={voice} presence={presence} prefs={props.appearance} mode={props.captureMode} busy={busy}
+    <div className="aa-experience" ref={root} data-has-messages={messages.length > 0} data-view={avatarMode ? "avatar" : "chat"}>
+    {!avatarMode && <VoiceStage voice={voice} presence={presence} prefs={props.appearance} mode={props.captureMode} busy={busy}
       microphoneReason={host.capabilities.microphone.available ? null : host.capabilities.microphone.reason}
       readReplies={props.voicePrefs.read_aloud === true} onReadRepliesChange={(read_aloud) => props.onVoicePrefsChange({ ...props.voicePrefs, read_aloud })}
-      onTranscript={transcript} onPlayback={playback} onStop={stop} onType={focusComposer} onSettings={props.onSettings} autoSend={props.autoSend} />
+      onTranscript={transcript} onPlayback={playback} onStop={stop} onType={focusComposer} onSettings={props.onSettings} autoSend={props.autoSend} />}
     <WorkflowChat
+      avatarConversation={avatarMode ? {
+        sessionKey: `${props.readScope}:${props.sessionId || "new"}`,
+        avatar: <AppAvatar design={props.appearance.design} pose={voice.voice_ptt_recording ? "listening" : voice.tts_playback.status === "playing" ? "speaking" : presence.pose} size={320} animated={props.appearance.animated} palette={avatarPalette(props.appearance.design, voice.voice_ptt_recording ? "listening" : voice.tts_playback.status === "playing" ? "speaking" : presence.pose)} label="Your assistant" />,
+        ...conversationSnapshot(snapshot),
+        listening: voice.voice_ptt_recording,
+        speaking: voice.tts_playback.status === "playing",
+        preferences: avatarPreferences.preferences,
+        onPreferencesChange: avatarPreferences.setPreferences,
+        onCue: (cue) => { void playConversationCue(cue).catch((reason) => setNotice(reason instanceof Error ? reason.message : String(reason))); },
+        onInterruptSpeech: () => voice.stop_tts(),
+        onReplyContext: setReplyContext,
+        onAttendedChange: setAvatarAttended,
+        narrate: props.voicePrefs.read_aloud === true && !props.voicePrefs.reply_muted,
+        onNarrate: (message) => { if (voice.tts_supported) void voice.toggle_tts(`brief:${message.id}`, message.content); },
+        voiceControl: <span onPointerDown={() => voice.stop_tts()}><AfVoiceMicButton voice={voice} mode={props.captureMode} label="Talk" onTranscript={transcript} unavailableReason={host.capabilities.microphone.available ? null : host.capabilities.microphone.reason} /></span>,
+        playbackControl: <span role="group" aria-label="Voice controls">
+          {voice.tts_supported && <button type="button" aria-pressed={props.voicePrefs.read_aloud === true} onClick={() => { voice.stop_tts(); props.onVoicePrefsChange({ ...props.voicePrefs, read_aloud: !props.voicePrefs.read_aloud }); }}>Read new replies aloud</button>}
+          {["playing", "paused"].includes(voice.tts_playback.status) && <><button type="button" onClick={playback}>{voice.tts_playback.status === "paused" ? "Resume voice" : "Pause voice"}</button><button type="button" onClick={() => voice.stop_tts()}>Silence voice</button></>}
+          <button type="button" onClick={props.onSettings}>Assistant settings</button>
+        </span>,
+      } : undefined}
                 artifactFetch={client.fetchGateway}
                 attachmentScope={JSON.stringify([props.readScope,props.sessionId])}
                 attachmentRun={{runId:props.runId,output:snapshot.run?.output}}
@@ -355,6 +398,7 @@ export function Workspace(props: {
       onDraftChange={setDraft}
       onSend={send}
       busy={busy}
+      steer={avatarMode && busy ? { modes: ["guide"], onSteer: async (text) => { await send(text); return { accepted: true }; }, parked: snapshot.status === "waiting" } : undefined}
       busyLabel={pending && !answeredElsewhere ? "Waiting for you…" : snapshot.loading ? "Opening…" : presence.pose === "working" ? "Working…" : "Thinking…"}
       onCancel={() => controller.cancel()}
       stopState={snapshot.stop || null}
@@ -366,6 +410,10 @@ export function Workspace(props: {
         <span className="aa-empty__foot">Your conversations follow you across devices.</span></div>}
       header={
         <div className="aa-chat__header">
+          <div className="aa-view-choice" role="group" aria-label="Conversation view">
+            <button type="button" aria-pressed={!avatarMode} onClick={() => { voice.stop_tts(); avatarPreferences.setMode("chat"); }}>Conversation</button>
+            <button type="button" aria-pressed={avatarMode} onClick={() => { voice.stop_tts(); avatarPreferences.setMode("avatar"); }}>Avatar</button>
+          </div>
           <h1 className="aa-chat__title" title={props.title}>{props.title}</h1>
           {listWords ? <span className="aa-state aa-state--waiting">{listWords}</span> : null}
           {snapshot.connection === "reconnecting" ? <span className="aa-chat__status" role="status">Reconnecting…</span> : null}

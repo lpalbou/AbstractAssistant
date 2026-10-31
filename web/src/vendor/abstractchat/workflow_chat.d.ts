@@ -4,6 +4,7 @@ import { type ComposerAttachment } from "./attachment_uploads.js";
 import type { ChatMessage, ChatMessageCardProps } from "./chat_message_card.js";
 import { type WorkflowInteraction } from "./workflow_interaction.js";
 import type { StreamRepliesMode } from "./llm_delta.js";
+import { type AvatarConversationOptions } from "./avatar_conversation.js";
 /** What the host's steer door answered (`POST commands {type:"inject_guidance"}`
  * answers `{accepted, duplicate, seq}`; ui-kit `SteerSubmitResult` fits). */
 export type ChatSteerResult = {
@@ -37,6 +38,8 @@ export type ChatToolbar = {
     copyTranscript?: boolean;
 };
 export type WorkflowChatProps = {
+    /** Optional second presentation; the existing controlled composer and actions stay mounted. */
+    avatarConversation?: AvatarConversationOptions;
     /** Fully controlled transcript. The host owns message persistence and identity. */
     messages: ChatMessage[];
     /** Authenticated app-origin artifact reads, never model-provided URLs. */

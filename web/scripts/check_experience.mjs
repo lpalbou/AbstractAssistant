@@ -27,8 +27,10 @@ const microphoneFile = join(audioDir, "microphone.wav");
 writeFileSync(microphoneFile, wav);
 const json = (body, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(body) });
 const runs = new Map([["history", { session_id: "history-session", prompt: "An earlier question", answer: "An earlier answer", status: "completed" }]]);
+const sharedReads = new Map();
 const calls = { starts: [], speech: 0, recordings: 0, commands: [] };
 const report = {};
+const avatarCheck = process.argv.includes("--avatar");
 let failSend = false;
 let failWaits = false;
 const failViews = new Set();
@@ -38,17 +40,104 @@ function view(id) {
   return {
     version: "replay_view_v1", root_run_id: id, session_id: r.session_id, status: r.status, display_status: null,
     workflow: { id: "assistant@1:main", bundle_id: "assistant", bundle_version: "1", flow_id: "main", entrypoint: "main" },
-    cursor: { token: `${id}:2~d1`, records: 2, runs: { [id]: 2 } },
+    cursor: { token: `${id}:${2+(r.public_updates?.length||0)}~d1`, records: 2+(r.public_updates?.length||0), runs: { [id]: 2+(r.public_updates?.length||0) } },
     runs: [{ run_id: id, parent_run_id: null, status: r.status, depth: 0, order: ["", id, 0, id], waiting: null, holds_interaction: false }],
     interaction: r.interaction || null, open_waits: [], activities: [], artifacts: id === "history" ? [{id:"answer-file",run_id:id,path:"output.attachments[0]"},{id:"scratchpad-file",run_id:id,path:"output.scratchpad.steps"},{id:"session-file",run_id:id,path:"output.session.artifacts[0]"}] : [], warnings: [], usage: {},
     messages: [
+      ...(r.public_updates || []).map((u, i) => ({ id: u.id, role: "assistant", kind: "public_update", text: u.text, run_id: id, source: "emit_event", source_call_ids: [], order: order(i+1), step_ids: [], seqs: [i+1], artifact_ids: [] })),
       { id: `${id}:input`, role: "user", kind: "prompt", text: r.prompt, run_id: id, order: order(0), step_ids: [], seqs: [], source: "run_input", artifact_ids: [] },
       { id: `${id}:final`, role: "assistant", kind: "final", text: r.answer, run_id: id, order: order(2), step_ids: ["done"], seqs: [2], source: "ledger", artifact_ids: id === "history" ? ["answer-file","scratchpad-file","session-file"] : [] },
     ],
   };
 }
+async function checkAvatar({page, runs, calls, report, shots}) {
+  await page.getByRole("heading", { name: "Ready when you are" }).waitFor();
+  await page.locator(".aa-session").click();
+  await page.getByText("An earlier answer", {exact:true}).waitFor();
+  const composer = page.getByRole("textbox", {name:"Message",exact:true});
+  await composer.fill("Keep this draft while switching views");
+  await page.getByRole("button", {name:"Avatar",exact:true}).click();
+  await page.getByRole("region", {name:"Avatar conversation",exact:true}).waitFor();
+  assert.equal(await composer.inputValue(),"Keep this draft while switching views");
+  assert.equal(calls.speech,0);
+  await page.getByRole("button", {name:"Conversation history",exact:true}).click();
+  await page.getByRole("list",{name:"Public conversation history"}).getByText("An earlier answer",{exact:true}).waitFor();
+  await page.getByRole("button", {name:"Conversation history",exact:true}).click();
+  report.defaultHistoryAndDraftPreserved = true;
+  await page.locator('[data-toolbar="new"]').click();
+  await composer.fill("Find a place for lunch");
+  await page.getByRole("button", {name:"Send",exact:true}).click();
+  await page.waitForFunction(() => document.querySelector('.pc-avatar-conversation')?.dataset.state === 'working');
+  assert.equal(calls.starts.length,1);
+  assert.equal(calls.starts[0].conversation,true);
+  const live = runs.get("new-1");
+  live.public_updates = [{id:"new-1:public:1",text:"I found a quiet restaurant near the park."}];
+  live.answer = "";
+  await page.reload();
+  await page.locator(".aa-session").filter({hasText:"Find a place for lunch"}).click();
+  const subtitles = page.getByLabel("Public subtitles",{exact:true});
+  await subtitles.getByText("I found a quiet restaurant near the park.",{exact:true}).waitFor();
+  assert.equal(calls.speech,0,"Restoring an existing update stays silent");
+  await page.getByRole("button", {name:"Read new replies aloud",exact:true}).click();
+  live.public_updates.push({id:"new-1:public:2",text:"I am keeping the riverside option while I check access."});
+  await page.getByRole("button",{name:"Pause voice",exact:true}).waitFor();
+  const synthesisCount = calls.speech;
+  assert.equal(synthesisCount,1);
+  await page.getByRole("button",{name:"Pause voice",exact:true}).click();
+  await page.getByRole("button",{name:"Resume voice",exact:true}).waitFor();
+  await page.getByRole("button",{name:"Resume voice",exact:true}).click();
+  await page.getByRole("button",{name:"Pause voice",exact:true}).waitFor();
+  assert.equal(calls.speech,synthesisCount,"Resuming a narrated brève reuses its active speech key/audio");
+  await page.waitForFunction(()=>window.__avatarFrames.some(f=>f.pose===4));
+  await page.getByRole("button",{name:"Silence voice",exact:true}).click();
+  await page.getByRole("button",{name:"Read new replies aloud",exact:true}).click();
+  report.busyPublicNarrationPauseResumeAndSpeakingPose = true;
+  await page.getByRole("button", {name:"Conversation history",exact:true}).click();
+  const update = page.getByRole('list', {name:'Public conversation history'}).getByRole('listitem').filter({hasText:'I found a quiet restaurant near the park.'});
+  await update.getByRole('button',{name:'Reply to this',exact:true}).click();
+  await composer.fill("Please keep the other restaurant too; it has wheelchair access.");
+  await page.getByRole("button", {name:"Send",exact:true}).click();
+  assert.equal(calls.commands.length,1);
+  assert.equal(calls.commands[0].type,"inject_guidance");
+  assert.match(JSON.stringify(calls.commands[0]),/wheelchair access/);
+  assert.match(JSON.stringify(calls.commands[0]),/new-1:public:1/);
+  report.activeReplyUsesGuidanceAndPinnedPublicContext = true;
+  live.status = "waiting";
+  live.interaction = {kind:"ask_user",run_id:"new-1",wait_key:"question:q1",step_id:"ask",seq:4,prompt:"Would you prefer lunch before one?",choices:[],allow_free_text:true,
+    details:{question:{id:"q1",purpose:"conversation",importance:"essential",published_at:"2026-11-01T12:00:00Z",deadline:null,fallback:null}},
+    command:{type:"resume",run_id:"new-1",payload:{wait_key:"question:q1"}},answer_payload:"{response: string}"};
+  await page.reload();
+  await page.locator(".aa-session").filter({hasText:"Find a place for lunch"}).click();
+  await page.getByText("Would you prefer lunch before one?",{exact:true}).waitFor();
+  await composer.fill("Yes, before one please.");
+  await page.getByRole("button",{name:"Send",exact:true}).click();
+  const answer = calls.commands.at(-1);
+  assert.equal(answer.type,"resume");
+  assert.equal(answer.payload.wait_key,"question:q1");
+  assert.equal(answer.payload.payload.response,"Yes, before one please.");
+  assert.equal(answer.payload.payload.approved,undefined);
+  report.activeQuestionAnswerUsesExactWait = true;
+  live.interaction = {kind:"tool_approval",run_id:"new-1",wait_key:"approval:1",step_id:"book",seq:5,prompt:"Reserve this table?",tool_calls:[{name:"reserve_table",arguments:{}}],details:null,command:{type:"resume",run_id:"new-1",payload:{wait_key:"approval:1"}},answer_payload:"{approved: true|false}"};
+  await page.reload();
+  await page.locator(".aa-session").filter({hasText:"Find a place for lunch"}).click();
+  await page.getByRole("button",{name:"Allow once",exact:true}).waitFor();
+  await composer.fill("I am still thinking about it.");
+  const before = calls.commands.length;
+  await page.getByRole("button",{name:"Send",exact:true}).click();
+  await page.getByText("Use the request controls to answer it. A message does not grant permission.",{exact:false}).waitFor();
+  assert.equal(calls.commands.length,before);
+  assert.equal(await composer.inputValue(),"I am still thinking about it.");
+  report.messageNeverApprovesAndFailedDraftPreserved = true;
+  await page.setViewportSize({width:420,height:900});
+  if(shots) await page.screenshot({path:`${shots}/avatar-approval-phone.png`});
+  const sendBox = await page.getByRole("button",{name:"Send",exact:true}).boundingBox();
+  assert.ok(sendBox && sendBox.y >= 0 && sendBox.y + sendBox.height <= 900,"Composer remains visible on phone");
+  await page.getByRole("button",{name:"Conversation",exact:true}).click();
+  assert.equal(await composer.inputValue(),"I am still thinking about it.");
+  report.defaultViewRestoredWithoutDraftLoss = true;
+}
 try {
-  browser = await chromium.launch({ args: ["--mute-audio", "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", `--use-file-for-fake-audio-capture=${microphoneFile}`] });
+  browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined, args: ["--mute-audio", "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", `--use-file-for-fake-audio-capture=${microphoneFile}`] });
   const servedDocs = await fetch(new URL("llms.txt", base));
   assert.equal(servedDocs.status, 200);
   assert.match(servedDocs.headers.get("content-type"), /^text\/plain/);
@@ -76,6 +165,15 @@ try {
     let result;
     if (path === "connection/gateway") result = json({ ok: true, has_session: true, gateway_url: "http://fake", gateway: { ok: true, principal: { user_id: "demo" } } });
     else if (path === "gateway/me") result = json({ ok: true, principal: { user_id: "demo" } });
+    else if (path === "gateway/me/session-reads") {
+      if (request.method() === "POST") {
+        const items = (body.receipts || []).map(r => {
+          const key = JSON.stringify([r.session_id,r.run_id,r.status]);
+          if(!sharedReads.has(key)) sharedReads.set(key,{...r,event_id:`read-${sharedReads.size+1}`,sequence:sharedReads.size+1,at:new Date().toISOString()});
+          return sharedReads.get(key);
+        }); result = json({items,more:false});
+      } else { const ids=url.searchParams.getAll("run_id"); result=json({items:[...sharedReads.values()].filter(r=>!ids.length||ids.includes(r.run_id)),more:false}); }
+    }
     else if (path === "gateway/runs" && url.searchParams.get("status") === "waiting" && failWaits) result = json({ detail: "Wait listing unavailable" }, 503);
     else if (path === "gateway/runs") result = json({ items: [...runs].map(([id, r]) => ({ run_id: id, session_id: r.session_id, session_kind: "chat", status: r.status, created_at: r.created_at || r.at || "2026-10-31T02:00:00Z", updated_at: r.at || "2026-10-31T02:00:00Z", waiting: r.waiting || (r.interaction ? { reason: "user" } : null), parent_run_id: r.parent_run_id || null, tool_calls: r.tool_calls })), has_more: false });
     else if (path === "gateway/bundles") result = json({ executable_for: "abstractassistant.agent.v1", items: [], default_agent_workflows: { "abstractassistant.agent.v1": { name: "Assistant" } }, default_agent_workflows_unavailable: {} });
@@ -91,7 +189,7 @@ try {
     else if (path.endsWith("/voice/tts/stream")) { calls.speech++; result = { status: 200, contentType: "application/x-ndjson", body: JSON.stringify({ type: "segment", audio_b64: wav.toString("base64") }) + '\n{"type":"done"}\n' }; }
     else if (path === "gateway/runs/start") {
       if (failSend) result = json({ detail: "The test Gateway is unavailable" }, 503);
-      else { calls.starts.push(body); const id = `new-${calls.starts.length}`; runs.set(id, { session_id: body.session_id, prompt: body.input_data.prompt, answer: "A fresh answer", output: { response: "Use the microphone to speak, then review your words." }, status: "completed" }); result = json({ run_id: id }); }
+      else { calls.starts.push(body); const id = `new-${calls.starts.length}`; runs.set(id, { session_id: body.session_id, prompt: body.input_data.prompt, answer: "A fresh answer", output: { response: "Use the microphone to speak, then review your words." }, status: avatarCheck ? "running" : "completed" }); result = json({ run_id: id }); }
     } else if (path === "gateway/commands") { calls.commands.push(body); result = json({ accepted: true }); }
     else {
       const m = /^gateway\/runs\/([^/]+)(.*)$/.exec(path), id = m?.[1], suffix = m?.[2];
@@ -101,15 +199,19 @@ try {
       else if (id && runs.has(id) && suffix === "/input_data") result = json({ input_data: { prompt: runs.get(id).prompt, ...(id === "history" ? {context:{attachments:[{$artifact:"history-file",filename:"session-note.txt",run_id:"history"}]}} : {}) } });
       else if (id && suffix?.startsWith("/artifacts/")) result = json({tags:{filename:suffix.includes("history-file") ? "session-note.txt" : "answer-file.txt"}});
       else if (id && runs.has(id) && suffix === "") result = json({ run_id: id, ...runs.get(id) });
-      else if (path.endsWith("/stream")) result = { status: 200, contentType: "text/event-stream", body: "" };
+      else if (path.endsWith("/stream")) { if(avatarCheck) await new Promise(resolve=>setTimeout(resolve,500)); const v=avatarCheck && id && runs.has(id) && suffix === "/view/stream" ? view(id) : null; result = { status: 200, contentType: "text/event-stream", body: v ? `id: ${v.cursor.token}\nevent: view\ndata: ${JSON.stringify(v)}\n\n` : ": heartbeat\n\n" }; }
       else result = json({ detail: `Unexpected test route: ${path}` }, 404);
     }
     await route.fulfill(result);
   });
   const page = await context.newPage();
+  if(avatarCheck) page.setDefaultTimeout(10000);
   const errors = [];
   page.on("pageerror", (e) => { errors.push(String(e)); console.error(e.stack || String(e)); });
   await page.goto(base);
+  if (avatarCheck) {
+    await checkAvatar({page, runs, calls, report, shots});
+  } else {
   await page.getByRole("heading", { name: "Ready when you are" }).waitFor();
   await page.waitForFunction(() => document.querySelector(".aa-orb")?.width > 0);
   if (shots) await page.screenshot({ path: `${shots}/home-desktop.png` });
@@ -377,6 +479,7 @@ try {
   assert.equal(await failureCard.getAttribute("data-unread"), null, "Viewing an older failure outcome acknowledges that revision");
   report.sessionUnreadConsumptionAndAttention = true;
   assert.deepEqual(errors, []);
+  }
   report.javascriptErrors = 0;
   console.log(JSON.stringify(report));
-} finally { await browser?.close(); server.close(); rmSync(audioDir, { recursive: true, force: true }); }
+} catch (error) { if (shots && browser) { const p=browser.contexts()[0]?.pages()[0]; if(p) { await p.screenshot({path:`${shots}/failure.png`}); console.error((await p.locator(".aa-chat").innerText()).slice(0,6000)); console.error(JSON.stringify({calls,runs:[...runs]},null,2)); } } throw error; } finally { await browser?.close(); server.close(); rmSync(audioDir, { recursive: true, force: true }); }

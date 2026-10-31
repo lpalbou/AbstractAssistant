@@ -1,5 +1,5 @@
 // dist/workflow_chat.js
-import { jsx as _jsx17, jsxs as _jsxs14, Fragment as _Fragment7 } from "react/jsx-runtime";
+import { jsx as _jsx18, jsxs as _jsxs15, Fragment as _Fragment8 } from "react/jsx-runtime";
 
 // dist/message_artifacts.js
 import { Fragment as _Fragment3, jsx as _jsx6, jsxs as _jsxs4 } from "react/jsx-runtime";
@@ -20,8 +20,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { codeLanguage, highlightCode, Icon } from "@abstractframework/ui-kit";
 
 // dist/utils.js
-function tryParseJson(text3) {
-  const trimmed = String(text3 ?? "").trim();
+function tryParseJson(text4) {
+  const trimmed = String(text4 ?? "").trim();
   if (!trimmed)
     return null;
   if (!(trimmed.startsWith("{") && trimmed.endsWith("}") || trimmed.startsWith("[") && trimmed.endsWith("]")))
@@ -83,8 +83,8 @@ function chatToMarkdown(messages, opts) {
   return `${lines.join("\n").trimEnd()}
 `;
 }
-async function copyText(text3) {
-  const value = String(text3 || "");
+async function copyText(text4) {
+  const value = String(text4 || "");
   if (!value)
     return false;
   try {
@@ -110,9 +110,9 @@ async function copyText(text3) {
 }
 function downloadTextFile(opts) {
   const filename = String(opts.filename || "").trim() || "export.txt";
-  const text3 = String(opts.text || "");
+  const text4 = String(opts.text || "");
   const mime = String(opts.mime || "text/plain;charset=utf-8");
-  const blob = new Blob([text3], { type: mime });
+  const blob = new Blob([text4], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -125,13 +125,13 @@ function downloadTextFile(opts) {
 
 // dist/text_links.js
 import { jsx as _jsx, Fragment as _Fragment, jsxs as _jsxs } from "react/jsx-runtime";
-function splitTextLinks(text3) {
+function splitTextLinks(text4) {
   const out = [];
   const pattern = /(?:https?:\/\/|www\.)[^\s<>"'`\\]+/gi;
   let end = 0;
-  for (const m of text3.matchAll(pattern)) {
+  for (const m of text4.matchAll(pattern)) {
     const start = m.index;
-    if (start > 0 && /[\w@]/.test(text3[start - 1]))
+    if (start > 0 && /[\w@]/.test(text4[start - 1]))
       continue;
     let label = m[0].replace(/[.,;:!?]+$/, "");
     for (const [open, close] of [
@@ -150,22 +150,22 @@ function splitTextLinks(text3) {
       continue;
     }
     if (start > end)
-      out.push({ text: text3.slice(end, start) });
+      out.push({ text: text4.slice(end, start) });
     out.push({ text: label, href });
     end = start + label.length;
   }
-  if (end < text3.length)
-    out.push({ text: text3.slice(end) });
+  if (end < text4.length)
+    out.push({ text: text4.slice(end) });
   return out;
 }
-function textLinks(text3) {
-  return splitTextLinks(text3).map((p, i) => p.href ? _jsx("a", { className: "pc-md_link", href: p.href, target: "_blank", rel: "noopener noreferrer", children: p.text }, i) : p.text);
+function textLinks(text4) {
+  return splitTextLinks(text4).map((p, i) => p.href ? _jsx("a", { className: "pc-md_link", href: p.href, target: "_blank", rel: "noopener noreferrer", children: p.text }, i) : p.text);
 }
-function TextLinks({ text: text3 }) {
-  return _jsx(_Fragment, { children: textLinks(String(text3 ?? "")) });
+function TextLinks({ text: text4 }) {
+  return _jsx(_Fragment, { children: textLinks(String(text4 ?? "")) });
 }
-function JsonTextLinks({ text: text3 }) {
-  return _jsxs(_Fragment, { children: ['"', splitTextLinks(text3).map((p, i) => p.href ? _jsx("a", { className: "pc-md_link", href: p.href, target: "_blank", rel: "noopener noreferrer", children: p.text }, i) : JSON.stringify(p.text).slice(1, -1)), '"'] });
+function JsonTextLinks({ text: text4 }) {
+  return _jsxs(_Fragment, { children: ['"', splitTextLinks(text4).map((p, i) => p.href ? _jsx("a", { className: "pc-md_link", href: p.href, target: "_blank", rel: "noopener noreferrer", children: p.text }, i) : JSON.stringify(p.text).slice(1, -1)), '"'] });
 }
 
 // dist/markdown.js
@@ -185,8 +185,8 @@ function MarkdownCodeBlock({ code, lang }) {
     timer.current = window.setTimeout(() => setState("idle"), 900);
   }, children: _jsx2(Icon, { name: state === "copied" ? "check" : "copy", size: 14 }) }), _jsx2("pre", { className: "pc-md_pre", children: _jsx2("code", { className: lang ? `language-${lang}` : void 0, children: tokens.map((t, k) => t.kind === "plain" ? _jsx2(React.Fragment, { children: t.text }, k) : _jsx2("span", { className: `af-code__${t.kind}`, children: t.text }, k)) }) })] });
 }
-function highlightInline(text3, state, linkify = true) {
-  const s = String(text3 ?? "");
+function highlightInline(text4, state, linkify = true) {
+  const s = String(text4 ?? "");
   if (linkify)
     return splitTextLinks(s).map((part, i) => part.href ? _jsx2("a", { className: "pc-md_link", href: part.href, target: "_blank", rel: "noopener noreferrer", children: highlightInline(part.text, state, false) }, i) : _jsx2(React.Fragment, { children: highlightInline(part.text, state, false) }, i));
   if (!state || !state.needles.length)
@@ -274,9 +274,9 @@ function imageLink(key, src, alt) {
 function isWordChar(ch) {
   return Boolean(ch) && /[\p{L}\p{N}]/u.test(ch);
 }
-function renderInline(text3, highlight) {
+function renderInline(text4, highlight) {
   const out = [];
-  const s = String(text3 ?? "");
+  const s = String(text4 ?? "");
   let i = 0;
   let buf = "";
   const flush = () => {
@@ -379,8 +379,8 @@ function renderInline(text3, highlight) {
   flush();
   return out;
 }
-function normalizeLines(text3) {
-  const s = String(text3 ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+function normalizeLines(text4) {
+  const s = String(text4 ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   return s.split("\n");
 }
 function parseListItemLine(line) {
@@ -494,8 +494,8 @@ function Markdown(props) {
     inlineImagePolicy = previous;
   }
 }
-function renderMarkdown({ text: text3, className, highlight, highlights, highlightClassName, highlightId }) {
-  const lines = normalizeLines(text3);
+function renderMarkdown({ text: text4, className, highlight, highlights, highlightClassName, highlightId }) {
+  const lines = normalizeLines(text4);
   const blocks = [];
   const needlesRaw = [];
   if (Array.isArray(highlights))
@@ -653,7 +653,7 @@ function responseTotal(response) {
 }
 async function readBoundedText(response, limit, knownSize) {
   const decoder = new TextDecoder();
-  let text3 = "";
+  let text4 = "";
   let received = 0;
   const reader = response.body?.getReader();
   if (reader) {
@@ -663,24 +663,24 @@ async function readBoundedText(response, limit, knownSize) {
         break;
       const chunk = value.subarray(0, limit - received);
       received += chunk.length;
-      text3 += decoder.decode(chunk, { stream: true });
+      text4 += decoder.decode(chunk, { stream: true });
     }
     await reader.cancel().catch(() => {
     });
   } else {
-    text3 = (await response.text()).slice(0, limit);
-    received = text3.length;
+    text4 = (await response.text()).slice(0, limit);
+    received = text4.length;
   }
   const total = responseTotal(response) ?? knownSize;
   const partial = total !== void 0 ? total > received : received >= limit;
-  return { text: text3, received, total, partial };
+  return { text: text4, received, total, partial };
 }
 function partialPreviewNote(total) {
   return `Showing the first ${PREVIEW_LIMIT_LABEL} of ${total !== void 0 ? formatFileSize(total) : "a file of unknown size"}; download for the rest.`;
 }
 function FileViewer(props) {
   const { markdownImages, inlineImage, renderMarkdown: renderMarkdown2, ...rest } = props;
-  return _jsx3(AfFileViewer, { ...rest, nowMs: props.nowMs ?? Date.now(), renderMarkdown: renderMarkdown2 || ((text3) => _jsx3(Markdown, { text: text3, ...markdownImages ? { images: markdownImages } : {}, ...inlineImage ? { inlineImage } : {} })) });
+  return _jsx3(AfFileViewer, { ...rest, nowMs: props.nowMs ?? Date.now(), renderMarkdown: renderMarkdown2 || ((text4) => _jsx3(Markdown, { text: text4, ...markdownImages ? { images: markdownImages } : {}, ...inlineImage ? { inlineImage } : {} })) });
 }
 
 // dist/workspace_browser.js
@@ -690,13 +690,13 @@ import { Icon as Icon2, formatExactTime, formatRelativeTime, gatewayApiPath as g
 async function gatewayResponseError(response, what) {
   let reason = "";
   try {
-    const text3 = await response.text();
+    const text4 = await response.text();
     try {
-      const body = JSON.parse(text3);
+      const body = JSON.parse(text4);
       const detail = body?.detail ?? body?.error ?? body?.message;
-      reason = typeof detail === "string" ? detail : detail && typeof detail.message === "string" ? detail.message : text3;
+      reason = typeof detail === "string" ? detail : detail && typeof detail.message === "string" ? detail.message : text4;
     } catch {
-      reason = text3;
+      reason = text4;
     }
   } catch {
     reason = "";
@@ -810,15 +810,15 @@ function ArtifactPreviewModal(p) {
           throw await gatewayResponseError(r, "Attachment preview failed");
         const contentType = r.headers.get("content-type") || "", kind = artifactPreviewKind(p.name, contentType);
         if (fileViewerNeedsText2(kind)) {
-          const read = await readBoundedText(r, PREVIEW_TEXT_LIMIT);
+          const read2 = await readBoundedText(r, PREVIEW_TEXT_LIMIT);
           if (abort.signal.aborted)
             return;
           setState({
             status: "ready",
             kind,
             contentType,
-            text: read.text,
-            ...read.partial ? { partialNote: partialPreviewNote(read.total) } : {}
+            text: read2.text,
+            ...read2.partial ? { partialNote: partialPreviewNote(read2.total) } : {}
           });
         } else if (["image", "audio", "video", "pdf"].includes(kind)) {
           let media = r;
@@ -833,14 +833,14 @@ function ArtifactPreviewModal(p) {
           }
           const actualType = media.headers.get("content-type") || contentType, actualKind = artifactPreviewKind(p.name, actualType);
           if (fileViewerNeedsText2(actualKind)) {
-            const read = await readBoundedText(media, PREVIEW_TEXT_LIMIT);
+            const read2 = await readBoundedText(media, PREVIEW_TEXT_LIMIT);
             if (!abort.signal.aborted)
               setState({
                 status: "ready",
                 kind: actualKind,
                 contentType: actualType,
-                text: read.text,
-                ...read.partial ? { partialNote: partialPreviewNote(read.total) } : {}
+                text: read2.text,
+                ...read2.partial ? { partialNote: partialPreviewNote(read2.total) } : {}
               });
             return;
           }
@@ -1077,15 +1077,15 @@ function outputArtifacts(output, runId) {
   ];
   return messageArtifactRefs([root, obj(root.meta), result, obj(result.meta)].flatMap((container) => fields.map((key) => container[key])), runId);
 }
-function useMessageArtifacts(messages, fetchGateway, scope, run) {
+function useMessageArtifacts(messages, fetchGateway, scope2, run) {
   const [attempt, setAttempt] = useState6(0);
-  const cache = useRef4({ owner: scope, refs: /* @__PURE__ */ new Map(), outputs: /* @__PURE__ */ new Map() });
-  if (cache.current.owner !== scope)
-    cache.current = { owner: scope, refs: /* @__PURE__ */ new Map(), outputs: /* @__PURE__ */ new Map() };
+  const cache = useRef4({ owner: scope2, refs: /* @__PURE__ */ new Map(), outputs: /* @__PURE__ */ new Map() });
+  if (cache.current.owner !== scope2)
+    cache.current = { owner: scope2, refs: /* @__PURE__ */ new Map(), outputs: /* @__PURE__ */ new Map() };
   const signature = JSON.stringify([
     ...new Set(messages.filter((m) => m.role === "user" && m.runId).map((m) => m.runId))
   ]);
-  const [inputs, setInputs] = useState6({ owner: scope, refs: {}, error: "" });
+  const [inputs, setInputs] = useState6({ owner: scope2, refs: {}, error: "" });
   useEffect6(() => {
     const abort = new AbortController(), ids = JSON.parse(signature).filter((id) => !cache.current.refs.has(id));
     const currentIds = new Set(JSON.parse(signature));
@@ -1096,7 +1096,7 @@ function useMessageArtifacts(messages, fetchGateway, scope, run) {
       if (!currentIds.has(key))
         cache.current.outputs.delete(key);
     setInputs({
-      owner: scope,
+      owner: scope2,
       refs: Object.fromEntries(cache.current.refs),
       error: ""
     });
@@ -1108,12 +1108,12 @@ function useMessageArtifacts(messages, fetchGateway, scope, run) {
         if (!response.ok)
           throw await gatewayResponseError(response, "Message attachments could not be checked");
         const refs = submittedArtifacts(await response.json(), id);
-        if (!abort.signal.aborted && cache.current.owner === scope) {
+        if (!abort.signal.aborted && cache.current.owner === scope2) {
           cache.current.refs.set(id, refs);
           setInputs((old) => ({ ...old, refs: { ...old.refs, [id]: refs } }));
         }
       } catch (e) {
-        if (!abort.signal.aborted && cache.current.owner === scope)
+        if (!abort.signal.aborted && cache.current.owner === scope2)
           setInputs((old) => ({
             ...old,
             error: e instanceof Error ? e.message : String(e)
@@ -1121,12 +1121,12 @@ function useMessageArtifacts(messages, fetchGateway, scope, run) {
       }
     });
     return () => abort.abort();
-  }, [fetchGateway, scope, signature, attempt]);
+  }, [fetchGateway, scope2, signature, attempt]);
   const missing = JSON.stringify(JSON.parse(signature).filter((id) => !messages.some((m) => m.runId === id && m.role === "assistant") || messages.some((m) => m.runId === id && m.artifactReferencesUnresolved)));
-  const [restored, setRestored] = useState6({ owner: scope, files: {}, error: "" });
+  const [restored, setRestored] = useState6({ owner: scope2, files: {}, error: "" });
   useEffect6(() => {
     const abort = new AbortController();
-    setRestored((old) => old.owner === scope ? { ...old, error: "" } : { owner: scope, files: {}, error: "" });
+    setRestored((old) => old.owner === scope2 ? { ...old, error: "" } : { owner: scope2, files: {}, error: "" });
     if (fetchGateway)
       void runBounded(JSON.parse(missing).filter((id) => !cache.current.outputs.has(id)), 4, async (id) => {
         if (id === run?.runId && outputArtifacts(run.output, id).length)
@@ -1137,28 +1137,28 @@ function useMessageArtifacts(messages, fetchGateway, scope, run) {
             throw await gatewayResponseError(response, "Attached reply could not be checked");
           const body = obj(await response.json());
           const files2 = body.status === "completed" ? outputArtifacts(body.output, id) : [];
-          if (!abort.signal.aborted && cache.current.owner === scope) {
+          if (!abort.signal.aborted && cache.current.owner === scope2) {
             if (["completed", "failed", "cancelled"].includes(String(body.status)))
               cache.current.outputs.set(id, files2);
-            setRestored((old) => old.owner === scope ? { ...old, files: { ...old.files, [id]: files2 } } : old);
+            setRestored((old) => old.owner === scope2 ? { ...old, files: { ...old.files, [id]: files2 } } : old);
           }
         } catch (e) {
           if (!abort.signal.aborted)
-            setRestored((old) => old.owner === scope ? {
+            setRestored((old) => old.owner === scope2 ? {
               ...old,
               error: e instanceof Error ? e.message : String(e)
             } : old);
         }
       });
     return () => abort.abort();
-  }, [fetchGateway, scope, missing, run?.runId, run?.output, attempt]);
+  }, [fetchGateway, scope2, missing, run?.runId, run?.output, attempt]);
   const shown = useMemo2(() => {
     const inputShown = /* @__PURE__ */ new Set();
     const list = messages.map((m) => {
       const originalPrompt = m.role === "user" && Boolean(m.runId) && !inputShown.has(m.runId);
       if (originalPrompt)
         inputShown.add(m.runId);
-      const submitted = originalPrompt && inputs.owner === scope ? inputs.refs[m.runId || ""] || [] : [];
+      const submitted = originalPrompt && inputs.owner === scope2 ? inputs.refs[m.runId || ""] || [] : [];
       const refs = [...m.artifactRefs || [], ...submitted];
       const unique = [
         ...new Map(refs.filter((r) => r.id && r.runId).map((r) => [r.id, r])).values()
@@ -1167,7 +1167,7 @@ function useMessageArtifacts(messages, fetchGateway, scope, run) {
     });
     const visibleRuns = new Set(messages.map((message) => message.runId));
     const outcomes = [
-      ...restored.owner === scope ? Object.entries(restored.files).filter(([id]) => visibleRuns.has(id)) : [],
+      ...restored.owner === scope2 ? Object.entries(restored.files).filter(([id]) => visibleRuns.has(id)) : [],
       ...run ? [
         [run.runId, outputArtifacts(run.output, run.runId)]
       ] : []
@@ -1203,12 +1203,12 @@ function useMessageArtifacts(messages, fetchGateway, scope, run) {
       }
     }
     return list;
-  }, [messages, inputs, restored, scope, run?.runId, run?.output]);
+  }, [messages, inputs, restored, scope2, run?.runId, run?.output]);
   return {
     messages: shown,
     error: [
-      inputs.owner === scope ? inputs.error : "",
-      restored.owner === scope ? restored.error : ""
+      inputs.owner === scope2 ? inputs.error : "",
+      restored.owner === scope2 ? restored.error : ""
     ].filter(Boolean).join(" "),
     retry: () => setAttempt((n) => n + 1)
   };
@@ -1289,7 +1289,7 @@ function boundedArtifactFetch(fetchGateway) {
 }
 
 // dist/workflow_chat.js
-import { useEffect as useEffect13, useMemo as useMemo7, useRef as useRef9, useState as useState14 } from "react";
+import { useEffect as useEffect14, useMemo as useMemo8, useRef as useRef10, useState as useState15 } from "react";
 import { Icon as Icon8, useAfTooltips } from "@abstractframework/ui-kit";
 
 // dist/chat_composer.js
@@ -1543,16 +1543,16 @@ function JsonViewer(props) {
 
 // dist/message_content.js
 function ChatMessageContent(props) {
-  const text3 = String(props.text ?? "");
-  const parsed = useMemo4(() => tryParseJson(text3), [text3]);
+  const text4 = String(props.text ?? "");
+  const parsed = useMemo4(() => tryParseJson(text4), [text4]);
   const cls = ["pc-chat-content", props.className].filter(Boolean).join(" ");
   if (parsed !== null) {
     return _jsx9("div", { className: cls, children: _jsx9(JsonViewer, { value: parsed, collapseAfterDepth: props.jsonCollapseAfterDepth }) });
   }
   if (props.renderMarkdown) {
-    return _jsx9("div", { className: cls, children: props.renderMarkdown(text3) });
+    return _jsx9("div", { className: cls, children: props.renderMarkdown(text4) });
   }
-  return _jsx9("div", { className: cls, children: _jsx9(Markdown, { text: text3, images: props.images, inlineImage: props.inlineImage }) });
+  return _jsx9("div", { className: cls, children: _jsx9(Markdown, { text: text4, images: props.images, inlineImage: props.inlineImage }) });
 }
 
 // dist/tool_activity.js
@@ -1593,10 +1593,10 @@ function toolSandbox(value) {
   if (priv)
     rows2.push({ path: priv, mode: "Read & write", private: true });
   for (const item of Array.isArray(sb.allowed) ? sb.allowed : []) {
-    const row = obj2(item);
-    const path = text(row?.path);
+    const row2 = obj2(item);
+    const path = text(row2?.path);
     if (path)
-      rows2.push({ path, mode: text(row?.mode) === "ro" ? "Read-only" : "Read & write" });
+      rows2.push({ path, mode: text(row2?.mode) === "ro" ? "Read-only" : "Read & write" });
   }
   for (const item of Array.isArray(sb.refused) ? sb.refused : []) {
     const path = text(item);
@@ -1619,7 +1619,7 @@ function toolSandbox(value) {
 function ToolSandboxLine({ sandbox, className }) {
   if (!sandbox)
     return null;
-  return _jsxs7("div", { className: `pc-tool-sandbox is-${sandbox.state}${className ? ` ${className}` : ""}`, "data-sandbox-kind": sandbox.kind, children: [_jsx10("div", { className: "pc-tool-sandbox__line", children: sandbox.line }), sandbox.rows.length ? _jsxs7("ul", { className: "pc-tool-sandbox__rows", "aria-label": "Workspaces the sandbox enforced", children: [sandbox.rows.map((row, i) => _jsxs7("li", { children: [_jsx10("code", { children: row.path }), _jsx10("span", { className: "pc-tool-sandbox__mode", children: row.private ? `${row.mode} \xB7 this run's folder` : row.mode })] }, `${row.mode}:${row.path}:${i}`)), sandbox.builtinRefused ? _jsxs7("li", { className: "pc-tool-sandbox__builtin", children: [sandbox.builtinRefused, " built-in protected ", sandbox.builtinRefused === 1 ? "folder" : "folders", " refused"] }) : null] }) : null] });
+  return _jsxs7("div", { className: `pc-tool-sandbox is-${sandbox.state}${className ? ` ${className}` : ""}`, "data-sandbox-kind": sandbox.kind, children: [_jsx10("div", { className: "pc-tool-sandbox__line", children: sandbox.line }), sandbox.rows.length ? _jsxs7("ul", { className: "pc-tool-sandbox__rows", "aria-label": "Workspaces the sandbox enforced", children: [sandbox.rows.map((row2, i) => _jsxs7("li", { children: [_jsx10("code", { children: row2.path }), _jsx10("span", { className: "pc-tool-sandbox__mode", children: row2.private ? `${row2.mode} \xB7 this run's folder` : row2.mode })] }, `${row2.mode}:${row2.path}:${i}`)), sandbox.builtinRefused ? _jsxs7("li", { className: "pc-tool-sandbox__builtin", children: [sandbox.builtinRefused, " built-in protected ", sandbox.builtinRefused === 1 ? "folder" : "folders", " refused"] }) : null] }) : null] });
 }
 
 // dist/tool_policy.js
@@ -1641,7 +1641,7 @@ function toolPolicyDecision(payload) {
     ...who ? { setBy: who } : {},
     ...str(policy?.set_at) ? { setAt: str(policy?.set_at) } : {}
   };
-  const calls = (Array.isArray(payload?.tool_calls) ? payload.tool_calls : []).map((row) => obj3(row)).filter((row) => Boolean(row && str(row.call_id))).map((row) => ({ callId: str(row.call_id), name: str(row.name), ...str(row.matched) ? { matched: str(row.matched) } : {} }));
+  const calls = (Array.isArray(payload?.tool_calls) ? payload.tool_calls : []).map((row2) => obj3(row2)).filter((row2) => Boolean(row2 && str(row2.call_id))).map((row2) => ({ callId: str(row2.call_id), name: str(row2.name), ...str(row2.matched) ? { matched: str(row2.matched) } : {} }));
   if (!calls.length)
     return null;
   return { provenance, calls };
@@ -1653,6 +1653,19 @@ function toolPolicyDecisionText(provenance) {
   const by = provenance.setBy ? `set by ${provenance.setBy}` : "";
   const detail = [by, at ? `at ${at}` : ""].filter(Boolean).join(" ");
   return `Allowed by this chat's policy${detail ? ` (${detail})` : ""}`;
+}
+function sessionPolicyClampedText(clamped) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const row2 of clamped || []) {
+    const name = str(row2?.name);
+    if (!name)
+      continue;
+    const reason = str(row2?.reason).replace(/_/g, " ") || "not stored";
+    groups.set(reason, [...groups.get(reason) || [], name]);
+  }
+  if (!groups.size)
+    return "";
+  return `Not covered: ${[...groups].map(([reason, names]) => `${names.join(", ")} (${reason})`).join("; ")}`;
 }
 
 // dist/stat_detail.js
@@ -1895,22 +1908,22 @@ function toolDetail(s) {
       heading: "By tool",
       table: {
         columns: ["Tool", "Calls", "Failed", "Time"],
-        rows: breakdown.map(([name, row]) => [
+        rows: breakdown.map(([name, row2]) => [
           name,
-          row.calls.toLocaleString(),
-          row.failed.toLocaleString(),
-          row.ms !== void 0 ? `${formatDuration(row.ms)}${row.sharedBatches ? " +shared" : ""}` : row.sharedBatches ? "shared" : NR
+          row2.calls.toLocaleString(),
+          row2.failed.toLocaleString(),
+          row2.ms !== void 0 ? `${formatDuration(row2.ms)}${row2.sharedBatches ? " +shared" : ""}` : row2.sharedBatches ? "shared" : NR
         ])
       },
-      note: breakdown.some(([, row]) => row.sharedBatches) ? "A batch that mixed tools ran them together; its time is not split between them." : void 0
+      note: breakdown.some(([, row2]) => row2.sharedBatches) ? "A batch that mixed tools ran them together; its time is not split between them." : void 0
     });
-  const failures = breakdown.filter(([, row]) => row.errors && Object.keys(row.errors).length);
+  const failures = breakdown.filter(([, row2]) => row2.errors && Object.keys(row2.errors).length);
   if (failures.length)
     sections.push({
       heading: "Failures",
-      rows: failures.map(([name, row]) => ({
+      rows: failures.map(([name, row2]) => ({
         label: name,
-        value: Object.entries(row.errors).sort((a, b) => b[1] - a[1]).map(([cls, n]) => n > 1 ? `${cls} \xD7${n}` : cls).join(" \xB7 ")
+        value: Object.entries(row2.errors).sort((a, b) => b[1] - a[1]).map(([cls, n]) => n > 1 ? `${cls} \xD7${n}` : cls).join(" \xB7 ")
       }))
     });
   const timing = [
@@ -1967,7 +1980,7 @@ function statDetail(kind, statistics) {
 }
 function StatDetailPanel(props) {
   const d = props.detail;
-  return _jsxs8("div", { ref: props.panelRef, id: props.id, role: "tooltip", className: `pc-stat-detail pc-stat-detail--${d.kind}`, style: props.style, onMouseEnter: props.onMouseEnter, onMouseLeave: props.onMouseLeave, children: [_jsxs8("div", { className: "pc-stat-detail-head", children: [_jsx11("span", { className: "pc-stat-detail-title", children: d.title }), _jsx11("span", { className: "pc-stat-detail-headline", children: d.headline })] }), d.sections.map((section) => _jsxs8("div", { className: "pc-stat-detail-section", children: [_jsx11("div", { className: "pc-stat-detail-heading", children: section.heading }), section.rows?.length ? _jsx11("dl", { className: "pc-stat-detail-rows", children: section.rows.map((row, i) => _jsxs8(React4.Fragment, { children: [_jsx11("dt", { children: row.label }), _jsxs8("dd", { children: [_jsx11("span", { className: row.value === NR ? "pc-stat-detail-value pc-stat-detail-value--absent" : "pc-stat-detail-value", children: row.value }), row.hint ? _jsx11("span", { className: "pc-stat-detail-hint", children: row.hint }) : null] })] }, `${row.label}:${i}`)) }) : null, section.table ? _jsxs8("table", { className: "pc-stat-detail-table", children: [_jsx11("thead", { children: _jsx11("tr", { children: section.table.columns.map((c) => _jsx11("th", { scope: "col", children: c }, c)) }) }), _jsx11("tbody", { children: section.table.rows.map((r, i) => _jsx11("tr", { children: r.map((cell, j) => _jsx11("td", { children: cell }, j)) }, i)) })] }) : null, section.note ? _jsx11("p", { className: "pc-stat-detail-note", children: section.note }) : null] }, section.heading)), _jsx11("div", { className: "pc-stat-detail-foot", children: d.footer.map((line) => _jsx11("div", { children: line }, line)) })] });
+  return _jsxs8("div", { ref: props.panelRef, id: props.id, role: "tooltip", className: `pc-stat-detail pc-stat-detail--${d.kind}`, style: props.style, onMouseEnter: props.onMouseEnter, onMouseLeave: props.onMouseLeave, children: [_jsxs8("div", { className: "pc-stat-detail-head", children: [_jsx11("span", { className: "pc-stat-detail-title", children: d.title }), _jsx11("span", { className: "pc-stat-detail-headline", children: d.headline })] }), d.sections.map((section) => _jsxs8("div", { className: "pc-stat-detail-section", children: [_jsx11("div", { className: "pc-stat-detail-heading", children: section.heading }), section.rows?.length ? _jsx11("dl", { className: "pc-stat-detail-rows", children: section.rows.map((row2, i) => _jsxs8(React4.Fragment, { children: [_jsx11("dt", { children: row2.label }), _jsxs8("dd", { children: [_jsx11("span", { className: row2.value === NR ? "pc-stat-detail-value pc-stat-detail-value--absent" : "pc-stat-detail-value", children: row2.value }), row2.hint ? _jsx11("span", { className: "pc-stat-detail-hint", children: row2.hint }) : null] })] }, `${row2.label}:${i}`)) }) : null, section.table ? _jsxs8("table", { className: "pc-stat-detail-table", children: [_jsx11("thead", { children: _jsx11("tr", { children: section.table.columns.map((c) => _jsx11("th", { scope: "col", children: c }, c)) }) }), _jsx11("tbody", { children: section.table.rows.map((r, i) => _jsx11("tr", { children: r.map((cell, j) => _jsx11("td", { children: cell }, j)) }, i)) })] }) : null, section.note ? _jsx11("p", { className: "pc-stat-detail-note", children: section.note }) : null] }, section.heading)), _jsx11("div", { className: "pc-stat-detail-foot", children: d.footer.map((line) => _jsx11("div", { children: line }, line)) })] });
 }
 var GAP = 8;
 function StatChip(props) {
@@ -2073,7 +2086,7 @@ function ToolActivity({ tool, showCopy = true }) {
   const output = toolArguments(tool.output);
   const previewText = ["file path", "path"].includes(preview.label) && preview.value.length > 60 ? `${preview.value.split(/[\\/]/).pop()} \xB7 ${preview.value.slice(0, 24)}\u2026` : preview.value;
   const errorPreview = tool.error && /^File ['"].+['"] does not exist\.?$/.test(tool.error) ? "File not found. Expand for the exact path." : tool.error && tool.error.length > 180 ? `${tool.error.slice(0, 100)}\u2026${tool.error.slice(-70)}` : tool.error;
-  const labels = {
+  const labels2 = {
     running: "Running",
     waiting: "Approval needed",
     completed: "Done",
@@ -2081,7 +2094,7 @@ function ToolActivity({ tool, showCopy = true }) {
   };
   const duration = tool.startedAt && tool.endedAt ? Date.parse(tool.endedAt) - Date.parse(tool.startedAt) : NaN;
   const fields = args && typeof args === "object" && !Array.isArray(args) ? Object.entries(args) : null;
-  return _jsxs9("details", { className: `pc-tool-activity pc-tool-activity--${tool.status}`, children: [_jsxs9("summary", { className: "pc-tool-activity__summary", children: [_jsx12("span", { className: "pc-tool-activity__state-icon", "aria-hidden": "true", children: _jsx12(Icon4, { name: tool.status === "completed" ? "check" : tool.status === "failed" ? "x" : tool.status === "waiting" ? "warning" : "loader", size: 15 }) }), _jsx12("strong", { children: tool.name }), _jsx12("span", { className: "pc-tool-activity__preview", title: preview.value, children: preview.value ? _jsxs9(_Fragment6, { children: [_jsx12("span", { className: "pc-tool-activity__key", children: preview.label }), _jsx12(TextLinks, { text: previewText })] }) : "No parameters" }), _jsx12("span", { className: "pc-tool-activity__status", children: labels[tool.status] }), tool.policy ? _jsx12("span", { className: "pc-tool-activity__policy", "data-policy": tool.policy.decision, title: toolPolicyDecisionText(tool.policy), children: tool.policy.decision === "denied" ? "Denied by this chat's policy" : "Allowed by this chat's policy" }) : null, Number.isFinite(duration) && duration >= 0 ? _jsxs9("span", { className: "pc-tool-activity__duration", "data-approval-wait": tool.approvalWait ? "" : void 0, title: tool.approvalWait ? "Timed from request to result: includes the wait for your decision." : void 0, children: [formatDuration(duration), tool.approvalWait ? " incl. approval wait" : ""] }) : null, _jsx12("span", { className: "pc-tool-activity__chevron", "aria-hidden": "true", children: _jsx12(Icon4, { name: "chevronRight", size: 13 }) }), tool.error ? _jsx12("span", { className: "pc-tool-activity__error", title: tool.error, children: errorPreview }) : null] }), _jsxs9("div", { className: "pc-tool-activity__detail", children: [tool.policy ? _jsxs9("p", { className: "pc-tool-activity__policy-line", "data-policy": tool.policy.decision, children: [toolPolicyDecisionText(tool.policy), tool.policy.matched ? ` \xB7 matched ${tool.policy.matched}` : ""] }) : null, _jsx12(ToolSandboxLine, { sandbox: tool.sandbox }), tool.error ? _jsxs9(_Fragment6, { children: [_jsx12("h4", { children: "Error" }), _jsx12("pre", { className: "pc-tool-activity__output", children: _jsx12(TextLinks, { text: tool.error }) })] }) : null, _jsxs9("div", { className: "pc-tool-activity__detail-heading", children: [_jsx12("h4", { children: "Parameters" }), showCopy ? _jsxs9("button", { type: "button", onClick: async () => setCopied(await copyText(JSON.stringify(tool, null, 2))), children: [_jsx12(Icon4, { name: "copy", size: 13 }), copied ? "Copied" : "Copy details"] }) : null] }), fields ? _jsx12("dl", { className: "pc-tool-activity__parameters", children: fields.map(([key, value]) => _jsxs9(React5.Fragment, { children: [_jsx12("dt", { children: key }), _jsx12("dd", { children: value && typeof value === "object" ? _jsx12(JsonViewer, { value }) : _jsx12("code", { children: typeof value === "string" ? _jsx12(TextLinks, { text: value }) : JSON.stringify(value) }) })] }, key)) }) : tool.arguments === void 0 ? _jsx12("p", { children: "Arguments are unavailable in this ledger." }) : _jsx12(JsonViewer, { value: args }), tool.output !== void 0 ? _jsxs9(_Fragment6, { children: [_jsx12("h4", { children: "Result" }), typeof output === "string" ? _jsx12("pre", { className: "pc-tool-activity__output", children: _jsx12(TextLinks, { text: output }) }) : _jsx12("div", { className: "pc-tool-activity__output", children: _jsx12(JsonViewer, { value: output }) })] }) : null] })] });
+  return _jsxs9("details", { className: `pc-tool-activity pc-tool-activity--${tool.status}`, children: [_jsxs9("summary", { className: "pc-tool-activity__summary", children: [_jsx12("span", { className: "pc-tool-activity__state-icon", "aria-hidden": "true", children: _jsx12(Icon4, { name: tool.status === "completed" ? "check" : tool.status === "failed" ? "x" : tool.status === "waiting" ? "warning" : "loader", size: 15 }) }), _jsx12("strong", { children: tool.name }), _jsx12("span", { className: "pc-tool-activity__preview", title: preview.value, children: preview.value ? _jsxs9(_Fragment6, { children: [_jsx12("span", { className: "pc-tool-activity__key", children: preview.label }), _jsx12(TextLinks, { text: previewText })] }) : "No parameters" }), _jsx12("span", { className: "pc-tool-activity__status", children: labels2[tool.status] }), tool.policy ? _jsx12("span", { className: "pc-tool-activity__policy", "data-policy": tool.policy.decision, title: toolPolicyDecisionText(tool.policy), children: tool.policy.decision === "denied" ? "Denied by this chat's policy" : "Allowed by this chat's policy" }) : null, Number.isFinite(duration) && duration >= 0 ? _jsxs9("span", { className: "pc-tool-activity__duration", "data-approval-wait": tool.approvalWait ? "" : void 0, title: tool.approvalWait ? "Timed from request to result: includes the wait for your decision." : void 0, children: [formatDuration(duration), tool.approvalWait ? " incl. approval wait" : ""] }) : null, _jsx12("span", { className: "pc-tool-activity__chevron", "aria-hidden": "true", children: _jsx12(Icon4, { name: "chevronRight", size: 13 }) }), tool.error ? _jsx12("span", { className: "pc-tool-activity__error", title: tool.error, children: errorPreview }) : null] }), _jsxs9("div", { className: "pc-tool-activity__detail", children: [tool.policy ? _jsxs9("p", { className: "pc-tool-activity__policy-line", "data-policy": tool.policy.decision, children: [toolPolicyDecisionText(tool.policy), tool.policy.matched ? ` \xB7 matched ${tool.policy.matched}` : ""] }) : null, _jsx12(ToolSandboxLine, { sandbox: tool.sandbox }), tool.error ? _jsxs9(_Fragment6, { children: [_jsx12("h4", { children: "Error" }), _jsx12("pre", { className: "pc-tool-activity__output", children: _jsx12(TextLinks, { text: tool.error }) })] }) : null, _jsxs9("div", { className: "pc-tool-activity__detail-heading", children: [_jsx12("h4", { children: "Parameters" }), showCopy ? _jsxs9("button", { type: "button", onClick: async () => setCopied(await copyText(JSON.stringify(tool, null, 2))), children: [_jsx12(Icon4, { name: "copy", size: 13 }), copied ? "Copied" : "Copy details"] }) : null] }), fields ? _jsx12("dl", { className: "pc-tool-activity__parameters", children: fields.map(([key, value]) => _jsxs9(React5.Fragment, { children: [_jsx12("dt", { children: key }), _jsx12("dd", { children: value && typeof value === "object" ? _jsx12(JsonViewer, { value }) : _jsx12("code", { children: typeof value === "string" ? _jsx12(TextLinks, { text: value }) : JSON.stringify(value) }) })] }, key)) }) : tool.arguments === void 0 ? _jsx12("p", { children: "Arguments are unavailable in this ledger." }) : _jsx12(JsonViewer, { value: args }), tool.output !== void 0 ? _jsxs9(_Fragment6, { children: [_jsx12("h4", { children: "Result" }), typeof output === "string" ? _jsx12("pre", { className: "pc-tool-activity__output", children: _jsx12(TextLinks, { text: output }) }) : _jsx12("div", { className: "pc-tool-activity__output", children: _jsx12(JsonViewer, { value: output }) })] }) : null] })] });
 }
 function ToolActivityGroup({ tools, showCopy }) {
   const count2 = (status) => tools.filter((tool) => tool.status === status).length;
@@ -2326,10 +2339,10 @@ function ChatMessageCard(props) {
     copy_timer.current = window.setTimeout(() => set_copy_state("idle"), 900);
   }, children: _jsx13(Icon5, { name: "copy", size: 22 }) }) : null] })] }), reasoning.trim() ? _jsxs10("details", { className: "pc-chat-thinking", children: [_jsx13("summary", { children: "Thinking" }), _jsx13("div", { className: "pc-chat-thinking-body", children: reasoning })] }) : null, has_text || !live && !media.length ? _jsx13("div", { className: "pc-chat-body", children: _jsx13(ChatMessageContent, { text: String(m.content || ""), renderMarkdown: props.renderMarkdown, jsonCollapseAfterDepth: props.jsonCollapseAfterDepth, images: props.images || (role_ui.variant === "user" ? "inline" : "link"), inlineImage: props.inlineImage }) }) : null, media.length ? _jsx13("div", { className: "pc-chat-media", children: media.map((item, idx) => _jsx13(ChatMediaItem, { item, onOpenFile: props.onOpenMedia, markdown: { renderMarkdown: props.renderMarkdown, images: props.images, inlineImage: props.inlineImage } }, item.id || `${item.kind}:${item.src}:${idx}`)) }) : null, m.artifactRefs?.length ? _jsx13("div", { className: "pc-chat-attachments", "aria-label": "Attached files", children: m.artifactRefs.map((a) => _jsx13(MessageArtifactChip, { artifact: a }, `${a.runId}:${a.id}`)) }) : null, attachments.length ? _jsx13("div", { className: "pc-chat-attachments", "aria-label": "Attachments", children: attachments.map((a, idx) => {
     const label = String(a.label || "").trim() || "attachment";
-    const target = String(a.target || "").trim();
+    const target2 = String(a.target || "").trim();
     const title = String(a.title || "").trim();
     const disabled = Boolean(a.disabled) || typeof a.onClick !== "function";
-    return _jsxs10("button", { type: "button", className: "pc-chat-attachment-chip", title: title || label, onClick: disabled ? void 0 : a.onClick, disabled, children: [_jsx13(Icon5, { name: "paperclip", size: 14 }), target ? _jsx13("span", { className: `pc-chat-attachment-target pc-chat-attachment-target--${target}`, children: target }) : null, _jsx13("span", { className: "pc-chat-attachment-name", children: label })] }, a.id || `${label}:${idx}`);
+    return _jsxs10("button", { type: "button", className: "pc-chat-attachment-chip", title: title || label, onClick: disabled ? void 0 : a.onClick, disabled, children: [_jsx13(Icon5, { name: "paperclip", size: 14 }), target2 ? _jsx13("span", { className: `pc-chat-attachment-target pc-chat-attachment-target--${target2}`, children: target2 }) : null, _jsx13("span", { className: "pc-chat-attachment-name", children: label })] }, a.id || `${label}:${idx}`);
   }) }) : null, stats.length ? _jsx13("div", { className: "pc-chat-stats", "aria-label": "Stats", children: stats.slice(0, 12).map((s, idx) => {
     const label = String(s.label || "").trim();
     if (!label)
@@ -2771,11 +2784,258 @@ function WorkflowInteractionPanel(props) {
       !reason && interaction.onApproveAll && interaction.approveAllDescription ? interaction.approveAllDescription : ""
     ].filter(Boolean);
     const scopeSummary = scopes.length ? String(interaction.broadScopeSummary || "").trim() : "";
-    body = _jsxs13("div", { className: "pc-workflow-interaction__body", children: [_jsxs13("div", { className: "pc-workflow-interaction__prompt", children: ["Allow ", _jsx16("strong", { children: interaction.toolName }), " to run?"] }), interaction.detail ? card ? _jsxs13("details", { className: "pc-workflow-interaction__review", children: [_jsx16("summary", { children: "Review" }), _jsx16("div", { className: "pc-workflow-interaction__detail", children: interaction.detail })] }) : _jsx16("div", { className: "pc-workflow-interaction__detail", children: interaction.detail }) : null, _jsxs13("div", { className: "pc-workflow-interaction__buttons", children: [deferButton(interaction.onDefer, interaction.deferLabel || L.decideLater), _jsx16("button", { type: "button", className: "pc-workflow-interaction__deny", "data-decision": "deny", disabled, onClick: () => void run({ kind: "deny" }, interaction.onDeny), children: pending?.kind === "deny" ? "Denying\u2026" : interaction.denyLabel || L.deny }), _jsx16("button", { type: "button", className: "pc-btn", "data-decision": "approve", disabled, onClick: () => void run({ kind: "approve" }, interaction.onApprove), children: pending?.kind === "approve" ? "Allowing\u2026" : interaction.approveLabel || L.allowOnce }), interaction.onApproveForSession ? _jsx16("button", { type: "button", className: "pc-workflow-interaction__allow-session", "data-decision": "approve-session", disabled: broadDisabled, title: reason || interaction.approveForSessionDescription || void 0, onClick: () => void run({ kind: "approve-session" }, interaction.onApproveForSession), children: pending?.kind === "approve-session" ? "Allowing\u2026" : interaction.approveForSessionLabel || L.allowForChat }) : null, (interaction.approveKinds || []).map((entry) => _jsx16("button", { type: "button", className: "pc-workflow-interaction__allow-session pc-workflow-interaction__allow-kind", "data-decision": "approve-kind", "data-kind": entry.kind, disabled: broadDisabled, title: reason || interaction.approveForSessionDescription || void 0, onClick: () => void run({ kind: "approve-kind", toolset: entry.kind }, entry.onApprove), children: pending?.kind === "approve-kind" && pending.toolset === entry.kind ? "Allowing\u2026" : entry.label || L.allowKindForChat(entry.kind) }, entry.kind)), interaction.onApproveAll ? _jsx16("button", { type: "button", className: "pc-workflow-interaction__allow-all", "data-decision": "approve-all", disabled: broadDisabled, title: reason || interaction.approveAllDescription || void 0, onClick: () => void run({ kind: "approve-all" }, interaction.onApproveAll), children: pending?.kind === "approve-all" ? "Allowing\u2026" : interaction.approveAllLabel || L.allowAll }) : null] }), scopeSummary ? _jsx16("p", { className: "pc-workflow-interaction__scope", "data-scope-summary": "", children: scopeSummary }) : null, interaction.remember ? _jsxs13("label", { className: "pc-workflow-interaction__remember", children: [_jsx16("input", { type: "checkbox", checked: interaction.remember.checked, disabled, onChange: (event) => interaction.remember.onChange(event.target.checked) }), _jsx16("span", { children: interaction.remember.label })] }) : null, interaction.deniedNote ? _jsx16("p", { className: "pc-workflow-interaction__unavailable", role: "note", "data-denied-note": "", children: interaction.deniedNote }) : null, interaction.denyOptions?.length ? _jsxs13("details", { className: "pc-workflow-interaction__more", "data-more": "", children: [_jsx16("summary", { children: "More" }), _jsx16("p", { className: "pc-workflow-interaction__scope", children: L.denyForChatNote }), _jsx16("div", { className: "pc-workflow-interaction__buttons", children: interaction.denyOptions.map((option) => _jsx16("button", { type: "button", className: "pc-workflow-interaction__deny", "data-decision": "deny-chat", "data-key": option.key, disabled, onClick: () => void run({ kind: "deny-chat", key: option.key }, option.onDeny), children: pending?.kind === "deny-chat" && pending.key === option.key ? "Denying\u2026" : option.label }, option.key)) })] }) : null, interaction.policySummary ? _jsx16("p", { className: "pc-workflow-interaction__scope", "data-policy-summary": "", children: interaction.policySummary }) : null, interaction.scopeNote ? _jsx16("p", { className: "pc-workflow-interaction__scope-note", role: "note", "data-scope-note": "", children: interaction.scopeNote }) : null, interaction.notCovered ? _jsx16("p", { className: "pc-workflow-interaction__unavailable", role: "note", "data-not-covered": "", children: interaction.notCovered }) : null, reason && (interaction.onApproveAll || interaction.onApproveForSession || interaction.approveKinds?.length) ? _jsx16("p", { className: "pc-workflow-interaction__unavailable", role: "note", children: reason }) : null, scopeSummary && scopes.length ? _jsxs13("details", { className: "pc-workflow-interaction__scope-details", "data-scope-details": "", children: [_jsx16("summary", { children: "What the broader choices allow" }), scopes.map((text3) => _jsx16("p", { className: "pc-workflow-interaction__scope", children: text3 }, text3))] }) : scopes.map((text3) => _jsx16("p", { className: "pc-workflow-interaction__scope", children: text3 }, text3))] });
+    body = _jsxs13("div", { className: "pc-workflow-interaction__body", children: [_jsxs13("div", { className: "pc-workflow-interaction__prompt", children: ["Allow ", _jsx16("strong", { children: interaction.toolName }), " to run?"] }), interaction.detail ? card ? _jsxs13("details", { className: "pc-workflow-interaction__review", children: [_jsx16("summary", { children: "Review" }), _jsx16("div", { className: "pc-workflow-interaction__detail", children: interaction.detail })] }) : _jsx16("div", { className: "pc-workflow-interaction__detail", children: interaction.detail }) : null, _jsxs13("div", { className: "pc-workflow-interaction__buttons", children: [deferButton(interaction.onDefer, interaction.deferLabel || L.decideLater), _jsx16("button", { type: "button", className: "pc-workflow-interaction__deny", "data-decision": "deny", disabled, onClick: () => void run({ kind: "deny" }, interaction.onDeny), children: pending?.kind === "deny" ? "Denying\u2026" : interaction.denyLabel || L.deny }), _jsx16("button", { type: "button", className: "pc-btn", "data-decision": "approve", disabled, onClick: () => void run({ kind: "approve" }, interaction.onApprove), children: pending?.kind === "approve" ? "Allowing\u2026" : interaction.approveLabel || L.allowOnce }), interaction.onApproveForSession ? _jsx16("button", { type: "button", className: "pc-workflow-interaction__allow-session", "data-decision": "approve-session", disabled: broadDisabled, title: reason || interaction.approveForSessionDescription || void 0, onClick: () => void run({ kind: "approve-session" }, interaction.onApproveForSession), children: pending?.kind === "approve-session" ? "Allowing\u2026" : interaction.approveForSessionLabel || L.allowForChat }) : null, (interaction.approveKinds || []).map((entry) => _jsx16("button", { type: "button", className: "pc-workflow-interaction__allow-session pc-workflow-interaction__allow-kind", "data-decision": "approve-kind", "data-kind": entry.kind, disabled: broadDisabled, title: reason || interaction.approveForSessionDescription || void 0, onClick: () => void run({ kind: "approve-kind", toolset: entry.kind }, entry.onApprove), children: pending?.kind === "approve-kind" && pending.toolset === entry.kind ? "Allowing\u2026" : entry.label || L.allowKindForChat(entry.kind) }, entry.kind)), interaction.onApproveAll ? _jsx16("button", { type: "button", className: "pc-workflow-interaction__allow-all", "data-decision": "approve-all", disabled: broadDisabled, title: reason || interaction.approveAllDescription || void 0, onClick: () => void run({ kind: "approve-all" }, interaction.onApproveAll), children: pending?.kind === "approve-all" ? "Allowing\u2026" : interaction.approveAllLabel || L.allowAll }) : null] }), scopeSummary ? _jsx16("p", { className: "pc-workflow-interaction__scope", "data-scope-summary": "", children: scopeSummary }) : null, interaction.remember ? _jsxs13("label", { className: "pc-workflow-interaction__remember", children: [_jsx16("input", { type: "checkbox", checked: interaction.remember.checked, disabled, onChange: (event) => interaction.remember.onChange(event.target.checked) }), _jsx16("span", { children: interaction.remember.label })] }) : null, interaction.deniedNote ? _jsx16("p", { className: "pc-workflow-interaction__unavailable", role: "note", "data-denied-note": "", children: interaction.deniedNote }) : null, interaction.denyOptions?.length ? _jsxs13("details", { className: "pc-workflow-interaction__more", "data-more": "", children: [_jsx16("summary", { children: "More" }), _jsx16("p", { className: "pc-workflow-interaction__scope", children: L.denyForChatNote }), _jsx16("div", { className: "pc-workflow-interaction__buttons", children: interaction.denyOptions.map((option) => _jsx16("button", { type: "button", className: "pc-workflow-interaction__deny", "data-decision": "deny-chat", "data-key": option.key, disabled, onClick: () => void run({ kind: "deny-chat", key: option.key }, option.onDeny), children: pending?.kind === "deny-chat" && pending.key === option.key ? "Denying\u2026" : option.label }, option.key)) })] }) : null, interaction.policySummary ? _jsx16("p", { className: "pc-workflow-interaction__scope", "data-policy-summary": "", children: interaction.policySummary }) : null, interaction.scopeNote ? _jsx16("p", { className: "pc-workflow-interaction__scope-note", role: "note", "data-scope-note": "", children: interaction.scopeNote }) : null, interaction.notCovered ? _jsx16("p", { className: "pc-workflow-interaction__unavailable", role: "note", "data-not-covered": "", children: interaction.notCovered }) : null, reason && (interaction.onApproveAll || interaction.onApproveForSession || interaction.approveKinds?.length) ? _jsx16("p", { className: "pc-workflow-interaction__unavailable", role: "note", children: reason }) : null, scopeSummary && scopes.length ? _jsxs13("details", { className: "pc-workflow-interaction__scope-details", "data-scope-details": "", children: [_jsx16("summary", { children: "What the broader choices allow" }), scopes.map((text4) => _jsx16("p", { className: "pc-workflow-interaction__scope", children: text4 }, text4))] }) : scopes.map((text4) => _jsx16("p", { className: "pc-workflow-interaction__scope", children: text4 }, text4))] });
   } else {
     body = _jsxs13("div", { className: "pc-workflow-interaction__body", children: [_jsx16("div", { className: "pc-workflow-interaction__prompt", children: interaction.prompt }), _jsxs13("label", { className: "pc-workflow-interaction__entry", children: [_jsx16("span", { children: interaction.payloadLabel || (interaction.eventName ? `Payload for ${interaction.eventName}` : "Event payload") }), _jsx16("textarea", { value: payload, onChange: (event) => setPayload(event.target.value), placeholder: interaction.payloadPlaceholder || "Enter payload", rows: card ? 1 : 2, "aria-label": interaction.payloadLabel || (interaction.eventName ? `Payload for ${interaction.eventName}` : "Event payload"), disabled }, `${interactionKey}:payload`)] }), _jsx16("div", { className: "pc-workflow-interaction__buttons", children: _jsx16("button", { type: "button", className: "pc-btn", "data-decision": "send-event", disabled, onClick: () => void run({ kind: "event", payload }, () => interaction.onSend(payload)), children: pending?.kind === "event" ? "Sending\u2026" : interaction.sendLabel || L.sendEvent }) })] });
   }
   return _jsxs13("section", { className: ["pc-workflow-interaction", card ? "pc-workflow-interaction--card" : ""].filter(Boolean).join(" "), "data-variant": card ? "card" : "panel", "aria-labelledby": `pc-workflow-interaction-${interactionKey}`, children: [_jsxs13("div", { className: "pc-workflow-interaction__heading", children: [_jsx16(Icon7, { name: interaction.kind === "tool-approval" ? "warning" : interaction.kind === "event-wait" ? "history" : "info", size: card ? 14 : 16 }), _jsxs13("div", { children: [_jsx16("h3", { tabIndex: -1, id: `pc-workflow-interaction-${interactionKey}`, children: title }), interaction.description ? _jsx16("div", { className: "pc-workflow-interaction__description", children: interaction.description }) : null] })] }), body, failure ? _jsx16(ActionError, { message: failure.message, onRetry: retry, disabled }) : null, _jsx16("div", { className: "pc-workflow-interaction__outcome", "aria-live": "polite", children: outcome })] });
+}
+
+// dist/avatar_conversation.js
+import { jsx as _jsx17, Fragment as _Fragment7, jsxs as _jsxs14 } from "react/jsx-runtime";
+import { useEffect as useEffect13, useMemo as useMemo7, useRef as useRef9, useState as useState14 } from "react";
+
+// dist/conversation_model.js
+var DEFAULT_CONVERSATION_CUES = {
+  approval: { visual: true, audio: false, haptic: false },
+  question: { visual: true, audio: false, haptic: false },
+  completion: { visual: true, audio: false, haptic: false }
+};
+var row = (v) => v && typeof v === "object" && !Array.isArray(v) ? v : null;
+function publicUpdate(value, runId) {
+  const p = row(value);
+  if (!p || typeof p.id !== "string" || !p.id.trim() || typeof p.text !== "string" || !p.text.trim() || p.text.length > 4e3)
+    return null;
+  if (p.run_id !== void 0 && p.run_id !== runId)
+    return null;
+  if (!Array.isArray(p.source_call_ids) || p.source_call_ids.some((id) => typeof id !== "string" || !id.trim()))
+    return null;
+  return { id: p.id, text: p.text, runId, sourceCallIds: [...new Set(p.source_call_ids)], ...typeof p.session_id === "string" ? { sessionId: p.session_id } : {}, ...typeof p.iteration === "number" ? { iteration: p.iteration } : {} };
+}
+function conversationMessages(messages) {
+  const seen = /* @__PURE__ */ new Set();
+  return messages.filter((m) => {
+    if (m.live || m.toolActivity || !m.content.trim())
+      return false;
+    const allowed = m.role === "user" || m.role === "assistant" && ["public_update", "answer", "final", "question"].includes(m.kind || "");
+    if (!allowed || m.kind === "public_update" && !m.publicUpdate)
+      return false;
+    const key = `${m.runId || ""}:${m.publicUpdate?.id || m.id || `${m.kind}:${m.content}`}`;
+    if (seen.has(key))
+      return false;
+    seen.add(key);
+    return true;
+  });
+}
+function conversationReply(text4, context, currentRunId) {
+  if (!context)
+    return text4;
+  if (context.kind !== "public_update" || !context.publicUpdate)
+    return text4;
+  if (!currentRunId || context.runId !== currentRunId || context.publicUpdate.runId !== currentRunId)
+    throw new Error("The selected public update belongs to another run. Return to the latest exchange before guiding this run.");
+  return `The person is replying to this quoted public update (context only):
+${JSON.stringify({ message_id: context.id || context.publicUpdate.id, run_id: currentRunId, text: context.content })}
+
+The person's message:
+${text4}`;
+}
+function conversationPages(text4, max = 180) {
+  const words = text4.trim().split(/\s+/);
+  const pages = [];
+  let page = "";
+  for (const word of words) {
+    if (page && page.length + word.length + 1 > max) {
+      pages.push(page);
+      page = "";
+    }
+    page += `${page ? " " : ""}${word}`;
+  }
+  if (page)
+    pages.push(page);
+  return pages;
+}
+function conversationState(input) {
+  if (input.status === "completed" || input.status === "failed")
+    return input.listening ? "listening" : input.speaking ? "speaking" : input.status;
+  if (input.connection && !["connected", "idle"].includes(input.connection))
+    return "disconnected";
+  if (input.status === "paused")
+    return "paused";
+  if (input.attention?.kind === "approval")
+    return "approval";
+  if (input.attention?.kind === "question")
+    return "question";
+  if (input.listening)
+    return "listening";
+  if (input.speaking)
+    return "speaking";
+  return input.status || "idle";
+}
+function conversationSnapshot(snapshot) {
+  const interaction = snapshot.toolApprovalGranted ? null : snapshot.interaction;
+  const wait = row(interaction?.wait);
+  const details = row(wait?.details);
+  const question = row(details?.question);
+  const approval = interaction?.kind === "tool_approval" || details?.kind === "tool_approval" || details?.mode === "approval_required" || wait?.reason === "tool_approval";
+  let attention = null;
+  if (interaction && (approval || interaction.kind === "ask_user" || wait?.reason === "user" || wait?.reason === "ask_user")) {
+    attention = { id: `${interaction.runId}:${String(question?.id || wait?.wait_key || interaction.stepId || "")}`, kind: approval ? "approval" : "question", ...question?.importance === "essential" || question?.importance === "clarification" ? { importance: question.importance } : {}, ...typeof question?.deadline === "string" ? { deadline: question.deadline } : {}, ...typeof question?.fallback === "string" ? { fallback: question.fallback } : {} };
+  } else if (snapshot.status === "completed") {
+    attention = { id: `${String(snapshot.run?.run_id || "")}:completed`, kind: "completion" };
+  }
+  const status = snapshot.status === "paused" ? "paused" : snapshot.status === "completed" ? "completed" : ["failed", "cancelled"].includes(snapshot.status) ? "failed" : ["running", "waiting", "queued"].includes(snapshot.status) ? "working" : "idle";
+  return { status, connection: snapshot.connection, attention, replaying: Boolean(snapshot.loading || snapshot.historyLoading) };
+}
+function conversationCueStep(previous, input) {
+  const key = input.attention ? `${input.attention.kind}:${input.attention.id}` : "";
+  const reset = !previous || previous.sessionKey !== input.sessionKey;
+  const seen = new Set(reset ? [] : previous.seen);
+  const fresh = Boolean(key && !seen.has(key));
+  if (key)
+    seen.add(key);
+  const attentionNeeded = input.attention?.kind === "question" || input.attention?.kind === "approval";
+  const canCue = !reset && previous.connected && input.connected && (!input.attended || attentionNeeded) && fresh && input.attention;
+  return { cursor: { sessionKey: input.sessionKey, connected: input.connected, seen: [...seen] }, cue: canCue ? { ...input.attention, channels: { ...input.preferences[input.attention.kind] } } : null };
+}
+function conversationNarrationStep(previous, input) {
+  const messages = conversationMessages(input.messages);
+  const updates = messages.filter((m) => m.kind === "public_update");
+  const reset = !previous || previous.sessionKey !== input.sessionKey;
+  const seen = new Set(reset ? [] : previous.seen);
+  const key = (m) => `${m.runId || ""}:${m.publicUpdate.id}`;
+  const latest = messages[messages.length - 1];
+  const fresh = latest?.kind === "public_update" && !seen.has(key(latest));
+  for (const m of updates)
+    seen.add(key(m));
+  const canNarrate = !reset && previous.connected && input.connected && input.enabled && !input.attended && !input.listening && fresh;
+  return { cursor: { sessionKey: input.sessionKey, connected: input.connected, seen: [...seen] }, message: canNarrate ? latest : null };
+}
+
+// dist/avatar_conversation.js
+var labels = {
+  idle: "Ready",
+  working: "Working",
+  paused: "Paused \u2014 work resumes only when you continue",
+  listening: "Listening \u2014 your words have not been submitted",
+  speaking: "Speaking",
+  question: "A question for you",
+  approval: "Permission required",
+  completed: "Completed",
+  failed: "Work stopped",
+  disconnected: "Connection interrupted"
+};
+function AvatarConversation(props) {
+  return _jsx17(AvatarConversationSession, { ...props }, props.sessionKey);
+}
+function AvatarConversationSession(props) {
+  const [history, setHistory] = useState14(false);
+  const [paused, setPaused] = useState14(false);
+  const [hovered, setHovered] = useState14(false);
+  const [focused, setFocused] = useState14(false);
+  const [selected, setSelected] = useState14(null);
+  const [localPreferences, setLocalPreferences] = useState14(DEFAULT_CONVERSATION_CUES);
+  const preferences = props.preferences || localPreferences;
+  const messages = useMemo7(() => conversationMessages(props.messages), [props.messages]);
+  const latest = [...messages].reverse().find((m) => m.role === "assistant") || null;
+  const attended = Boolean(props.attended || history || paused || hovered || focused || selected);
+  useEffect13(() => {
+    props.onAttendedChange?.(attended);
+    return () => props.onAttendedChange?.(false);
+  }, [attended, props.onAttendedChange]);
+  const [shown, setShown] = useState14(latest);
+  const [page, setPage] = useState14(0);
+  const pages = useMemo7(() => conversationPages(shown?.content || ""), [shown?.content]);
+  const state = conversationState(props);
+  const cursor = useRef9(null);
+  const narrationCursor = useRef9(null);
+  const callbacks = useRef9(props);
+  callbacks.current = props;
+  useEffect13(() => {
+    return () => {
+      callbacks.current.onInterruptSpeech?.();
+      callbacks.current.onReplyContext?.(null);
+    };
+  }, []);
+  useEffect13(() => {
+    if (props.listening)
+      callbacks.current.onInterruptSpeech?.();
+  }, [props.listening]);
+  useEffect13(() => {
+    if (!attended) {
+      setShown(latest);
+      setPage(0);
+    }
+  }, [latest, attended]);
+  useEffect13(() => {
+    if (attended || page >= pages.length - 1)
+      return;
+    const timer = setTimeout(() => setPage((p) => p + 1), Math.max(6500, (pages[page]?.length || 0) * 55));
+    return () => clearTimeout(timer);
+  }, [attended, page, pages]);
+  useEffect13(() => {
+    const connected = !props.replaying && (!props.connection || props.connection === "connected" || props.status === "completed" || props.status === "failed") && (typeof document === "undefined" || document.visibilityState !== "hidden");
+    const next = conversationCueStep(cursor.current, { sessionKey: props.sessionKey, connected, attended, attention: props.attention, preferences });
+    cursor.current = next.cursor;
+    if (next.cue)
+      props.onCue?.(next.cue);
+  }, [props.sessionKey, props.connection, props.status, props.replaying, props.attention, props.onCue, attended, preferences]);
+  useEffect13(() => {
+    const connected = !props.replaying && (!props.connection || props.connection === "connected" || props.status === "completed" || props.status === "failed") && (typeof document === "undefined" || document.visibilityState !== "hidden");
+    const next = conversationNarrationStep(narrationCursor.current, { sessionKey: props.sessionKey, connected, attended, enabled: Boolean(props.narrate) && props.status !== "paused", listening: props.listening, messages });
+    narrationCursor.current = next.cursor;
+    if (next.message) {
+      props.onInterruptSpeech?.();
+      props.onNarrate?.(next.message);
+    }
+  }, [messages, props.sessionKey, props.connection, props.replaying, props.status, props.narrate, props.listening, props.onNarrate, props.onInterruptSpeech, attended]);
+  const interrupt = () => props.onInterruptSpeech?.();
+  const follow = () => {
+    setHistory(false);
+    setPaused(false);
+    setSelected(null);
+    setShown(latest);
+    setPage(0);
+    props.onReplyContext?.(null);
+  };
+  const preference = (kind, channel, checked) => {
+    const next = { ...preferences, [kind]: { ...preferences[kind], [channel]: checked } };
+    setLocalPreferences(next);
+    props.onPreferencesChange?.(next);
+  };
+  const visibleAttention = props.attention && preferences[props.attention.kind].visual;
+  return _jsxs14("section", { className: "pc-avatar-conversation", "aria-label": "Avatar conversation", "data-state": state, children: [_jsx17("div", { className: "pc-avatar-conversation__scene", children: props.avatar }), _jsx17("p", { className: "pc-avatar-conversation__status", role: "status", children: labels[state] }), visibleAttention ? _jsxs14("p", { className: "pc-avatar-conversation__attention", "data-kind": props.attention.kind, children: [props.attention.kind === "approval" ? "An explicit decision is required. Waiting never grants permission." : props.attention.kind === "completion" ? "The result is ready in conversation history." : props.attention.importance === "essential" ? "Your answer is required. I will keep waiting." : "Your input is welcome.", props.attention.kind === "question" && props.attention.importance === "clarification" ? _jsxs14(_Fragment7, { children: [" ", props.attention.deadline && Number.isFinite(Date.parse(props.attention.deadline)) ? _jsxs14(_Fragment7, { children: ["Answer by ", _jsx17("time", { dateTime: props.attention.deadline, children: new Date(props.attention.deadline).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) }), ". "] }) : null, props.attention.fallback ? `Without an answer: ${props.attention.fallback}` : ""] }) : null] }) : null, _jsxs14("div", { className: "pc-avatar-conversation__captions", tabIndex: 0, "aria-label": "Public subtitles", "aria-live": attended ? "off" : "polite", onPointerDown: (event) => {
+    if (event.pointerType === "touch") {
+      interrupt();
+      setPaused(true);
+    }
+  }, onMouseEnter: () => setHovered(true), onMouseLeave: () => setHovered(false), onFocus: () => setFocused(true), onBlur: (event) => {
+    if (!event.currentTarget.contains(event.relatedTarget))
+      setFocused(false);
+  }, children: [_jsx17("p", { children: pages[page] || "Public updates and replies will appear here." }), pages.length > 1 ? _jsxs14("div", { className: "pc-avatar-conversation__pages", children: [_jsx17("button", { type: "button", disabled: page === 0, onClick: () => {
+    interrupt();
+    setPaused(true);
+    setPage((p) => Math.max(0, p - 1));
+  }, children: "Previous subtitle" }), _jsxs14("span", { children: [page + 1, " / ", pages.length] }), _jsx17("button", { type: "button", disabled: page === pages.length - 1, onClick: () => {
+    interrupt();
+    setPaused(true);
+    setPage((p) => Math.min(pages.length - 1, p + 1));
+  }, children: "Next subtitle" })] }) : null] }), _jsxs14("div", { className: "pc-avatar-conversation__actions", children: [_jsx17("button", { type: "button", "aria-pressed": paused, onClick: () => {
+    interrupt();
+    setPaused((v) => !v);
+  }, children: paused ? "Resume subtitles" : "Pause subtitles" }), _jsx17("button", { type: "button", "aria-expanded": history, onClick: () => {
+    interrupt();
+    setHistory((v) => !v);
+  }, children: "Conversation history" }), attended ? _jsx17("button", { type: "button", onClick: follow, children: "Return to latest" }) : null, props.voiceControl ? _jsx17("span", { onPointerDownCapture: interrupt, onKeyDownCapture: (event) => {
+    if (event.key === "Enter" || event.key === " ")
+      interrupt();
+  }, children: props.voiceControl }) : null, props.playbackControl] }), history ? _jsx17("ol", { className: "pc-avatar-conversation__history", "aria-label": "Public conversation history", children: messages.map((m, i) => _jsxs14("li", { children: [_jsx17("strong", { children: m.role === "user" ? "You" : m.kind === "public_update" ? "Public update" : "Reply" }), _jsx17(ChatMessageCard, { ...props.messageProps, message: { ...m, reasoning: void 0, live: void 0, toolActivity: void 0 } }), m.publicUpdate?.sourceCallIds.length ? _jsxs14("details", { children: [_jsx17("summary", { children: "Sources" }), _jsx17("ul", { children: m.publicUpdate.sourceCallIds.map((id) => _jsx17("li", { children: id }, id)) })] }) : null, m.publicUpdate ? _jsx17("button", { type: "button", "aria-pressed": selected === m, onClick: () => {
+    interrupt();
+    setSelected(m);
+    setShown(m);
+    setPage(0);
+    props.onReplyContext?.(m);
+  }, children: "Reply to this" }) : null] }, `${m.runId || ""}:${m.id || i}`)) }) : null, selected ? _jsxs14("p", { className: "pc-avatar-conversation__reply-context", children: ["Replying to the selected exchange. ", _jsx17("button", { type: "button", onClick: follow, children: "Clear reply context" })] }) : null, props.interaction, _jsxs14("details", { className: "pc-avatar-conversation__preferences", children: [_jsx17("summary", { children: "Conversation cues" }), _jsx17("p", { children: "Cues apply while this conversation is open. Audio plays only when the host provides it." }), ["approval", "question", "completion"].map((kind) => _jsxs14("fieldset", { children: [_jsx17("legend", { children: kind === "approval" ? "Permission requests" : kind === "question" ? "Questions" : "Completion" }), ["visual", "audio"].map((channel) => _jsxs14("label", { children: [_jsx17("input", { type: "checkbox", checked: preferences[kind][channel], onChange: (event) => preference(kind, channel, event.target.checked) }), channel === "visual" ? "Visual cue" : "Audio cue"] }, channel))] }, kind))] })] });
 }
 
 // dist/workflow_chat.js
@@ -2785,24 +3045,24 @@ function messageFor(error) {
 }
 function WorkflowChat(props) {
   useAfTooltips();
-  const artifactFetch = useMemo7(() => props.artifactFetch ? boundedArtifactFetch(props.artifactFetch) : void 0, [props.artifactFetch, props.attachmentScope]);
+  const artifactFetch = useMemo8(() => props.artifactFetch ? boundedArtifactFetch(props.artifactFetch) : void 0, [props.artifactFetch, props.attachmentScope]);
   const transcript = useMessageArtifacts(props.messages, artifactFetch, props.attachmentScope || "", props.attachmentRun);
-  const [sendPending, setSendPending] = useState14(false);
-  const [cancelPending, setCancelPending] = useState14(false);
-  const [attachPending, setAttachPending] = useState14(false);
-  const [error, setError] = useState14(null);
-  const [steerMode, setSteerMode] = useState14(() => props.steer?.modes?.[0] || "guide");
-  const [steerStatus, setSteerStatus] = useState14(null);
-  const [copyState, setCopyState] = useState14("idle");
-  const sendAbortRef = useRef9(null);
-  const mountedRef = useRef9(true);
-  const sendInFlightRef = useRef9(false);
-  const cancelInFlightRef = useRef9(false);
-  const attachInFlightRef = useRef9(false);
-  const sendSequenceRef = useRef9(0);
-  const cancelSequenceRef = useRef9(0);
-  const attachSequenceRef = useRef9(0);
-  useEffect13(() => {
+  const [sendPending, setSendPending] = useState15(false);
+  const [cancelPending, setCancelPending] = useState15(false);
+  const [attachPending, setAttachPending] = useState15(false);
+  const [error, setError] = useState15(null);
+  const [steerMode, setSteerMode] = useState15(() => props.steer?.modes?.[0] || "guide");
+  const [steerStatus, setSteerStatus] = useState15(null);
+  const [copyState, setCopyState] = useState15("idle");
+  const sendAbortRef = useRef10(null);
+  const mountedRef = useRef10(true);
+  const sendInFlightRef = useRef10(false);
+  const cancelInFlightRef = useRef10(false);
+  const attachInFlightRef = useRef10(false);
+  const sendSequenceRef = useRef10(0);
+  const cancelSequenceRef = useRef10(0);
+  const attachSequenceRef = useRef10(0);
+  useEffect14(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
@@ -2827,16 +3087,16 @@ function WorkflowChat(props) {
   const activeSteerMode = steerModes.includes(steerMode) ? steerMode : steerModes[0] || "guide";
   const steering = Boolean(steer) && Boolean(props.busy);
   const attachmentItems = Array.isArray(props.attachmentItems) ? props.attachmentItems : [];
-  useEffect13(() => {
+  useEffect14(() => {
     setSteerStatus(null);
   }, [Boolean(props.busy)]);
   const acceptsFiles = typeof props.onFiles === "function";
-  const sectionRef = useRef9(null);
-  const [drag, setDrag] = useState14(null);
-  const [announcement, setAnnouncement] = useState14("");
-  const onFilesRef = useRef9(props.onFiles);
+  const sectionRef = useRef10(null);
+  const [drag, setDrag] = useState15(null);
+  const [announcement, setAnnouncement] = useState15("");
+  const onFilesRef = useRef10(props.onFiles);
   onFilesRef.current = props.onFiles;
-  const disabledRef = useRef9(disabled);
+  const disabledRef = useRef10(disabled);
   disabledRef.current = disabled;
   const deliverFiles = async (files2, folders) => {
     const handler = onFilesRef.current;
@@ -2866,14 +3126,14 @@ function WorkflowChat(props) {
         setError({ action: "attach", message: messageFor(reason) });
     }
   };
-  const deliverRef = useRef9(deliverFiles);
+  const deliverRef = useRef10(deliverFiles);
   deliverRef.current = deliverFiles;
-  useEffect13(() => {
+  useEffect14(() => {
     if (!acceptsFiles || typeof window === "undefined")
       return;
     const presence = new DragPresence();
     let watchdog = 0;
-    const inside = (target) => Boolean(sectionRef.current && target instanceof Node && sectionRef.current.contains(target));
+    const inside = (target2) => Boolean(sectionRef.current && target2 instanceof Node && sectionRef.current.contains(target2));
     const hide = () => {
       presence.reset();
       if (watchdog)
@@ -2969,11 +3229,11 @@ function WorkflowChat(props) {
     event.preventDefault();
     void deliverFiles(files2, []);
   };
-  const dropZone = drag ? _jsxs14("div", { className: [
+  const dropZone = drag ? _jsxs15("div", { className: [
     "pc-workflow-chat__dropzone",
     drag.over ? "is-over" : "",
     disabled ? "is-disabled" : ""
-  ].filter(Boolean).join(" "), "aria-hidden": "true", children: [_jsx17("span", { className: "pc-workflow-chat__dropzone-icon", children: _jsx17(Icon8, { name: "paperclip", size: 18 }) }), _jsxs14("span", { className: "pc-workflow-chat__dropzone-text", children: [_jsx17("strong", { children: disabled ? "Attachments are unavailable right now" : dropZoneLabel(drag.count) }), disabled ? null : _jsx17("span", { children: drag.over ? "Release to upload to this conversation" : "Drop anywhere on the conversation" })] })] }) : null;
+  ].filter(Boolean).join(" "), "aria-hidden": "true", children: [_jsx18("span", { className: "pc-workflow-chat__dropzone-icon", children: _jsx18(Icon8, { name: "paperclip", size: 18 }) }), _jsxs15("span", { className: "pc-workflow-chat__dropzone-text", children: [_jsx18("strong", { children: disabled ? "Attachments are unavailable right now" : dropZoneLabel(drag.count) }), disabled ? null : _jsx18("span", { children: drag.over ? "Release to upload to this conversation" : "Drop anywhere on the conversation" })] })] }) : null;
   const liveMessage = drag ? disabled ? "Attachments are unavailable right now" : dropZoneLabel(drag.count) : announcement;
   const submitSteer = async (draft) => {
     if (!steer)
@@ -3117,35 +3377,39 @@ function WorkflowChat(props) {
     if (typeof window !== "undefined")
       window.setTimeout(() => mountedRef.current && setCopyState("idle"), 1200);
   };
-  const toolbarRow = toolbar ? _jsxs14("div", { className: "pc-workflow-chat__toolbar", role: "toolbar", "aria-label": "Conversation actions", children: [toolbar.onNewSession ? _jsxs14("button", { type: "button", className: "pc-workflow-chat__icon-button", "data-toolbar": "new", disabled, onClick: () => void runToolbar(toolbar.onNewSession), children: [_jsx17(Icon8, { name: "plus", size: 14 }), _jsx17("span", { children: "New chat" })] }) : null, toolbar.onClear ? _jsxs14("button", { type: "button", className: "pc-workflow-chat__icon-button", "data-toolbar": "clear", disabled, onClick: () => void runToolbar(toolbar.onClear), children: [_jsx17(Icon8, { name: "trash", size: 14 }), _jsx17("span", { children: "Clear" })] }) : null, toolbar.copyTranscript ? _jsxs14("button", { type: "button", className: "pc-workflow-chat__icon-button", "data-toolbar": "copy", onClick: () => void copyTranscript(), children: [_jsx17(Icon8, { name: copyState === "copied" ? "check" : "copy", size: 14 }), _jsx17("span", { children: copyState === "copied" ? "Copied" : copyState === "failed" ? "Copy failed" : "Copy" })] }) : null, toolbar.exportTranscript ? _jsxs14("button", { type: "button", className: "pc-workflow-chat__icon-button", "data-toolbar": "export", onClick: () => {
+  const toolbarRow = toolbar ? _jsxs15("div", { className: "pc-workflow-chat__toolbar", role: "toolbar", "aria-label": "Conversation actions", children: [toolbar.onNewSession ? _jsxs15("button", { type: "button", className: "pc-workflow-chat__icon-button", "data-toolbar": "new", disabled, onClick: () => void runToolbar(toolbar.onNewSession), children: [_jsx18(Icon8, { name: "plus", size: 14 }), _jsx18("span", { children: "New chat" })] }) : null, toolbar.onClear ? _jsxs15("button", { type: "button", className: "pc-workflow-chat__icon-button", "data-toolbar": "clear", disabled, onClick: () => void runToolbar(toolbar.onClear), children: [_jsx18(Icon8, { name: "trash", size: 14 }), _jsx18("span", { children: "Clear" })] }) : null, toolbar.copyTranscript ? _jsxs15("button", { type: "button", className: "pc-workflow-chat__icon-button", "data-toolbar": "copy", onClick: () => void copyTranscript(), children: [_jsx18(Icon8, { name: copyState === "copied" ? "check" : "copy", size: 14 }), _jsx18("span", { children: copyState === "copied" ? "Copied" : copyState === "failed" ? "Copy failed" : "Copy" })] }) : null, toolbar.exportTranscript ? _jsxs15("button", { type: "button", className: "pc-workflow-chat__icon-button", "data-toolbar": "export", onClick: () => {
     const spec = toolbar.exportTranscript;
     downloadTextFile({
       filename: spec.filename,
       text: transcriptMarkdown(spec.heading),
       mime: "text/markdown;charset=utf-8"
     });
-  }, children: [_jsx17(Icon8, { name: "download", size: 14 }), _jsx17("span", { children: "Export" })] }) : null] }) : null;
-  const steerLabel = activeSteerMode === "queue" ? "Queue" : "Steer";
-  const steerNote = steerStatus ? steerStatus.mode === "queue" ? `Queued for the next turn${typeof steerStatus.seq === "number" ? ` (seq ${steerStatus.seq})` : ""}.` : `${steerStatus.duplicate ? "Already queued" : "Queued"}${typeof steerStatus.seq === "number" ? ` (seq ${steerStatus.seq})` : ""}. ${steer?.parked ? "The run is waiting: your guidance delivers at its next wake (steers do not wake runs)." : "Delivers at the run's next loop boundary."}` : "";
-  return _jsxs14("section", { ref: sectionRef, className: [
+  }, children: [_jsx18(Icon8, { name: "download", size: 14 }), _jsx18("span", { children: "Export" })] }) : null] }) : null;
+  const steerLabel = props.avatarConversation ? "Send" : activeSteerMode === "queue" ? "Queue" : "Steer";
+  const steerNote = steerStatus ? props.avatarConversation ? "Sent. Your message is available to the assistant." : steerStatus.mode === "queue" ? `Queued for the next turn${typeof steerStatus.seq === "number" ? ` (seq ${steerStatus.seq})` : ""}.` : `${steerStatus.duplicate ? "Already queued" : "Queued"}${typeof steerStatus.seq === "number" ? ` (seq ${steerStatus.seq})` : ""}. ${steer?.parked ? "The run is waiting: your guidance delivers at its next wake (steers do not wake runs)." : "Delivers at the run's next loop boundary."}` : "";
+  return _jsxs15("section", { ref: sectionRef, className: [
     "pc-workflow-chat",
     drag ? "pc-workflow-chat--dragging" : "",
     drag?.over ? "pc-workflow-chat--drag-over" : "",
     props.className
-  ].filter(Boolean).join(" "), "aria-label": "Workflow chat", "data-stream-replies": props.streamReplies || "gateway_default", children: [props.header || toolbarRow ? _jsxs14("header", { className: [
+  ].filter(Boolean).join(" "), "aria-label": "Workflow chat", "data-stream-replies": props.streamReplies || "gateway_default", children: [props.header || toolbarRow ? _jsxs15("header", { className: [
     "pc-workflow-chat__header",
     toolbarRow ? "pc-workflow-chat__header--toolbar" : ""
-  ].filter(Boolean).join(" "), children: [props.header ? _jsx17("div", { className: "pc-workflow-chat__header-main", children: props.header }) : null, toolbarRow] }) : null, _jsx17("div", { className: "pc-workflow-chat__transcript", children: _jsxs14(ArtifactFetchContext.Provider, { value: artifactFetch, children: [transcript.error && _jsxs14("p", { role: "status", className: "pc-workflow-chat__error", children: [transcript.error, " ", _jsx17("button", { type: "button", onClick: transcript.retry, children: "Retry attachment check" })] }), _jsx17(ChatThread, { messages: transcript.messages, empty: props.emptyState, autoScroll: true, messageProps: {
+  ].filter(Boolean).join(" "), children: [props.header ? _jsx18("div", { className: "pc-workflow-chat__header-main", children: props.header }) : null, toolbarRow] }) : null, _jsx18("div", { className: "pc-workflow-chat__transcript", children: _jsxs15(ArtifactFetchContext.Provider, { value: artifactFetch, children: [transcript.error && _jsxs15("p", { role: "status", className: "pc-workflow-chat__error", children: [transcript.error, " ", _jsx18("button", { type: "button", onClick: transcript.retry, children: "Retry attachment check" })] }), props.avatarConversation ? _jsx18(AvatarConversation, { ...props.avatarConversation, messages: transcript.messages, messageProps: { ...props.messageProps, ...props.renderMarkdown ? { renderMarkdown: props.renderMarkdown } : {} }, attended: Boolean(props.draft.trim()), interaction: _jsxs15(_Fragment8, { children: [props.interaction ? _jsx18(WorkflowInteractionPanel, { interaction: props.interaction, disabled }) : null, blocked ? _jsx18("div", { className: "pc-workflow-chat__blocked", role: "status", children: props.blockedNotice }) : null] }) }) : _jsx18(ChatThread, { messages: transcript.messages, empty: props.emptyState, autoScroll: true, messageProps: {
     ...props.messageProps,
     ...props.messageProps?.renderFooter ? {
       renderFooter: (m) => props.messageProps.renderFooter(props.messages.find((original) => original === m || original.id && original.id === m.id) || m)
     } : {},
     ...props.renderMarkdown ? { renderMarkdown: props.renderMarkdown } : {}
-  }, after: _jsxs14(_Fragment7, { children: [props.interaction ? _jsx17(WorkflowInteractionPanel, { interaction: props.interaction, disabled }) : null, blocked ? _jsx17("div", { className: "pc-workflow-chat__blocked", role: "status", children: props.blockedNotice }) : null] }), afterKey: `${props.interaction ? `${props.interaction.kind}:${props.interaction.id}` : ""}:${blocked ? "blocked" : ""}` })] }, props.attachmentScope) }), error ? _jsxs14("div", { className: "pc-workflow-chat__error", role: "alert", children: [_jsxs14("span", { children: ["Could not", " ", error.action === "send" ? "send this message" : error.action === "steer" ? activeSteerMode === "queue" ? "queue this message" : "steer the run" : error.action === "attach" ? "attach a file" : error.action === "toolbar" ? "complete that action" : "stop the run", ": ", error.message] }), error.action !== "toolbar" ? _jsx17("button", { type: "button", onClick: retry, disabled, children: "Try again" }) : null] }) : null, _jsxs14("div", { className: "pc-workflow-chat__composer", children: [_jsx17(ChatComposer, { value: props.draft, onChange: props.onDraftChange, onSubmit: () => void submit(), placeholder: props.placeholder || "Send a message", ariaLabel: "Message", disabled, busy: steering ? sendPending : composerBusy, sendLabel: steering ? steerLabel : props.sendLabel, busyLabel: steering ? activeSteerMode === "queue" ? "Queueing\u2026" : "Steering\u2026" : props.busyLabel, rows: 2, leading: props.attachments || attachmentItems.length ? _jsxs14("div", { className: "pc-workflow-chat__attachments", children: [attachmentItems.length ? _jsx17(ComposerAttachmentChips, { items: attachmentItems, onRemove: props.onRemoveAttachment, onRetry: props.onRetryAttachment, disabled }) : null, props.attachments] }) : null, overlay: dropZone, onPaste: acceptsFiles ? onPaste : void 0, actions: _jsxs14(_Fragment7, { children: [props.onAttach ? _jsxs14("button", { type: "button", className: "pc-workflow-chat__icon-button", "aria-label": "Attach file", "data-af-tip": "Attach a file", disabled: disabled || attachPending, onClick: () => void attach(), children: [_jsx17(Icon8, { name: "paperclip", size: 16 }), _jsx17("span", { children: attachPending ? "Attaching\u2026" : "Attach" })] }) : null, props.composerExtras, steering && steerModes.length > 1 ? _jsx17("span", { className: "pc-workflow-chat__steer-modes", role: "group", "aria-label": "While the run is busy", children: steerModes.map((mode) => _jsx17("button", { type: "button", className: "pc-workflow-chat__steer-mode", "data-steer-mode": mode, "aria-pressed": activeSteerMode === mode, disabled: disabled || sendPending, onClick: () => setSteerMode(mode), children: mode === "queue" ? "Queue next turn" : "Guide this run" }, mode)) }) : null, sending && props.onCancel ? _jsxs14("button", { type: "button", className: "pc-workflow-chat__stop", disabled: disabled || cancelPending || stopping, onClick: () => void cancel(), children: [_jsx17(Icon8, { name: "x", size: 14 }), _jsx17("span", { children: cancelPending || stopping ? "Stopping\u2026" : "Stop" })] }) : stopState ? _jsx17("span", { className: `pc-workflow-chat__stop-state pc-workflow-chat__stop-state--${stopState.phase}`, role: "status", "aria-live": "polite", children: stopState.label }) : null] }) }), steer ? _jsx17("div", { className: "pc-workflow-chat__steer-status", role: "status", "aria-live": "polite", children: steerNote }) : null, acceptsFiles ? _jsx17("div", { className: "pc-sr-only", role: "status", "aria-live": "polite", children: liveMessage }) : null] }), props.footer ? _jsx17("footer", { className: "pc-workflow-chat__footer", children: props.footer }) : null] });
+  }, after: _jsxs15(_Fragment8, { children: [props.interaction ? _jsx18(WorkflowInteractionPanel, { interaction: props.interaction, disabled }) : null, blocked ? _jsx18("div", { className: "pc-workflow-chat__blocked", role: "status", children: props.blockedNotice }) : null] }), afterKey: `${props.interaction ? `${props.interaction.kind}:${props.interaction.id}` : ""}:${blocked ? "blocked" : ""}` })] }, props.attachmentScope) }), error ? _jsxs15("div", { className: "pc-workflow-chat__error", role: "alert", children: [_jsxs15("span", { children: ["Could not", " ", error.action === "send" ? "send this message" : error.action === "steer" ? props.avatarConversation ? "send this message" : activeSteerMode === "queue" ? "queue this message" : "steer the run" : error.action === "attach" ? "attach a file" : error.action === "toolbar" ? "complete that action" : "stop the run", ": ", error.message] }), error.action !== "toolbar" ? _jsx18("button", { type: "button", onClick: retry, disabled, children: "Try again" }) : null] }) : null, _jsxs15("div", { className: "pc-workflow-chat__composer", children: [_jsx18(ChatComposer, { value: props.draft, onChange: (draft) => {
+    if (props.avatarConversation)
+      props.avatarConversation.onInterruptSpeech?.();
+    props.onDraftChange(draft);
+  }, onSubmit: () => void submit(), placeholder: props.placeholder || "Send a message", ariaLabel: "Message", disabled, busy: steering ? sendPending : composerBusy, sendLabel: steering ? steerLabel : props.sendLabel, busyLabel: steering ? props.avatarConversation ? "Sending\u2026" : activeSteerMode === "queue" ? "Queueing\u2026" : "Steering\u2026" : props.busyLabel, rows: 2, leading: props.attachments || attachmentItems.length ? _jsxs15("div", { className: "pc-workflow-chat__attachments", children: [attachmentItems.length ? _jsx18(ComposerAttachmentChips, { items: attachmentItems, onRemove: props.onRemoveAttachment, onRetry: props.onRetryAttachment, disabled }) : null, props.attachments] }) : null, overlay: dropZone, onPaste: acceptsFiles ? onPaste : void 0, actions: _jsxs15(_Fragment8, { children: [props.onAttach ? _jsxs15("button", { type: "button", className: "pc-workflow-chat__icon-button", "aria-label": "Attach file", "data-af-tip": "Attach a file", disabled: disabled || attachPending, onClick: () => void attach(), children: [_jsx18(Icon8, { name: "paperclip", size: 16 }), _jsx18("span", { children: attachPending ? "Attaching\u2026" : "Attach" })] }) : null, props.composerExtras, steering && steerModes.length > 1 ? _jsx18("span", { className: "pc-workflow-chat__steer-modes", role: "group", "aria-label": "While the run is busy", children: steerModes.map((mode) => _jsx18("button", { type: "button", className: "pc-workflow-chat__steer-mode", "data-steer-mode": mode, "aria-pressed": activeSteerMode === mode, disabled: disabled || sendPending, onClick: () => setSteerMode(mode), children: mode === "queue" ? "Queue next turn" : "Guide this run" }, mode)) }) : null, sending && props.onCancel ? _jsxs15("button", { type: "button", className: "pc-workflow-chat__stop", disabled: disabled || cancelPending || stopping, onClick: () => void cancel(), children: [_jsx18(Icon8, { name: "x", size: 14 }), _jsx18("span", { children: cancelPending || stopping ? "Stopping\u2026" : "Stop" })] }) : stopState ? _jsx18("span", { className: `pc-workflow-chat__stop-state pc-workflow-chat__stop-state--${stopState.phase}`, role: "status", "aria-live": "polite", children: stopState.label }) : null] }) }), steer ? _jsx18("div", { className: "pc-workflow-chat__steer-status", role: "status", "aria-live": "polite", children: steerNote }) : null, acceptsFiles ? _jsx18("div", { className: "pc-sr-only", role: "status", "aria-live": "polite", children: liveMessage }) : null] }), props.footer ? _jsx18("footer", { className: "pc-workflow-chat__footer", children: props.footer }) : null] });
 }
 
 // dist/use_workflow_session.js
-import { useEffect as useEffect14, useMemo as useMemo8, useSyncExternalStore } from "react";
+import { useEffect as useEffect15, useMemo as useMemo9, useSyncExternalStore } from "react";
 
 // dist/workflow_evidence.js
 var obj4 = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -3168,9 +3432,9 @@ function foldWorkflowTools(state, entry) {
   const source = calls.length ? calls : results;
   const changed = [];
   source.forEach((call, index) => {
-    let matches = uid(call) ? results.filter((row) => uid(row) === uid(call)) : [];
-    if (!matches.length && cid(call) && calls.filter((row) => cid(row) === cid(call)).length === 1)
-      matches = results.filter((row) => cid(row) === cid(call));
+    let matches = uid(call) ? results.filter((row2) => uid(row2) === uid(call)) : [];
+    if (!matches.length && cid(call) && calls.filter((row2) => cid(row2) === cid(call)).length === 1)
+      matches = results.filter((row2) => cid(row2) === cid(call));
     const output = !calls.length ? call : matches.length === 1 ? matches[0] : calls.length === results.length ? results[index] : {};
     const identity = uid(call) || uid(output) || `${str2(rec.idempotency_key) || str2(rec.step_id) || entry.cursor}:${index}`;
     const id = `${entry.runId}:${identity}`, previous = state.get(id);
@@ -3259,13 +3523,13 @@ function progressIndex(records) {
     if (str2(payload.kind) !== "llm" || !str2(payload.step_id))
       continue;
     const key = `${str2(payload.run_id) || entry.runId}:${str2(payload.step_id)}`;
-    const row = index.get(key) || {};
+    const row2 = index.get(key) || {};
     const ttft = num(payload.ttft_s);
     if (ttft !== void 0)
-      row.ttftS = ttft;
-    row.provider = row.provider || str2(payload.provider) || void 0;
-    row.model = row.model || str2(payload.model) || void 0;
-    index.set(key, row);
+      row2.ttftS = ttft;
+    row2.provider = row2.provider || str2(payload.provider) || void 0;
+    row2.model = row2.model || str2(payload.model) || void 0;
+    index.set(key, row2);
   }
   return index;
 }
@@ -3446,33 +3710,33 @@ function workflowEvidence(records) {
     }
     const spec = obj4(metadata.speculation);
     if (Object.keys(spec).length) {
-      const row = {};
+      const row2 = {};
       if (str2(spec.mode))
-        row.mode = str2(spec.mode);
+        row2.mode = str2(spec.mode);
       if (typeof spec.used === "boolean")
-        row.used = spec.used;
+        row2.used = spec.used;
       if (str2(spec.draft_kind))
-        row.draftKind = str2(spec.draft_kind);
+        row2.draftKind = str2(spec.draft_kind);
       const accepted = count(spec, ["accepted_tokens"]), drafted = count(spec, ["drafted_tokens"]), rounds = count(spec, ["rounds"]), draftLength = count(spec, ["num_draft_tokens"]);
       if (accepted !== void 0)
-        row.acceptedTokens = accepted;
+        row2.acceptedTokens = accepted;
       if (drafted !== void 0)
-        row.draftedTokens = drafted;
+        row2.draftedTokens = drafted;
       if (accepted !== void 0 && drafted)
-        row.acceptanceRate = accepted / drafted;
+        row2.acceptanceRate = accepted / drafted;
       if (rounds !== void 0)
-        row.rounds = rounds;
+        row2.rounds = rounds;
       if (draftLength !== void 0)
-        row.draftLength = draftLength;
-      call.speculation = row;
+        row2.draftLength = draftLength;
+      call.speculation = row2;
       const agg = statistics.speculation || (statistics.speculation = { calls: 0, used: 0 });
       agg.calls += 1;
-      if (row.used)
+      if (row2.used)
         agg.used += 1;
-      if (row.mode)
-        agg.modes = addDistinct(agg.modes, row.mode);
-      if (row.draftKind)
-        agg.draftKinds = addDistinct(agg.draftKinds, row.draftKind);
+      if (row2.mode)
+        agg.modes = addDistinct(agg.modes, row2.mode);
+      if (row2.draftKind)
+        agg.draftKinds = addDistinct(agg.draftKinds, row2.draftKind);
       if (accepted !== void 0 && drafted !== void 0) {
         agg.acceptedTokens = (agg.acceptedTokens || 0) + accepted;
         agg.draftedTokens = (agg.draftedTokens || 0) + drafted;
@@ -3522,13 +3786,13 @@ function workflowEvidence(records) {
     if (failedCall)
       statistics.toolsFailed = (statistics.toolsFailed || 0) + 1;
     const byName = statistics.toolBreakdown || (statistics.toolBreakdown = {});
-    const row = byName[tool.name] || (byName[tool.name] = { calls: 0, failed: 0 });
-    row.calls += 1;
+    const row2 = byName[tool.name] || (byName[tool.name] = { calls: 0, failed: 0 });
+    row2.calls += 1;
     if (failedCall) {
-      row.failed += 1;
+      row2.failed += 1;
       const failure = errorClass(tool.output);
       if (failure)
-        (row.errors || (row.errors = {}))[failure] = (row.errors?.[failure] || 0) + 1;
+        (row2.errors || (row2.errors = {}))[failure] = (row2.errors?.[failure] || 0) + 1;
     }
     const began = Date.parse(str2(tool.startedAt)), ended = Date.parse(str2(tool.endedAt));
     if (Number.isFinite(began) && Number.isFinite(ended) && ended >= began) {
@@ -3569,9 +3833,9 @@ function workflowEvidence(records) {
     const names = [...batch.names.keys()].sort();
     if (!statistics.slowestToolBatch || batch.ms > statistics.slowestToolBatch.ms)
       statistics.slowestToolBatch = { ms: batch.ms, calls: batch.calls, tools: names };
-    const row = statistics.toolBreakdown?.[names[0]];
-    if (names.length === 1 && row)
-      row.ms = (row.ms || 0) + batch.ms;
+    const row2 = statistics.toolBreakdown?.[names[0]];
+    if (names.length === 1 && row2)
+      row2.ms = (row2.ms || 0) + batch.ms;
     else
       for (const name of names) {
         const shared = statistics.toolBreakdown?.[name];
@@ -3613,58 +3877,58 @@ function isLlmDeltaEnd(event) {
   return "reason" in event;
 }
 function validateLlmDeltaEvent(value, eventName) {
-  const row = record(value);
-  const kind = row?.kind;
-  const label = eventName || (typeof kind === "string" && kind ? kind : row && "reason" in row ? LLM_DELTA_END_EVENT : LLM_DELTA_EVENT);
+  const row2 = record(value);
+  const kind = row2?.kind;
+  const label = eventName || (typeof kind === "string" && kind ? kind : row2 && "reason" in row2 ? LLM_DELTA_END_EVENT : LLM_DELTA_EVENT);
   const bad = (why) => {
     throw new Error(`Malformed ${label} event from the gateway: ${why}`);
   };
   if (eventName !== void 0 && eventName !== LLM_DELTA_EVENT && eventName !== LLM_DELTA_END_EVENT)
     bad(`unknown event name ${JSON.stringify(eventName)}`);
-  if (!row)
+  if (!row2)
     return bad("the payload is not an object");
   if (kind !== void 0 && kind !== LLM_DELTA_EVENT && kind !== LLM_DELTA_END_EVENT)
     bad(`unknown kind ${JSON.stringify(kind)}`);
   if (kind !== void 0 && eventName !== void 0 && kind !== eventName)
     bad(`kind ${JSON.stringify(kind)} does not match the event name`);
-  if (!nonEmpty(row.run_id))
+  if (!nonEmpty(row2.run_id))
     bad("run_id is missing");
-  if (!nonEmpty(row.call_id))
+  if (!nonEmpty(row2.call_id))
     bad("call_id is missing");
-  if (!seqOf(row.seq))
+  if (!seqOf(row2.seq))
     bad("seq is not a non-negative integer");
-  const isEnd = eventName || kind ? (eventName || kind) === LLM_DELTA_END_EVENT : "reason" in row;
-  if (row.root_run_id !== void 0 && !nonEmpty(row.root_run_id))
+  const isEnd = eventName || kind ? (eventName || kind) === LLM_DELTA_END_EVENT : "reason" in row2;
+  if (row2.root_run_id !== void 0 && !nonEmpty(row2.root_run_id))
     bad("root_run_id is not a run id");
-  if (row.parent_run_id !== void 0 && row.parent_run_id !== null && !nonEmpty(row.parent_run_id))
+  if (row2.parent_run_id !== void 0 && row2.parent_run_id !== null && !nonEmpty(row2.parent_run_id))
     bad("parent_run_id is neither a run id nor null");
   const common = {
-    run_id: row.run_id,
-    ...nonEmpty(row.root_run_id) ? { root_run_id: row.root_run_id } : {},
-    ...row.parent_run_id !== void 0 ? { parent_run_id: row.parent_run_id } : {},
-    ...nonEmpty(row.node_id) ? { node_id: row.node_id } : {},
-    call_id: row.call_id,
-    seq: row.seq
+    run_id: row2.run_id,
+    ...nonEmpty(row2.root_run_id) ? { root_run_id: row2.root_run_id } : {},
+    ...row2.parent_run_id !== void 0 ? { parent_run_id: row2.parent_run_id } : {},
+    ...nonEmpty(row2.node_id) ? { node_id: row2.node_id } : {},
+    call_id: row2.call_id,
+    seq: row2.seq
   };
   if (isEnd) {
-    if (!["completed", "failed", "cancelled", "unavailable"].includes(String(row.reason)))
-      bad(`unknown reason ${JSON.stringify(row.reason)}`);
-    if (row.detail !== void 0 && row.detail !== null && typeof row.detail !== "string")
+    if (!["completed", "failed", "cancelled", "unavailable"].includes(String(row2.reason)))
+      bad(`unknown reason ${JSON.stringify(row2.reason)}`);
+    if (row2.detail !== void 0 && row2.detail !== null && typeof row2.detail !== "string")
       bad("detail is not a string");
-    return { kind: LLM_DELTA_END_EVENT, ...common, reason: row.reason, ...nonEmpty(row.detail) ? { detail: row.detail } : {} };
+    return { kind: LLM_DELTA_END_EVENT, ...common, reason: row2.reason, ...nonEmpty(row2.detail) ? { detail: row2.detail } : {} };
   }
-  if (typeof row.text !== "string")
+  if (typeof row2.text !== "string")
     bad("text is not a string");
-  if (row.channel !== "content" && row.channel !== "reasoning")
-    bad(`unknown channel ${JSON.stringify(row.channel)}`);
-  if (typeof row.snapshot !== "boolean")
+  if (row2.channel !== "content" && row2.channel !== "reasoning")
+    bad(`unknown channel ${JSON.stringify(row2.channel)}`);
+  if (typeof row2.snapshot !== "boolean")
     bad("snapshot is not a boolean");
   return {
     kind: LLM_DELTA_EVENT,
     ...common,
-    text: row.text,
-    channel: row.channel,
-    snapshot: row.snapshot
+    text: row2.text,
+    channel: row2.channel,
+    snapshot: row2.snapshot
   };
 }
 var UNAVAILABLE_REASONS = {
@@ -4064,6 +4328,8 @@ function messageOf(m, statistics, artifacts) {
     kind: m.kind,
     content: m.text,
     runId: m.run_id,
+    ...m.source ? { source: m.source } : {},
+    ...m.kind === "public_update" ? { publicUpdate: publicUpdate({ id: m.public_update_id || m.id, text: m.text, run_id: m.run_id, session_id: m.session_id, iteration: m.iteration, source_call_ids: m.source_call_ids }, m.run_id) || void 0 } : {},
     ...ts ? { ts } : {},
     ...m.role === "system" ? {
       title: "Workflow",
@@ -4194,12 +4460,12 @@ function stablePayload(value) {
   const normalize = (item) => {
     if (Array.isArray(item))
       return item.map(normalize);
-    const row = object(item);
-    if (!row)
+    const row2 = object(item);
+    if (!row2)
       return item;
     const out = {};
-    for (const key of Object.keys(row).sort())
-      out[key] = normalize(row[key]);
+    for (const key of Object.keys(row2).sort())
+      out[key] = normalize(row2[key]);
     return out;
   };
   try {
@@ -4420,7 +4686,7 @@ var WorkflowSessionController = class {
   }
   adoptSessionPolicy(policy) {
     this.sessionPolicyState = policy;
-    this.sessionPolicyClamped = Array.isArray(policy?.clamped) ? policy.clamped.filter((row) => row && typeof row === "object") : [];
+    this.sessionPolicyClamped = Array.isArray(policy?.clamped) ? policy.clamped.filter((row2) => row2 && typeof row2 === "object") : [];
     this.set({ ...this.snapshot });
     this.options.onSessionPolicy?.(policy, this.sessionPolicyClamped);
   }
@@ -4463,11 +4729,11 @@ var WorkflowSessionController = class {
     return new Error(`This chat's policy was not changed: ${message}`);
   }
   /** The shown approval must still be the current one before any policy is written. */
-  requireTarget(target) {
+  requireTarget(target2) {
     const interaction = this.requireInteraction();
     if (terminal(this.snapshot.status))
       throw new Error("This run has already ended.");
-    if (interaction.runId !== target.runId || text2(interaction.wait.wait_key) !== target.waitKey || target.stepId !== void 0 && interaction.stepId !== target.stepId)
+    if (interaction.runId !== target2.runId || text2(interaction.wait.wait_key) !== target2.waitKey || target2.stepId !== void 0 && interaction.stepId !== target2.stepId)
       throw new Error("This approval request has changed. Review the current request before deciding.");
     if (!this.isToolApproval(interaction))
       throw new Error("This is not a tool approval request.");
@@ -4478,8 +4744,8 @@ var WorkflowSessionController = class {
    * answers existing waits). `ask` (the person's explicit Ask tools) travels on every
    * write, so a broad approve never overrides them.
    */
-  async writeThenAnswer(target, body, approved, ask = []) {
-    this.requireTarget(target);
+  async writeThenAnswer(target2, body, approved, ask = []) {
+    this.requireTarget(target2);
     const client = this.gatewayPolicy();
     this.requireRootSession(client);
     const names = [...new Set(ask.map((name) => text2(name)).filter(Boolean))];
@@ -4499,7 +4765,7 @@ var WorkflowSessionController = class {
     if (this.sessionToolPolicy === client)
       this.adoptSessionPolicy(policy);
     try {
-      await this.approve(approved, target);
+      await this.approve(approved, target2);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       throw new Error(`This chat's tool policy was saved, but this request was not answered: ${reason} The policy does not answer requests that were already waiting.`);
@@ -4514,27 +4780,27 @@ var WorkflowSessionController = class {
    * (`allowAllToolsForRun`: this controller, until the run ends). Returns the
    * stored policy, or null in the fallback.
    */
-  async approveAllForSession(target, options = {}) {
+  async approveAllForSession(target2, options = {}) {
     const mode = this.sessionPolicyMode();
     if (mode === "unavailable")
       throw new Error(`${this.sessionPolicyUnavailableReason} Allow once still works.`);
     if (mode !== "gateway") {
-      await this.allowAllToolsForRun(target);
+      await this.allowAllToolsForRun(target2);
       return null;
     }
-    return this.writeThenAnswer(target, { approve: { all: true, ...typeof options.maxRiskRank === "number" ? { max_risk_rank: options.maxRiskRank } : {} } }, true, options.ask);
+    return this.writeThenAnswer(target2, { approve: { all: true, ...typeof options.maxRiskRank === "number" ? { max_risk_rank: options.maxRiskRank } : {} } }, true, options.ask);
   }
   /** "Allow all <toolset> tools for this chat": merge `{approve:{kinds:[kind]}}`, then answer `{approved:true}`. Gateway mode only. */
-  approveKindForSession(target, kind, options = {}) {
-    return this.writeThenAnswer(target, { approve: { kinds: [kind] } }, true, options.ask);
+  approveKindForSession(target2, kind, options = {}) {
+    return this.writeThenAnswer(target2, { approve: { kinds: [kind] } }, true, options.ask);
   }
   /** Deny a toolset for the chat, then answer `{approved:false}`. Gateway mode only; no panel control (hosts expose it). */
-  denyKindForSession(target, kind, options = {}) {
-    return this.writeThenAnswer(target, { deny: { kinds: [kind] } }, false, options.ask);
+  denyKindForSession(target2, kind, options = {}) {
+    return this.writeThenAnswer(target2, { deny: { kinds: [kind] } }, false, options.ask);
   }
   /** Deny one tool for the chat, then answer `{approved:false}`. Gateway mode only; no panel control (hosts expose it). */
-  denyToolForSession(target, tool, options = {}) {
-    return this.writeThenAnswer(target, { deny: { tools: [tool] } }, false, options.ask);
+  denyToolForSession(target2, tool, options = {}) {
+    return this.writeThenAnswer(target2, { deny: { tools: [tool] } }, false, options.ask);
   }
   /** Reset: gateway mode deletes the conversation's policy; the fallback revokes the local grant. */
   /** Narrowing an approve (undo) is a reset (DELETE), never a merge: a merge only adds. */
@@ -4723,9 +4989,9 @@ var WorkflowSessionController = class {
     }
   }
   /** Answer the current question. With `target`, refuses when the question shown is no longer the current one. */
-  resume(response, target) {
+  resume(response, target2) {
     const interaction = this.requireInteraction();
-    if (target && (interaction.runId !== target.runId || text2(interaction.wait.wait_key) !== target.waitKey || target.stepId !== void 0 && interaction.stepId !== target.stepId))
+    if (target2 && (interaction.runId !== target2.runId || text2(interaction.wait.wait_key) !== target2.waitKey || target2.stepId !== void 0 && interaction.stepId !== target2.stepId))
       throw new Error("This question has changed. Review the current question before answering.");
     return this.sendCommand("resume", { wait_key: text2(interaction.wait.wait_key), payload: { response } });
   }
@@ -4734,19 +5000,19 @@ var WorkflowSessionController = class {
    * `answer_payload` for an event is the payload itself). With `target`, refuses when the wait
    * shown is no longer the current one.
    */
-  answerEvent(payload, target) {
+  answerEvent(payload, target2) {
     const interaction = this.requireInteraction();
-    if (target && (interaction.runId !== target.runId || text2(interaction.wait.wait_key) !== target.waitKey || target.stepId !== void 0 && interaction.stepId !== target.stepId))
+    if (target2 && (interaction.runId !== target2.runId || text2(interaction.wait.wait_key) !== target2.waitKey || target2.stepId !== void 0 && interaction.stepId !== target2.stepId))
       throw new Error("This wait has changed. Review the current one before answering.");
     if (!interaction.command)
       throw new Error("This wait has no resume command (it does not come from the replay view): send the event instead.");
     return this.sendCommand("resume", { wait_key: text2(interaction.wait.wait_key), payload });
   }
-  approve(approved, target) {
+  approve(approved, target2) {
     const interaction = this.requireInteraction();
     if (terminal(this.snapshot.status))
       throw new Error("This run has already ended.");
-    if (target && (interaction.runId !== target.runId || text2(interaction.wait.wait_key) !== target.waitKey || target.stepId !== void 0 && interaction.stepId !== target.stepId))
+    if (target2 && (interaction.runId !== target2.runId || text2(interaction.wait.wait_key) !== target2.waitKey || target2.stepId !== void 0 && interaction.stepId !== target2.stepId))
       throw new Error("This approval request has changed. Review the current request before deciding.");
     if (approved && this.toolApprovalPolicy && !this.toolCallsMatch(interaction, this.toolApprovalPolicy.enabledTools))
       throw new Error("This request includes an unavailable or unselected tool. It cannot be authorized. Deny this request or stop the run and change Tools settings.");
@@ -4763,26 +5029,26 @@ var WorkflowSessionController = class {
       return result;
     });
   }
-  async approveWithPolicyChange(target, onApproved) {
+  async approveWithPolicyChange(target2, onApproved) {
     const generation = this.generation;
     const epoch = this.approvalEpoch;
     if (!this.isToolApproval(this.requireInteraction()))
       throw new Error("This is not a tool approval request.");
-    await this.approve(true, target);
+    await this.approve(true, target2);
     if (!this.live(generation) || epoch !== this.approvalEpoch || this.toolApprovalStopped || terminal(this.snapshot.status))
       return;
     onApproved();
   }
-  async allowAllToolsForRun(target) {
+  async allowAllToolsForRun(target2) {
     const generation = this.generation;
     const epoch = this.approvalEpoch;
     const interaction = this.requireInteraction();
     if (!this.isToolApproval(interaction))
       throw new Error("This is not a tool approval request.");
-    await this.approve(true, target);
+    await this.approve(true, target2);
     if (!this.live(generation) || epoch !== this.approvalEpoch || terminal(this.snapshot.status))
       return;
-    this.approvedWaits.add(`${target.runId}:${target.waitKey}${interaction.stepId ? `:${interaction.stepId}` : ""}`);
+    this.approvedWaits.add(`${target2.runId}:${target2.waitKey}${interaction.stepId ? `:${interaction.stepId}` : ""}`);
     this.set({ ...this.snapshot, autoApproveTools: true });
   }
   revokeToolApproval() {
@@ -4889,7 +5155,7 @@ var WorkflowSessionController = class {
     const interaction = this.snapshot.interaction;
     if (!this.coveredByStandingPermission(this.snapshot, interaction))
       return;
-    const target = { runId: interaction.runId, waitKey: text2(interaction.wait.wait_key), stepId: interaction.stepId };
+    const target2 = { runId: interaction.runId, waitKey: text2(interaction.wait.wait_key), stepId: interaction.stepId };
     const key = this.occurrenceKey(interaction);
     if (this.approvedWaits.has(key))
       return;
@@ -4897,7 +5163,7 @@ var WorkflowSessionController = class {
     this.grantedToolWaits.add(key);
     const generation = this.generation;
     const epoch = this.approvalEpoch;
-    void this.approve(true, target).catch((error) => {
+    void this.approve(true, target2).catch((error) => {
       if (!this.live(generation))
         return;
       this.grantedToolWaits.delete(key);
@@ -4956,10 +5222,10 @@ var WorkflowSessionController = class {
     const known = REPLAY_VIEW_PROBES.get(rv);
     if (typeof known === "string")
       return fallback(known);
-    let read;
+    let read2;
     let run;
     try {
-      [read, run] = await Promise.all([rv.getView(id, { signal }), this.transport.getRun(id, signal)]);
+      [read2, run] = await Promise.all([rv.getView(id, { signal }), this.transport.getRun(id, signal)]);
     } catch (error) {
       if (!replayViewUnavailable(error))
         throw error;
@@ -4970,18 +5236,18 @@ var WorkflowSessionController = class {
     REPLAY_VIEW_PROBES.set(rv, true);
     if (!this.live(generation))
       return true;
-    if (read.notModified)
+    if (read2.notModified)
       throw new Error("The gateway answered 304 to a replay view read without If-None-Match.");
     this.source = { source: "replay_view" };
     this.viewRun = object(run);
     const fold = new ReplayViewFold();
-    fold.adopt(read.view, read.etag);
+    fold.adopt(read2.view, read2.etag);
     this.viewFold = fold;
     this.viewDigest = cursorDigest(fold.lastEventId);
     this.adoptView();
     void this.followView(id, generation);
     void this.followLiveReplies(id, generation);
-    await this.loadEarlierTurns(id, text2(read.view.session_id), generation, signal);
+    await this.loadEarlierTurns(id, text2(read2.view.session_id), generation, signal);
     if (this.live(generation))
       this.set({ ...this.snapshot, historyLoading: false });
     return true;
@@ -5229,10 +5495,10 @@ var WorkflowSessionController = class {
     const fold = this.viewFold;
     if (!rv || !fold)
       return;
-    const read = await rv.getView(this.rootRunId, { ifNoneMatch: fold.lastEventId ? `"${fold.lastEventId}"` : null, signal: this.controller?.signal });
-    if (!this.live(generation) || this.viewFold !== fold || read.notModified)
+    const read2 = await rv.getView(this.rootRunId, { ifNoneMatch: fold.lastEventId ? `"${fold.lastEventId}"` : null, signal: this.controller?.signal });
+    if (!this.live(generation) || this.viewFold !== fold || read2.notModified)
       return;
-    if (fold.adopt(read.view, read.etag))
+    if (fold.adopt(read2.view, read2.etag))
       this.adoptView();
   }
   /** `GET runs/{root}` for what the view does not carry (`paused`); never a lifecycle authority over the view. */
@@ -5390,9 +5656,9 @@ var WorkflowSessionController = class {
     await this.hydrateHistoricalSessionRuns(turns, fallbackRunId, generation);
     if (!this.live(generation))
       return;
-    for (const row of turns) {
-      const turnRunId = text2(row?.run_id) || fallbackRunId;
-      this.ingestSessionTurn(row, fallbackRunId, turnRunId !== fallbackRunId ? this.historicalRuns.get(turnRunId) || null : null);
+    for (const row2 of turns) {
+      const turnRunId = text2(row2?.run_id) || fallbackRunId;
+      this.ingestSessionTurn(row2, fallbackRunId, turnRunId !== fallbackRunId ? this.historicalRuns.get(turnRunId) || null : null);
     }
     const userMessageId = `turn:${fallbackRunId}:user`;
     if (!this.seenMessages.has(userMessageId)) {
@@ -5403,8 +5669,8 @@ var WorkflowSessionController = class {
     const ledgers = object(bundle.ledgers);
     if (ledgers)
       for (const [runId, ledger] of Object.entries(ledgers)) {
-        const row = object(ledger);
-        for (const item of array(row?.items))
+        const row2 = object(ledger);
+        for (const item of array(row2?.items))
           this.ingestItem(runId, item);
       }
   }
@@ -5426,11 +5692,11 @@ var WorkflowSessionController = class {
     }
     const authoritative = historicalRun && terminal(statusOf(historicalRun)) ? displayValue(historicalRun.output) : "";
     const answer = authoritative || (historicalRun ? text2(turn.answer) || messageText(turn.output) : "");
-    const evidence = this.historicalEvidence.get(runId);
-    for (const tool of evidence?.tools || [])
+    const evidence2 = this.historicalEvidence.get(runId);
+    for (const tool of evidence2?.tools || [])
       this.upsertTool(tool);
     if (answer)
-      this.addRunAssistantMessage(runId, { id: `final:${runId}`, role: "assistant", content: answer, runId, statistics: evidence?.statistics, ts: text2(turn.updated_at) || void 0 });
+      this.addRunAssistantMessage(runId, { id: `final:${runId}`, role: "assistant", content: answer, runId, statistics: evidence2?.statistics, ts: text2(turn.updated_at) || void 0 });
   }
   /** Fetch only returned prior session roots, with bounded fan-out. */
   async hydrateHistoricalSessionRuns(turns, currentRunId, generation) {
@@ -5531,13 +5797,25 @@ var WorkflowSessionController = class {
     if (effectType === "answer_user" && recStatus === "completed") {
       const content = displayValue(result) || displayValue(object(eff.payload));
       if (content)
-        this.addRunAssistantMessage(runId, { id: `answer:${runId}:${key}`, role: "assistant", content, ts: timestamp });
+        this.addRunAssistantMessage(runId, { id: `answer:${runId}:${key}`, role: "assistant", kind: "answer", runId, content, ts: timestamp });
     }
     if (effectType === "emit_event" && recStatus === "completed") {
       const payload = object(eff.payload) || {};
       const emitted = object(result);
       const name = text2(payload.name) || text2(emitted?.name);
       const eventPayload = payload.payload !== void 0 ? payload.payload : emitted?.payload;
+      if (name === "user_guidance") {
+        const message = object(eventPayload);
+        const seq = message?.seq;
+        if (message && message.status === "accepted" && Number.isInteger(seq) && Number(seq) > 0 && message.run_id === runId && message.id === `${runId}:guidance:${seq}` && record2.node_id === "__host_user_guidance__" && record2.idempotency_key === `system:user_guidance:${seq}` && typeof message.text === "string" && message.text.trim()) {
+          this.addMessage({ id: message.id, role: "user", kind: "guidance", source: "user_guidance", runId, content: message.text, ts: timestamp });
+        }
+      }
+      if (name === "public_update") {
+        const update = publicUpdate(eventPayload, runId);
+        if (update)
+          this.addMessage({ id: `public_update:${runId}:${update.id}`, role: "assistant", kind: "public_update", source: "public_update", runId, content: update.text, publicUpdate: update, ts: timestamp });
+      }
       if (["abstract.message", "abstractcode.message"].includes(name)) {
         const content = displayValue(eventPayload);
         if (content) {
@@ -5952,7 +6230,7 @@ var WorkflowSessionController = class {
     this.closeLiveRepliesOfRun(runId);
     const id = `final:${runId}`;
     this.seenMessages.add(id);
-    const message = { id, role: "assistant", content, ts, runId, statistics: workflowEvidence(this.snapshot.records).statistics };
+    const message = { id, role: "assistant", kind: "final", content, ts, runId, statistics: workflowEvidence(this.snapshot.records).statistics };
     const index = this.snapshot.messages.findIndex((existing) => existing.id === id || String(existing.id || "").startsWith(`answer:${runId}:`) && existing.content === content);
     if (index < 0) {
       this.set({ ...this.snapshot, messages: [...this.snapshot.messages, message] });
@@ -6021,13 +6299,13 @@ var WorkflowSessionController = class {
 
 // dist/use_workflow_session.js
 function useWorkflowSession(options) {
-  const controller = useMemo8(() => new WorkflowSessionController(options.transport, { onAuthError: options.onAuthError, clientId: options.clientId, ...options.liveRenderIntervalMs !== void 0 ? { liveRenderIntervalMs: options.liveRenderIntervalMs } : {} }), [options.transport, options.onAuthError, options.clientId, options.authScopeKey, options.liveRenderIntervalMs]);
+  const controller = useMemo9(() => new WorkflowSessionController(options.transport, { onAuthError: options.onAuthError, clientId: options.clientId, ...options.liveRenderIntervalMs !== void 0 ? { liveRenderIntervalMs: options.liveRenderIntervalMs } : {} }), [options.transport, options.onAuthError, options.clientId, options.authScopeKey, options.liveRenderIntervalMs]);
   const snapshot = useSyncExternalStore((listener) => controller.subscribe(listener), () => controller.getSnapshot(), () => controller.getSnapshot());
   const runId = String(options.runId || "").trim();
-  useEffect14(() => {
+  useEffect15(() => {
     controller.setToolApprovalPolicy(options.enabled === false ? { enabledTools: [], autoApproveTools: [] } : options.toolApprovalPolicy ?? null);
   }, [controller, options.toolApprovalPolicy, options.enabled]);
-  useEffect14(() => {
+  useEffect15(() => {
     if (options.enabled === false || !runId) {
       controller.reset();
       return;
@@ -6037,13 +6315,448 @@ function useWorkflowSession(options) {
   }, [controller, runId, options.enabled]);
   return { controller, snapshot };
 }
+
+// dist/conversation_preferences.js
+import { useEffect as useEffect16, useRef as useRef11, useState as useState16 } from "react";
+function read(scope2) {
+  try {
+    const raw = typeof localStorage === "undefined" ? null : localStorage.getItem(`abstract.conversation:${scope2}`);
+    if (!raw)
+      return { mode: "chat", preferences: DEFAULT_CONVERSATION_CUES, error: null };
+    const saved = JSON.parse(raw);
+    const preferences = Object.fromEntries(["approval", "question", "completion"].map((kind) => [kind, { visual: saved.preferences?.[kind]?.visual !== false, audio: saved.preferences?.[kind]?.audio === true, haptic: saved.preferences?.[kind]?.haptic === true }]));
+    return { mode: saved.mode === "avatar" ? "avatar" : "chat", preferences, error: null };
+  } catch (error) {
+    return { mode: "chat", preferences: DEFAULT_CONVERSATION_CUES, error: `Conversation preferences could not be loaded: ${String(error)}` };
+  }
+}
+function useAvatarConversationPreferences(scope2) {
+  const [saved, setSaved] = useState16(() => ({ scope: scope2, ...read(scope2) }));
+  const current = saved.scope === scope2 ? saved : { scope: scope2, ...read(scope2) };
+  const stateRef = useRef11(current);
+  stateRef.current = current;
+  useEffect16(() => {
+    if (saved.scope !== scope2)
+      setSaved({ scope: scope2, ...read(scope2) });
+  }, [scope2, saved.scope]);
+  const write = (change) => {
+    const next = { ...stateRef.current, ...change, scope: scope2, error: null };
+    try {
+      if (typeof localStorage !== "undefined")
+        localStorage.setItem(`abstract.conversation:${scope2}`, JSON.stringify({ mode: next.mode, preferences: next.preferences }));
+    } catch (error) {
+      next.error = `Conversation preferences could not be saved: ${String(error)}`;
+    }
+    stateRef.current = next;
+    setSaved(next);
+  };
+  return { mode: current.mode, setMode: (mode) => write({ mode }), preferences: current.preferences, setPreferences: (preferences) => write({ preferences }), error: current.error };
+}
+async function playConversationCue(cue) {
+  if (!cue.channels.audio)
+    return;
+  if (typeof window === "undefined" || !window.AudioContext)
+    throw new Error("Audio cues are unavailable in this browser.");
+  const context = new window.AudioContext();
+  try {
+    await context.resume();
+    if (context.state !== "running")
+      throw new Error("Enable audio with a browser interaction before playing conversation cues.");
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.frequency.value = cue.kind === "approval" ? 440 : cue.kind === "question" ? 600 : 800;
+    gain.gain.setValueAtTime(0.035, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(1e-3, context.currentTime + 0.18);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.2);
+    await new Promise((resolve) => {
+      oscillator.onended = () => resolve();
+    });
+  } finally {
+    await context.close();
+  }
+}
+
+// dist/present_interaction.js
+import { jsx as _jsx19, jsxs as _jsxs16 } from "react/jsx-runtime";
+
+// dist/event_target.js
+function object2(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function text3(value) {
+  return typeof value === "string" ? value.trim() : value == null ? "" : typeof value === "number" || typeof value === "boolean" ? String(value) : "";
+}
+function scope(value) {
+  return ["session", "workflow", "run", "global"].includes(value) ? value : null;
+}
+function evidence(value) {
+  return {
+    scope: text3(value?.scope).toLowerCase(),
+    name: text3(value?.name) || text3(value?.event_name),
+    scopeId: text3(value?.scope_id) || text3(value?.scopeId),
+    sessionId: text3(value?.session_id) || text3(value?.sessionId),
+    workflowId: text3(value?.workflow_id) || text3(value?.workflowId),
+    runId: text3(value?.run_id) || text3(value?.runId)
+  };
+}
+function matchingEvidence(raw, records) {
+  const wait = raw.wait;
+  const key = text3(wait.wait_key);
+  const out = [evidence(wait), evidence(object2(wait.details))];
+  for (const entry of records) {
+    if (entry.runId !== raw.runId)
+      continue;
+    const record2 = entry.record;
+    const result = object2(record2.result);
+    const storedWait = object2(result?.wait);
+    const effect2 = object2(record2.effect);
+    const payload = object2(effect2?.payload);
+    if (text3(storedWait?.wait_key) !== key && text3(payload?.wait_key) !== key)
+      continue;
+    out.push(evidence(record2), evidence(payload), evidence(object2(payload?.details)), evidence(storedWait), evidence(object2(storedWait?.details)));
+  }
+  return out;
+}
+function idFor(scopeName, row2) {
+  if (row2.scopeId)
+    return row2.scopeId;
+  if (scopeName === "session")
+    return row2.sessionId;
+  if (scopeName === "workflow")
+    return row2.workflowId;
+  if (scopeName === "run")
+    return row2.runId;
+  return "global";
+}
+function target(scopeName, scopeId, name) {
+  return {
+    scope: scopeName,
+    scopeId,
+    name,
+    ...scopeName === "session" ? { sessionId: scopeId } : {},
+    ...scopeName === "workflow" ? { workflowId: scopeId } : {},
+    ...scopeName === "run" ? { runId: scopeId } : {}
+  };
+}
+function decodeWithKnownId(key, scopeName, scopeId) {
+  if (!scopeId)
+    return null;
+  const prefix = `evt:${scopeName}:${scopeId}:`;
+  if (!key.startsWith(prefix))
+    return null;
+  const name = key.slice(prefix.length);
+  return name ? target(scopeName, scopeId, name) : null;
+}
+function resolveWorkflowEventTarget(raw, records = [], currentRun) {
+  if (!raw)
+    return { target: null, error: "No event wait is available." };
+  const key = text3(raw.wait.wait_key);
+  const scopeMatch = /^evt:(session|workflow|run|global):/.exec(key);
+  if (!scopeMatch)
+    return { target: null, error: "The gateway did not provide a canonical event wait key." };
+  const keyScope = scope(scopeMatch[1]);
+  if (!keyScope)
+    return { target: null, error: "The event wait uses an unsupported scope." };
+  const facts = matchingEvidence(raw, Array.isArray(records) ? records : []);
+  const proven = /* @__PURE__ */ new Map();
+  for (const fact of facts) {
+    const factScope = scope(fact.scope);
+    if (!factScope || !fact.name)
+      continue;
+    if (factScope !== keyScope)
+      return { target: null, error: "Event metadata conflicts with the canonical wait scope." };
+    const prefix = `evt:${factScope}:`;
+    const suffix = `:${fact.name}`;
+    if (!key.startsWith(prefix) || !key.endsWith(suffix) || key.length <= prefix.length + suffix.length) {
+      return { target: null, error: "Event metadata does not exactly match the canonical wait key." };
+    }
+    const scopeId = key.slice(prefix.length, -suffix.length);
+    const declaredId = idFor(factScope, fact);
+    if (declaredId && declaredId !== scopeId)
+      return { target: null, error: "Event metadata conflicts with the canonical wait target." };
+    const resolved = target(factScope, scopeId, fact.name);
+    proven.set(`${resolved.scope}\0${resolved.scopeId}\0${resolved.name}`, resolved);
+  }
+  if (proven.size > 1)
+    return { target: null, error: "Multiple event targets match this wait; routing is unavailable." };
+  if (proven.size === 1)
+    return { target: [...proven.values()][0] };
+  const ids = /* @__PURE__ */ new Set();
+  if (keyScope === "run")
+    ids.add(raw.runId);
+  if (keyScope === "global")
+    ids.add("global");
+  for (const fact of facts) {
+    const value = idFor(keyScope, fact);
+    if (value)
+      ids.add(value);
+  }
+  const currentMatches = text3(currentRun?.run_id) === raw.runId;
+  if (currentMatches) {
+    const current = evidence(currentRun || null);
+    const value = idFor(keyScope, current);
+    if (value)
+      ids.add(value);
+  }
+  const decoded = [...ids].map((scopeId) => decodeWithKnownId(key, keyScope, scopeId)).filter((item) => Boolean(item));
+  const unique = new Map(decoded.map((item) => [`${item.scope}\0${item.scopeId}\0${item.name}`, item]));
+  if (unique.size === 1)
+    return { target: [...unique.values()][0] };
+  if (unique.size > 1)
+    return { target: null, error: "The event key is ambiguous for the available scope metadata." };
+  return { target: null, error: "The gateway did not provide enough canonical event routing metadata." };
+}
+
+// dist/present_interaction.js
+import { ToolCallWordsList } from "@abstractframework/ui-kit";
+function isReplayInteraction(value) {
+  const v = value;
+  return Boolean(v && typeof v === "object" && typeof v.run_id === "string" && typeof v.wait_key === "string" && !("wait" in v));
+}
+function presentInteraction(input, controller, options = {}) {
+  if (!input)
+    return null;
+  const raw = isReplayInteraction(input) ? replayInteractionWait(input) : input;
+  const wait = raw.wait;
+  const id = `${raw.runId}:${wait.wait_key}:${raw.stepId || ""}`;
+  const details = wait.details || {};
+  if (details.mode === "approval_required" || details.kind === "tool_approval") {
+    const calls = Array.isArray(details.tool_calls) ? details.tool_calls : [];
+    const target2 = { runId: raw.runId, waitKey: String(wait.wait_key || ""), stepId: raw.stepId };
+    const names = [...new Set(calls.map((call) => String(call?.name || "tool")))];
+    const onPermissionsAll = options.onPermissionsAll;
+    const onAllowForSession = options.onAllowForSession;
+    const scope2 = String(options.approveAllScope || "").trim();
+    const remember = options.remember?.(names) || void 0;
+    const L2 = WORKFLOW_INTERACTION_LABELS;
+    const hostChatGrant = onAllowForSession ? {
+      approveForSessionLabel: L2.allowForChat,
+      approveForSessionDescription: "Allow for this chat approves this batch and the enabled tools for the rest of this chat. Unchecked tools stay unavailable; questions still need your answer.",
+      onApproveForSession: async () => {
+        let grant;
+        await controller.approveWithPolicyChange(target2, () => {
+          grant = onAllowForSession();
+        });
+        if (grant)
+          await grant.catch((error) => {
+            throw new Error(`This batch was allowed, but "Allow for this chat" could not be turned on: ${error instanceof Error ? error.message : String(error)}`);
+          });
+      }
+    } : {};
+    let sessionFields = hostChatGrant;
+    let refusedByPolicy = [];
+    const policy = options.sessionPolicy;
+    if (policy) {
+      const approveAllForSession = controller.approveAllForSession;
+      const approveKindForSession = controller.approveKindForSession;
+      const denyToolForSession = controller.denyToolForSession;
+      const denyKindForSession = controller.denyKindForSession;
+      const sessionPolicyStatus = controller.sessionPolicyStatus;
+      if (typeof approveAllForSession !== "function" || typeof approveKindForSession !== "function" || typeof denyToolForSession !== "function" || typeof denyKindForSession !== "function" || typeof sessionPolicyStatus !== "function")
+        throw new Error("presentInteraction: sessionPolicy needs a WorkflowSessionController (approveAllForSession, approveKindForSession, denyToolForSession, denyKindForSession, sessionPolicyStatus).");
+      const status = sessionPolicyStatus.call(controller);
+      const ask = policy.ask ? [...policy.ask] : void 0;
+      const applies = (stored, which) => {
+        const words = String(stored?.scope?.[which] || "").trim();
+        return words ? `Applies: ${words}` : L2.noScopeNote;
+      };
+      const covered = (result) => ({
+        outcomeNote: [sessionPolicyClampedText(result?.clamped), applies(result, "approve")].filter(Boolean).join(" ")
+      });
+      const denied = (result) => ({ outcomeNote: `${L2.denyForChatNote} ${applies(result, "deny")}` });
+      const notCovered = sessionPolicyClampedText(status.clamped);
+      if (status.mode === "unavailable") {
+        sessionFields = { scopeNote: L2.unavailablePolicyNote(status.reason || "") };
+      } else if (status.mode === "gateway") {
+        const toolsets = [
+          ...new Set(calls.map((call) => String(call?.toolset || "").trim() || String(policy.toolsetOf?.(String(call?.name || "")) || "").trim()).filter(Boolean))
+        ];
+        const askNames = (ask || []).map((name) => String(name).trim()).filter(Boolean);
+        const asking = askNames.length ? `Tools set to Ask keep asking: ${askNames.join(", ")}.` : "Nothing is set to Ask, so tools that reach destinations the model picks (fetch_url, browser_probe, send_email) are included.";
+        const stored = status.policy;
+        refusedByPolicy = stored ? names.filter((name) => Object.prototype.hasOwnProperty.call(stored.deny || {}, name)) : [];
+        sessionFields = {
+          approveForSessionLabel: L2.allowForChat,
+          // The real button labels, never a "<toolset>" placeholder; alternatives, each with
+          // its reach (release-closing polish).
+          approveForSessionDescription: toolsets.length ? `Each of ${(() => {
+            const items = [`\u201C${L2.allowForChat}\u201D (every tool)`, ...toolsets.map((kind) => `\u201C${L2.allowKindForChat(kind)}\u201D (that toolset only)`)];
+            return `${items.slice(0, -1).join(", ")} or ${items[items.length - 1]}`;
+          })()} approves this batch and stores a policy for this chat on the gateway: the later tool calls it covers, in every run of this chat, run without asking, until the policy is reset. ${asking} Tools the gateway does not authorize stay uncovered.` : `\u201C${L2.allowForChat}\u201D approves this batch and stores a policy for this chat on the gateway: later tool calls of every run of this chat run without asking, until the policy is reset. ${asking} Tools the gateway does not authorize stay uncovered.`,
+          // Always visible under the decisions (the full sentences are in the disclosure): what
+          // a broad grant reaches, and the Ask warning, before any click.
+          broadScopeSummary: `The broader choices keep allowing later tool calls of this chat until the policy is reset. ${asking}`,
+          onApproveForSession: async () => covered(await approveAllForSession.call(controller, target2, { ...policy.maxRiskRank !== void 0 ? { maxRiskRank: policy.maxRiskRank } : {}, ...ask ? { ask } : {} })),
+          approveKinds: toolsets.map((kind) => ({
+            kind,
+            label: L2.allowKindForChat(kind),
+            onApprove: async () => covered(await approveKindForSession.call(controller, target2, kind, ask ? { ask } : {}))
+          })),
+          denyOptions: [
+            ...names.map((name) => ({
+              key: `tool:${name}`,
+              label: L2.denyToolForChat(name),
+              onDeny: async () => denied(await denyToolForSession.call(controller, target2, name, ask ? { ask } : {}))
+            })),
+            ...toolsets.map((kind) => ({
+              key: `kind:${kind}`,
+              label: L2.denyKindForChat(kind),
+              onDeny: async () => denied(await denyKindForSession.call(controller, target2, kind, ask ? { ask } : {}))
+            }))
+          ],
+          ...refusedByPolicy.length ? { deniedNote: `Denied by this chat's policy: ${refusedByPolicy.join(", ")}. The gateway refuses ${refusedByPolicy.length === 1 ? "it" : "them"} even if allowed once.` } : {},
+          ...stored ? {
+            policySummary: `This chat's policy: ${Object.keys(stored.approve || {}).length} tools allowed without asking, ${Object.keys(stored.deny || {}).length} denied. ${applies(stored, "approve")}`
+          } : {},
+          ...notCovered ? { notCovered } : {}
+        };
+      } else {
+        sessionFields = onAllowForSession ? { ...hostChatGrant, scopeNote: L2.localChatPolicyNote } : {
+          // The grant ends with the run: the button says so (ADR 0001 §5).
+          approveForSessionLabel: L2.allowForRun,
+          onApproveForSession: async () => {
+            await approveAllForSession.call(controller, target2, {});
+          },
+          scopeNote: L2.localRunPolicyNote
+        };
+      }
+    }
+    return {
+      id,
+      kind: "tool-approval",
+      title: `${calls.length || "Requested"} ${calls.length === 1 ? "action needs" : "actions need"} permission`,
+      toolName: names.join(", ") || "the requested tools",
+      description: "Review the targets below. Allow once approves this batch only.",
+      detail: _jsxs16("div", { className: "pc-approval-summary", children: [_jsx19(ToolCallWordsList, { calls: calls.map((call) => {
+        const args = toolArguments(call?.arguments);
+        return { name: String(call?.name || "tool"), arguments: args && typeof args === "object" && !Array.isArray(args) ? args : null };
+      }), label: "Tool calls to approve", heading: "The assistant wants to use these tools:" }), _jsxs16("details", { children: [_jsx19("summary", { children: "Review full tool arguments (JSON)" }), _jsx19(JsonViewer, { value: calls.length ? calls : details })] })] }),
+      approveLabel: WORKFLOW_INTERACTION_LABELS.allowOnce,
+      denyLabel: WORKFLOW_INTERACTION_LABELS.deny,
+      approveAllLabel: onPermissionsAll ? WORKFLOW_INTERACTION_LABELS.allowAll : void 0,
+      approveAllDescription: onPermissionsAll ? `Sets permissions: all${scope2 ? ` ${scope2}` : ""}, including future turns. Unchecked tools stay unavailable; explicit Ask overrides and Gateway restrictions remain enforced. Questions still need your answer.` : void 0,
+      ...onPermissionsAll ? { broadScopeSummary: `\u201C${WORKFLOW_INTERACTION_LABELS.allowAll}\u201D changes your tool permissions for future turns too.` } : {},
+      ...sessionFields,
+      ...options.approveAllDisabledReason ? { disabledReason: options.approveAllDisabledReason } : {},
+      ...remember ? { remember } : {},
+      ...options.onDefer ? { onDefer: options.onDefer } : {},
+      onApproveAll: onPermissionsAll ? async () => {
+        await controller.approveWithPolicyChange(target2, () => {
+          void onPermissionsAll();
+        });
+      } : void 0,
+      onApprove: async () => {
+        await controller.approve(true, target2);
+        return refusedByPolicy.length ? { outcomeNote: `The gateway refuses ${refusedByPolicy.join(", ")}: denied by this chat's policy.` } : void 0;
+      },
+      onDeny: async () => {
+        await controller.approve(false, target2);
+      }
+    };
+  }
+  const askTarget = { runId: raw.runId, waitKey: String(wait.wait_key || ""), stepId: raw.stepId };
+  const question = details.question && typeof details.question === "object" && details.question.purpose === "conversation" ? details.question : null;
+  const essential = question?.importance === "essential";
+  const clarification = question?.importance === "clarification";
+  if (wait.reason === "user" || wait.reason === "ask_user")
+    return {
+      id,
+      kind: "ask-user",
+      title: essential ? "Your answer is required" : clarification ? "A clarification for you" : "A question for you",
+      ...essential ? { description: "This question needs your answer. I will keep waiting; silence does not grant permission." } : clarification ? { description: `${question.deadline ? `Answer by ${String(question.deadline)}. ` : ""}${question.fallback ? `Without an answer: ${String(question.fallback)}` : ""}` } : {},
+      prompt: String(wait.prompt || details.prompt || "How would you like to continue?"),
+      allowFreeText: wait.allow_free_text !== false,
+      choices: (Array.isArray(wait.choices) ? wait.choices : []).map((choice) => typeof choice === "object" && choice !== null ? {
+        id: String(choice.value ?? choice.id ?? choice.label),
+        label: String(choice.label ?? choice.text ?? choice.value ?? choice.id),
+        description: choice.description
+      } : { id: String(choice), label: String(choice) }),
+      onSubmit: async (answer) => {
+        await controller.resume(answer, askTarget);
+      },
+      ...options.allowSkip && !question ? {
+        onSkip: async () => {
+          await controller.resume("", askTarget);
+        }
+      } : {},
+      ...options.onDefer ? { onDefer: options.onDefer } : {}
+    };
+  const key = String(wait.wait_key || "");
+  if (wait.reason === "event" || key.startsWith("evt:")) {
+    const command = raw.command;
+    if (command) {
+      const answerEvent = controller.answerEvent;
+      if (typeof answerEvent !== "function")
+        throw new Error("presentInteraction: an event wait from the replay view needs a WorkflowSessionController (answerEvent).");
+      const eventTarget = { runId: raw.runId, waitKey: key, stepId: raw.stepId };
+      return {
+        id,
+        kind: "event-wait",
+        title: "Waiting for your input",
+        eventName: key,
+        prompt: String(wait.prompt || "This workflow is waiting for an event."),
+        description: Array.isArray(wait.choices) && wait.choices.length ? `Expected: ${wait.choices.map((choice) => typeof choice === "object" && choice !== null ? String(choice.label ?? choice.value ?? "") : String(choice)).join(", ")}` : "The data you send resumes this wait.",
+        initialPayload: "{}",
+        payloadLabel: "Event data (JSON)",
+        sendLabel: "Send",
+        onSend: async (text4) => {
+          await answerEvent.call(controller, JSON.parse(text4 || "{}"), eventTarget);
+        }
+      };
+    }
+    const routing = resolveWorkflowEventTarget(raw, options.records || [], options.currentRun ?? null);
+    const target2 = routing.target;
+    const eventName = target2?.name || "";
+    return {
+      id,
+      kind: "event-wait",
+      title: target2 ? "Waiting for an event" : "Event routing unavailable",
+      eventName,
+      prompt: String(wait.prompt || `This workflow will continue when \u201C${eventName || "its trigger"}\u201D arrives.`),
+      description: target2 ? "You can also send the expected event here." : `This event cannot be sent safely. ${routing.error}`,
+      initialPayload: "{}",
+      payloadLabel: "Event data (JSON)",
+      sendLabel: "Send event",
+      onSend: async (text4) => {
+        if (!target2)
+          throw new Error(routing.error);
+        const payload = JSON.parse(text4 || "{}");
+        const event = { name: target2.name, scope: target2.scope, payload };
+        if (target2.scope === "session")
+          event.session_id = target2.scopeId;
+        else if (target2.scope === "workflow")
+          event.workflow_id = target2.scopeId;
+        else if (target2.scope === "run")
+          event.run_id = target2.scopeId;
+        await controller.emitEvent(event);
+      }
+    };
+  }
+  return null;
+}
 export {
+  AvatarConversation,
   ChatMessageCard,
   ChatThread,
+  DEFAULT_CONVERSATION_CUES,
   ToolActivity,
   ToolActivityGroup,
   WorkflowChat,
+  conversationCueStep,
+  conversationMessages,
+  conversationNarrationStep,
+  conversationPages,
+  conversationReply,
+  conversationSnapshot,
+  conversationState,
   outputArtifacts,
+  playConversationCue,
+  presentInteraction,
+  publicUpdate,
   submittedArtifacts,
+  useAvatarConversationPreferences,
   useWorkflowSession
 };

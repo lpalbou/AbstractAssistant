@@ -52,6 +52,10 @@ export type ReplayViewMessage = {
     step_ids?: string[];
     seqs?: number[];
     source?: string;
+    source_call_ids?: string[];
+    session_id?: string;
+    iteration?: number;
+    public_update_id?: string;
     artifact_ids?: string[];
     order?: unknown[];
     /** A final answer that repeats an earlier answer names it here: show the text once. */

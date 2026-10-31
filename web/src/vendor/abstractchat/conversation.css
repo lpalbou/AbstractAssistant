@@ -2617,3 +2617,54 @@ button.pc-ws__name:hover {
   .pc-artifact-preview .af-modal__title { padding-right: 56px; }
   .pc-artifact-preview .af-file-viewer__head > button { right: 70px; width: 44px; height: 44px; }
 }
+.pc-avatar-conversation {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: .75rem;
+  min-height: 100%;
+  padding: clamp(.75rem, 3vw, 1.5rem);
+  color: var(--text-primary, inherit);
+}
+.pc-workflow-chat__transcript > .pc-avatar-conversation { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.pc-avatar-conversation > * { flex-shrink: 0; }
+.pc-avatar-conversation__scene {
+  display: grid;
+  place-items: center;
+  min-height: clamp(180px, 32vh, 380px);
+  flex: 1 0 auto;
+}
+.pc-avatar-conversation__scene > * { max-width: 100%; }
+.pc-avatar-conversation__status { text-align: center; margin: 0; font-weight: 600; }
+.pc-avatar-conversation__attention { border-inline-start: 3px solid currentColor; padding: .5rem .75rem; margin: 0; }
+.pc-avatar-conversation__attention[data-kind="approval"] { color: var(--warning, #d6a648); }
+.pc-avatar-conversation__captions { width: min(100%, 46rem); margin-inline: auto; }
+.pc-avatar-conversation__captions > p {
+  font-size: clamp(1.1rem, 2.5vw, 1.45rem);
+  line-height: 1.5;
+  height: 4.5em;
+  margin: 0;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.pc-avatar-conversation__captions:focus-visible { outline: 2px solid currentColor; outline-offset: 5px; }
+.pc-avatar-conversation__actions, .pc-avatar-conversation__pages { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .5rem; }
+.pc-avatar-conversation button { font: inherit; color: inherit; background: transparent; border: 1px solid var(--ui-border-1, #7776); border-radius: .4rem; padding: .4rem .65rem; cursor: pointer; }
+.pc-avatar-conversation button:disabled { opacity: .5; cursor: default; }
+.pc-avatar-conversation button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.pc-avatar-conversation__history { margin: 0; padding-inline-start: 1.5rem; }
+.pc-avatar-conversation__history > li { padding: .75rem .25rem; border-bottom: 1px solid var(--ui-border-1, #7774); }
+.pc-avatar-conversation__history p { white-space: pre-wrap; overflow-wrap: anywhere; margin: .4rem 0; }
+.pc-avatar-conversation__reply-context { margin: 0; }
+.pc-avatar-conversation__preferences { font-size: .9em; }
+.pc-avatar-conversation__preferences summary { cursor: pointer; }
+.pc-avatar-conversation__preferences fieldset { display: inline-flex; flex-wrap: wrap; gap: .75rem; margin: .4rem; border: 1px solid var(--ui-border-1, #7776); }
+.pc-avatar-conversation__preferences label { display: inline-flex; align-items: center; gap: .3rem; }
+@media (pointer: coarse) {
+  .pc-avatar-conversation button, .pc-avatar-conversation summary, .pc-avatar-conversation__preferences label { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pc-avatar-conversation *, .pc-avatar-conversation *::before, .pc-avatar-conversation *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

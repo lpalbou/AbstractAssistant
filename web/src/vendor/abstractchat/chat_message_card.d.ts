@@ -1,4 +1,5 @@
 import { type MessageArtifact } from "./message_artifacts.js";
+import type { PublicUpdate } from "./conversation_model.js";
 import React from "react";
 import { type IconName } from "@abstractframework/ui-kit";
 import type { MarkdownImages } from "./markdown.js";
@@ -18,6 +19,9 @@ export type ChatMessage = {
      * README's "Messages from the replay view" mapping.
      */
     kind?: string;
+    /** Original public channel attribution, retained through replay. */
+    source?: string;
+    publicUpdate?: PublicUpdate;
     toolActivity?: WorkflowToolActivity;
     statistics?: WorkflowStatistics;
     runId?: string;

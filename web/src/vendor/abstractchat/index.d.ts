@@ -52,4 +52,9 @@ export type { SessionPolicyStatus, SessionToolPolicyScope } from "./workflow_run
 export { applyDelta, parseCursorToken, SseParser, ReplayViewFold, createReplayViewTransport, ReplayViewUnavailableError, REPLAY_VIEW_VERSION, REPLAY_SCALAR_KEYS, REPLAY_LIST_KEYS, compareReplayOrder, type ReplayView, type ReplayViewDelta, type ReplayViewCursor, type ReplayViewRun, type ReplayViewMessage, type ReplayViewActivity, type ReplayViewToolCall, type ReplayViewInteraction, type ReplayViewTransport, type ReplaySessionTurn, REPLAY_SESSION_TURN_LIMIT, type ReplayViewFetch, type ReplayViewRead, type ReplayViewStreamOptions, type ReplayViewHttpError, type ReplayFoldOutcome, type SseFrame, } from "./replay_view.js";
 export { TextLinks, textLinks } from "./text_links.js";
 export { messageArtifactRefs, submittedArtifacts, outputArtifacts, type MessageArtifact } from "./message_artifacts.js";
+export { AvatarConversation, type AvatarConversationOptions, type AvatarConversationProps } from "./avatar_conversation.js";
+export { DEFAULT_CONVERSATION_CUES, conversationMessages, conversationPages, conversationSnapshot, conversationState, conversationCueStep, publicUpdate, type AvatarConversationState, type ConversationAttention, type ConversationCue, type ConversationCuePreferences, type ConversationCueCursor, type PublicUpdate } from "./conversation_model.js";
+export { useAvatarConversationPreferences, playConversationCue } from "./conversation_preferences.js";
+export { conversationReply } from "./conversation_model.js";
+export { conversationNarrationStep } from "./conversation_model.js";
 //# sourceMappingURL=index.d.ts.map
