@@ -141,6 +141,8 @@ function BrowserApp({ host }: { host: AssistantHost }) {
       // and the first question answers with the gateway's own refusal until it has one.
       docsAssistantPanel({ app: "assistant", name: "AbstractAssistant" }, client.fetchGateway, {
         connected: conn.connected,
+        visible: panel === "docs",
+        voicePreferences: voicePrefs,
         placeholder: "Ask about AbstractAssistant (from the gateway's Assistant docs, docs/corpus?app=assistant)",
       }),
       ...(conn.connected
@@ -155,7 +157,7 @@ function BrowserApp({ host }: { host: AssistantHost }) {
           ]
         : []),
     ],
-    [client, conn.connected, voicePrefs, setVoicePrefs, voiceDefaults.value],
+    [client, conn.connected, panel, voicePrefs, setVoicePrefs, voiceDefaults.value],
   );
   const topBar: AfAppShellTopBar = {
     brand: { name: "Assistant" },
