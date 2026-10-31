@@ -86,6 +86,45 @@ public final class AssistantStore {
     public private(set) var loadingArchived = false
     public private(set) var sessionArchiveBusy: Set<String> = []
     public private(set) var historyError: String?
+    public private(set) var sessionReads = SessionReadState()
+    public private(set) var sessionReadError: String?
+    private var displayedReadRevisions: [String: SessionReadReceipt] = [:]
+    private var savingReadRevisions: Set<SessionReadReceipt> = []
+    private var pendingReadRevisions: Set<SessionReadReceipt> = []
+    public var visibleSessionReadReceipts: [SessionReadReceipt] {
+        guard selectedEntity == nil else { return [] }
+        return displayedReadRevisions.values.filter { $0.sessionID == sessionID }.sorted { $0.runID < $1.runID }
+    }
+    public func isUnread(_ session: SessionSummary) -> Bool {
+        runs.contains { ($0.sessionId ?? $0.runId) == session.id && sessionReads.isUnread($0) }
+    }
+    /// The chat view calls this after the loaded answer's footer is visible on the active scene.
+    /// Its captured revisions cannot consume a later answer that arrives during the dwell.
+    public func markVisibleSessionRead(_ snapshot: [SessionReadReceipt]) async {
+        guard foreground, let client else { return }
+        let shown = Set(visibleSessionReadReceipts)
+        pendingReadRevisions.formUnion(snapshot.filter { $0.sessionID == sessionID && shown.contains($0) && !sessionReads.contains($0) })
+        await flushSessionReads(client: client, epoch: generation)
+    }
+    private func flushSessionReads(client: any GatewayClient, epoch: Int) async {
+        guard epoch == generation, savingReadRevisions.isEmpty else { return }
+        while epoch == generation, !pendingReadRevisions.isEmpty {
+            let batch = Array(pendingReadRevisions.prefix(100))
+            savingReadRevisions.formUnion(batch)
+            do {
+                let committed = try await client.markSessionReads(batch)
+                guard epoch == generation else { return }
+                try sessionReads.merge(committed)
+                pendingReadRevisions.subtract(batch); savingReadRevisions.subtract(batch); sessionReadError = nil
+            } catch {
+                guard epoch == generation else { return }
+                savingReadRevisions.subtract(batch)
+                sessionReadError = "Read status could not be saved. " + say(error); handle(error)
+                if case GatewayError.http(let status, _) = error, (400..<500).contains(status), status != 408, status != 429 { pendingReadRevisions.subtract(batch) }
+                return
+            }
+        }
+    }
     @ObservationIgnored private var historyRevision = 0
 
     public private(set) var waits: [Wait] = []
@@ -185,6 +224,7 @@ public final class AssistantStore {
         recentHistoryMayBePartial = false
         archivedRuns = []; loadingArchived = false; sessionArchiveBusy = []; historyError = nil; historyRevision += 1
         contextID = UUID()
+        sessionReads = SessionReadState(); sessionReadError = nil; displayedReadRevisions = [:]; savingReadRevisions = []; pendingReadRevisions = []
         generation += 1; conversationGeneration += 1
         approvalPoll?.cancel(); approvalPoll = nil
         poll?.cancel(); poll = nil; turn?.cancel(); turn = nil; stopping?.cancel(); stopping = nil
@@ -273,6 +313,17 @@ public final class AssistantStore {
             guard epoch == generation else { return }; if approvals == approvalRevision { waits = newWaits.filter { decidedWaits[$0.id] == nil } + waits.filter { $0.runId == activeEntityRunID } }
             let newRuns = try await client.recentRuns(limit: 60)
             guard epoch == generation else { return }; if historyVersion == historyRevision { runs = newRuns; recentHistoryMayBePartial = newRuns.count >= 60 }
+            do {
+                let committed = try await client.sessionReads(runIDs: newRuns.map(\.runId))
+                guard epoch == generation else { return }
+                try sessionReads.merge(committed); sessionReadError = nil
+            } catch {
+                guard epoch == generation else { return }
+                sessionReadError = "Shared read status is unavailable. " + say(error); handle(error)
+            }
+            guard epoch == generation else { return }
+            await flushSessionReads(client: client, epoch: epoch)
+            guard epoch == generation else { return }
             if let saved = restorationID {
                 restorationID = nil
                 if let previous = sessions.first(where: { $0.id == saved }) {
@@ -392,6 +443,7 @@ public final class AssistantStore {
         } else { resetConversation(entity: entity) }
     }
     private func resetConversation(entity: String?) {
+        displayedReadRevisions = [:]
         clearAnswerActivities(); entityActivityCursors = [:]
         resetActivity()
         completedReply = nil; quietEntityRestoreID = nil; error = nil
@@ -609,6 +661,7 @@ public final class AssistantStore {
                 else { messages.append(.init(id: "answer-" + id, role: .assistant, text: output, runID: id, artifacts: artifacts)) }
             }
             if run.isTerminal {
+                if let receipt = SessionReadReceipt(run: run) { displayedReadRevisions[id] = receipt }
                 pauseActivityStreams()
                 for childID in activityRunIDs { await drainActivity(runID: childID, entity: nil, epoch: epoch) }
                 guard epoch == activityEpoch, activeRunID == id else { return }
@@ -830,6 +883,9 @@ public final class AssistantStore {
             activeEntityRunID = nil; quietEntityRestoreID = nil; completedReply = nil
             stopRequested = false; isStopping = false; unknownStart = false; cancelledRunID = nil
             conversationGeneration += 1; measuredMessages = []; messages = restored; selectedEntity = nil; sessionID = session.id
+            displayedReadRevisions = Dictionary(hydrated.compactMap { turn in
+                SessionReadReceipt(run: turn.run).map { (turn.run.runId, $0) }
+            }, uniquingKeysWith: { _, latest in latest })
             let newest = hydrated.last?.run ?? session.latest
             activeRunID = newest.isTerminal ? nil : newest.runId
             phase = activeRunID == nil ? .ready : .working; error = nil; persistSession()

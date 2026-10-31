@@ -19,7 +19,7 @@ import {
   type AfDrawerSystemProps,
   type GatewayConnection,
 } from "@abstractframework/ui-kit";
-import { sessionReadScope, useSessionReads } from "./vendor/abstractsessions/session_cards.js";
+import { createSessionReadClient, sessionReadScope, useSessionReads } from "./vendor/abstractsessions/session_cards.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { version as APP_VERSION } from "../package.json";
@@ -73,9 +73,12 @@ function ConnectedApp(props: { client: GatewayClient; host: AssistantHost; conn:
   const readScope = sessionReadScope(conn.status);
   const scopeRef = useRef(readScope); scopeRef.current = readScope;
   const selectionRef = useRef(selected); selectionRef.current = selected;
-  const conversations = useConversations(client, { scope: readScope, onSignedOut, onAttentionSeen: setSeen });
+  const readRefresh = useRef<() => Promise<void>>(async () => {});
+  const conversations = useConversations(client, { scope: readScope, onSignedOut, onAttentionSeen: setSeen, onSessionRead: () => void readRefresh.current() });
   const receipts = useMemo(() => Object.values(conversations.activity).flatMap((a) => a.content), [conversations.activity]);
-  const reads = useSessionReads(readScope, receipts);
+  const readClient = useMemo(() => createSessionReadClient(client.fetchGateway), [client]);
+  const reads = useSessionReads(readScope, receipts, readClient);
+  readRefresh.current = reads.refresh;
   const title = selected.sessionId ? conversations.titles[selected.sessionId] || "Conversation" : "New conversation";
   return (
     <AfAppShell

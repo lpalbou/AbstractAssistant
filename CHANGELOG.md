@@ -95,6 +95,9 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Fixed
 
+- Conversation consumption persists through the Gateway for shared web, Watch and iPhone unread state. Web cards have clearer spacing and attachment previews use one fitted header.
+
+
 - Cross-device approval updates clear the matching desktop prompt and tray state. Attention
   clicks reopen the pending gate in an already-selected conversation. The active watch follows
   subsequent requests after a single approval without granting permission to the next request.

@@ -10,6 +10,16 @@ See also:
 - [architecture.md](architecture.md)
 - [troubleshooting.md](troubleshooting.md)
 
+## Shared conversation read state
+
+Web, Watch and iPhone use the Gateway's account-scoped conversation read ledger at
+`GET/POST /api/gateway/me/session-reads`. The shared Apple client exposes
+`SessionReadReceipt` and `SessionReadState`; consumption records the displayed run revision,
+and failed writes retain its unread mark. The web client uses AbstractUIC's shared read client.
+A new answer remains unread independently of its request. Other clients refresh after
+`session.read` on the personal event stream or when reconnecting. Installed native apps need a
+build supporting this API. Existing device-local first-use baselines are not uploaded as reads.
+
 ## CLI entry points
 
 From `pyproject.toml`: `assistant`, `abstractassistant` (same program) and `build-macos-app`.

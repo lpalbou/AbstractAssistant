@@ -141,3 +141,8 @@ same message attachments, safe clickable links and structured tool-result viewer
 clients. Files accompany the original user or assistant message, including restored history
 and file-only replies. File bytes load when opened through authenticated reads. The build
 verifies snapshot hashes; no sibling checkout is required to build the committed web app.
+
+Conversation unread marks use the Gateway's account-wide read ledger. Confirmed consumption
+is shared with Code and native clients; failed writes retain the mark. Native clients need
+a build that supports `/api/gateway/me/session-reads`. Attachment previews fit the media
+with one filename, Download, and Close in the shared AbstractUIC dialog.

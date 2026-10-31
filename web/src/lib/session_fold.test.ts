@@ -83,3 +83,11 @@ describe("foldSessionRows (parity with core/gateway_sessions.py)", () => {
     expect(promptFromInputData({ input_data: { context: { task: "from the task" } } })).toBe("from the task");
   });
 });
+
+it("includes canonical chat wake occurrences with parent runs", () => {
+ const result=foldSessionRows({items:[
+  {run_id:"wake",session_id:"chat",role:"occurrence",session_kind:"chat",parent_run_id:"caller",status:"completed"},
+  {run_id:"child",session_id:"chat",role:"descendant",session_kind:"chat",parent_run_id:"wake",status:"completed"},
+ ],has_more:false});
+ expect(result.rows).toHaveLength(1);expect(result.rows[0].latest_run_id).toBe("wake");
+});

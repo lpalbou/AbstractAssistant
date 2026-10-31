@@ -12,6 +12,14 @@ public actor MockGatewayClient: GatewayClient {
     /// the tools, the automations), each world keeps its own; everything else is shared.
     public enum World: Sendable { case watch, phone }
     public nonisolated let world: World
+    private var sessionReadReceipts: Set<SessionReadReceipt> = []
+    public func sessionReads(runIDs: [String]) async throws -> [SessionReadReceipt] {
+        let ids = Set(runIDs); return sessionReadReceipts.filter { ids.contains($0.runID) }
+    }
+    public func markSessionReads(_ receipts: [SessionReadReceipt]) async throws -> [SessionReadReceipt] {
+        guard receipts.allSatisfy(\.isValid) else { throw GatewayError.invalidResponse }
+        sessionReadReceipts.formUnion(receipts); return receipts
+    }
 
     public static let sampleWaits: [Wait] = [
         // An outreach send: the gateway always asks before an email to anyone but you.

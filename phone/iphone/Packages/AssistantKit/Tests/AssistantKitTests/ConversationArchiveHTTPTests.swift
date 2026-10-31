@@ -21,6 +21,7 @@ private final class ArchiveWire: URLProtocol, @unchecked Sendable {
         let response: (Int, String)? = Self.lock.withLock {
             Self.requests.append(request)
             let path = request.url!.path
+            if path.hasSuffix("/me/session-reads") { return (200, #"{"items":[],"more":false}"#) }
             let q = Dictionary(uniqueKeysWithValues: (URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
             if (Self.mode == "holdMutation" && request.httpMethod == "POST") || (Self.mode == "holdList" && q["archived_only"] == "true") { Self.held = self; return nil }
             if path.hasSuffix("/archive") || path.hasSuffix("/unarchive") { return Self.mode == "fail" ? (503, "{}") : (200, "{}") }

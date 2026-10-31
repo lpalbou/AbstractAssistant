@@ -38,6 +38,9 @@ struct SessionsView: View {
             }
             .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
+            if let error = model.sessionReadError {
+                Text(error).font(.rounded(.footnote)).foregroundStyle(Theme.muted)
+            }
             if model.sessions.isEmpty {
                 if model.lastRefresh == nil && !model.unreachable { ProgressView().frame(maxWidth: .infinity) }
                 else {
@@ -256,8 +259,12 @@ struct SessionDetailView: View {
             }
         }
         .task {
-            if session.latest.isTerminal { model.markSeen(session: session.id, run: session.latest.runId) }
+            let owner = model.recordingConnectionKey
             await load()
+            guard !Task.isCancelled, owner == model.recordingConnectionKey else { return }
+            if !failed, let shown = latest, shown.isTerminal {
+                model.markSeen(session: session.id, run: shown.runId, status: shown.status)
+            }
         }
     }
 

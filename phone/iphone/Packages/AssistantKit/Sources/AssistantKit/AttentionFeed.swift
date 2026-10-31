@@ -202,7 +202,7 @@ public final class AttentionFeed {
     /// Events after which the inbox or the automations should be read again.
     static func changesLists(_ e: UserEvent) -> Bool {
         switch e.type {
-        case "attention.raised", "attention.seen", "trigger.event": return true
+        case "attention.raised", "attention.seen", "trigger.event", "session.read": return true
         case "run.finished":
             if case .object(let origin)? = e.data?["origin"] { return origin["kind"]?.stringValue == "trigger" }
             return false

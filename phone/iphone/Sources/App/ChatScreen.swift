@@ -7,6 +7,7 @@ import AbstractGatewayClient
 
 struct ChatScreen: View {
     var openSettings: () -> Void
+    var isVisible = true
     @Environment(AssistantStore.self) private var store
     @Environment(\.scenePhase) private var scenePhase
     @State private var draft = ""
@@ -33,7 +34,18 @@ struct ChatScreen: View {
     @State private var pickerOrigin: (UUID, String)?
     private enum CaptureMode: String, Identifiable { case photo, video; var id: String { rawValue } }
     @State private var composing = false
+    @State private var readMarkerVisible = false
     @FocusState private var typing: Bool
+
+    private var canConsumeRead: Bool {
+        isVisible && readMarkerVisible && scenePhase == .active && !history && !choosingEntity && !showFiles && !showTools &&
+            !importing && !photoLibrary && camera == nil && editingStoppedRequest == nil &&
+            showWait == nil && sharedConversation == nil && media.preview == nil && !store.isOpening && !store.isRestoring
+    }
+    private var readConsumptionKey: String {
+        store.contextID.uuidString + ":" + store.sessionID + ":" + String(canConsumeRead) + ":" +
+            store.visibleSessionReadReceipts.map { $0.runID + ":" + $0.status }.joined(separator: ";")
+    }
 
     var body: some View {
         NavigationStack {
@@ -42,6 +54,7 @@ struct ChatScreen: View {
                 latestID: store.messages.last?.id, latestText: store.messages.last?.text) {
                 LazyVStack(alignment: .leading, spacing: 24) {
                     if let message = store.error, message != store.activityFailure, store.activityIssue?.contains(message) != true { ErrorBanner(message: message, dismiss: store.dismissError) }
+                    if let message = store.sessionReadError { Text(message).font(.footnote).foregroundStyle(PhoneTheme.amber) }
                     if let message = attachments.error { ErrorBanner(message: message, dismiss: { attachments.error = nil }) }
                     if let message = voice.error { ErrorBanner(message: message, dismiss: { voice.error = nil }) }
                     if store.messages.isEmpty { emptyState }
@@ -49,9 +62,17 @@ struct ChatScreen: View {
                     if (store.activityState != .idle && store.activityState != .completed) || store.phase != .ready || store.isStopping || (store.selectedEntity != nil && store.activityIssue != nil) { RunActivityPanel { showWait = $0 } }
                     else if store.isRestoring || store.isOpening { ProgressView("Opening your conversation…").padding(.vertical, 28).frame(maxWidth: .infinity) }
                     Color.clear.frame(height: 1).id("bottom")
+                        .onScrollVisibilityChange(threshold: 1) { readMarkerVisible = $0 }
                 }.padding(22)
             }
             .background(PhoneTheme.ground)
+            .task(id: readConsumptionKey) {
+                guard canConsumeRead else { return }
+                let snapshot = store.visibleSessionReadReceipts, context = store.contextID, session = store.sessionID
+                do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+                guard canConsumeRead, context == store.contextID, session == store.sessionID, !Task.isCancelled else { return }
+                await store.markVisibleSessionRead(snapshot)
+            }
             .fullScreenCover(isPresented: Binding(get: { media.preview != nil }, set: { if !$0 { media.preview = nil } })) {
                 if let url = media.preview { ArtifactPreview(url: url) { media.preview = nil } }
             }
@@ -182,7 +203,7 @@ struct ChatScreen: View {
             .onChange(of: scenePhase) { _, phase in
                 if phase == .background || (phase == .inactive && voice.inputPhase != .authorizing) { cancelVoice(); media.stop() }
             }
-            .onDisappear { composing = false; cancelVoice(); if media.preview == nil { media.reset() } else { media.stop() }; attachments.cancel(); cancelMedia() }
+            .onDisappear { readMarkerVisible = false; composing = false; cancelVoice(); if media.preview == nil { media.reset() } else { media.stop() }; attachments.cancel(); cancelMedia() }
             .onChange(of: voice.inputPhase) { _, phase in if phase == .ready { finishVoice() } }
             .onChange(of: typing) { _, focused in
                 if !focused { composing = false }

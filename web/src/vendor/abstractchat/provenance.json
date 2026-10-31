@@ -7,7 +7,7 @@
     "dist/markdown.js": "1aa9d0c784c16cc8a59694b98905d98e2a2c7e5fd47fbf5077d9549ab84c0943",
     "dist/file_viewer.js": "6b63888c203f93f9ea13030542d3c797f17f13ba2ecec7770baf9f4aa5cca4af",
     "dist/workspace_browser.js": "6fe4cb01eb624e074ef7ab024ffb3345875b24429dacd24b7f5022fd4045eebf",
-    "dist/artifact_preview.js": "cdeaf1a70550b0ae09e58384780cb0aa79b2daa010c48ad78a6e46cae7878398",
+    "dist/artifact_preview.js": "1738ee5ad754e2fdc0838c305d0977f09814d78275ec04d89ea916d5a6130ec3",
     "dist/attachment_uploads.js": "60cb923df3ff9600fe56b7ef8f8578356af2eef234ac647f3888f17a0f627875",
     "dist/artifact_provenance.js": "866671635e943165c1e4ea293e34a115d189de4cbfe59037b8b6569dade125ef",
     "dist/message_artifacts.js": "54d84e34b3e0f81e12e09a93803ecf1c5bb109bd1e80af0585fa11f0684b3f19",
@@ -34,10 +34,10 @@
     "dist/workflow_runtime.js": "4ab45ab12afe1eaa61c36bdf9e9d74f455a05a7ae48cfd91b6e1e68361f739cd",
     "dist/use_workflow_session.js": "a9eb2bd3a9aea4428a1ff21d4151881eafa66a82a10d529f21a89bc99fa2aebe",
     "dist/conversation.js": "29d6595fa0b8a1ee9b878bae2470b56d7a8fc4c3c2c9bc6b14cf7c1d3163670f",
-    "src/panel_chat.css": "0693099083baace2c2e6de8fc84eb0db90ace123506a1b5696fb8d110e1cc798"
+    "src/panel_chat.css": "668dcaa76679b13ba1fa5c3e0bfc9b750b4a70bba44bd8e0d7b26f28b7f78ba2"
   },
   "artifacts": {
-    "conversation.js": "50581275a02d6a24ccd572abe881a28e7a9c528e363affc67cee77e3291436b2",
+    "conversation.js": "6695baeaf3bff36652c87cae8fb579b6c4baaf7a38770f376f0969b38e3d9b09",
     "artifact_preview.d.ts": "40c581cd1ef271dcb631c23f20898583822581c1c8e7ea0b0a68bbede8414432",
     "artifact_provenance.d.ts": "c4b4f810379ec2bfcde8f60db49fad72953cd07da16f4aff7e2bf22e0d3fe49a",
     "assistant_panel.d.ts": "8bb13704be43f1b09469e3aeeb1c25d179663ae01d1de5b1a88feb39ca429222",
@@ -81,6 +81,6 @@
     "workflow_progress.d.ts": "39537d3d9b44637345a16cbe7b3a48070d225a5bbf4490ffe06e208c3347a143",
     "workflow_runtime.d.ts": "ce62c56e570d1240d97e742a2ec690b61c98766b681238219c5dd9ecba357a47",
     "workspace_browser.d.ts": "15a20e5e6075b5ef3393844002616cdec5812ef2a7af99b297b0f1375327cf7e",
-    "conversation.css": "0693099083baace2c2e6de8fc84eb0db90ace123506a1b5696fb8d110e1cc798"
+    "conversation.css": "668dcaa76679b13ba1fa5c3e0bfc9b750b4a70bba44bd8e0d7b26f28b7f78ba2"
   }
 }

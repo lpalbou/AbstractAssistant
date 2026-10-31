@@ -90,6 +90,14 @@ the first time there is something to show. What happened before the app first lo
 notified. A gateway without the event stream keeps the app's regular refresh; notifications then
 do not appear.
 
+Conversation cards outline unread answers in teal and requests needing you in amber. Read status
+belongs to your Gateway account, shared with the Watch and web clients through
+`/api/gateway/me/session-reads`. Opening history alone does not mark it read: the loaded answer’s
+footer must be visible for 250 ms in the active chat, without a sheet covering it. Only those
+captured run/status revisions are acknowledged, so an older turn finishing later stays new.
+A failed write leaves the highlight intact and retries on a later foreground refresh. The old
+Watch-local baseline is not treated as proof of reading. Native apps need a rebuild to use this API.
+
 ## Voice and files
 
 **Settings → Voice & reading** offers **Send voice messages automatically** (off by default),

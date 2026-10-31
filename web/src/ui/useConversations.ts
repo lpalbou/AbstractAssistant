@@ -33,7 +33,7 @@ export type Conversations = {
 
 export function useConversations(
   client: GatewayClient,
-  opts: { onSignedOut: () => void; scope?: string; onAttentionSeen?: (seen: AttentionSeen) => void },
+  opts: { onSignedOut: () => void; scope?: string; onAttentionSeen?: (seen: AttentionSeen) => void; onSessionRead?: () => void },
 ): Conversations {
   const generation = useRef(0);
   const priorAttention = useRef(new Set<string>());
@@ -52,6 +52,7 @@ export function useConversations(
   signedOut.current = opts.onSignedOut;
   const seen = useRef(opts.onAttentionSeen);
   seen.current = opts.onAttentionSeen;
+  const sessionRead = useRef(opts.onSessionRead); sessionRead.current = opts.onSessionRead;
 
   const refresh = useCallback(async () => {
     try {
@@ -99,6 +100,7 @@ export function useConversations(
         setEventsError("");
         await client.followMeEvents(head, (ev) => {
           const type = String(ev.type || "");
+          if (type === "session.read") sessionRead.current?.();
           const data = (ev.data || {}) as Record<string, unknown>;
           if (type === "attention.raised" && typeof data.wait_key === "string" && typeof data.session_id === "string") priorAttention.current.add(data.session_id);
           if ((type === "attention.raised" || type === "attention.seen" || ((type === "run.started" || type === "run.finished") && eventTouchesList(data, visibleIds.current)))) {

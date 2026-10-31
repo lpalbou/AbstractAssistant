@@ -47,6 +47,9 @@ private struct ConversationHistoryList: View {
                     if archived { Button("Try again") { Task { await store.loadArchivedConversations() } } }
                 }.padding(.vertical, 8)
             }
+            if let error = store.sessionReadError {
+                Text(error).font(.footnote).foregroundStyle(PhoneTheme.amber)
+            }
             if archived && store.loadingArchived { ProgressView("Loading archived conversations…").padding(.vertical, 12) }
             if filtered.isEmpty && !store.loadingArchived {
                 ContentUnavailableView(search.isEmpty ? (archived ? "Nothing archived" : "A fresh start") : "No conversations found",
@@ -106,12 +109,17 @@ private struct ConversationHistoryList: View {
                 .accessibilityLabel(archived ? "Restore conversation" : "Archive conversation")
                 .accessibilityHint(!archived && session.anyTurnLive ? "Available after this conversation finishes." : "")
                 .accessibilityIdentifier((archived ? "conversation.restore." : "conversation.archive.") + session.id)
-        }.padding(16).background(PhoneTheme.surface, in: RoundedRectangle(cornerRadius: 20))
+        }.padding(16)
+            .background(store.isUnread(session) ? PhoneTheme.mint.opacity(0.08) : PhoneTheme.surface, in: RoundedRectangle(cornerRadius: 20))
+            .overlay(RoundedRectangle(cornerRadius: 20).stroke(session.anyTurnNeedsPerson ? PhoneTheme.amber : store.isUnread(session) ? PhoneTheme.mint : .clear, lineWidth: 1))
     }
     private func summary(_ session: SessionSummary) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(store.titles[session.id] ?? "Conversation").font(.subheadline.weight(.semibold))
-                .foregroundStyle(PhoneTheme.ink).lineLimit(2).multilineTextAlignment(.leading)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                if store.isUnread(session) { Circle().fill(PhoneTheme.mint).frame(width: 6, height: 6).accessibilityLabel("Unread") }
+                Text(store.titles[session.id] ?? "Conversation").font(.subheadline)
+                    .foregroundStyle(PhoneTheme.ink).lineLimit(2).multilineTextAlignment(.leading)
+            }
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 14) { stats(session); state(session) }.fixedSize(horizontal: true, vertical: false)
                 VStack(alignment: .leading, spacing: 8) {

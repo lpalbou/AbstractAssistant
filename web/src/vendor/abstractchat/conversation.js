@@ -786,7 +786,7 @@ function ArtifactPreviewModal(p) {
   const [state, setState] = useState4({
     status: "loading",
     kind: "binary"
-  }), [attempt, retry] = useState4(0), [downloading, setDownloading] = useState4(false), [downloadError, setDownloadError] = useState4("");
+  }), [attempt, retry] = useState4(0), [mediaSize, setMediaSize] = useState4(null), [downloading, setDownloading] = useState4(false), [downloadError, setDownloadError] = useState4("");
   const previewAbort = useRef2(null), download = useRef2(null), alive = useRef2(true);
   useEffect4(() => {
     alive.current = true;
@@ -903,7 +903,15 @@ function ArtifactPreviewModal(p) {
     previewAbort.current?.abort();
     download.current?.abort();
     p.onClose();
-  }, size: "wide", className: "pc-artifact-preview", footerNote: downloading ? "Downloading\u2026" : downloadError || void 0, footer: state.status === "error" ? _jsx5("button", { type: "button", className: "pc-artifact-preview__retry", onClick: () => retry((n) => n + 1), children: "Retry preview" }) : void 0, children: _jsx5(FileViewer, { name: p.name, onDownload: () => void save(), status: state.status, kind: state.kind, contentType: state.contentType, text: state.text, url: state.url, error: state.error, partialNote: state.partialNote, markdownImages: "link", inlineImage: () => false }) });
+  }, className: `pc-artifact-preview pc-artifact-preview--${state.kind}`, footerNote: downloading ? "Downloading\u2026" : downloadError || void 0, footer: state.status === "error" ? _jsx5("button", { type: "button", className: "pc-artifact-preview__retry", onClick: () => retry((n) => n + 1), children: "Retry preview" }) : void 0, children: _jsx5("div", { className: "pc-artifact-preview__content", style: mediaSize && mediaSize.url === state.url ? { "--pc-media-width": `${mediaSize.width}px`, "--pc-media-aspect": mediaSize.width / mediaSize.height } : void 0, onLoadCapture: (e) => {
+    const image = e.target;
+    if (image instanceof HTMLImageElement && image.naturalWidth && image.naturalHeight && image.src === state.url)
+      setMediaSize({ url: image.src, width: image.naturalWidth, height: image.naturalHeight });
+  }, onLoadedMetadataCapture: (e) => {
+    const video = e.target;
+    if (video instanceof HTMLVideoElement && video.videoWidth && video.videoHeight && video.src === state.url)
+      setMediaSize({ url: video.src, width: video.videoWidth, height: video.videoHeight });
+  }, children: _jsx5(FileViewer, { name: p.name, onDownload: () => void save(), status: state.status, kind: state.kind, contentType: state.contentType, text: state.text, url: state.url, error: state.error, partialNote: state.partialNote, markdownImages: "link", inlineImage: () => false }) }) });
 }
 
 // dist/message_artifacts.js

@@ -13,6 +13,8 @@ export type SessionActivity = {
 };
 export declare function sessionContentRevision(runId: string, status: string): string;
 export declare function sessionNeedsAttention(run: Record<string, unknown>): boolean;
+/** Gateway turn-root semantics: a chat wake occurrence is a turn despite its parent. */
+export declare function isConversationTurn(row: Record<string, unknown>): boolean;
 export declare function sessionActivityFromRuns(body: unknown): Record<string, SessionActivity>;
 /** Non-secret account identity; never include a token or token fingerprint. */
 export declare function sessionReadScope(connection: {
@@ -54,4 +56,11 @@ export declare function sessionReadTarget<T extends {
     message?: T;
     outcome?: string;
 };
+/** Opening the latest loaded answer may consume its loaded history, never a newer or missing outcome. */
+export declare function sessionOpeningReceipts<T extends {
+    runId?: string;
+    role: string;
+    live?: unknown;
+    toolActivity?: unknown;
+}>(messages: readonly T[], content: readonly SessionContent[] | undefined, displayedRunId: string): SessionReceipt[];
 //# sourceMappingURL=session_activity.d.ts.map

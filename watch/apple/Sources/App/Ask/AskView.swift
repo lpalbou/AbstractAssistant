@@ -240,6 +240,16 @@ struct AskView: View {
         // app with a run still working: its end is followed in the background, to be posted.
         .onChange(of: scenePhase) { _, p in
             activity.paused = p != .active
+            if p == .active, phase == .answer, automationFeed == nil, answerEntity == nil,
+               !answer.isEmpty, let id = runId {
+                let owner = model.recordingConnectionKey, session = model.askSessionId
+                let status = model.runs.first(where: { $0.runId == id && $0.isTerminal })?.status ?? "completed"
+                Task {
+                    await Task.yield()
+                    guard owner == model.recordingConnectionKey, id == runId, scenePhase == .active else { return }
+                    model.markSeen(session: session, run: id, status: status)
+                }
+            }
             if p == .background, phase == .thinking, !transcribing, pendingWait == nil, let id = runId, !model.client.isMock {
                 AnswerNotifier.shared.watch(runId: id, title: speakerTitle, prompt: prompt)
             }
@@ -896,7 +906,7 @@ struct AskView: View {
         if automationFeed != nil { e.when = liveWhen }
         if let i = exchanges.firstIndex(where: { $0.id == e.id }) { e.when = exchanges[i].when ?? e.when; exchanges[i] = e } else { exchanges.append(e) }
         if let a = automationFeed { Task { await a.markSeen(model) } }
-        else if answerEntity == nil, let id = runId { model.markSeen(session: model.askSessionId, run: id) }
+        else if answerEntity == nil, let id = runId { model.markSeen(session: model.askSessionId, run: id, status: "completed") }
         WKInterfaceDevice.current().play(.notification)
         speak()                                     // the speaker holds the app awake while it reads
         RuntimeKeeper.shared.release("ask")
@@ -950,6 +960,7 @@ struct AskView: View {
     /// or by a device test hook.
     private func onOpen() async {
         guard !opened else { return }                       // back from a page above: as it was left
+        let owner = model.recordingConnectionKey
         defer { opened = true }
         if let a = automationFeed {
             await openAutomation(a)
@@ -964,7 +975,7 @@ struct AskView: View {
             prompt = r.prompt; answer = r.answer; runId = r.runId
             if !answer.isEmpty || !prompt.isEmpty { phase = .answer }
             exchanges = [Exchange(id: r.runId, prompt: r.prompt, answer: r.answer, scope: .run(r.runId), media: r.media)]
-            model.markSeen(session: r.sessionId, run: r.runId)
+            model.markSeen(session: r.sessionId, run: r.runId, status: r.status)
             // Its last turn is still working (or waits on an approval): follow it, as when asked here
             // (the status line then says what it does, not the title).
             if r.status == "running" || r.status == "waiting" { note = nil; resumeFollowing(r.runId) }
@@ -977,6 +988,7 @@ struct AskView: View {
             runId = ref.runId
             if let text = ref.text { show(text); return }
             if let id = ref.runId, let run = try? await model.client.run(id: id) {
+                guard !Task.isCancelled, owner == model.recordingConnectionKey else { return }
                 // The answer's own conversation: its tools, its next question and its history are
                 // that conversation's (never the one that happened to be current).
                 // An automation's run: its own page (talking there never writes into its conversation).
@@ -1011,13 +1023,15 @@ struct AskView: View {
     private func showCurrentConversation() async {
         guard model.responder == .assistant, exchanges.isEmpty, prompt.isEmpty,
               let s = model.sessions.first(where: { $0.id == model.askSessionId }) else { return }
+        let owner = model.recordingConnectionKey
         let last = await model.lastExchange(of: s)
         // Meanwhile the person may have started talking, or switched conversation.
-        guard model.askSessionId == s.id, phase == .idle, prompt.isEmpty, !(last.prompt.isEmpty && last.answer.isEmpty) else { return }
+        guard !Task.isCancelled, owner == model.recordingConnectionKey, model.askSessionId == s.id,
+              phase == .idle, prompt.isEmpty, !(last.prompt.isEmpty && last.answer.isEmpty) else { return }
         prompt = last.prompt; answer = last.answer; runId = last.runId
         phase = .answer
         exchanges = [Exchange(id: last.runId, prompt: last.prompt, answer: last.answer, scope: .run(last.runId), media: last.media)]
-        model.markSeen(session: s.id, run: last.runId)
+        model.markSeen(session: s.id, run: last.runId, status: last.status)
         if last.status == "running" || last.status == "waiting" { note = nil; resumeFollowing(last.runId) }
         await loadHistory(s.id, latestRun: last.runId)
     }

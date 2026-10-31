@@ -1,3 +1,4 @@
+import { isConversationTurn } from "../vendor/abstractsessions/session_cards.js";
 /**
  * The session list, as the gateway knows it: one row per `session_id` over
  * one `GET /api/gateway/runs?root_only=true` page.
@@ -11,7 +12,7 @@
  * - no `session_id` or no `run_id`: not a session;
  * - `session_kind` other than chat / discussion / unstamped: not a regular
  *   session (automations list their occurrences elsewhere);
- * - a child run (`parent_run_id`) is never a turn;
+ * - child runs are excluded except canonical chat wake occurrences;
  * - recency = newest `updated_at` (else `created_at`), the paging field;
  * - state = the liveliest run: waiting > running > failed/cancelled > completed;
  *   an unreported status is "unknown", never "done";
@@ -80,7 +81,7 @@ export function foldSessionRows(payload: unknown): { rows: SessionRow[]; truncat
     if (!run || typeof run !== "object") return;
     const r = run as Run;
     if (!REGULAR_KINDS.has(text(r.session_kind))) return;
-    if (text(r.parent_run_id)) return;
+    if (!isConversationTurn(r)) return;
     const sid = text(r.session_id);
     const rid = text(r.run_id);
     if (!sid || !rid) return;

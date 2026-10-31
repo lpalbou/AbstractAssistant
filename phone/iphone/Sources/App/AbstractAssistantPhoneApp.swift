@@ -37,7 +37,7 @@ struct PhoneRoot: View {
         Group {
             if store.isConnected {
                 TabView(selection: $tab) {
-                    Tab("Assistant", systemImage: "sparkle", value: 0) { ChatScreen(openSettings: { settings = true }) }
+                    Tab("Assistant", systemImage: "sparkle", value: 0) { ChatScreen(openSettings: { settings = true }, isVisible: tab == 0 && !settings) }
                     Tab("Inbox", systemImage: "tray", value: 1) { InboxScreen() }.badge(store.inboxBadge)
                     Tab("Automations", systemImage: "clock.arrow.circlepath", value: 2) { AutomationsScreen() }.badge(store.attention.newResults)
                 }

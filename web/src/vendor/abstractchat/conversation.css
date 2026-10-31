@@ -2591,3 +2591,29 @@ button.pc-ws__name:hover {
 
 .pc-artifact-preview__retry { border: 1px solid var(--ui-border-1); border-radius: 8px; background: var(--ui-surface-2); color: var(--text-primary); min-height: 36px; padding: 6px 12px; font: inherit; cursor: pointer; }
 .pc-artifact-preview__retry:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Attachment dialogs own the chrome; the embedded viewer owns only the file. */
+.af-modal.pc-artifact-preview { position: relative; width: fit-content; min-width: min(320px, calc(100vw - 32px)); max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); }
+.pc-artifact-preview .af-modal__title { padding-right: 44px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
+.pc-artifact-preview .af-modal__body { padding: 0; }
+.pc-artifact-preview .af-file-viewer { border: 0; border-radius: 0; background: transparent; }
+.pc-artifact-preview .af-file-viewer__head { display: contents; }
+.pc-artifact-preview .af-file-viewer__head > svg,
+.pc-artifact-preview .af-file-viewer__title { display: none; }
+.pc-artifact-preview .af-file-viewer__head > button { position: absolute; top: 14px; right: 58px; width: 32px; height: 32px; }
+.pc-artifact-preview .af-file-viewer__body { padding: 12px; }
+.pc-artifact-preview__content { width: min(76ch, 820px, calc(100vw - 32px)); }
+.pc-artifact-preview--image .pc-artifact-preview__content,
+.pc-artifact-preview--video .pc-artifact-preview__content { width: min(calc(var(--pc-media-width, 616px) + 24px), calc((100dvh - 128px) * var(--pc-media-aspect, 1) + 24px), calc(100vw - 32px)); }
+.pc-artifact-preview .af-file-viewer__image { display: block; width: auto; max-width: 100%; max-height: calc(100dvh - 128px); object-fit: contain; }
+.pc-artifact-preview--audio .pc-artifact-preview__content { width: min(520px, calc(100vw - 32px)); }
+.pc-artifact-preview--binary .pc-artifact-preview__content { width: min(440px, calc(100vw - 32px)); }
+@media (max-width: 767.98px) {
+  .af-modal.pc-artifact-preview { position: relative; width: fit-content; height: auto; border-radius: 14px; margin: auto; }
+}
+
+@media (pointer: coarse) {
+  .pc-artifact-preview .af-modal__header { min-height: 72px; box-sizing: border-box; }
+  .pc-artifact-preview .af-modal__title { padding-right: 56px; }
+  .pc-artifact-preview .af-file-viewer__head > button { right: 70px; width: 44px; height: 44px; }
+}

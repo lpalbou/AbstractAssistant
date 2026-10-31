@@ -22,7 +22,7 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
 .aa-sidebar__list { flex: 1; min-width: 0; min-height: 0; overflow: auto; margin: 0 -6px; padding: 0 6px; }
 .aa-session-group { margin: 0 0 24px; }
 .aa-session-group h2 { margin: 0 10px 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .12em; font-weight: 600; color: var(--aa-text-muted); }
-.aa-sessions { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; min-width: 0; }
+.aa-sessions { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; min-width: 0; }
 .aa-sessions li { min-width: 0; }
 .aa-sidebar__footer { display: flex; justify-content: space-between; border-top: 1px solid var(--aa-border); padding-top: 10px; }
 .aa-sidebar__footer button { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; min-width: 44px; justify-content: center; background: transparent; border: 0; color: var(--aa-text-muted); font-size: 13px; }

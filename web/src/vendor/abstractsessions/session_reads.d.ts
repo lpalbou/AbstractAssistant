@@ -1,10 +1,13 @@
 import React from "react";
+import type { SessionReadClient } from "./session_read_client.js";
 import { type SessionReceipt } from "./session_activity.js";
-/** Browser-local, account-scoped receipts shared by clients on this origin. No Gateway writes. */
-export declare function useSessionReads(scope: string, observed?: readonly SessionReceipt[]): {
-    isUnread: (p: SessionReceipt) => boolean;
+/** With a client: Gateway-owned receipts. Without one: explicitly browser-local compatibility mode. */
+export declare function useSessionReads(scope: string, observed?: readonly SessionReceipt[], client?: SessionReadClient): {
     markRead: (p: SessionReceipt) => void;
+    refresh: () => Promise<void>;
+    isUnread: (p: SessionReceipt) => boolean;
     error: string;
+    loading: boolean;
 };
 /** Mount after loaded content; selection and background loads cannot acknowledge it. */
 export declare function SessionReadMarker(p: {

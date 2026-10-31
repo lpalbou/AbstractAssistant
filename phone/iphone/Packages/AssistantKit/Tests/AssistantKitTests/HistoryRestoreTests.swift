@@ -57,11 +57,81 @@ import AbstractGatewayClient
         #expect(store.completedReply?.text == "New reply")
         store.disconnect()
     }
+    @Test func loadingHistoryNeverCommitsReadsButVisibleConsumptionDoes() async throws {
+        let (store, client, session) = try await fixture()
+        await store.refresh()
+        #expect(store.isUnread(session))
+        await store.openSession(session)
+        #expect(try await client.sessionReads(runIDs: ["turn1", "turn2"]).isEmpty)
+        let displayed = store.visibleSessionReadReceipts
+        #expect(displayed.map(\.runID) == ["turn1", "turn2"])
+        store.setForeground(true)
+        await store.markVisibleSessionRead(displayed)
+        store.setForeground(false)
+        #expect(displayed.allSatisfy { store.sessionReads.contains($0) })
+        // The fixture also lists a newer root that this history response does not yet contain.
+        #expect(store.isUnread(session), "An unshown answer must remain new")
+        #expect(Set(try await client.sessionReads(runIDs: ["turn1", "turn2"])) == Set(displayed))
+        store.disconnect()
+        #expect(!store.sessionReads.loaded)
+        #expect(store.visibleSessionReadReceipts.isEmpty)
+    }
+    @Test func accountSwitchIgnoresAnOlderCommittedWriteCallback() async throws {
+        let (store, client, session) = try await fixture()
+        await store.openSession(session)
+        let displayed = store.visibleSessionReadReceipts
+        await client.holdWrites()
+        store.setForeground(true)
+        let write = Task { await store.markVisibleSessionRead(displayed) }
+        for _ in 0..<1000 { if await client.writeStarted { break }; await Task.yield() }
+        #expect(await client.writeStarted)
+        store.connect(nil, client: MockGatewayClient(world: .phone))
+        store.setForeground(false)
+        await client.releaseWrite()
+        await write.value
+        #expect(displayed.allSatisfy { !store.sessionReads.contains($0) })
+        #expect(store.sessionReadError == nil)
+        store.disconnect()
+    }
+    @Test func transientWriteFailureKeepsExactReadPendingUntilRefresh() async throws {
+        let (store, client, session) = try await fixture()
+        await store.openSession(session)
+        let displayed = store.visibleSessionReadReceipts
+        await client.holdWrites(); await client.rejectWrites()
+        store.setForeground(true)
+        let write = Task { await store.markVisibleSessionRead(displayed) }
+        for _ in 0..<1000 { if await client.writeStarted { break }; await Task.yield() }
+        store.setForeground(false)
+        await client.releaseWrite(); await write.value
+        for _ in 0..<1000 { if !store.isRefreshing { break }; await Task.yield() }
+        #expect(store.sessionReadError != nil)
+        #expect(displayed.allSatisfy { !store.sessionReads.contains($0) })
+        await client.allowWrites()
+        await store.refresh()
+        #expect(displayed.allSatisfy { store.sessionReads.contains($0) })
+        #expect(store.sessionReadError == nil)
+        store.disconnect()
+    }
 }
 
 private actor HistoryClient: GatewayClient {
     nonisolated let isMock = true
     let mock = MockGatewayClient(world: .phone)
+    private var holdingWrites = false
+    private var failWrite = false
+    private var writeContinuation: CheckedContinuation<Void, Never>?
+    var writeStarted = false
+    func holdWrites() { holdingWrites = true }
+    func rejectWrites() { failWrite = true }
+    func allowWrites() { failWrite = false }
+    func releaseWrite() { holdingWrites = false; writeContinuation?.resume(); writeContinuation = nil }
+    func sessionReads(runIDs: [String]) async throws -> [SessionReadReceipt] { try await mock.sessionReads(runIDs: runIDs) }
+    func markSessionReads(_ receipts: [SessionReadReceipt]) async throws -> [SessionReadReceipt] {
+        writeStarted = true
+        if holdingWrites { await withCheckedContinuation { writeContinuation = $0 } }
+        if failWrite { throw GatewayError.http(status: 503, body: "unavailable") }
+        return try await mock.markSessionReads(receipts)
+    }
     var states: [String: RunSummary] = [:]
     func append(_ row: RunSummary) { states[row.runId] = row }
     func configure(_ rows: [RunSummary]) { states = Dictionary(uniqueKeysWithValues: rows.map { ($0.runId, $0) }) }

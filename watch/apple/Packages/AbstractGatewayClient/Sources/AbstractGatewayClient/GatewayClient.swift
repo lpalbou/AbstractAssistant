@@ -150,6 +150,10 @@ public protocol GatewayClient: Sendable {
     func occurrences(automationId: String, limit: Int) async throws -> [LastOccurrence]
     /// `POST /api/gateway/automations/{id}/seen` `{attention_cursor}`.
     func markSeen(automationId: String, cursor: String) async throws
+    /// The caller's durable conversation read log, restricted to these observed turn ids.
+    func sessionReads(runIDs: [String]) async throws -> [SessionReadReceipt]
+    /// Commit only revisions the person actually viewed; repeat writes are idempotent.
+    func markSessionReads(_ receipts: [SessionReadReceipt]) async throws -> [SessionReadReceipt]
     /// Speech for `text`, as complete WAV files in reading order: `POST /api/gateway/runs/{id}/voice/tts/stream`
     /// for a run's text, `POST /api/gateway/entities/{name}/voice/tts/stream` for an entity's (its own voice).
     /// The gateway's configured voice answers (or `voice`); the first chunk arrives after the first sentence is synthesized.
@@ -189,6 +193,8 @@ public protocol GatewayClient: Sendable {
 
 /// What a test double that does not answer a route gives: what a gateway without it would.
 public extension GatewayClient {
+    func sessionReads(runIDs: [String]) async throws -> [SessionReadReceipt] { throw GatewayError.http(status: 404, body: "") }
+    func markSessionReads(_ receipts: [SessionReadReceipt]) async throws -> [SessionReadReceipt] { throw GatewayError.http(status: 404, body: "") }
     func turns(ofSession id: String, limit: Int) async throws -> [RunSummary] { throw GatewayError.http(status: 404, body: "") }
     func sessionHistory(latestRun runId: String, limit: Int) async throws -> [SessionTurn] { throw GatewayError.http(status: 404, body: "") }
     func setArchived(sessionId: String, _ archived: Bool) async throws { throw GatewayError.invalidResponse }
@@ -816,6 +822,31 @@ public actor LiveGatewayClient: GatewayClient {
 
     public func markSeen(automationId: String, cursor: String) async throws {
         _ = try await request("POST", "api/gateway/automations/\(automationId)/seen", body: SeenRequest(attentionCursor: cursor))
+    }
+
+    public func sessionReads(runIDs: [String]) async throws -> [SessionReadReceipt] {
+        let ids = Array(Set(runIDs)).sorted()
+        var result: [SessionReadReceipt] = []
+        for offset in stride(from: 0, to: ids.count, by: 100) {
+            let query: [URLQueryItem] = [.init(name: "limit", value: "1000")] + ids[offset..<min(offset + 100, ids.count)].map { .init(name: "run_id", value: $0) }
+            let page = try await get("api/gateway/me/session-reads", query: query, as: SessionReadPage.self)
+            result += try page.checked()
+        }
+        return result
+    }
+
+    public func markSessionReads(_ receipts: [SessionReadReceipt]) async throws -> [SessionReadReceipt] {
+        guard receipts.allSatisfy(\.isValid) else { throw GatewayError.invalidResponse }
+        struct Body: Encodable { let receipts: [SessionReadReceipt] }
+        var result: [SessionReadReceipt] = []
+        for offset in stride(from: 0, to: receipts.count, by: 100) {
+            let batch = Array(receipts[offset..<min(offset + 100, receipts.count)])
+            let data = try await request("POST", "api/gateway/me/session-reads", body: Body(receipts: batch))
+            let rows = try JSONDecoder().decode(SessionReadPage.self, from: data).checked()
+            guard Set(batch).isSubset(of: Set(rows)) else { throw GatewayError.invalidResponse }
+            result += rows
+        }
+        return result
     }
 
     // MARK: Entities

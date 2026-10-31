@@ -305,12 +305,20 @@ function sessionNeedsAttention(run) {
   const wait = run.waiting && typeof run.waiting === "object" ? run.waiting : {};
   return run.status === "waiting" && (wait.reason === "user" || run.wait_reason === "user");
 }
+function isConversationTurn(row) {
+  const kind = row.session_kind ?? row.sessionKind;
+  if (kind && kind !== "chat" && kind !== "discussion")
+    return false;
+  if (row.role === "controller")
+    return false;
+  return row.role === "occurrence" || !String(row.parent_run_id ?? row.parentRunId ?? "").trim();
+}
 function sessionActivityFromRuns(body) {
   const root = body && typeof body === "object" ? body : {};
   const rows = Array.isArray(body) ? body : Array.isArray(root.items) ? root.items : Array.isArray(root.runs) ? root.runs : [];
   const groups = /* @__PURE__ */ new Map();
   for (const row of rows) {
-    if (!row || typeof row !== "object" || row.parent_run_id || typeof row.session_id !== "string" || typeof row.run_id !== "string")
+    if (!row || typeof row !== "object" || !isConversationTurn(row) || typeof row.session_id !== "string" || typeof row.run_id !== "string")
       continue;
     const list = groups.get(row.session_id) ?? [];
     list.push(row);
@@ -423,18 +431,215 @@ function sessionReadTarget(messages, runId, status) {
   const candidates = messages.filter((m) => m.runId === runId && !m.live && !m.toolActivity && m.role === role);
   return { message: candidates[candidates.length - 1], ...outcome ? { outcome } : {} };
 }
+function sessionOpeningReceipts(messages, content, displayedRunId) {
+  if (!content?.length || content[0].runId !== displayedRunId)
+    return [];
+  return content.filter((receipt) => Boolean(sessionReadTarget(messages, receipt.runId, receipt.status).message));
+}
 
 // dist/session_reads.js
 import { jsx as _jsx6 } from "react/jsx-runtime";
-import { useCallback, useEffect as useEffect2, useMemo, useState } from "react";
+import { useCallback as useCallback2, useEffect as useEffect3, useMemo as useMemo2, useState as useState2 } from "react";
+
+// dist/session_reads_remote.js
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+// dist/session_read_client.js
+function sessionReadIdentity(p) {
+  const value = JSON.parse(p.revision);
+  if (!Array.isArray(value) || value.length !== 2 || !p.sessionId)
+    throw Error("Invalid session read revision");
+  const [run, status] = value;
+  if (typeof run !== "string" || !run || !["request", "completed", "failed", "cancelled"].includes(status))
+    throw Error("Invalid session read revision");
+  return { session_id: p.sessionId, run_id: run, status };
+}
+function sessionReadEventReceipt(e) {
+  if (!e || !Number.isSafeInteger(e.sequence) || e.sequence < 1 || typeof e.event_id !== "string" || !e.event_id || typeof e.session_id !== "string" || !e.session_id || typeof e.run_id !== "string" || !e.run_id || typeof e.at !== "string" || !Number.isFinite(Date.parse(e.at)) || !["request", "completed", "failed", "cancelled"].includes(e.status))
+    throw Error("Invalid shared read receipt");
+  return { sessionId: e.session_id, revision: JSON.stringify([e.run_id, e.status]), updatedAt: e.at };
+}
+var sessionReceiptKey = (p) => JSON.stringify([p.sessionId, p.revision]);
+function createSessionReadClient(fetchGateway) {
+  async function request(query, init) {
+    const r = await fetchGateway(`api/gateway/me/session-reads${query}`, init);
+    if (!r.ok) {
+      const error = Object.assign(new Error(`Shared read state unavailable (HTTP ${r.status}).`), { status: r.status });
+      await r.body?.cancel();
+      throw error;
+    }
+    const value = await r.json();
+    if (!value || !Array.isArray(value.items) || value.more)
+      throw Error("Shared read state returned an incomplete page.");
+    for (const e of value.items)
+      sessionReadEventReceipt(e);
+    return value.items;
+  }
+  return {
+    async load(receipts, signal) {
+      const ids = [...new Set(receipts.map((p) => sessionReadIdentity(p).run_id))].sort(), result = [];
+      for (let i = 0; i < ids.length; i += 100) {
+        const params = new URLSearchParams({ limit: "1000" });
+        for (const id of ids.slice(i, i + 100))
+          params.append("run_id", id);
+        result.push(...await request(`?${params}`, { signal }));
+      }
+      return result;
+    },
+    async mark(receipts, signal) {
+      const result = [];
+      for (let i = 0; i < receipts.length; i += 100)
+        result.push(...await request("", {
+          method: "POST",
+          signal,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ receipts: receipts.slice(i, i + 100).map(sessionReadIdentity) })
+        }));
+      return result;
+    }
+  };
+}
+
+// dist/session_reads_remote.js
+function useRemoteSessionReads(scope, observed, client) {
+  const [, redraw] = useState(0), observedRef = useRef(observed);
+  observedRef.current = observed;
+  const state = useMemo(() => ({
+    keys: /* @__PURE__ */ new Map(),
+    pending: /* @__PURE__ */ new Map(),
+    controllers: /* @__PURE__ */ new Set(),
+    active: false,
+    generation: 0,
+    loaded: false,
+    writing: false,
+    queued: false,
+    readError: "",
+    writeError: ""
+  }), [scope, client]);
+  const accept = useCallback((items) => {
+    const ids2 = new Set(observedRef.current.map((p) => sessionReadIdentity(p).run_id));
+    for (const [key, id] of state.keys)
+      if (!ids2.has(id) && !state.pending.has(key))
+        state.keys.delete(key);
+    for (const e of items)
+      if (ids2.has(e.run_id))
+        state.keys.set(sessionReceiptKey(sessionReadEventReceipt(e)), e.run_id);
+    redraw((n) => n + 1);
+  }, [state]);
+  const flush = useCallback(async () => {
+    if (!client || !scope || !state.active || state.writing)
+      return;
+    state.writing = true;
+    const generation = state.generation;
+    try {
+      while (state.active && state.generation === generation && state.pending.size) {
+        const controller = new AbortController(), batch = [...state.pending.values()].slice(0, 100);
+        state.controllers.add(controller);
+        try {
+          const events = await client.mark(batch, controller.signal);
+          if (!state.active || state.generation !== generation)
+            return;
+          const acknowledged = new Set(events.map((e) => sessionReceiptKey(sessionReadEventReceipt(e))));
+          if (batch.some((p) => !acknowledged.has(sessionReceiptKey(p))))
+            throw Error("The gateway did not confirm every read receipt. Please retry.");
+          for (const p of batch)
+            state.pending.delete(sessionReceiptKey(p));
+          state.writeError = "";
+          accept(events);
+        } catch (e) {
+          if (!controller.signal.aborted && state.active && state.generation === generation) {
+            state.writeError = e instanceof Error ? e.message : String(e);
+            const code = e?.status;
+            if (code && code >= 400 && code < 500 && code !== 408 && code !== 429)
+              for (const p of batch)
+                state.pending.delete(sessionReceiptKey(p));
+            redraw((n) => n + 1);
+          }
+          break;
+        } finally {
+          state.controllers.delete(controller);
+        }
+      }
+    } finally {
+      if (state.generation === generation)
+        state.writing = false;
+    }
+  }, [client, scope, state, accept]);
+  const refresh = useCallback(async () => {
+    if (!client || !scope || !state.active)
+      return;
+    const controller = new AbortController(), generation = state.generation;
+    state.controllers.add(controller);
+    try {
+      const events = await client.load([...observedRef.current], controller.signal);
+      if (!state.active || state.generation !== generation)
+        return;
+      state.loaded = true;
+      state.readError = "";
+      accept(events);
+    } catch (e) {
+      if (!controller.signal.aborted && state.active && state.generation === generation) {
+        state.readError = e instanceof Error ? e.message : String(e);
+        redraw((n) => n + 1);
+      }
+    } finally {
+      state.controllers.delete(controller);
+    }
+    await flush();
+  }, [client, scope, state, accept, flush]);
+  const ids = [...new Set(observed.map((p) => sessionReadIdentity(p).run_id))].sort().join("\0");
+  useEffect(() => {
+    if (!client || !scope)
+      return;
+    state.active = true;
+    state.generation++;
+    state.writing = false;
+    const wake = () => {
+      if (!document.hidden)
+        void refresh();
+    };
+    const timer = window.setInterval(wake, 1e4);
+    window.addEventListener("focus", wake);
+    window.addEventListener("online", wake);
+    document.addEventListener("visibilitychange", wake);
+    return () => {
+      state.active = false;
+      state.queued = false;
+      for (const c of state.controllers)
+        c.abort();
+      state.controllers.clear();
+      window.clearInterval(timer);
+      window.removeEventListener("focus", wake);
+      window.removeEventListener("online", wake);
+      document.removeEventListener("visibilitychange", wake);
+    };
+  }, [client, scope, state, refresh]);
+  useEffect(() => {
+    void refresh();
+  }, [ids, refresh]);
+  const markRead = useCallback((p) => {
+    if (!scope || !client || !state.active || state.keys.has(sessionReceiptKey(p)))
+      return;
+    sessionReadIdentity(p);
+    state.pending.set(sessionReceiptKey(p), p);
+    if (state.queued)
+      return;
+    state.queued = true;
+    queueMicrotask(() => {
+      state.queued = false;
+      void flush();
+    });
+  }, [client, scope, state, flush]);
+  return { markRead, refresh, isUnread: (p) => Boolean(scope && state.loaded && !state.keys.has(sessionReceiptKey(p))), error: state.writeError || state.readError, loading: !state.loaded };
+}
 
 // dist/visible_content.js
 import { jsx as _jsx5 } from "react/jsx-runtime";
-import { useEffect, useRef } from "react";
+import { useEffect as useEffect2, useRef as useRef2 } from "react";
 function VisibleContentMarker(p) {
-  const ref = useRef(null), callback = useRef(p.onConsume);
+  const ref = useRef2(null), callback = useRef2(p.onConsume);
   callback.current = p.onConsume;
-  useEffect(() => {
+  useEffect2(() => {
     const el = ref.current;
     if (!el || !p.enabled)
       return;
@@ -479,37 +684,45 @@ function VisibleContentMarker(p) {
 }
 
 // dist/session_reads.js
-function useSessionReads(scope, observed = []) {
-  const [, refresh] = useState(0);
-  const store = useMemo(() => {
+function useSessionReads(scope, observed = [], client) {
+  const remote = useRemoteSessionReads(scope, client ? observed : [], client);
+  const [, refresh] = useState2(0);
+  const store = useMemo2(() => {
+    if (client)
+      return new SessionReadStore("", null);
     let storage = null;
     try {
       storage = window.localStorage;
     } catch {
     }
     return new SessionReadStore(scope, scope ? storage : null);
-  }, [scope]);
-  useEffect2(() => {
-    if (scope)
+  }, [scope, client]);
+  useEffect3(() => {
+    if (scope && !client)
       for (const p of observed)
         store.observe(p);
-  }, [scope, store, observed]);
-  useEffect2(() => {
+  }, [scope, store, observed, client]);
+  useEffect3(() => {
+    if (client)
+      return;
     const changed = (e) => {
       if (!e.key || e.key.startsWith(store.prefix))
         refresh((n) => n + 1);
     };
     window.addEventListener("storage", changed);
     return () => window.removeEventListener("storage", changed);
-  }, [store]);
-  const markRead = useCallback((p) => {
+  }, [store, client]);
+  const markRead = useCallback2((p) => {
     if (!scope)
       return;
     store.markRead(p);
     refresh((n) => n + 1);
     window.dispatchEvent(new StorageEvent("storage", { key: store.prefix }));
   }, [scope, store]);
-  return { isUnread: (p) => Boolean(scope) && store.isUnread(p), markRead, error: store.error };
+  if (client)
+    return remote;
+  return { refresh: async () => {
+  }, loading: false, isUnread: (p) => Boolean(scope) && store.isUnread(p), markRead, error: store.error };
 }
 function SessionReadMarker(p) {
   return _jsx6(VisibleContentMarker, { ownerKey: p.ownerKey, contentKey: `${p.receipt.sessionId}:${p.receipt.revision}:${p.receipt.updatedAt || ""}`, enabled: p.enabled, onConsume: () => {
@@ -529,9 +742,14 @@ export {
   SessionReadStore,
   automationCardNext,
   automationCardSchedule,
+  createSessionReadClient,
+  isConversationTurn,
   sessionActivityFromRuns,
   sessionContentRevision,
   sessionNeedsAttention,
+  sessionOpeningReceipts,
+  sessionReadEventReceipt,
+  sessionReadIdentity,
   sessionReadScope,
   sessionReadTarget,
   useSessionReads

@@ -66,35 +66,58 @@ final class AppModel: ObservableObject {
 
     // MARK: New answers
 
-    /// The latest turn seen of each conversation, on this watch (the gateway keeps no "seen" for
-    /// conversations; automations have their own on the gateway).
-    @Published private(set) var seenSessions: [String: String] = (UserDefaults.standard.dictionary(forKey: "sessions.seen") as? [String: String]) ?? [:]
-    /// Answers before this watch started counting are not new.
-    private var seenSince: Date = {
-        if let d = UserDefaults.standard.object(forKey: "sessions.seen.since") as? Date { return d }
-        let now = Date(); UserDefaults.standard.set(now, forKey: "sessions.seen.since"); return now
-    }()
+    /// The Gateway owns consumption; the watch only caches committed immutable receipts.
+    @Published private(set) var sessionReads = SessionReadState()
+    @Published private(set) var sessionReadError: String?
+    private var sessionReadsInFlight: Set<SessionReadReceipt> = []
+    private var pendingSessionReads: Set<SessionReadReceipt> = []
 
-    func isNew(_ s: SessionSummary) -> Bool { s.isNew(seen: seenSessions, since: seenSince) }
-
-    #if DEBUG
-    /// `--reset-seen`: every answer counts as new (tests and screenshots).
-    func resetSeen() {
-        seenSessions = [:]; seenSince = .distantPast
-        UserDefaults.standard.removeObject(forKey: "sessions.seen"); UserDefaults.standard.set(Date.distantPast, forKey: "sessions.seen.since")
+    func isNew(_ s: SessionSummary) -> Bool {
+        runs.contains { ($0.sessionId ?? $0.runId) == s.id && sessionReads.isUnread($0) }
     }
+    #if DEBUG
+    func resetSeen() { sessionReads = SessionReadState() }
     #endif
     var newSessionCount: Int { sessions.filter(isNew).count }
 
-    /// This answer has been on screen (the orb showed it, or its conversation was opened).
-    func markSeen(session: String, run: String) {
-        guard seenSessions[session] != run else { return }
-        seenSessions[session] = run
-        if seenSessions.count > 400 {                    // the conversations still listed are kept
-            let listed = Set(sessions.map(\.id))
-            seenSessions = seenSessions.filter { listed.contains($0.key) }
+    /// Called only once this answer is displayed. A notification or an older exchange consumes
+    /// that exact revision only; the refreshed session listing is not proof its other answers were read.
+    func markSeen(session: String, run: String, status: String? = nil) {
+        guard onScreen, !needsSignIn else { return }
+        if let top = activeTop, top.isOrbPage {
+            guard session == askSessionId else { return }
+        } else if let top = activeTop {
+            guard case .session(let displayed) = top, displayed.id == session else { return }
+        } else { return }
+        if let listed = runs.first(where: { $0.runId == run }), listed.sessionId != session { return }
+        let shownStatus = status ?? runs.first(where: { $0.runId == run })?.status
+        guard let shownStatus else { return }
+        let shown = SessionReadReceipt(sessionID: session, runID: run,
+                                       status: ["completed", "failed", "cancelled"].contains(shownStatus) ? shownStatus : "request")
+        if !sessionReads.contains(shown) { pendingSessionReads.insert(shown) }
+        let connection = connectionRevision, readClient = client
+        Task { await flushSessionReads(connection: connection, client: readClient) }
+    }
+
+    private func flushSessionReads(connection: Int, client: any GatewayClient) async {
+        guard connection == connectionRevision, sessionReadsInFlight.isEmpty else { return }
+        while connection == connectionRevision, !pendingSessionReads.isEmpty {
+            let batch = Array(pendingSessionReads.prefix(100))
+            sessionReadsInFlight.formUnion(batch)
+            do {
+                let committed = try await client.markSessionReads(batch)
+                guard connection == connectionRevision else { return }
+                try sessionReads.merge(committed)
+                pendingSessionReads.subtract(batch); sessionReadsInFlight.subtract(batch); sessionReadError = nil
+            } catch {
+                guard connection == connectionRevision else { return }
+                sessionReadsInFlight.subtract(batch)
+                sessionReadError = "Read status could not be saved. " + Self.say(error)
+                if error as? GatewayError == .unauthorized { signOut(notice: "You were signed out. Please sign in again.") }
+                else if case GatewayError.http(let status, _) = error, (400..<500).contains(status), status != 408, status != 429 { pendingSessionReads.subtract(batch) }
+                return
+            }
         }
-        UserDefaults.standard.set(seenSessions, forKey: "sessions.seen")
     }
 
     // MARK: Archive
@@ -582,6 +605,7 @@ final class AppModel: ObservableObject {
     /// credential is forgotten: the new one replaces it.
     func connect(_ signIn: SavedSignIn) {
         connectionRevision += 1; approvalRevision += 1
+        sessionReads = SessionReadState(); sessionReadError = nil; sessionReadsInFlight = []; pendingSessionReads = []
         approvalRuns = []; decidedWaits = []; approving = []
         signIn.save()                                    // into the Keychain, with a new push handle
         // Push (backlog 1049): the token is registered with this sign-in's handle; the one-time
@@ -612,6 +636,7 @@ final class AppModel: ObservableObject {
     /// and forget", or the gateway rejecting the credential (a 401), so its row does not come back.
     func signOut(keep: Bool = false, notice: String? = nil) {
         connectionRevision += 1; approvalRevision += 1
+        sessionReads = SessionReadState(); sessionReadError = nil; sessionReadsInFlight = []; pendingSessionReads = []
         approvalRuns = []; decidedWaits = []; approving = []
         var notice = notice
         // The person signing out: the gateway forgets this watch's push token. A credential the
@@ -692,6 +717,17 @@ final class AppModel: ObservableObject {
             let newRuns = try await runsCall
             guard connection == connectionRevision, !Task.isCancelled else { return false }
             runs = newRuns
+            do {
+                let committed = try await refreshClient.sessionReads(runIDs: newRuns.map(\.runId))
+                guard connection == connectionRevision, !Task.isCancelled else { return false }
+                try sessionReads.merge(committed); sessionReadError = nil
+            } catch {
+                guard connection == connectionRevision, !Task.isCancelled else { return false }
+                if error as? GatewayError == .unauthorized { throw error }
+                sessionReadError = "Shared read status is unavailable. " + Self.say(error)
+            }
+            await flushSessionReads(connection: connection, client: refreshClient)
+            guard connection == connectionRevision, !Task.isCancelled else { return false }
             // The fast part is on screen now. Automations is the slow call on a public gateway
             // (~7 s measured) and its own failure never marks the gateway offline.
             lastError = nil; failures = 0; failingSince = nil; unreachable = false

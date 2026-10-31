@@ -1,6 +1,6 @@
 import {WorkflowChat, useWorkflowSession} from "../vendor/abstractchat/conversation.js";
 import "../vendor/abstractchat/conversation.css";
-import { SessionReadMarker, sessionContentRevision, sessionReadTarget, type SessionReceipt, type SessionActivity } from "../vendor/abstractsessions/session_cards.js";
+import { SessionReadMarker, sessionContentRevision, sessionReadTarget, sessionOpeningReceipts, type SessionReceipt, type SessionActivity } from "../vendor/abstractsessions/session_cards.js";
 /**
  * The open conversation, composed from the kit (ADR 0001; backlog 0030, 0032):
  * - `useWorkflowSession` + this app's transport (src/gateway/transport.ts) render the
@@ -416,7 +416,7 @@ export function Workspace(props: {
           const status = m.runId === props.runId ? snapshot.status : props.sessionActivity?.content.find((c) => c.runId === m.runId)?.status;
           if (!status) return null;
           const target = sessionReadTarget(m.kind === "attachments" ? [...messages,m] : messages, m.runId || "", status);
-          return target.message === m && !snapshot.loading && !snapshot.error && props.readScope ? <><span>{target.outcome}</span><SessionReadMarker ownerKey={props.readScope} receipt={{ sessionId: props.sessionId, revision: sessionContentRevision(m.runId || "", status), updatedAt: "" }} relatedReceipts={m.runId === props.runId ? props.sessionActivity?.content : undefined} enabled={props.canConsume} onRead={props.onRead} /></> : null;
+          return target.message === m && !snapshot.loading && !snapshot.error && props.readScope ? <><span>{target.outcome}</span><SessionReadMarker ownerKey={props.readScope} receipt={{ sessionId: props.sessionId, revision: sessionContentRevision(m.runId || "", status), updatedAt: "" }} relatedReceipts={sessionOpeningReceipts(messages, props.sessionActivity?.content, m.runId || "")} enabled={props.canConsume} onRead={props.onRead} /></> : null;
         },
         stats: technical ? undefined : [],
         // "link": a model's text cannot make the browser fetch a remote image.
