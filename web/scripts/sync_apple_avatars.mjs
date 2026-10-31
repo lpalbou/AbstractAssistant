@@ -18,10 +18,14 @@ if (process.argv.includes("--check")) {
     if (hash(readFileSync(resolve(target, file))) !== manifest.artifacts[file])
       throw new Error(`Changed generated avatar artifact: ${file}`);
   }
-  for (const file of sources) {
-    const path = resolve(canonical, file);
-    if (existsSync(path) && hash(readFileSync(path)) !== manifest.sources[file])
-      throw new Error(`Avatar snapshot is stale: ${file}. Build ui-kit, then run npm run sync:avatars.`);
+  // A pinned snapshot must build independently of unrelated sibling development.
+  // Use --check --check-source when deliberately auditing an upstream adoption.
+  if (process.argv.includes("--check-source")) {
+    for (const file of sources) {
+      const path = resolve(canonical, file);
+      if (!existsSync(path) || hash(readFileSync(path)) !== manifest.sources[file])
+        throw new Error(`Avatar snapshot differs from upstream: ${file}. Build ui-kit, then run npm run sync:avatars to adopt it.`);
+    }
   }
   console.log("AbstractAvatar compiled adapter and Wasm snapshot integrity verified");
 } else {
