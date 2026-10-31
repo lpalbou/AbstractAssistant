@@ -169,7 +169,7 @@ function BrowserApp({ host }: { host: AssistantHost }) {
   // Compatibility with published panel-chat 0.6.4. The shared component now owns
   // this fill/layout fix; remove the wrapper when that package update is adopted.
   function docsPanel() {
-    const docs = docsAssistantPanel({ app: "assistant", name: "AbstractAssistant" }, client.fetchGateway, {
+    const docs = docsAssistantPanel({ app: "assistant-web", name: "AbstractAssistant" }, client.fetchGateway, {
         connected: conn.connected,
         visible: panel === "docs",
         voicePreferences: voicePrefs,

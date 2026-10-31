@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "owner": "AbstractAvatar",
+  "adapter_owner": "@abstractframework/ui-kit",
+  "sources": {
+    "src/avatar_renderer.ts": "7a71b246e12ca46a724389e463fbb7de3dad93571214f96e79526c9505830253",
+    "src/activity_avatar.tsx": "8c52140b1d62fe4cdf75059a3559864808f4af2613c31c867278736bf4aa1d70",
+    "src/avatars/avatar_core.wasm": "cc501e5c963be00e414f4d84aa7eca6cdac7b54620ffdc46ed296939de4ff9e3",
+    "src/avatars/provenance.json": "2654a7afb8e51c6221d4f6ddfe312c0b08a07b260a1f41bb93073cc70e7f39cc"
+  },
+  "artifacts": {
+    "avatar_renderer.js": "e95f24ba823c3da892f8d2b3c776f85a62474d925672b593559e118335db5a3f",
+    "avatar_renderer.d.ts": "4dcc39aa847cc74cf63010c2554a640de62036bca81bea3135c16c186971a472",
+    "activity_avatar.js": "60684e91e823cb2fab36231122b38e9e013d11c038e76e524f3af11cea6e5886",
+    "activity_avatar.d.ts": "5e5b4cecff255b479588cb4bfd7cb5ab771d01cf51d1bbe162bbc32799c42fc8",
+    "avatars/avatar_core.wasm": "cc501e5c963be00e414f4d84aa7eca6cdac7b54620ffdc46ed296939de4ff9e3",
+    "avatars/provenance.json": "2654a7afb8e51c6221d4f6ddfe312c0b08a07b260a1f41bb93073cc70e7f39cc"
+  }
+}

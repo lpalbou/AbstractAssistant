@@ -15,12 +15,20 @@ focus to the message field. **Read new replies aloud** uses the same preference 
 Settings → Voice; opening history stays silent. Sending a new message, choosing
 another conversation or starting a new one stops the previous audio.
 
-Settings includes the shared AbstractUIC avatar catalog, previews of Ready,
+Settings includes the complete 44-design AbstractAvatar catalog: 34 Watch picker
+designs, three additional Watch shape variants, the iPhone woven orb and six shaded
+avatars. Watch Halo is the default for a new browser; existing selections are preserved.
+The shared generator and AbstractUIC presenter provide previews of Ready,
 Listening, Thinking, Working, Speaking, Waiting and Error, and an animation switch.
 Reduced motion and hidden-page animation are handled by the shared renderer.
 The phone layout keeps the orb above the conversation; wider screens give voice
 and the readable conversation their own space. Conversations are searchable and
 grouped by recency, with requests that need you first.
+
+The Docs drawer keeps its question field at the bottom and scrolls the conversation
+above it. Its questions use Assistant documentation and stay separate from your
+main conversation. The [browser guide](docs/assistant-guide.md) is bundled as
+`llms.txt` for Gateway to supply to that drawer.
 
 Technical streaming notices belong in **Details**, together with optional usage
 and timing, rather than in the conversation. A structured-output model call may

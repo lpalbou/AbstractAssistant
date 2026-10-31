@@ -1,5 +1,6 @@
-import { ActivityAvatar, AfVoiceMicButton, Icon, useVoiceLevel, type AvatarPalette, type AvatarPose, type GatewayVoice, type VoiceCaptureMode } from "@abstractframework/ui-kit";
+import { AfVoiceMicButton, Icon, useVoiceLevel, type AvatarPalette, type AvatarPose, type GatewayVoice, type VoiceCaptureMode } from "@abstractframework/ui-kit";
 import { useState } from "react";
+import { AppAvatar } from "./AppAvatar";
 import type { AssistantPreferences } from "./useAssistantPreferences";
 
 /** The Watch's mint/lavender light, rendered by the shared TUI/web geometry. */
@@ -17,7 +18,7 @@ export function avatarPalette(design: string, pose: AvatarPose): AvatarPalette {
 
 function Orb(props: { voice: GatewayVoice; pose: AvatarPose; prefs: AssistantPreferences; onError: () => void }) {
   const level = useVoiceLevel(props.voice);
-  return <ActivityAvatar design={props.prefs.design} pose={props.pose} size={288} level={level}
+  return <AppAvatar design={props.prefs.design} pose={props.pose} size={288} level={level}
     palette={avatarPalette(props.prefs.design, props.pose)} animated={props.prefs.animated} followCursor className="aa-orb" label={`Assistant · ${props.pose}`} onError={props.onError} />;
 }
 

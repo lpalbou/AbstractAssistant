@@ -23,6 +23,14 @@
   diagnostics, browser-local avatar selection and seven activity previews. The shared
   voice preference now controls automatic reading of this tab's new replies; history
   opens silently and conversation changes stop audio. [Design and validation evidence](../evidence/1057/2026-10-31_watch_redesign.md).
+- Apple visual iteration implemented 2026-10-31: the complete shared Watch catalog,
+  the iPhone woven orb, retained shaded catalog, explicit silent phase previews,
+  and a full-height Docs drawer with plain wording. Generation belongs to AbstractAvatar and presentation to AbstractUIC;
+  this private preview pins published packages and carries a generated, hashed
+  snapshot of the new renderer. **Adopt the next ui-kit/panel-chat releases and remove
+  `web/src/vendor/abstractavatar/`, its sync script and the scoped Docs compatibility
+  adapter together.** Re-run the browser experience checks after that removal.
+  [Iteration evidence](../evidence/1057/2026-10-31_apple_visuals_and_docs.md).
 - Catalog integration completed 2026-10-31: Gateway and its tray list **Assistant (web)**
   (`assistant-web`, port 3008), separate from the desktop Assistant. A local build can
   use Gateway's existing app manager and signed-in handover at `/apps/assistant-web/`.

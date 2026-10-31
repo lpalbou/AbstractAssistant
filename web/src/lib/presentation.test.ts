@@ -43,8 +43,8 @@ describe("the avatar reflects the current job", () => {
 
 describe("browser avatar preferences", () => {
   it("recovers from broken storage and refuses unsafe design identifiers", () => {
-    expect(parseAssistantPreferences("{broken")).toEqual({ design: "halo", animated: true });
-    expect(parseAssistantPreferences('{"design":"../../file","animated":"false"}')).toEqual({ design: "halo", animated: true });
+    expect(parseAssistantPreferences("{broken")).toEqual({ design: "watch-halo", animated: true });
+    expect(parseAssistantPreferences('{"design":"../../file","animated":"false"}')).toEqual({ design: "watch-halo", animated: true });
     expect(parseAssistantPreferences('{"design":"vortex","animated":false}')).toEqual({ design: "vortex", animated: false });
   });
 });

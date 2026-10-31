@@ -37,6 +37,11 @@ function view(id) {
   };
 }
 try {
+  const servedDocs = await fetch(new URL("llms.txt", base));
+  assert.equal(servedDocs.status, 200);
+  assert.match(servedDocs.headers.get("content-type"), /^text\/plain/);
+  assert.match(await servedDocs.text(), /^# AbstractAssistant in your browser/);
+  report.bundledDocs = true;
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, colorScheme: "dark", permissions: ["microphone"] });
   await context.addInitScript(() => { document.cookie = "abstractassistant_gateway_csrf=local-test; path=/"; });
   await context.route("**/api/**", async (route) => {
@@ -48,6 +53,7 @@ try {
     else if (path === "gateway/runs") result = json({ items: [...runs].map(([id, r]) => ({ run_id: id, session_id: r.session_id, session_kind: "chat", status: r.status, created_at: "2026-10-31T02:00:00Z", updated_at: "2026-10-31T02:00:00Z" })), has_more: false });
     else if (path === "gateway/bundles") result = json({ executable_for: "abstractassistant.agent.v1", items: [], default_agent_workflows: { "abstractassistant.agent.v1": { name: "Assistant" } }, default_agent_workflows_unavailable: {} });
     else if (path === "gateway/accounts/me/preferences") result = json({ preferences: { default_workflow: { "abstractassistant.agent.v1": null } } });
+    else if (path === "gateway/docs/corpus" && url.searchParams.get("app") === "assistant-web") result = json({ text: "Assistant documentation: use the microphone to speak and review words before sending." });
     else if (path === "gateway/discovery/tools") result = json({ items: [] });
     else if (path === "gateway/discovery/capabilities") result = json({ capabilities: {} });
     else if (path === "gateway/voice/defaults") result = json({ tts: { configured: true, provider: "piper", model: "demo" }, stt: { configured: true, provider: "whisper", model: "demo" } });
@@ -58,7 +64,7 @@ try {
     else if (path.endsWith("/voice/tts/stream")) { calls.speech++; result = { status: 200, contentType: "application/x-ndjson", body: JSON.stringify({ type: "segment", audio_b64: wav.toString("base64") }) + '\n{"type":"done"}\n' }; }
     else if (path === "gateway/runs/start") {
       if (failSend) result = json({ detail: "The test Gateway is unavailable" }, 503);
-      else { calls.starts.push(body); const id = `new-${calls.starts.length}`; runs.set(id, { session_id: body.session_id, prompt: body.input_data.prompt, answer: "A fresh answer", status: "completed" }); result = json({ run_id: id }); }
+      else { calls.starts.push(body); const id = `new-${calls.starts.length}`; runs.set(id, { session_id: body.session_id, prompt: body.input_data.prompt, answer: "A fresh answer", output: { response: "Use the microphone to speak, then review your words." }, status: "completed" }); result = json({ run_id: id }); }
     } else if (path === "gateway/commands") { calls.commands.push(body); result = json({ accepted: true }); }
     else {
       const m = /^gateway\/runs\/([^/]+)(.*)$/.exec(path), id = m?.[1], suffix = m?.[2];
@@ -121,6 +127,63 @@ try {
   report.newConversationStopsSpeech = true;
   // Shared catalog, immediate selection, state previews and persisted preference.
   await page.getByRole("button", { name: "Assistant settings", exact: true }).click();
+  // Every design comes from the same bundled generator and can be selected.
+  const picker = page.getByLabel("Avatar", { exact: true });
+  await page.waitForFunction(() => document.querySelector('#assistant-avatar-design')?.options.length === 44);
+  const designs = await picker.locator("option").evaluateAll(options => options.map(option => option.value));
+  assert.equal(new Set(designs).size,44);
+  for (const design of designs) {
+    await picker.selectOption(design);
+    for (const phase of ["Ready", "Error"]) {
+      await page.getByRole("group", { name: "Preview activity states" }).getByRole("button", { name: phase, exact: true }).click();
+      await page.getByRole("img", { name: `Preview · ${phase.toLowerCase()}`, exact: true }).waitFor();
+      await page.waitForTimeout(40);
+      assert.ok(await page.locator(".aa-avatar-preview canvas").evaluate((c) => c.getContext("2d").getImageData(0, 0, c.width, c.height).data.some((v, i) => i % 4 === 3 && v > 0)), `${design}/${phase} paints visible pixels`);
+    }
+  }
+  report.avatarCatalogDesigns = designs.length;
+  for (const design of ["watch-halo", "watch-vortex", "watch-nebula", "watch-rings", "watch-liquid", "watch-galaxy", "iphone-weave"]) {
+    await picker.selectOption(design);
+    for (const phase of ["Ready", "Listening", "Thinking", "Working", "Speaking", "Waiting", "Error"]) {
+      await page.getByRole("group", { name: "Preview activity states" }).getByRole("button", { name: phase, exact: true }).click();
+      await page.getByRole("img", { name: `Preview · ${phase.toLowerCase()}`, exact: true }).waitFor();
+      await page.waitForTimeout(60);
+      assert.ok(await page.locator(".aa-avatar-preview canvas").evaluate((c) => c.getContext("2d").getImageData(0, 0, c.width, c.height).data.some((v, i) => i % 4 === 3 && v > 0)), `${design}/${phase} paints visible pixels`);
+    }
+    await page.getByRole("group", { name: "Preview activity states" }).getByRole("button", { name: "Speaking", exact: true }).click();
+    await page.waitForTimeout(900);
+    if (shots) await page.screenshot({ path: `${shots}/${design}.png` });
+  }
+  await picker.selectOption("watch-halo");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.waitForTimeout(200);
+  const appleStill = await page.locator(".aa-avatar-preview canvas").evaluate((c) => c.toDataURL());
+  await page.waitForTimeout(400);
+  assert.equal(await page.locator(".aa-avatar-preview canvas").evaluate((c) => c.toDataURL()), appleStill);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  // A hidden preview must release its animation clock and resume when visible.
+  await page.locator(".aa-avatar-preview canvas").evaluate((canvas) => {
+    canvas._frames = 0;
+    const original = CanvasRenderingContext2D.prototype.putImageData;
+    window._restoreAvatarCounter = () => { CanvasRenderingContext2D.prototype.putImageData = original; };
+    CanvasRenderingContext2D.prototype.putImageData = function (...args) {
+      if (this.canvas === canvas) canvas._frames++;
+      return original.apply(this, args);
+    };
+  });
+  await page.waitForTimeout(250);
+  const frames = () => page.locator(".aa-avatar-preview canvas").evaluate((c) => c._frames);
+  assert.ok(await frames() > 0, "Visible Apple preview animates");
+  await page.locator(".aa-avatar-preview").evaluate((el) => { el.style.visibility = "hidden"; el.style.position = "absolute"; el.style.top = "-10000px"; });
+  await page.waitForTimeout(150);
+  const hiddenFrames = await frames();
+  await page.waitForTimeout(250);
+  assert.equal(await frames(), hiddenFrames, "Offscreen preview stops its clock");
+  await page.locator(".aa-avatar-preview").evaluate((el) => { el.style.visibility = ""; el.style.position = ""; el.style.top = ""; });
+  await page.waitForTimeout(250);
+  assert.ok(await frames() > hiddenFrames, "Visible preview resumes");
+  await page.evaluate(() => window._restoreAvatarCounter());
+  report.appleCatalogPhasesAndReducedMotion = true;
   await page.getByLabel("Avatar", { exact: true }).selectOption("hover");
   for (const phase of ["Ready", "Listening", "Thinking", "Working", "Speaking", "Waiting", "Error"]) {
     await page.getByRole("group", { name: "Preview activity states" }).getByRole("button", { name: phase, exact: true }).click();
@@ -178,6 +241,25 @@ try {
   await page.getByRole("button", { name: "Review", exact: true }).click();
   await page.getByRole("button", { name: "Allow once", exact: true }).waitFor();
   report.phoneApprovalAndDefer = true;
+  // The Docs panel fills its drawer; the composer is anchored at the bottom on both sizes.
+  failSend = false;
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Docs assistant", exact: true }).click();
+  for (const width of [420, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    const docsInput = page.getByPlaceholder("Ask about the Assistant…");
+    await docsInput.waitFor();
+    const box = await docsInput.boundingBox();
+    assert.ok(box && box.y > 650 && box.y + box.height < 900, `Docs composer fills height at ${width}`);
+    assert.doesNotMatch(await page.locator("body").innerText(), /docs\/corpus|llms\.txt|docs-qa/);
+    if (shots) await page.screenshot({ path: `${shots}/docs-${width}.png` });
+  }
+  await page.getByPlaceholder("Ask about the Assistant…").fill("How do I speak?");
+  await page.locator(".pc-docs-assistant").getByRole("button", { name: "Send", exact: true }).click();
+  await page.getByText("Use the microphone to speak, then review your words.", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "New conversation", exact: true }).click();
+  await page.getByText("Ask anything about AbstractAssistant.", { exact: true }).waitFor();
+  report.docsLayoutAndQuestion = true;
   assert.deepEqual(errors, []);
   report.javascriptErrors = 0;
   console.log(JSON.stringify(report));
