@@ -228,6 +228,7 @@ from .ui.dialogs import AskUserDialog
 from .ui.settings import SettingsDialog, ToolSettingsDialog
 from .ui.styles import chat_stylesheet, dialog_stylesheet, scope_stylesheet
 from .ui.voice_strip import VOICE_STRIP_HEIGHT, VoiceStrip
+from .ui.avatar import ActivityAvatar, AvatarPresentation, presentation as avatar_presentation
 
 logger = logging.getLogger(__name__)
 
@@ -5670,6 +5671,7 @@ class AssistantPalette(QMainWindow):
     hotkey_activated = pyqtSignal()
     message_speech_started = pyqtSignal(str)
     message_speech_finished = pyqtSignal(str)
+    speech_request_finished = pyqtSignal(object, str)
     # Speech failures arrive on the TTS worker thread; this marshals them onto
     # the GUI thread so a refusal/abort becomes a banner instead of a
     # `warnings.warn` nobody can see (2026-08-02).
@@ -5842,6 +5844,7 @@ class AssistantPalette(QMainWindow):
         self.hotkey_activated.connect(self.toggle_palette)
         self.message_speech_started.connect(self._on_message_speech_started)
         self.message_speech_finished.connect(self._on_message_speech_finished)
+        self.speech_request_finished.connect(self._on_speech_request_finished)
         self.message_speech_failed.connect(self._on_message_speech_failed)
         self.message_speech_notice.connect(self._on_message_speech_notice)
         self.connection_status_updated.connect(self._apply_connection_status)
@@ -6082,6 +6085,10 @@ class AssistantPalette(QMainWindow):
         self.connection_orb = ConnectionStatusOrb()
         self.connection_orb.setToolTip("Checking gateway connection")
         title_row.addWidget(self.connection_orb, 0, Qt.AlignVCenter)
+
+        self.activity_avatar = ActivityAvatar(self._avatar_presentation, header_card)
+        header_shell.addWidget(self.activity_avatar)
+        self._configure_avatar()
 
         self.banner_label = QLabel("")
         self.banner_label.setObjectName("bannerLabel")
@@ -8098,6 +8105,7 @@ class AssistantPalette(QMainWindow):
         """
         self._status_text = str(text or "").strip() or "Ready"
         self._status_tone = str(tone or "neutral").strip() or "neutral"
+        self._refresh_avatar()
         label = getattr(self, "__dict__", {}).get("title_label")
         if label is None:
             return
@@ -8205,6 +8213,7 @@ class AssistantPalette(QMainWindow):
         self._thinking_status_tooltip = str(tooltip or display)
         if tone:
             self._thinking_status_tone = str(tone)
+        self._refresh_avatar()
         card = self._thinking_card
         if card is not None:
             try:
@@ -10029,12 +10038,16 @@ class AssistantPalette(QMainWindow):
                 # that would steer the closing run).
                 if will_speak:
                     conversation.run_finished(will_speak=True)
+                    speech_token = object()
+                    self._active_speech_request_token = speech_token
                     started = self._controller.voice_manager.speak(
-                        spoken, callback=lambda: self.voice_speech_finished.emit()
+                        spoken, callback=lambda token=speech_token:
+                        self.speech_request_finished.emit(token, "")
                     )
                     if not started:
                         conversation.speech_finished()
             elif self.auto_speak.isChecked() and is_final and produced_live:
+                self._active_speech_request_token = object()
                 self._controller.voice_manager.speak(
                     speech_plain_text(str(payload.get("content") or ""))
                 )
@@ -10951,6 +10964,8 @@ class AssistantPalette(QMainWindow):
             self._set_message_voice_card_state(key, "speaking")
             return
         previous_key = str(self._active_spoken_message_key or "").strip()
+        speech_token = object()
+        self._active_speech_request_token = speech_token
         voice.stop_speaking()
         if previous_key and previous_key != key:
             self._set_message_voice_card_state(previous_key, "idle")
@@ -10977,7 +10992,8 @@ class AssistantPalette(QMainWindow):
         # the generic banner below is only for a manager that never did.
         self._voice_failure_seen = False
         started = voice.speak(
-            content, callback=lambda key=key: self.message_speech_finished.emit(key)
+            content, callback=lambda key=key, token=speech_token:
+            self.speech_request_finished.emit(token, key)
         )
         if started:
             self._active_spoken_message_key = key
@@ -11033,6 +11049,17 @@ class AssistantPalette(QMainWindow):
         message = str(text or "").strip()
         if message:
             self._set_banner(f"{message}.", tone="warning", key="voice-substitute")
+
+    def _on_speech_request_finished(self, token: object, key: str) -> None:
+        # A stopped output may finish closing after this same card is replayed.
+        # Check identity on the GUI thread, after Qt delivers the queued signal.
+        if self._state("_active_speech_request_token") is not token:
+            return
+        self._active_speech_request_token = None
+        if key:
+            self._on_message_speech_finished(key)
+        else:
+            self._on_voice_speech_finished()
 
     def _on_message_speech_finished(self, key: str) -> None:
         if str(self._state("_active_spoken_message_key", "") or "") == str(key or ""):
@@ -11426,6 +11453,8 @@ class AssistantPalette(QMainWindow):
             self._end_voice_conversation(keep_error=True)
 
     def _on_voice_level(self, level: float) -> None:
+        self._avatar_microphone_level = level
+        self._refresh_avatar()
         strip = getattr(self, "__dict__", {}).get("voice_strip")
         if strip is None or not strip.isVisible():
             return
@@ -12105,6 +12134,7 @@ class AssistantPalette(QMainWindow):
         dialog.activateWindow()
 
     def _on_settings_saved(self) -> None:
+        self._configure_avatar()
         self._refresh_tool_indicator()
         if self._state("_auto_speak_before_voice") is None:
             self.auto_speak.setChecked(bool(self._controller.preferences.auto_speak))
@@ -12222,6 +12252,46 @@ class AssistantPalette(QMainWindow):
             # An open automation keeps its composer state over a readiness refresh.
             self._set_composer_automation_mode(True)
 
+    def _configure_avatar(self) -> None:
+        widget = self._state("activity_avatar")
+        if widget is None:
+            return
+        prefs = self._controller.preferences
+        widget.configure(enabled=getattr(prefs, "avatar_enabled", False),
+                         style=getattr(prefs, "avatar_style", "halo"),
+                         animated=getattr(prefs, "avatar_animated", True))
+
+    def _refresh_avatar(self) -> None:
+        widget = self._state("activity_avatar")
+        if widget is not None:
+            widget.refresh()
+
+    def _avatar_presentation(self) -> AvatarPresentation:
+        manager = getattr(self._state("_controller"), "voice_manager", None)
+        conversation = self._state("_voice_conversation")
+        listening = bool(self._state("_listening", False)) or str(
+            getattr(conversation, "state", "")) == "listening"
+        try:
+            listening = listening or bool(manager is not None and manager.is_holding())
+        except (AttributeError, RuntimeError):
+            pass
+        speaking = self._voice_is_speaking()
+        level = self._decayed_speech_meter() if speaking else self._state("_avatar_microphone_level", 0.0)
+        return avatar_presentation(
+            error=self._state("_status_tone", "") == "error",
+            speaking=speaking,
+            listening=listening,
+            waiting=bool(self._state("_pending_user_waits"))
+                    or bool(self._state("_run_busy", False))
+                    and self._state("_thinking_status_tone", "") == "waiting",
+            working=bool(self._state("_run_busy", False))
+                    and (bool(self._state("_active_tool_history_status"))
+                         or self._state("_thinking_status_tone", "") == "tool"),
+            thinking=bool(self._state("_run_busy", False))
+                     or self._state("_status_tone", "") == "busy",
+            level=level,
+        )
+
     def _voice_is_speaking(self) -> bool:
         """Is the player putting audio on the speakers right now?
 
@@ -12275,6 +12345,7 @@ class AssistantPalette(QMainWindow):
             return 0.0
 
     def _refresh_tray_feedback(self) -> None:
+        self._refresh_avatar()
         # `_state`, not attribute access: speech now reaches this before the
         # tray exists, and `self._tray` on a __new__-built palette raises.
         tray = self._state("_tray")
@@ -12341,6 +12412,7 @@ class AssistantPalette(QMainWindow):
         """
         self._speech_meter = level
         self._speech_meter_ts = time.monotonic()
+        self._refresh_avatar()
         if not self._tray_feedback_timer.isActive():
             # First reading of a speech the start hook did not announce.
             self._refresh_tray_feedback()

@@ -3,17 +3,20 @@
   "owner": "AbstractAvatar",
   "adapter_owner": "@abstractframework/ui-kit",
   "sources": {
-    "src/avatar_renderer.ts": "db525b76f23c3e9bd609343d2fc4ee92fb7386306379a8fdc02a6dfcaa5b2c93",
-    "src/activity_avatar.tsx": "b157fa5d0fac4c5839268277213b0b5ed475648b858f26151f3e8a350adf6fbe",
-    "src/avatars/avatar_core.wasm": "7aeaffcd3bde0f167901a38a34888a246dd1efd862ed43b2f3fa1534ad04bac5",
-    "src/avatars/provenance.json": "2a68d973d97a58d0023cace8e2394aa5b72a8ea2ac8db77d45510693ff124c5d"
+    "src/avatar_renderer.ts": "9ce77f224248fbb123acd79258fb3255c8a67f4326669322bd30ef33aca2c831",
+    "src/activity_avatar.tsx": "4ca69b80fdadb8e8edc249cef418d56a4e1084f42e9c29096ab715c239eb021f",
+    "src/avatar_quality.ts": "838dac94d83ab2f08d711b49d660cb521a57cd02782fad34f27219ae77f25d35",
+    "src/avatars/avatar_core.wasm": "d576a6a584f09c6b9a124c93476c7a73a69ae9e147014e2d26dda5974273c067",
+    "src/avatars/provenance.json": "fe9d6640c204fede112be96adccf941742911d6b85c1b726040b34b350fc8dba"
   },
   "artifacts": {
-    "avatar_renderer.js": "1cdc4e4edbf78cb76ef090581d3a92962481505e7be14cb3a0f35b69bb5adb02",
-    "avatar_renderer.d.ts": "2ae8b5d0ac439f9e179b88216c9e5799599e01a883adbf0352d683837f2c44e4",
-    "activity_avatar.js": "59bed4d1134a6e0ff3dcdceda7c582f42319072eec1a5c452985b59f4357bed9",
-    "activity_avatar.d.ts": "5e5b4cecff255b479588cb4bfd7cb5ab771d01cf51d1bbe162bbc32799c42fc8",
-    "avatars/avatar_core.wasm": "7aeaffcd3bde0f167901a38a34888a246dd1efd862ed43b2f3fa1534ad04bac5",
-    "avatars/provenance.json": "2a68d973d97a58d0023cace8e2394aa5b72a8ea2ac8db77d45510693ff124c5d"
+    "avatar_renderer.js": "b6fca4e2d63f793617f0f4103d6e99f45f7866d2956117531aff75cd7675383f",
+    "avatar_renderer.d.ts": "d302ef249169937d7f0a7405e88916ec540b994a8e1424bb015c270da0b2ebc0",
+    "activity_avatar.js": "62e1de713ad1bd82ae16e10c294e42568466e8424bea6eaae162de23a8712349",
+    "activity_avatar.d.ts": "eb12ec34c696089dc69d881db460d05726848881869aaf6937487c398851e338",
+    "avatar_quality.js": "43d5212b2159448217ee6db769f49079be4233dc1bdb60cd7ee75d92e1e500a2",
+    "avatar_quality.d.ts": "b1db1791b279b63c4648b6f4e5000a238cfce3cbdc1d307bf864153cf3c321f6",
+    "avatars/avatar_core.wasm": "d576a6a584f09c6b9a124c93476c7a73a69ae9e147014e2d26dda5974273c067",
+    "avatars/provenance.json": "fe9d6640c204fede112be96adccf941742911d6b85c1b726040b34b350fc8dba"
   }
 }

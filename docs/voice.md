@@ -22,6 +22,12 @@ final answer spoken. Replies stream from the gateway's streaming TTS lane, so lo
 playing within about a second; when the stream is unavailable the assistant says that it is
 synthesizing the whole message first.
 
+Pausing keeps queued speech until you resume or stop it. With the matching AbstractVoice
+player, five seconds without output progress triggers one attempt to reopen the output and
+continue pending speech. Recovery leaves microphone capture running and shows a notice. If
+the device still cannot play, a banner explains that part of the reply may be missing.
+Audio already submitted to disconnected hardware can be lost.
+
 Spoken text is prose: markdown, code, images and link targets are removed before synthesis. A
 reply with nothing left to read says so instead of playing nothing.
 

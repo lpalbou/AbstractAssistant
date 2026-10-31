@@ -1,5 +1,5 @@
 import type { ChatMessage } from "@abstractframework/panel-chat";
-import type { AvatarPose } from "@abstractframework/ui-kit";
+import type { AvatarPose } from "../vendor/abstractavatar/avatar_renderer.js";
 
 /** Transport diagnostics stay available in Details, outside the conversation. Errors stay visible. */
 export function conversationPresentation(messages: readonly ChatMessage[]) {

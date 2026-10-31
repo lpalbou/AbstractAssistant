@@ -8,8 +8,8 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const canonical = resolve(root, "../../abstractuic/ui-kit");
 const target = resolve(root, "src/vendor/abstractavatar");
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
-const files = ["avatar_renderer.js", "avatar_renderer.d.ts", "activity_avatar.js", "activity_avatar.d.ts", "avatars/avatar_core.wasm", "avatars/provenance.json"];
-const sources = ["src/avatar_renderer.ts", "src/activity_avatar.tsx", "src/avatars/avatar_core.wasm", "src/avatars/provenance.json"];
+const files = ["avatar_renderer.js", "avatar_renderer.d.ts", "activity_avatar.js", "activity_avatar.d.ts", "avatar_quality.js", "avatar_quality.d.ts", "avatars/avatar_core.wasm", "avatars/provenance.json"];
+const sources = ["src/avatar_renderer.ts", "src/activity_avatar.tsx", "src/avatar_quality.ts", "src/avatars/avatar_core.wasm", "src/avatars/provenance.json"];
 if (process.argv.includes("--check")) {
   const manifest = JSON.parse(readFileSync(resolve(target, "provenance.json"), "utf8"));
   if (manifest.schema_version !== 1 || Object.keys(manifest.artifacts).length !== files.length)

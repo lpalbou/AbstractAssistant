@@ -19,12 +19,15 @@ import warnings
 import os
 import io
 import base64
+import logging
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from abstractruntime.integrations.abstractcore.session_attachments import session_memory_owner_run_id
 
 from ..gateway import get_cached_assistant_capabilities
+
+logger = logging.getLogger(__name__)
 
 
 class GatewayVoiceManager:
@@ -958,21 +961,27 @@ class GatewayVoiceManager:
         def _drain_audio() -> bool:
             nonlocal completion_owned
             drained = self._wait_for_stream_playback_drain(
-                player, playback_drained, timeout_s=max(5.0, queued_audio_s + 10.0)
+                player, playback_drained, timeout_s=max(5.0, queued_audio_s + 10.0),
+                stream_id=stream_id, stop_gate=stop_gate,
             )
-            if not drained and not stop_gate.is_set():
-                with self._state_lock:
-                    current = self._stream_id == stream_id
-                if current:
-                    try:
-                        player.stop_stream()
-                    except Exception as exc:
-                        warnings.warn(f"#FALLBACK: could not stop stalled audio output: {exc}")
-                    self._report_speech_failure(
-                        "speech was generated, but the local audio output did not finish playback; "
-                        "try speaking again to reopen the output device"
-                    )
-            completion_owned = self._finish_stream_playback(callback=callback, stream_id=stream_id)
+            # A new dispatch must not acquire this shared player between the
+            # generation check and stopping/finalizing the previous playback.
+            with self._dispatch_lock:
+                if not drained and not stop_gate.is_set():
+                    with self._state_lock:
+                        current = self._stream_id == stream_id
+                    if current:
+                        logger.warning("TTS playback stalled after recovery; generation=%s status=%s",
+                                       stream_id, self._stream_output_status(player))
+                        try:
+                            player.stop_stream()
+                        except Exception as exc:
+                            warnings.warn(f"#FALLBACK: could not stop stalled audio output: {exc}")
+                        self._report_speech_failure(
+                            "the local audio output stopped responding and could not recover; "
+                            "part of the message may not have been spoken"
+                        )
+                completion_owned = self._finish_stream_playback(callback=callback, stream_id=stream_id)
             return drained
 
         def _retry_stream_unpinned(reason: str) -> Optional[bool]:
@@ -1664,9 +1673,23 @@ class GatewayVoiceManager:
         player = self._inprocess_player
         if self._playback_backend == "inprocess" and player is not None:
             try:
-                player.stop_stream()
+                try_stop = getattr(player, "try_stop_stream", None)
+                if callable(try_stop) and not try_stop():
+                    # Opening/recovering hardware owns the device lock. The
+                    # stop request already silences the callback; retire this
+                    # player instead of blocking Qt behind a hardware open.
+                    if self._inprocess_player is player:
+                        self._inprocess_player = None
+                    def retire() -> None:
+                        try:
+                            player.stop_stream()
+                        except Exception:
+                            logger.exception("Could not retire stopped audio output")
+                    threading.Thread(target=retire, name="audio-output-retire", daemon=True).start()
+                elif not callable(try_stop):
+                    player.stop_stream()
             except Exception:
-                pass
+                logger.exception("Could not stop audio output")
             self._play_proc = None
             self._playback_backend = "none"
             try:
@@ -2082,13 +2105,100 @@ class GatewayVoiceManager:
             duration = 0.0
         return duration
 
-    def _wait_for_stream_playback_drain(self, player, playback_drained: threading.Event, *, timeout_s: float) -> bool:
-        deadline = time.monotonic() + max(0.0, float(timeout_s or 0.0))
-        while time.monotonic() < deadline:
-            if playback_drained.is_set() or self._stream_playback_idle(player):
+    @staticmethod
+    def _stream_output_status(player) -> dict:
+        """Optional player-owned progress; older AbstractVoice remains usable."""
+        status = getattr(player, "playback_status", None)
+        if callable(status):
+            try:
+                value = status()
+                if isinstance(value, dict):
+                    return {key: value.get(key) for key in (
+                        "frames_written", "pending_frames", "is_playing", "paused", "stream_active",
+                        "sample_rate", "callback_error",
+                    )}
+            except Exception:
+                logger.exception("Could not inspect audio output progress")
+        return {}
+
+    def _wait_for_stream_playback_drain(
+        self, player, playback_drained: threading.Event, *, timeout_s: float,
+        stream_id: str = "", stop_gate: Optional[threading.Event] = None,
+    ) -> bool:
+        """Wait for playback, excluding pauses, with one output-only recovery.
+
+        Completion notifications can arrive late from an earlier queue gap;
+        pending audio is authoritative. A progressing player has no total-time
+        limit. A player without progress telemetry retains the duration budget.
+        """
+        def cancelled() -> bool:
+            if stop_gate is not None and stop_gate.is_set():
                 return True
-            time.sleep(0.03)
-        return bool(playback_drained.is_set() or self._stream_playback_idle(player))
+            if stream_id:
+                with self._state_lock:
+                    return self._stream_id != stream_id
+            return False
+
+        budget = max(0.0, float(timeout_s or 0.0))
+        status = self._stream_output_status(player)
+        progress_supported = isinstance(status.get("frames_written"), int)
+        stall_budget = min(5.0, budget) if progress_supported else budget
+        last_progress = status.get("frames_written")
+        previous = time.monotonic()
+        stalled_s = 0.0
+        recovered = False
+        while not cancelled():
+            now = time.monotonic()
+            elapsed = max(0.0, now - previous)
+            previous = now
+            status = self._stream_output_status(player)
+            with self._state_lock:
+                paused = self._paused
+            paused = paused or bool(status.get("paused"))
+            if paused:
+                # A user can pause indefinitely, including after server-side
+                # synthesis finishes. It is neither completion nor a stall.
+                stalled_s = 0.0
+            else:
+                if isinstance(status.get("is_playing"), bool):
+                    idle = status.get("pending_frames") == 0 and not status["is_playing"]
+                else:
+                    idle = self._stream_playback_idle(player)
+                if idle:
+                    return not cancelled()
+                progress = status.get("frames_written")
+                if progress_supported and progress != last_progress:
+                    last_progress = progress
+                    stalled_s = 0.0
+                else:
+                    stalled_s += elapsed
+                if stalled_s >= stall_budget:
+                    recover = getattr(player, "recover_stream", None)
+                    if recovered or not progress_supported or not callable(recover):
+                        return False
+                    recovered = True
+                    logger.warning("TTS output stalled; attempting recovery; generation=%s status=%s",
+                                   stream_id, status)
+                    try:
+                        if not recover(cancelled=cancelled):
+                            return False
+                    except Exception:
+                        logger.exception("TTS output recovery failed; generation=%s", stream_id)
+                        return False
+                    if cancelled():
+                        return False
+                    logger.warning("TTS output reopened; generation=%s status=%s",
+                                   stream_id, self._stream_output_status(player))
+                    self._report_speech_notice("Audio output recovered; continuing the remaining speech.")
+                    previous = time.monotonic()
+                    stalled_s = 0.0
+            # This event is a wakeup, never proof that the latest chunk drained.
+            playback_drained.clear()
+            if stop_gate is not None:
+                stop_gate.wait(0.03)
+            else:
+                time.sleep(0.03)
+        return False
 
     def _stream_playback_idle(self, player) -> bool:
         with self._state_lock:

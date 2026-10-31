@@ -3,7 +3,7 @@
  * (brand · the top-right cluster: docs assistant · appearance · about · identity · connection
  * pill), the drawer system (the docs assistant), and the conversations as its navigation.
  */
-import { docsAssistantPanel } from "@abstractframework/panel-chat";
+import { docsAssistantPanel } from "./vendor/abstractdocs/docs_assistant.js";
 import {
   AfAppShell,
   Icon,

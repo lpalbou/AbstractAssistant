@@ -118,11 +118,17 @@ PYTHONPATH=. python -P web/scripts/gen_tool_policy_parity.py   # needs the packa
 | `src/gateway/` | Gateway calls (SSE over fetch, framed by the kit's `sseFrames`) and the kit's `WorkflowTransport` over them, with `replayView` (panel-chat 0.6.2: the conversation, every turn of it, is rendered from the gateway's replay view on AbstractGateway >= 0.17.0, the ledger fold otherwise) |
 | `src/lib/` | Pure logic with tests: session fold, titles, workflow choice, run input, theme group |
 | `src/ui/` | The Assistant space on the kit: the conversation (`WorkflowChat`), the conversation list (the shell's navigation), Settings → Voice |
+| `src/vendor/abstractavatar/`, `src/vendor/abstractdocs/` | Generated, hash-checked shared rendering and Docs artifacts; standalone builds use these pinned snapshots |
 | `src/styles/index.css` | App styles on the design tokens of `web/design/tokens.css` |
 | `design/` | Design tokens and mockups (owned separately) |
 
 The npm package (`@abstractframework/assistant`) remains `private` pending its first release.
 The Python wheel and sdist do not include `web/`.
+
+To adopt a built shared-library update from a workspace checkout, run `npm run sync:avatars`
+and `npm run sync:docs`. Both snapshots come from canonical AbstractUIC implementations. The
+Docs artifact keeps React and the UI kit external so speech and application state retain one
+owner. `npm run build` verifies the committed artifact hashes without needing sibling sources.
 
 ### Compact conversation cards
 

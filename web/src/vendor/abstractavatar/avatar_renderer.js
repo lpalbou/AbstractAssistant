@@ -97,7 +97,12 @@ export class AvatarRenderer {
         const width = options.width ?? 128, height = options.height ?? width;
         if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width > 512 || height > 512)
             throw new Error("Avatar dimensions must be 1–512 pixels");
-        const renderer = new AvatarRenderer(await load(options.source), canvas, width, height);
+        if (options.signal?.aborted)
+            throw new DOMException("Avatar renderer creation cancelled", "AbortError");
+        const core = await load(options.source);
+        if (options.signal?.aborted)
+            throw new DOMException("Avatar renderer creation cancelled", "AbortError");
+        const renderer = new AvatarRenderer(core, canvas, width, height);
         try {
             renderer.setPalette(options.palette);
             return renderer;

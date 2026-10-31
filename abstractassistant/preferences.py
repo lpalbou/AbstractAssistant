@@ -7,11 +7,18 @@ local UX concerns plus device-side tool gating.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from abstractassistant.speculation import normalize_speculation
+
+
+def normalize_avatar_style(value: Any) -> str:
+    """Preserve stable renderer keys without loading native code to read preferences."""
+    key = str(value or "halo").strip().lower()
+    return key if re.fullmatch(r"[a-z][a-z0-9-]{0,79}", key) else "halo"
 
 
 def _load_speculation(value: Any) -> Any:
@@ -348,6 +355,10 @@ class AssistantPreferences:
     audio_output_device_name: str = ""
     # Colour theme, shared with the framework's other clients (see ui_themes).
     ui_theme: str = "abstract-glass"
+    # Optional local procedural portrait; the shared renderer runs only while visible.
+    avatar_enabled: bool = False
+    avatar_style: str = "halo"
+    avatar_animated: bool = True
     # Reading comfort in the transcript. Sizes are px, line height is a
     # multiplier; the gaps are the space after a paragraph and between list
     # items. Defaults are the app's tuned rhythm.
@@ -398,6 +409,9 @@ class AssistantPreferences:
             audio_output_device=str(raw.get("audio_output_device") or "").strip(),
             audio_output_device_name=str(raw.get("audio_output_device_name") or "").strip(),
             ui_theme=normalize_ui_theme(raw.get("ui_theme")),
+            avatar_enabled=raw.get("avatar_enabled") is True,
+            avatar_style=normalize_avatar_style(raw.get("avatar_style")),
+            avatar_animated=raw.get("avatar_animated", True) is True,
             text_size=_clamp_int(raw.get("text_size"), 13, 10, 22),
             line_spacing=_clamp_float(raw.get("line_spacing"), 1.20, 1.0, 2.2),
             paragraph_spacing=_clamp_int(raw.get("paragraph_spacing"), 3, 0, 28),
@@ -430,6 +444,9 @@ class AssistantPreferences:
             "audio_output_device": str(self.audio_output_device or "").strip(),
             "audio_output_device_name": str(self.audio_output_device_name or "").strip(),
             "ui_theme": normalize_ui_theme(self.ui_theme),
+            "avatar_enabled": bool(self.avatar_enabled),
+            "avatar_style": normalize_avatar_style(self.avatar_style),
+            "avatar_animated": bool(self.avatar_animated),
             "text_size": _clamp_int(self.text_size, 13, 10, 22),
             "line_spacing": _clamp_float(self.line_spacing, 1.20, 1.0, 2.2),
             "paragraph_spacing": _clamp_int(self.paragraph_spacing, 3, 0, 28),

@@ -48,6 +48,7 @@ export declare class AvatarRenderer {
         height?: number;
         palette: AvatarPalette;
         source?: AvatarSource;
+        signal?: AbortSignal;
     }): Promise<AvatarRenderer>;
     setPalette(p: AvatarPalette): void;
     draw(style: string, pose: AvatarPose, level: number, time: number, gaze?: readonly [number, number]): void;

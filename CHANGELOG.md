@@ -5,6 +5,25 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+### Fixed
+
+- Web conversation read receipts wait for earlier history to finish restoring before acknowledging the opening snapshot.
+
+
+- Conversation consumption persists through the Gateway for shared web, Watch and iPhone unread state. Web cards have clearer spacing and attachment previews use one fitted header.
+
+
+- Paused streamed speech no longer expires or trusts a stale completion callback. Output
+  stalls get one attempt to reopen and continue pending speech with the matching AbstractVoice
+  player. Stop remains responsive while an output opens; late completions cannot reset a replayed
+  message or a newer voice conversation.
+
+### Added
+
+- **Desktop activity avatar:** an optional, locally generated AbstractAvatar portrait beneath the
+  palette header, with design and motion controls in Appearance. It follows listening, speech,
+  tools, thinking, waits and errors; it releases its native renderer while hidden. Install the
+  `avatar` extra to enable support. The menu-bar icon and its controls are unchanged.
 
 ### Changed
 
@@ -94,12 +113,6 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
     gone: the dropdown already says it uses the gateway default, and the two lines stay on the route's tooltip.
 
 ### Fixed
-
-- Web conversation read receipts wait for earlier history to finish restoring before acknowledging the opening snapshot.
-
-
-- Conversation consumption persists through the Gateway for shared web, Watch and iPhone unread state. Web cards have clearer spacing and attachment previews use one fitted header.
-
 
 - Cross-device approval updates clear the matching desktop prompt and tray state. Attention
   clicks reopen the pending gate in an already-selected conversation. The active watch follows

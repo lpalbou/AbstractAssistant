@@ -245,7 +245,7 @@ def test_stream_playback_timeout_is_reported_and_stopped(monkeypatch):
     monkeypatch.setattr(vm, "_supports_inprocess_audio_player", lambda: True)
     monkeypatch.setattr(vm, "_ensure_inprocess_audio_player", lambda: player)
     monkeypatch.setattr(vm, "_wait_for_stream_playback_drain", lambda *a, **kw: False)
-    with pytest.warns(UserWarning, match="local audio output did not finish"):
+    with pytest.warns(UserWarning, match="local audio output stopped responding"):
         assert vm.speak("hello", callback=lambda: completed.append(True))
         assert _wait_for(lambda: bool(completed))
     assert len(errors) == 1

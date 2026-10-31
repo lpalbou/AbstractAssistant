@@ -171,6 +171,11 @@ The banner names the cause (a rejected engine pin, a gateway timeout, unplayable
 pinned a voice engine in Settings → Models & reasoning, reset the voice route to the gateway
 default and try again. In a conversation the loop resumes listening after a failed reply.
 
+For a local output stall, the Assistant attempts one recovery with the matching AbstractVoice
+player and continues pending speech. If the output cannot recover, reconnect the selected
+device or choose another under Settings → Voice → Output device, then use **Test**. Clicking
+the reply's speaker starts reading it from the beginning. A paused reply has no playback deadline.
+
 ## Settings shows "Could not read the gateway workspace policy"
 
 The gateway did not answer the workspace policy routes (older gateway or a permission problem).

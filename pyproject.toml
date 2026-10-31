@@ -67,6 +67,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+avatar = ["abstractavatar>=0.1.0"]
 lite = []  # Back-compat alias for the base install.
 voice = [
     "abstractvoice[audio-io,stt]>=0.19.3",

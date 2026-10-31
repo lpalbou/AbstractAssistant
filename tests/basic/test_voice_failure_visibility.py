@@ -347,7 +347,7 @@ def test_successful_speech_reports_no_failure(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(
         vm,
         "_wait_for_stream_playback_drain",
-        lambda player, drained, *, timeout_s: True,
+        lambda player, drained, **kwargs: True,
     )
 
     completions: list[int] = []

@@ -17,6 +17,9 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 - A menu-bar palette whose title tells you what the app is doing, with a session switcher fed by
   the gateway (your sessions from every device, optionally every client's) and a live gateway
   connection orb.
+- An optional local [AbstractAvatar](https://github.com/lpalbou/AbstractAvatar) portrait in the palette,
+  with design and motion controls in [Appearance](docs/settings.md#appearance--window). It follows
+  listening, speech, tools, waits and errors; it stays off until you enable it.
 - Automations: schedule a conversation to run on the gateway at a fixed UTC interval or when an
   email arrives (with the result emailed to you if you want), read its runs
   as a chat, switch it off or on (**Active**), run it now, edit or archive it, answer the runs that wait for you, discuss a

@@ -129,6 +129,9 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 - A menu-bar palette whose title tells you what the app is doing, with a session switcher fed by
   the gateway (your sessions from every device, optionally every client's) and a live gateway
   connection orb.
+- An optional local [AbstractAvatar](https://github.com/lpalbou/AbstractAvatar) portrait in the palette,
+  with design and motion controls in [Appearance](docs/settings.md#appearance--window). It follows
+  listening, speech, tools, waits and errors; it stays off until you enable it.
 - Automations: schedule a conversation to run on the gateway at a fixed UTC interval or when an
   email arrives (with the result emailed to you if you want), read its runs
   as a chat, switch it off or on (**Active**), run it now, edit or archive it, answer the runs that wait for you, discuss a
@@ -467,6 +470,18 @@ pip install "abstractassistant[voice]"
 The `voice` extra adds local microphone capture (dictation and voice conversations). The base
 install covers text chat, spoken replies and gateway-backed media.
 
+The optional `avatar` extra adds the local procedural portrait. In a source workspace with sibling
+AbstractAvatar and AbstractAssistant checkouts, install the renderer first, then the app extra:
+
+```bash
+python -m pip install ../abstractavatar
+python -m pip install ".[avatar]"
+```
+
+Building AbstractAvatar from source requires Rust 1.87 or later; its Python wheel carries the native
+renderer. Enable **Settings → Appearance → Activity avatar**, then choose a design and motion preference.
+See [Appearance settings](settings.md#appearance--window).
+
 ## 2. Start a gateway
 
 For local development, load the workflow bundles and set a shared token:
@@ -800,10 +815,18 @@ Listed as **Appearance** in the sidebar.
 | Control | Meaning | Stored |
 |---|---|---|
 | Theme | The colour palettes shared with the other AbstractFramework apps; applies to every window of this app at once | this app `ui_theme` |
+| Activity avatar | Optional procedural portrait beneath the palette header. Off by default; shows listening, speech, thinking, tool activity, waiting and errors from the app's existing state. Requires the `avatar` extra | this app `avatar_enabled` |
+| Design | A design from AbstractAvatar's shared catalog, stored by its stable key | this app `avatar_style` |
+| Motion | Animate only while the palette is visible. Turn off for still state frames; hidden avatars release their renderer and run no animation clock | this app `avatar_animated` |
 | Text size / Line spacing / Paragraph gap / Bullet gap | How replies are set in the transcript: text size 10–22 px (default 13), line spacing 1.0–2.2 × (default 1.2), paragraph gap 0–28 px and bullet gap 0–16 px (default 3 each). Applies immediately | this app `text_size`, `line_spacing`, `paragraph_spacing`, `bullet_spacing` |
 | Summon / Key combination | Global hotkey (default `cmd+shift+space`), subject to macOS Accessibility permission. The **Summon the assistant from anywhere** switch applies at once; the key combination applies when you press Return or leave the field | this app `hotkey_enabled`, `hotkey_sequence` |
 | Accessibility | macOS only: the permission the shortcut needs, as **Granted** / **Not granted**. **Configure** asks macOS for it (the system prompt, when macOS still offers it) and opens System Settings → Privacy & Security → Accessibility; the state is checked again when you come back to the app or reopen the page, and the shortcut starts as soon as it is granted | macOS |
 | Width / Expanded height / Screen edge gap | Apply as they change. Palette size; the transcript takes the remaining height. Defaults: width 650 px, height 286 px, gap 12 px. Settings accepts a width of 420–2000 px and a gap of 0–200 px; the only further limit is the screen the window is on (width up to 62% of it, gap up to a quarter of its smaller side). The gap is the space kept between the window (and Settings) and the screen edges it sits against; 0 puts it flush with the edge | this app `window_width`, `window_height`, `bottom_offset` |
+
+The portrait renders on this device through [AbstractAvatar](https://github.com/lpalbou/AbstractAvatar).
+It uses the app's theme and audio level without a model or network request. Its presence does not
+change the menu-bar icon or its click controls. If native avatar support is unavailable, Appearance
+shows the reason and leaves the feature off; an enabled portrait shows an explicit unavailable message.
 
 Migration note: preferences saved with the 0.5.0 defaults (width 500 px, gap 18 px) and without
 the `layout_version: 2` marker are moved to 650 px and 12 px once; any other saved width or gap,
@@ -867,6 +890,12 @@ resume. Switch on **Speak replies automatically** (header toggle or Voice settin
 final answer spoken. Replies stream from the gateway's streaming TTS lane, so long answers start
 playing within about a second; when the stream is unavailable the assistant says that it is
 synthesizing the whole message first.
+
+Pausing keeps queued speech until you resume or stop it. With the matching AbstractVoice
+player, five seconds without output progress triggers one attempt to reopen the output and
+continue pending speech. Recovery leaves microphone capture running and shows a notice. If
+the device still cannot play, a banner explains that part of the reply may be missing.
+Audio already submitted to disconnected hardware can be lost.
 
 Spoken text is prose: markdown, code, images and link targets are removed before synthesis. A
 reply with nothing left to read says so instead of playing nothing.
@@ -1387,16 +1416,6 @@ See also:
 - [settings.md](settings.md)
 - [architecture.md](architecture.md)
 - [troubleshooting.md](troubleshooting.md)
-
-## Shared conversation read state
-
-Web, Watch and iPhone use the Gateway's account-scoped conversation read ledger at
-`GET/POST /api/gateway/me/session-reads`. The shared Apple client exposes
-`SessionReadReceipt` and `SessionReadState`; consumption records the displayed run revision,
-and failed writes retain its unread mark. The web client uses AbstractUIC's shared read client.
-A new answer remains unread independently of its request. Other clients refresh after
-`session.read` on the personal event stream or when reconnecting. Installed native apps need a
-build supporting this API. Existing device-local first-use baselines are not uploaded as reads.
 
 ## CLI entry points
 
@@ -2546,6 +2565,11 @@ The banner names the cause (a rejected engine pin, a gateway timeout, unplayable
 pinned a voice engine in Settings → Models & reasoning, reset the voice route to the gateway
 default and try again. In a conversation the loop resumes listening after a failed reply.
 
+For a local output stall, the Assistant attempts one recovery with the matching AbstractVoice
+player and continues pending speech. If the output cannot recover, reconnect the selected
+device or choose another under Settings → Voice → Output device, then use **Test**. Clicking
+the reply's speaker starts reading it from the beginning. A paused reply has no playback deadline.
+
 ## Settings shows "Could not read the gateway workspace policy"
 
 The gateway did not answer the workspace policy routes (older gateway or a permission problem).
@@ -3221,6 +3245,19 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+### Fixed
+
+- Paused streamed speech no longer expires or trusts a stale completion callback. Output
+  stalls get one attempt to reopen and continue pending speech with the matching AbstractVoice
+  player. Stop remains responsive while an output opens; late completions cannot reset a replayed
+  message or a newer voice conversation.
+
+### Added
+
+- **Desktop activity avatar:** an optional, locally generated AbstractAvatar portrait beneath the
+  palette header, with design and motion controls in Appearance. It follows listening, speech,
+  tools, thinking, waits and errors; it releases its native renderer while hidden. Install the
+  `avatar` extra to enable support. The menu-bar icon and its controls are unchanged.
 
 ### Changed
 
@@ -3310,12 +3347,6 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
     gone: the dropdown already says it uses the gateway default, and the two lines stay on the route's tooltip.
 
 ### Fixed
-
-- Web conversation read receipts wait for earlier history to finish restoring before acknowledging the opening snapshot.
-
-
-- Conversation consumption persists through the Gateway for shared web, Watch and iPhone unread state. Web cards have clearer spacing and attachment previews use one fitted header.
-
 
 - Cross-device approval updates clear the matching desktop prompt and tray state. Attention
   clicks reopen the pending gate in an already-selected conversation. The active watch follows
@@ -4674,14 +4705,6 @@ you and the **Automations** tab's badge counts results you have not seen. iOS as
 the first time there is something to show. What happened before the app first looked is never
 notified. A gateway without the event stream keeps the app's regular refresh; notifications then
 do not appear.
-
-Conversation cards outline unread answers in teal and requests needing you in amber. Read status
-belongs to your Gateway account, shared with the Watch and web clients through
-`/api/gateway/me/session-reads`. Opening history alone does not mark it read: the loaded answer’s
-footer must be visible for 250 ms in the active chat, without a sheet covering it. Only those
-captured run/status revisions are acknowledged, so an older turn finishing later stays new.
-A failed write leaves the highlight intact and retries on a later foreground refresh. The old
-Watch-local baseline is not treated as proof of reading. Native apps need a rebuild to use this API.
 
 ## Voice and files
 
@@ -7230,7 +7253,7 @@ sequenceDiagram
 | Component | Responsibility |
 |---|---|
 | `Sources/App` (SwiftUI) | Screens and navigation (one `NavigationStack`); see [design.md](design.md). |
-| `AppModel` (`@MainActor`) | The client, the state on screen (waits, sessions, automations, entities), each automation's definition and latest results once read (shared by its pages, updated by a save), the 15 s poll while the scene is active (the automations list at most once a minute; none while the screen is dimmed or the app is in the background), haptics, tool and workflow choices, the tools Accept all allowed, the Gateway-backed conversation read projection. |
+| `AppModel` (`@MainActor`) | The client, the state on screen (waits, sessions, automations, entities), each automation's definition and latest results once read (shared by its pages, updated by a save), the 15 s poll while the scene is active (the automations list at most once a minute; none while the screen is dimmed or the app is in the background), haptics, tool and workflow choices, the tools Accept all allowed, the answers seen on this watch. |
 | `Orb`, `OrbScenes`, `OrbConcepts`, `OrbCosmos`, `OrbNature`, `OrbAvatars`, `OrbLines`, `OrbRobots`, `OrbMachines` | The orb (every style drawn from `OrbPhases`, the five phases' weights and the voice): a planet of points whose style answers the voice (Halo, Vortex, Nebula, Liquid, Galaxy), and scenes of their own: Rings, the five state shapes (Lotus, Crystal, Eclipse, Synapse, Drop), Face, Imprint, Contour, Membrane, Eye (one relief of the face, computed once on a grid for the line styles), the eleven machines (six robots, a floating robot, a robot on tracks, a car, an android and a chrome sentinel, drawn as lit metal under a fine texture of points), the Cosmos scenes (Well, Black hole, Accretion) and the Nature scenes (Ocean, Aurora, Murmuration); every motion at a fixed pace, the phases blending how much of each shows, so a change of state is always a smooth morph; all frame-rate independent and drawn in one `Canvas`, with the light of its work. |
 | `Listener` | Records 16 kHz mono WAV with metering; detects speech against the room's noise floor; sends after 3 s of silence. |
 | `KeptQuestion` | Keeps one failed voice recording per connection, conversation and responder in local files until Retry or Discard. Metadata is updated on the main actor; replacement and deletion check the captured file so older requests cannot remove newer questions. |
@@ -7262,7 +7285,7 @@ sequenceDiagram
 | Voices | `GET /api/gateway/voice/voices` and `GET /api/gateway/audio/transcriptions/models`; voices grouped Your voices / Engine voices / Shared voices with their language (`VoiceCatalog.parse`, `VoiceLibrary`, shared with the iPhone) and a "Voices that speak" filter; Settings displays the saved catalog label, including offline, with "Selected voice" for an empty label or one that repeats an opaque identifier; no creation on the watch (the iPhone and the desktop create voices) |
 | Tools | `GET /api/gateway/discovery/tools` (group `toolset`, `description`, `risk_tier`, `enabled`, `approval_default`); each run sends the tools on Auto or Ask as `tools` and `_runtime.allowed_tools`, and `_runtime.tool_policy {auto_approve_tools, require_approval_tools}`; choices are kept on the watch (defaults, then each conversation's changes) |
 | Workflow | `GET /api/gateway/bundles?executable_for=abstractcode.agent.v1` and `…=abstractassistant.agent.v1` (newest version per bundle); a chosen one starts as `bundle_id`, `bundle_version`, `flow_id`, `interface`, `registry_scope`; none chosen: `flow_id: "@default"` of `abstractcode.agent.v1`; kept on the watch per conversation (defaults in Settings → Tools) |
-| New answers | `GET /api/gateway/me/session-reads?run_id=…&limit=1000` reads the account’s durable consumption log for listed turns; `POST /api/gateway/me/session-reads` commits `{receipts: [{session_id, run_id, status}]}` after an answer is displayed. Immutable run/status receipts keep late older answers new; request receipts do not consume later completion. Pending writes retry on foreground refresh, badges clear only after server commit, and account changes reset the projection. Automation results keep using `attention.unseen_count`. |
+| New answers | a conversation is new when its newest turn ended after the watch started counting and is not the turn last seen there (kept on the watch, `sessions.seen`); automations: the gateway's `attention.unseen_count` |
 | Automation on/off, archive | `POST /api/gateway/automations/{id}/commands` `{type: "automation.pause" \| "automation.resume" \| "automation.archive" \| "automation.unarchive"}`; `GET /api/gateway/automations?archived_only=true` lists the archived ones; the automations list is read with up to 60 s per request and retried |
 | Archive | `POST /api/gateway/sessions/{id}/archive` (and `/unarchive`): out of `GET /runs?root_only=true` on every client, nothing deleted; `GET /api/gateway/runs?archived_only=true&root_only=true` lists them |
 | Search | `GET /api/gateway/sessions/search?q=…&limit=25` (AbstractRuntime `ConversationSearch`, the caller's own plane): one item per session with `snippet` and `highlights`; 404 on a gateway without it |
@@ -7394,7 +7417,7 @@ sequenceDiagram
 | Released gateways list only the retired push topics (`….assistant.watch`, `….assistant.iphone`) | the apps' registrations (`….assistant`, `….assistant.watchkitapp`) are refused (422) until the gateway's next release, which lists them |
 | No risk level in the wait payload | the risk comes from the tool catalog; Double Tap allows only approvals that neither send nor destroy |
 | No compact view of a run's records | the live steps read the run's full records (a thinking record carries the conversation); reads are skipped when the run has not changed |
-| Older Gateways without `/me/session-reads` | conversation read status is reported as unavailable. Current Gateway-owned read events are shared across updated clients; the watch’s old `sessions.seen` baseline is never uploaded as actual consumption. |
+| No "seen" state for conversations | new answers are tracked on each watch |
 
 ## Build and verification
 
@@ -7700,11 +7723,17 @@ PYTHONPATH=. python -P web/scripts/gen_tool_policy_parity.py   # needs the packa
 | `src/gateway/` | Gateway calls (SSE over fetch, framed by the kit's `sseFrames`) and the kit's `WorkflowTransport` over them, with `replayView` (panel-chat 0.6.2: the conversation, every turn of it, is rendered from the gateway's replay view on AbstractGateway >= 0.17.0, the ledger fold otherwise) |
 | `src/lib/` | Pure logic with tests: session fold, titles, workflow choice, run input, theme group |
 | `src/ui/` | The Assistant space on the kit: the conversation (`WorkflowChat`), the conversation list (the shell's navigation), Settings → Voice |
+| `src/vendor/abstractavatar/`, `src/vendor/abstractdocs/` | Generated, hash-checked shared rendering and Docs artifacts; standalone builds use these pinned snapshots |
 | `src/styles/index.css` | App styles on the design tokens of `web/design/tokens.css` |
 | `design/` | Design tokens and mockups (owned separately) |
 
 The npm package (`@abstractframework/assistant`) remains `private` pending its first release.
 The Python wheel and sdist do not include `web/`.
+
+To adopt a built shared-library update from a workspace checkout, run `npm run sync:avatars`
+and `npm run sync:docs`. Both snapshots come from canonical AbstractUIC implementations. The
+Docs artifact keeps React and the UI kit external so speech and application state retain one
+owner. `npm run build` verifies the committed artifact hashes without needing sibling sources.
 
 ### Compact conversation cards
 
@@ -7715,19 +7744,6 @@ answers or dismisses a pending approval. Read receipts are local to this browser
 Code and Assistant share them when served on the same origin. Existing history is baselined
 on first use. Regenerate the canonical compatibility snapshot with `npm run sync:sessions`;
 the normal build verifies its provenance. Other devices keep independent read state.
-
-### Message files and tool results
-
-The canonical AbstractUIC conversation snapshot (`npm run sync:conversation`) supplies the
-same message attachments, safe clickable links and structured tool-result viewer in both web
-clients. Files accompany the original user or assistant message, including restored history
-and file-only replies. File bytes load when opened through authenticated reads. The build
-verifies snapshot hashes; no sibling checkout is required to build the committed web app.
-
-Conversation unread marks use the Gateway's account-wide read ledger. Confirmed consumption
-is shared with Code and native clients; failed writes retain the mark. Native clients need
-a build that supports `/api/gateway/me/session-reads`. Attachment previews fit the media
-with one filename, Download, and Close in the shared AbstractUIC dialog.
 
 --- pyproject.toml ---
 [build-system]
@@ -7799,6 +7815,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+avatar = ["abstractavatar>=0.1.0"]
 lite = []  # Back-compat alias for the base install.
 voice = [
     "abstractvoice[audio-io,stt]>=0.19.3",
@@ -8734,11 +8751,18 @@ local UX concerns plus device-side tool gating.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from abstractassistant.speculation import normalize_speculation
+
+
+def normalize_avatar_style(value: Any) -> str:
+    """Preserve stable renderer keys without loading native code to read preferences."""
+    key = str(value or "halo").strip().lower()
+    return key if re.fullmatch(r"[a-z][a-z0-9-]{0,79}", key) else "halo"
 
 
 def _load_speculation(value: Any) -> Any:
@@ -9075,6 +9099,10 @@ class AssistantPreferences:
     audio_output_device_name: str = ""
     # Colour theme, shared with the framework's other clients (see ui_themes).
     ui_theme: str = "abstract-glass"
+    # Optional local procedural portrait; the shared renderer runs only while visible.
+    avatar_enabled: bool = False
+    avatar_style: str = "halo"
+    avatar_animated: bool = True
     # Reading comfort in the transcript. Sizes are px, line height is a
     # multiplier; the gaps are the space after a paragraph and between list
     # items. Defaults are the app's tuned rhythm.
@@ -9125,6 +9153,9 @@ class AssistantPreferences:
             audio_output_device=str(raw.get("audio_output_device") or "").strip(),
             audio_output_device_name=str(raw.get("audio_output_device_name") or "").strip(),
             ui_theme=normalize_ui_theme(raw.get("ui_theme")),
+            avatar_enabled=raw.get("avatar_enabled") is True,
+            avatar_style=normalize_avatar_style(raw.get("avatar_style")),
+            avatar_animated=raw.get("avatar_animated", True) is True,
             text_size=_clamp_int(raw.get("text_size"), 13, 10, 22),
             line_spacing=_clamp_float(raw.get("line_spacing"), 1.20, 1.0, 2.2),
             paragraph_spacing=_clamp_int(raw.get("paragraph_spacing"), 3, 0, 28),
@@ -9157,6 +9188,9 @@ class AssistantPreferences:
             "audio_output_device": str(self.audio_output_device or "").strip(),
             "audio_output_device_name": str(self.audio_output_device_name or "").strip(),
             "ui_theme": normalize_ui_theme(self.ui_theme),
+            "avatar_enabled": bool(self.avatar_enabled),
+            "avatar_style": normalize_avatar_style(self.avatar_style),
+            "avatar_animated": bool(self.avatar_animated),
             "text_size": _clamp_int(self.text_size, 13, 10, 22),
             "line_spacing": _clamp_float(self.line_spacing, 1.20, 1.0, 2.2),
             "paragraph_spacing": _clamp_int(self.paragraph_spacing, 3, 0, 28),
@@ -17091,12 +17125,15 @@ import warnings
 import os
 import io
 import base64
+import logging
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from abstractruntime.integrations.abstractcore.session_attachments import session_memory_owner_run_id
 
 from ..gateway import get_cached_assistant_capabilities
+
+logger = logging.getLogger(__name__)
 
 
 class GatewayVoiceManager:
@@ -18030,21 +18067,27 @@ class GatewayVoiceManager:
         def _drain_audio() -> bool:
             nonlocal completion_owned
             drained = self._wait_for_stream_playback_drain(
-                player, playback_drained, timeout_s=max(5.0, queued_audio_s + 10.0)
+                player, playback_drained, timeout_s=max(5.0, queued_audio_s + 10.0),
+                stream_id=stream_id, stop_gate=stop_gate,
             )
-            if not drained and not stop_gate.is_set():
-                with self._state_lock:
-                    current = self._stream_id == stream_id
-                if current:
-                    try:
-                        player.stop_stream()
-                    except Exception as exc:
-                        warnings.warn(f"#FALLBACK: could not stop stalled audio output: {exc}")
-                    self._report_speech_failure(
-                        "speech was generated, but the local audio output did not finish playback; "
-                        "try speaking again to reopen the output device"
-                    )
-            completion_owned = self._finish_stream_playback(callback=callback, stream_id=stream_id)
+            # A new dispatch must not acquire this shared player between the
+            # generation check and stopping/finalizing the previous playback.
+            with self._dispatch_lock:
+                if not drained and not stop_gate.is_set():
+                    with self._state_lock:
+                        current = self._stream_id == stream_id
+                    if current:
+                        logger.warning("TTS playback stalled after recovery; generation=%s status=%s",
+                                       stream_id, self._stream_output_status(player))
+                        try:
+                            player.stop_stream()
+                        except Exception as exc:
+                            warnings.warn(f"#FALLBACK: could not stop stalled audio output: {exc}")
+                        self._report_speech_failure(
+                            "the local audio output stopped responding and could not recover; "
+                            "part of the message may not have been spoken"
+                        )
+                completion_owned = self._finish_stream_playback(callback=callback, stream_id=stream_id)
             return drained
 
         def _retry_stream_unpinned(reason: str) -> Optional[bool]:
@@ -18736,9 +18779,23 @@ class GatewayVoiceManager:
         player = self._inprocess_player
         if self._playback_backend == "inprocess" and player is not None:
             try:
-                player.stop_stream()
+                try_stop = getattr(player, "try_stop_stream", None)
+                if callable(try_stop) and not try_stop():
+                    # Opening/recovering hardware owns the device lock. The
+                    # stop request already silences the callback; retire this
+                    # player instead of blocking Qt behind a hardware open.
+                    if self._inprocess_player is player:
+                        self._inprocess_player = None
+                    def retire() -> None:
+                        try:
+                            player.stop_stream()
+                        except Exception:
+                            logger.exception("Could not retire stopped audio output")
+                    threading.Thread(target=retire, name="audio-output-retire", daemon=True).start()
+                elif not callable(try_stop):
+                    player.stop_stream()
             except Exception:
-                pass
+                logger.exception("Could not stop audio output")
             self._play_proc = None
             self._playback_backend = "none"
             try:
@@ -19154,13 +19211,100 @@ class GatewayVoiceManager:
             duration = 0.0
         return duration
 
-    def _wait_for_stream_playback_drain(self, player, playback_drained: threading.Event, *, timeout_s: float) -> bool:
-        deadline = time.monotonic() + max(0.0, float(timeout_s or 0.0))
-        while time.monotonic() < deadline:
-            if playback_drained.is_set() or self._stream_playback_idle(player):
+    @staticmethod
+    def _stream_output_status(player) -> dict:
+        """Optional player-owned progress; older AbstractVoice remains usable."""
+        status = getattr(player, "playback_status", None)
+        if callable(status):
+            try:
+                value = status()
+                if isinstance(value, dict):
+                    return {key: value.get(key) for key in (
+                        "frames_written", "pending_frames", "is_playing", "paused", "stream_active",
+                        "sample_rate", "callback_error",
+                    )}
+            except Exception:
+                logger.exception("Could not inspect audio output progress")
+        return {}
+
+    def _wait_for_stream_playback_drain(
+        self, player, playback_drained: threading.Event, *, timeout_s: float,
+        stream_id: str = "", stop_gate: Optional[threading.Event] = None,
+    ) -> bool:
+        """Wait for playback, excluding pauses, with one output-only recovery.
+
+        Completion notifications can arrive late from an earlier queue gap;
+        pending audio is authoritative. A progressing player has no total-time
+        limit. A player without progress telemetry retains the duration budget.
+        """
+        def cancelled() -> bool:
+            if stop_gate is not None and stop_gate.is_set():
                 return True
-            time.sleep(0.03)
-        return bool(playback_drained.is_set() or self._stream_playback_idle(player))
+            if stream_id:
+                with self._state_lock:
+                    return self._stream_id != stream_id
+            return False
+
+        budget = max(0.0, float(timeout_s or 0.0))
+        status = self._stream_output_status(player)
+        progress_supported = isinstance(status.get("frames_written"), int)
+        stall_budget = min(5.0, budget) if progress_supported else budget
+        last_progress = status.get("frames_written")
+        previous = time.monotonic()
+        stalled_s = 0.0
+        recovered = False
+        while not cancelled():
+            now = time.monotonic()
+            elapsed = max(0.0, now - previous)
+            previous = now
+            status = self._stream_output_status(player)
+            with self._state_lock:
+                paused = self._paused
+            paused = paused or bool(status.get("paused"))
+            if paused:
+                # A user can pause indefinitely, including after server-side
+                # synthesis finishes. It is neither completion nor a stall.
+                stalled_s = 0.0
+            else:
+                if isinstance(status.get("is_playing"), bool):
+                    idle = status.get("pending_frames") == 0 and not status["is_playing"]
+                else:
+                    idle = self._stream_playback_idle(player)
+                if idle:
+                    return not cancelled()
+                progress = status.get("frames_written")
+                if progress_supported and progress != last_progress:
+                    last_progress = progress
+                    stalled_s = 0.0
+                else:
+                    stalled_s += elapsed
+                if stalled_s >= stall_budget:
+                    recover = getattr(player, "recover_stream", None)
+                    if recovered or not progress_supported or not callable(recover):
+                        return False
+                    recovered = True
+                    logger.warning("TTS output stalled; attempting recovery; generation=%s status=%s",
+                                   stream_id, status)
+                    try:
+                        if not recover(cancelled=cancelled):
+                            return False
+                    except Exception:
+                        logger.exception("TTS output recovery failed; generation=%s", stream_id)
+                        return False
+                    if cancelled():
+                        return False
+                    logger.warning("TTS output reopened; generation=%s status=%s",
+                                   stream_id, self._stream_output_status(player))
+                    self._report_speech_notice("Audio output recovered; continuing the remaining speech.")
+                    previous = time.monotonic()
+                    stalled_s = 0.0
+            # This event is a wakeup, never proof that the latest chunk drained.
+            playback_drained.clear()
+            if stop_gate is not None:
+                stop_gate.wait(0.03)
+            else:
+                time.sleep(0.03)
+        return False
 
     def _stream_playback_idle(self, player) -> bool:
         with self._state_lock:

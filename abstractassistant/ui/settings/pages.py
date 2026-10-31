@@ -2024,6 +2024,24 @@ class WindowPage(SettingsPage):
             help_text="Light palettes are grouped at the end of the list.",
         )
 
+        avatar = self.add_card(Card("Activity avatar", "A local procedural portrait of listening, speech and run activity."))
+        self.avatar_enabled = AfSwitch("Show the avatar in the assistant")
+        self.avatar_animated = AfSwitch("Animate while visible")
+        self.avatar_style = QComboBox()
+        self.avatar_style.setMinimumContentsLength(18)
+        self.avatar_style.setMaximumWidth(360)
+        avatar.add_row("Avatar", self.avatar_enabled)
+        avatar.add_row("Design", self.avatar_style)
+        avatar.add_row("Motion", self.avatar_animated,
+                       help_text="Turn off for a still frame that changes only with activity.")
+        self.avatar_note = Note()
+        self.avatar_note.setTextFormat(Qt.PlainText)
+        avatar.add_widget(self.avatar_note)
+        self._load_avatar_controls(_prefs(controller))
+        self.avatar_enabled.clicked.connect(self._on_avatar_changed)
+        self.avatar_animated.clicked.connect(self._on_avatar_changed)
+        self.avatar_style.currentIndexChanged.connect(self._on_avatar_changed)
+
         reading = self.add_card(
             Card(
                 "Reading",
@@ -2211,10 +2229,54 @@ class WindowPage(SettingsPage):
         finally:
             self._loading_typography = False
 
+    def _load_avatar_controls(self, prefs: Any) -> None:
+        from ..avatar import available_styles
+
+        self._loading_avatar = True
+        try:
+            rows, error = available_styles()
+            self.avatar_style.clear()
+            for row in rows:
+                self.avatar_style.addItem(row["name"], row["id"])
+                self.avatar_style.setItemData(self.avatar_style.count() - 1,
+                                              row["description"], Qt.ToolTipRole)
+            style = str(safe_attr(prefs, "avatar_style", "halo") or "halo")
+            index = self.avatar_style.findData(style)
+            if index < 0:
+                self.avatar_style.addItem(f"Unavailable design ({style})", style)
+                index = self.avatar_style.count() - 1
+            self.avatar_style.setCurrentIndex(index)
+            self.avatar_enabled.setChecked(bool(safe_attr(prefs, "avatar_enabled", False)))
+            self.avatar_animated.setChecked(bool(safe_attr(prefs, "avatar_animated", True)))
+            self.avatar_style.setEnabled(bool(rows))
+            self.avatar_animated.setEnabled(bool(rows))
+            self.avatar_note.setText(error or "Generated on this device. No model or network request is used.")
+            self._avatar_available = bool(rows)
+        finally:
+            self._loading_avatar = False
+
+    def _on_avatar_changed(self, _value=None) -> None:
+        if getattr(self, "_loading_avatar", False):
+            return
+        enabled = self.avatar_enabled.isChecked()
+        if enabled and not self._avatar_available:
+            self.avatar_enabled.setChecked(False)
+            self.say(self.avatar_note.text(), tone="error")
+            return
+        ok = _update_prefs(self.controller, avatar_enabled=enabled,
+                           avatar_style=str(self.avatar_style.currentData() or "halo"),
+                           avatar_animated=self.avatar_animated.isChecked())
+        if not ok:
+            self._load_avatar_controls(_prefs(self.controller))
+        self.say("Avatar preferences saved on this device." if ok else "Avatar preferences could not be saved.",
+                 tone="" if ok else "error")
+        self.changed.emit()
+
     def refresh(self) -> None:
         self._select_current_theme()
         prefs = _prefs(self.controller)
         self._load_typography(prefs)
+        self._load_avatar_controls(prefs)
         self.hotkey_enabled.setChecked(bool(safe_attr(prefs, "hotkey_enabled", True)))
         self.hotkey_edit.setText(str(safe_attr(prefs, "hotkey_sequence", "cmd+shift+space") or "cmd+shift+space"))
         self._loading_window = True
