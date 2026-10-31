@@ -9,6 +9,10 @@ iPhone app); the Python package's history is in
 
 ### Added
 
+- Preserve original human corrections separately from the context quoted to the assistant.
+- Restore accepted corrections from screened task replay and entity visit state; reconcile by server acceptance ID across polling, reconnects and view recreation. Identical words sent twice remain separate messages.
+- Restore visible task turns on opening, load older corrections with Show older, and retain the canonical entity visit reference per account, conversation and responder. Acceptance continues to mean sent, not considered.
+
 - Optional **Avatar conversation** view with public subtitles, pinned replies, Talk/Type during
   work and accessible update history. Agent corrections use live guidance; entity conversations
   use the canonical visit routes and preserve entity approval and privacy policy.

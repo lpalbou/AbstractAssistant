@@ -13,6 +13,7 @@ public actor MockGatewayClient: GatewayClient {
     public enum World: Sendable { case watch, phone }
     public nonisolated let world: World
     private var sessionReadReceipts: Set<SessionReadReceipt> = []
+    private var conversationGuidance: [String: PublicGuidanceHistory] = [:]
     private var conversationVisits: [String: (Date, String)] = [:]
     public func sessionReads(runIDs: [String]) async throws -> [SessionReadReceipt] {
         let ids = Set(runIDs); return sessionReadReceipts.filter { ids.contains($0.runID) }
@@ -1167,7 +1168,18 @@ public actor MockGatewayClient: GatewayClient {
     public func publicConversation(runId: String) async throws -> [PublicConversationUpdate] {
         [.init(id: runId + ":public_update:1", text: "I’m comparing the options. You can tell me what matters to you.", runId: runId)]
     }
-    public func guideRun(runId: String, text: String) async throws {}
+    public func conversationHistory(runId: String) async throws -> PublicConversationView {
+        let saved = conversationGuidance[runId]?.messages
+        let fixture: [PublicUserGuidance] = runId == "3e9a10c4"
+            ? [try .init(runId: runId, seq: 1, text: "Keep the flagged plates in the report.")] : []
+        return .init(updates: try await publicConversation(runId: runId), guidance: saved ?? fixture)
+    }
+    public func guideRun(runId: String, text: String) async throws { _ = try await guideRun(runId: runId, text: text, displayText: text) }
+    public func guideRun(runId: String, text: String, displayText: String) async throws -> PublicUserGuidance {
+        var history = conversationGuidance[runId] ?? .init()
+        let receipt = try PublicUserGuidance(runId: runId, seq: history.messages.count + 1, text: displayText)
+        history.merge([receipt]); conversationGuidance[runId] = history; return receipt
+    }
     public func openConversationVisit(name: String, sessionId: String) async throws -> EntitySessionState {
         .init(runID: "mock-visit-" + name, status: "waiting", turn: 0, readyForInput: true)
     }
@@ -1178,9 +1190,12 @@ public actor MockGatewayClient: GatewayClient {
     public func entitySession(name: String, runID: String) async throws -> EntitySessionState {
         let ready = conversationVisits[runID].map { Date().timeIntervalSince($0.0) > 3 } ?? true
         return .init(runID: runID, status: "waiting", turn: 1, reply: ready ? world.cannedAnswer : nil,
-                     readyForInput: ready, publicUpdates: try await publicConversation(runId: runID))
+                     readyForInput: ready, publicUpdates: try await publicConversation(runId: runID), publicMessages: conversationGuidance[runID]?.messages)
     }
-    public func guideEntityVisit(name: String, runId: String, text: String) async throws {}
+    public func guideEntityVisit(name: String, runId: String, text: String) async throws { _ = try await guideRun(runId: runId, text: text, displayText: text) }
+    public func guideEntityVisit(name: String, runId: String, text: String, displayText: String) async throws -> PublicUserGuidance {
+        try await guideRun(runId: runId, text: text, displayText: displayText)
+    }
     public func answerEntityQuestion(name: String, runId: String, wait: Wait, text: String) async throws {}
 
     /// The iPhone's turn (its activity scenarios start a root run waiting on its agent's child).

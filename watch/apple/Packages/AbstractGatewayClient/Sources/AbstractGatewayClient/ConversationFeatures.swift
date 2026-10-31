@@ -34,7 +34,8 @@ public struct EntitySessionState: Decodable, Sendable {
     public var turnComplete: Bool?
     public var error: String?
     public var publicUpdates: [PublicConversationUpdate]? = nil
-    enum CodingKeys: String, CodingKey { case runID = "run_id", status, turn = "turn_n", reply, pendingWait = "pending_wait", stats, turnComplete = "turn_complete", readyForInput = "ready_for_input", error, publicUpdates = "public_updates" }
+    public var publicMessages: [PublicUserGuidance]? = nil
+    enum CodingKeys: String, CodingKey { case runID = "run_id", status, turn = "turn_n", reply, pendingWait = "pending_wait", stats, turnComplete = "turn_complete", readyForInput = "ready_for_input", error, publicUpdates = "public_updates", publicMessages = "public_messages" }
     public var personWait: Wait? {
         RunSummary(runId: pendingWait?.runId ?? runID, workflowId: nil, status: pendingWait == nil ? status : "waiting", waiting: pendingWait).personWait
     }

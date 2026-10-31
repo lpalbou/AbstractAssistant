@@ -285,3 +285,24 @@ or live-result identity, and historical messages do not replay completion cues.
 builds the app for the simulator, installs it and captures one screenshot per screen through the
 `--screen` launch argument. The `AbstractAssistantWatchUITests` scheme runs UI tests that need a
 real tap. See [../BUILD.md](../BUILD.md).
+
+### Durable human corrections in the optional conversation view
+
+Guidance requests carry both the contextual `guidance` (or entity `text`) and the original
+`display_text`. A task command ACK is initially keyed by its command UUID: its command-store
+`seq` is unrelated to the runtime's steer-sidecar sequence. The host copies the command UUID to
+`client_message_id` in its reserved receipt, so replay replaces only that matching local admission
+with `<run>:guidance:<sidecar-seq>`. Entity guidance returns the sidecar sequence directly.
+`PublicGuidanceHistory` reconciles these identities, never wording: two accepted messages with
+the same words stay distinct. This is an admission receipt;
+the UI says “Message sent” and does not claim the actor considered or adopted it.
+
+Task history reads only screened `/runs/{id}/view` messages with `role=user`, `kind=guidance`,
+`source=user_guidance`, `guidance_status=accepted` and a canonical positive sequence ID. It does
+not decode actor events or raw ledger payloads into human speech. Entity history reads only the
+canonical visit state's screened `public_messages`, with the same role, kind, status and ID
+checks. The server enforces the reserved host node and idempotency-key provenance before either
+projection. Visible task turns restore on opening; Show older restores earlier turns without
+loading every run immediately. Entity restoration remembers only a scoped canonical visit ID;
+all words are re-read from that visit's authorized state route. These changes apply only to the
+optional view. Question answers continue to use the existing question/resume path.

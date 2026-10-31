@@ -28,7 +28,9 @@ struct AskView: View {
     @State private var pinnedBrief: PublicConversationUpdate?
     @State private var expandedBrief: PublicConversationUpdate?
     @State private var visitApproval: Wait?
-    @State private var liveReplies: [String] = []
+    @State private var humanGuidance = PublicGuidanceHistory()
+    @State private var liveReplies: [String] = [] // Question answers use their own existing resume history.
+    @State private var restoredGuidanceRuns: Set<String> = []
     @State private var replyDraft = ""
     @State private var failedReplyTarget: PublicConversationUpdate?
     @State private var failedReplyWait: Wait?
@@ -345,7 +347,7 @@ struct AskView: View {
     }
 
     private var hasBelow: Bool {
-        !exchanges.isEmpty || (!prompt.isEmpty && phase == .thinking) || conversationView && (!briefs.isEmpty || !liveReplies.isEmpty)
+        !exchanges.isEmpty || (!prompt.isEmpty && phase == .thinking) || conversationView && (!briefs.isEmpty || !liveReplies.isEmpty || !humanGuidance.messages.isEmpty)
     }
 
     /// The message shown in full (the conversation's last), the one the voice button reads.
@@ -380,7 +382,10 @@ struct AskView: View {
     /// The earlier messages, newest first (as an automation's earlier runs).
     private var earlier: [Exchange] { Array(exchanges.dropLast().reversed()) }
 
-    private func showOlder() { shownCount += 5 }
+    private func showOlder() {
+        shownCount += 5
+        if conversationView { Task { await restoreGuidanceHistory() } }
+    }
 
     private var below: some View {
         VStack(alignment: .leading, spacing: 6) { belowContent }.padding(.horizontal, 10)
@@ -414,6 +419,10 @@ struct AskView: View {
                         Button("Send as a new message") { let text = replyDraft; replyDraft = ""; send(text) }.buttonStyle(.tap)
                     }
                 }
+            }
+            ForEach(humanGuidance.messages) { message in
+                Text("You: \(message.text)").font(.rounded(.footnote)).foregroundStyle(Theme.text2)
+                    .accessibilityIdentifier("ask.guidance.\(message.id)")
             }
             ForEach(Array(liveReplies.enumerated()), id: \.offset) { _, text in
                 Text("You: \(text)").font(.rounded(.footnote)).foregroundStyle(Theme.text2)
@@ -585,15 +594,18 @@ struct AskView: View {
         replyDraft = text; failedReplyTarget = target; failedReplyWait = wait; sendingReply = true; error = nil; note = "Sending…"
         Task {
             do {
+                var receipt: PublicUserGuidance?
                 if let entity, let visit {
                     if let wait, wait.kind == .askUser {
                         try await client.answerEntityQuestion(name: entity, runId: visit, wait: wait, text: text)
-                    } else { try await client.guideEntityVisit(name: entity, runId: visit, text: addressed) }
+                    } else { receipt = try await client.guideEntityVisit(name: entity, runId: visit, text: addressed, displayText: text) }
                 } else if let wait, wait.kind == .askUser {
                     try await client.answer(wait, with: .respond(text))
-                } else { try await client.guideRun(runId: workingRun, text: addressed) }
+                } else { receipt = try await client.guideRun(runId: workingRun, text: addressed, displayText: text) }
                 guard mine == turn, owner == keptScope else { return }
-                sendingReply = false; liveReplies.append(text); replyDraft = ""; failedReplyTarget = nil; failedReplyWait = nil
+                sendingReply = false
+                if let receipt { humanGuidance.merge([receipt]) } else { liveReplies.append(text) }
+                replyDraft = ""; failedReplyTarget = nil; failedReplyWait = nil
                 note = "Message sent." // Accepted does not mean the model has adopted the change.
                 if wait?.kind == .askUser {
                     pendingWait = nil
@@ -612,6 +624,8 @@ struct AskView: View {
             let state = try await client.openConversationVisit(name: name, sessionId: model.askSessionId)
             guard mine == turn else { return }
             entityVisitName = name; entityVisitId = state.runID
+            UserDefaults.standard.set(state.runID, forKey: "ask.conversation.visit." + keptScope)
+            mergeBriefs(state.publicUpdates ?? []); humanGuidance.merge(state.publicMessages ?? [])
         }
         guard let id = entityVisitId else { throw GatewayError.invalidResponse }
         runId = id; answerEntity = name
@@ -652,7 +666,7 @@ struct AskView: View {
             if scenePhase != .active { try await Task.sleep(for: .seconds(1)); continue }
             let state = try await model.client.entitySession(name: name, runID: id)
             guard mine == turn else { return }
-            mergeBriefs(state.publicUpdates ?? [])
+            mergeBriefs(state.publicUpdates ?? []); humanGuidance.merge(state.publicMessages ?? [])
             if let wait = state.personWait {
                 pendingWait = wait
                 conversationCue(wait.kind == .askUser ? .question : .approval, key: wait.id,
@@ -1165,9 +1179,9 @@ struct AskView: View {
             guard mine == turn else { return }
             if conversationView, scenePhase == .active {
                 do {
-                    let updates = try await model.client.publicConversation(runId: id)
+                    let history = try await model.client.conversationHistory(runId: id)
                     guard mine == turn else { return }
-                    mergeBriefs(updates)
+                    mergeBriefs(history.updates); humanGuidance.merge(history.guidance)
                 } catch {
                     guard mine == turn else { return }
                     note = "Public updates unavailable. The task is still running."
@@ -1316,7 +1330,7 @@ struct AskView: View {
         if let id = runId { AnswerNotifier.shared.unwatch(runId: id) }
         prompt = ""; answer = ""; runId = nil; answerEntity = nil; note = nil; error = nil; pendingWait = nil
         briefs = []; pinnedBrief = nil; expandedBrief = nil; liveReplies = []; replyDraft = ""; liveRecording = false; stopping = false
-        currentBriefIds = []
+        currentBriefIds = []; humanGuidance = .init(); restoredGuidanceRuns = []
         failedReplyWait = nil; typedQuestionTarget = nil; typingCaptured = false; sendingReply = false
         entityVisitId = nil; entityVisitName = nil; cueKeys = []
         exchanges = []; readingId = nil; shownCount = 5; historyFailed = nil; mediaFailed = nil
@@ -1353,7 +1367,17 @@ struct AskView: View {
             prompt = ref.prompt ?? ""
             answerEntity = ref.entity
             runId = ref.runId
-            if let text = ref.text { show(text); return }
+            if let text = ref.text {
+                show(text)
+                if conversationView, let id = ref.runId {
+                    if let name = ref.entity { await restoreVisit(name, id: id) }
+                    else { await restoreGuidanceHistory(extraRun: id) }
+                }
+                return
+            }
+            if conversationView, let name = ref.entity, let id = ref.runId {
+                await restoreVisit(name, id: id); return
+            }
             if let id = ref.runId, let run = try? await model.client.run(id: id) {
                 guard !Task.isCancelled, owner == model.recordingConnectionKey else { return }
                 // The answer's own conversation: its tools, its next question and its history are
@@ -1381,7 +1405,34 @@ struct AskView: View {
             return
         }
         #endif
+        if conversationView, case .entity(let name) = model.responder,
+           let id = UserDefaults.standard.string(forKey: "ask.conversation.visit." + keptScope) {
+            await restoreVisit(name, id: id)
+            return
+        }
         await showCurrentConversation()
+    }
+
+    /// Remember only the canonical visit reference; all restored words come from its screened state.
+    private func restoreVisit(_ name: String, id: String) async {
+        let mine = turn, owner = keptScope, client = model.client
+        do {
+            let state = try await client.entitySession(name: name, runID: id)
+            guard mine == turn, owner == keptScope else { return }
+            mergeBriefs(state.publicUpdates ?? []); humanGuidance.merge(state.publicMessages ?? [])
+            runId = id; answerEntity = name
+            if !["completed", "failed", "cancelled"].contains(state.status) {
+                entityVisitName = name; entityVisitId = id
+            }
+            if let text = state.reply, !text.isEmpty { show(text) }
+            if !state.finishedTurn {
+                phase = .thinking
+                try await followVisit(name, id: id, turn: mine)
+            }
+        } catch {
+            guard mine == turn, owner == keptScope else { return }
+            note = "Conversation history is unavailable. Reopen to retry."
+        }
     }
 
     /// From Home, the orb talks in the current conversation: when it already has turns, it opens on
@@ -1543,11 +1594,30 @@ struct AskView: View {
             let known = Set(exchanges.map(\.id))
             exchanges = turns.filter { !known.contains($0.runId) && ($0.prompt?.isEmpty == false || $0.answer?.isEmpty == false) }
                 .map { Exchange(id: $0.runId, prompt: $0.prompt ?? "", answer: $0.answer ?? "", scope: .run($0.runId)) } + exchanges
+            if conversationView { await restoreGuidanceHistory(extraRun: latestRun) }
         } catch {
             guard model.askSessionId == session else { _ = await media; return }
             historyFailed = (session, latestRun)
         }
         if let byRun = await media { attach(byRun) }
+    }
+
+    /// Only screened public replay is read, for the visible turns. Older turns load on Show older.
+    private func restoreGuidanceHistory(extraRun: String? = nil) async {
+        let mine = turn, owner = keptScope, client = model.client
+        var roots = Array(exchanges.suffix(shownCount + 1).map(\.id))
+        if let extraRun, !roots.contains(extraRun) { roots.append(extraRun) }
+        for id in roots where !restoredGuidanceRuns.contains(id) {
+            do {
+                let history = try await client.conversationHistory(runId: id)
+                guard mine == turn, owner == keptScope else { return }
+                humanGuidance.merge(history.guidance); restoredGuidanceRuns.insert(id)
+                if id == runId { mergeBriefs(history.updates) }
+            } catch {
+                guard mine == turn, owner == keptScope else { return }
+                note = "Some conversation history is unavailable. Reopen to retry."
+            }
+        }
     }
 
     /// The conversation's media, by turn; nil when it could not be read (Retry offers it again).

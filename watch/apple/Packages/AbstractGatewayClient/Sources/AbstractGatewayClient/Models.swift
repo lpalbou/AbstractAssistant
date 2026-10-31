@@ -288,6 +288,7 @@ public struct StartRunResponse: Codable, Sendable {
 }
 
 public struct CommandAck: Codable, Sendable {
+    public var seq: Int?
     public var accepted: Bool?
     public var duplicate: Bool?
 }

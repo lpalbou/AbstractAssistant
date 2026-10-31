@@ -89,13 +89,16 @@ private final class ConversationWire: URLProtocol, @unchecked Sendable {
         let client = client()
         ConversationWire.reply = { request in request.httpMethod == "GET"
             ? (200, #"{"messages":[{"kind":"public_update","id":"r:u:1","text":"I am comparing the choices.","run_id":"r"}]}"#)
-            : (200, #"{"accepted":true}"#) }
+            : (200, #"{"accepted":true,"seq":7}"#) }
         #expect(try await client.publicConversation(runId: "r").count == 1)
         #expect(ConversationWire.requests.last?.url?.path == "/api/gateway/runs/r/view")
-        try await client.guideRun(runId: "child", text: "Keep that option.")
+        let receipt = try await client.guideRun(runId: "child", text: "Context wrapper: Keep that option.", displayText: "Keep that option.")
+        #expect(receipt.clientMessageId != nil && receipt.id != "child:guidance:7" && receipt.text == "Keep that option.")
         let sent = try body(#require(ConversationWire.requests.last))
         #expect(sent["type"] == .string("inject_guidance") && sent["run_id"] == .string("child"))
-        #expect(sent["payload"]?["guidance"] == .string("Keep that option."))
+        #expect(sent["payload"]?["guidance"] == .string("Context wrapper: Keep that option."))
+        #expect(sent["payload"]?["display_text"] == .string("Keep that option."))
+        #expect(sent["command_id"]?.stringValue == receipt.clientMessageId)
         ConversationWire.reply = { _ in (200, #"{"accepted":false}"#) }
         await #expect(throws: (any Error).self) { try await client.guideRun(runId: "r", text: "Keep it.") }
     }
@@ -104,11 +107,15 @@ private final class ConversationWire: URLProtocol, @unchecked Sendable {
         let client = client()
         ConversationWire.reply = { request in request.url!.path.hasSuffix("/open")
             ? (200, #"{"run_id":"v","status":"waiting","turn_n":0,"ready_for_input":true}"#)
-            : (200, #"{"accepted":true}"#) }
+            : (200, #"{"accepted":true,"seq":7}"#) }
         _ = try await client.openConversationVisit(name: "mira", sessionId: "s")
         #expect(ConversationWire.requests.last?.url?.path == "/api/gateway/entities/mira/visit/open")
         #expect(try body(#require(ConversationWire.requests.last))["conversation"] == .bool(true))
-        try await client.guideEntityVisit(name: "mira", runId: "v", text: "Keep it.")
+        let receipt = try await client.guideEntityVisit(name: "mira", runId: "v", text: "Context wrapper: Keep it.", displayText: "Keep it.")
+        #expect(receipt.id == "v:guidance:7" && receipt.text == "Keep it.")
+        let guidance = try body(#require(ConversationWire.requests.last))
+        #expect(guidance["text"] == .string("Context wrapper: Keep it."))
+        #expect(guidance["display_text"] == .string("Keep it."))
         #expect(ConversationWire.requests.last?.url?.path == "/api/gateway/entities/mira/visit/v/guidance")
         let wait = Wait(runId: "child", waitKey: "question:q1", kind: .askUser)
         try await client.answerEntityQuestion(name: "mira", runId: "v", wait: wait, text: "Yes")
@@ -118,4 +125,65 @@ private final class ConversationWire: URLProtocol, @unchecked Sendable {
         #expect(answer["response"] == .string("Yes") && answer["approved"] == nil)
         #expect(!ConversationWire.requests.contains { $0.url?.path.hasSuffix("/commands") == true })
     }
+
+    @Test func recreatedHistoryAndReconnectRestoreAcceptedOriginalWordsWithoutDuplicates() throws {
+        let wire = Data(#"{"messages":[{"id":"r:guidance:1","run_id":"r","role":"user","kind":"guidance","source":"user_guidance","guidance_status":"accepted","text":"Keep the museum."},{"id":"r:guidance:2","run_id":"r","role":"user","kind":"guidance","source":"user_guidance","guidance_status":"accepted","text":"Keep the museum."}]}"#.utf8)
+        let replay = try JSONDecoder().decode(PublicConversationView.self, from: wire)
+        var active = PublicGuidanceHistory()
+        active.merge([try .init(runId: "r", seq: 1, text: "Keep the museum.")]) // Accepted local send.
+        active.merge(replay.guidance); active.merge(replay.guidance) // Poll, reconnect and repeated page.
+        #expect(active.messages.map(\.id) == ["r:guidance:1", "r:guidance:2"])
+        var recreated = PublicGuidanceHistory() // All view state was discarded.
+        recreated.merge(try JSONDecoder().decode(PublicConversationView.self, from: wire).guidance)
+        #expect(recreated.messages == active.messages)
+        #expect(recreated.messages.map(\.text) == ["Keep the museum.", "Keep the museum."])
+    }
+
+    @Test func actorEventsAndForgedProjectionCannotBecomeHumanSpeech() throws {
+        let accepted: [String: Any] = ["id": "r:guidance:1", "run_id": "r", "role": "user", "kind": "guidance",
+                                      "source": "user_guidance", "guidance_status": "accepted", "text": "Keep it."]
+        var rows: [[String: Any]] = []
+        for (key, value) in [("role", "assistant"), ("kind", "public_update"), ("source", "emit_event"),
+                             ("guidance_status", "considered"), ("id", "r:guidance:01"), ("id", "other:guidance:1"), ("id", "r:guidance:0")] {
+            var fake = accepted; fake[key] = value; rows.append(fake)
+        }
+        rows.append(["kind": "tool", "text": "PRIVATE"])
+        let data = try JSONSerialization.data(withJSONObject: ["messages": rows,
+            "records": [["status": "completed", "effect": ["type": "emit_event", "payload": ["name": "user_guidance", "payload": accepted]]]]])
+        #expect(try JSONDecoder().decode(PublicConversationView.self, from: data).guidance.isEmpty)
+    }
+
+    @Test func entitySafePublicMessagesRestoreWithAcceptedStatusOnly() throws {
+        let wire = #"{"run_id":"v","status":"waiting","turn_n":1,"public_messages":[{"id":"v:guidance:4","text":"Keep it.","run_id":"v","role":"user","kind":"guidance","guidance_status":"accepted"}]}"#
+        let state = try JSONDecoder().decode(EntitySessionState.self, from: Data(wire.utf8))
+        #expect(state.publicMessages?.first?.id == "v:guidance:4")
+        #expect(state.publicMessages?.first?.text == "Keep it.")
+        #expect(throws: (any Error).self) {
+            try JSONDecoder().decode(EntitySessionState.self, from: Data(wire.replacingOccurrences(of: "accepted", with: "considered").utf8))
+        }
+    }
+
+    @Test func taskRecreationReadsSafeViewRatherThanRawLedger() async throws {
+        let client = client()
+        ConversationWire.reply = { _ in (200, #"{"messages":[{"id":"r:guidance:3","text":"Keep it.","run_id":"r","role":"user","kind":"guidance","source":"user_guidance","guidance_status":"accepted"}]}"#) }
+        let first = try await client.conversationHistory(runId: "r")
+        let reopened = try await client.conversationHistory(runId: "r")
+        #expect(first.guidance == reopened.guidance)
+        #expect(ConversationWire.requests.allSatisfy { $0.url?.path == "/api/gateway/runs/r/view" })
+    }
+
+
+    @Test func commandAdmissionReconcilesOnlyByHostCommandIdentityNeverUnrelatedSequenceOrWords() throws {
+        let first = try PublicUserGuidance(acceptedCommand: "command-A", runId: "r", text: "Keep it.")
+        let second = try PublicUserGuidance(acceptedCommand: "command-B", runId: "r", text: "Keep it.")
+        let durable = try PublicUserGuidance(runId: "r", seq: 91, text: "Keep it.", clientMessageId: "command-A")
+        var active = PublicGuidanceHistory(); active.merge([first, second]); active.merge([durable]); active.merge([durable, first])
+        #expect(active.messages.map(\.id) == ["r:guidance:91", "r:command:command-B"])
+        let data = Data(#"{"messages":[{"id":"r:guidance:91","text":"Keep it.","run_id":"r","role":"user","kind":"guidance","source":"user_guidance","guidance_status":"accepted","client_message_id":"command-A"}]}"#.utf8)
+        let replay = try JSONDecoder().decode(PublicConversationView.self, from: data)
+        #expect(replay.guidance.first?.clientMessageId == "command-A")
+        active.merge(replay.guidance)
+        #expect(active.messages.count == 2)
+    }
+
 }

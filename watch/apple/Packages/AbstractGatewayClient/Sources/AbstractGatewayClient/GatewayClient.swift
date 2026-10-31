@@ -147,10 +147,13 @@ public protocol GatewayClient: Sendable {
     /// `POST /api/gateway/commands` `{type: "cancel"}`.
     func cancel(runId: String) async throws
     func publicConversation(runId: String) async throws -> [PublicConversationUpdate]
+    func conversationHistory(runId: String) async throws -> PublicConversationView
     func guideRun(runId: String, text: String) async throws
+    func guideRun(runId: String, text: String, displayText: String) async throws -> PublicUserGuidance
     func startConversationRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?, workflow: WorkflowChoice?, primaryImage: MediaItem?) async throws -> String
     func openConversationVisit(name: String, sessionId: String) async throws -> EntitySessionState
     func guideEntityVisit(name: String, runId: String, text: String) async throws
+    func guideEntityVisit(name: String, runId: String, text: String, displayText: String) async throws -> PublicUserGuidance
     func answerEntityQuestion(name: String, runId: String, wait: Wait, text: String) async throws
     /// `GET /api/gateway/automations/{id}/occurrences?limit=N`.
     func occurrences(automationId: String, limit: Int) async throws -> [LastOccurrence]
@@ -539,13 +542,21 @@ public actor LiveGatewayClient: GatewayClient {
     public func publicConversation(runId: String) async throws -> [PublicConversationUpdate] {
         try await get("api/gateway/runs/\(runId)/view", as: PublicConversationView.self).updates
     }
+    public func conversationHistory(runId: String) async throws -> PublicConversationView {
+        try await get("api/gateway/runs/\(runId)/view", as: PublicConversationView.self)
+    }
     public func guideRun(runId: String, text: String) async throws {
+        _ = try await guideRun(runId: runId, text: text, displayText: text)
+    }
+    public func guideRun(runId: String, text: String, displayText: String) async throws -> PublicUserGuidance {
         struct Command: Encodable {
             var command_id = UUID().uuidString; var run_id: String; var type = "inject_guidance"; var payload: [String: String]
         }
-        let data = try await request("POST", "api/gateway/commands", body: Command(run_id: runId, payload: ["guidance": text]))
+        let command = Command(run_id: runId, payload: ["guidance": text, "display_text": displayText])
+        let data = try await request("POST", "api/gateway/commands", body: command)
         let ack = try JSONDecoder().decode(CommandAck.self, from: data)
         guard ack.accepted == true else { throw GatewayError.invalidResponse }
+        return try .init(acceptedCommand: command.command_id, runId: runId, text: displayText)
     }
     public func openConversationVisit(name: String, sessionId: String) async throws -> EntitySessionState {
         let body: JSONValue = .object(["session_id": .string(sessionId), "conversation": .bool(true),
@@ -554,9 +565,13 @@ public actor LiveGatewayClient: GatewayClient {
         return try JSONDecoder().decode(EntitySessionState.self, from: data)
     }
     public func guideEntityVisit(name: String, runId: String, text: String) async throws {
-        let data = try await request("POST", "api/gateway/entities/\(name)/visit/\(runId)/guidance", body: ChatTurnRequest(text: text))
+        _ = try await guideEntityVisit(name: name, runId: runId, text: text, displayText: text)
+    }
+    public func guideEntityVisit(name: String, runId: String, text: String, displayText: String) async throws -> PublicUserGuidance {
+        let data = try await request("POST", "api/gateway/entities/\(name)/visit/\(runId)/guidance", body: ["text": text, "display_text": displayText])
         let ack = try JSONDecoder().decode(CommandAck.self, from: data)
-        guard ack.accepted == true else { throw GatewayError.invalidResponse }
+        guard ack.accepted == true, let seq = ack.seq else { throw GatewayError.invalidResponse }
+        return try .init(runId: runId, seq: seq, text: displayText)
     }
     public func answerEntityQuestion(name: String, runId: String, wait: Wait, text: String) async throws {
         let body: JSONValue = .object(["wait_key": .string(wait.waitKey), "response": .string(text), "target_run_id": .string(wait.runId)])
