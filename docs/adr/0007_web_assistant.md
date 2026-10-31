@@ -2,6 +2,9 @@
 
 Status: Proposed
 Date: 2026-10-26
+Catalog integration accepted and implemented 2026-10-31 at the operator's request:
+`assistant-web`, Assistant (web), port 3008, cookie prefix `abstractassistant`.
+The package remains a private preview; the remaining product phases below are unchanged.
 Relates to: [ADR 0001](0001_gateway_native_assistant_v2.md) (gateway as authority, one managed
 workflow), backlog [1057](../backlog/planned/1057_web_assistant.md), backlog
 [0003](../backlog/proposed/0003_tauri_shell_spike.md) (Tauri shell spike), [ADR 0008](0008_desktop_host.md)
@@ -96,8 +99,8 @@ adopts it and deletes its reducer (owner: uic + assistant).
 ### 3. Served as a gateway app
 
 - npm package `@abstractframework/assistant` (name free on npm, 2026-10-26), `bin`
-  `abstractassistant-web`; `private` until the gateway lists it.
-- Proposed catalog id **`assistant-web`**, display name "Assistant (web)", cookie prefix
+  `abstractassistant-web`; `private` pending its first npm release.
+- Catalog id **`assistant-web`**, display name "Assistant (web)", cookie prefix
   `abstractassistant`, page title starting `AbstractAssistant`, usual port **3008** (3001-3006 are
   the stack map, 3000/3007 legacy probe ports, `apps_manager.py:115-128`). The id cannot be
   `assistant` (the desktop row). Gateway ask G1: an `AppSpec` entry, the stack port, the flag set

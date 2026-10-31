@@ -16,9 +16,12 @@ offers `session_tool_policy`), the run's tool plan, and voice (Settings → Voic
 Tap/Hold to talk). What stays here: the gateway calls (`src/gateway/`), the conversation list and
 its titles, the workflow choice and the run input (desktop parity ports).
 
-Status: **scaffold** (backlog [1057](../docs/backlog/planned/1057_web_assistant.md),
-[ADR 0007](../docs/adr/0007_web_assistant.md), Proposed). The gateway does not list this app yet,
-so it is not installable from the console's Apps page; run it by hand as below.
+Status: **private preview** (backlog [1057](../docs/backlog/planned/1057_web_assistant.md),
+[ADR 0007](../docs/adr/0007_web_assistant.md)). Gateway's catalog and tray list it as
+**Assistant (web)**, separate from the desktop Assistant. Once installed locally,
+open **Apps → Assistant (web)** in the Gateway tray or console: the existing one-time
+handover signs you in at `<gateway>/apps/assistant-web/`. The package has not been
+published to npm yet; registry installation awaits that release.
 
 ## Run it against a gateway (development)
 
@@ -43,8 +46,9 @@ node bin/cli.js --gateway-url http://127.0.0.1:8080 --port 3008
 ```
 
 `bin/cli.js` takes the framework's shared app flags (`--gateway-url`, `--port`, `--host`,
-`--help`; abstractuic `app-server`). It listens on 127.0.0.1 only; once the gateway lists the app
-it serves it at `<gateway>/apps/assistant-web/` and signs you in by itself.
+`--help`; abstractuic `app-server`). It listens on 127.0.0.1 only. Gateway detects the
+running app and serves it at `<gateway>/apps/assistant-web/`; open it through Gateway
+Apps to use the signed-in handover.
 
 Dictation needs a secure page: `http://127.0.0.1`/`localhost`, or `https://`. From another
 computer over plain `http://` the microphone button says why it is off.
@@ -84,5 +88,5 @@ PYTHONPATH=. python -P web/scripts/gen_tool_policy_parity.py   # needs the packa
 | `src/styles/index.css` | App styles on the design tokens of `web/design/tokens.css` |
 | `design/` | Design tokens and mockups (owned separately) |
 
-The npm package (`@abstractframework/assistant`) is `private` until the gateway catalog lists it.
+The npm package (`@abstractframework/assistant`) remains `private` pending its first release.
 The Python wheel and sdist do not include `web/`.

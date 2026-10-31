@@ -18,9 +18,8 @@
  *   from this app's own origin, a sign-in must be JSON, and a sign-in over a
  *   loopback socket must name a loopback host (DNS-rebinding guard).
  *
- * The catalog id `assistant-web` and the cookie prefix `abstractassistant`
- * are PROPOSED (ADR 0007): the gateway serves only the apps in its catalog
- * (abstractgateway apps_manager.py `APPS`), and this id is not in it yet.
+ * The gateway catalog registers `assistant-web` separately from the desktop
+ * Assistant (`assistant`), with the cookie prefix `abstractassistant`.
  */
 import * as http from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -38,7 +37,7 @@ import {
 
 const BIN_DIR = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_DIST_DIR = resolve(BIN_DIR, "..", "dist");
-/** The gateway's catalog id (PROPOSED): `/apps/assistant-web/` and the identity header. */
+/** The gateway's catalog id: `/apps/assistant-web/` and the identity header. */
 export const APP_ID = "assistant-web";
 /** Cookie / CSRF-header prefix: `abstractassistant_gateway_*`, `x-abstractassistant-csrf`. */
 export const COOKIE_APP_ID = "abstractassistant";

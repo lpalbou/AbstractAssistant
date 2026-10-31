@@ -89,7 +89,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 
 - [phone/iphone/docs/troubleshooting.md](phone/iphone/docs/troubleshooting.md): dated automation runs, failure explanations, provider versus phone authentication, notifications and Apple push (the push forwarder, generic words on development builds), installed version/build and Apple-managed updates
 - [docs/macos-signing.md](docs/macos-signing.md): signing and notarizing the macOS app bundle (`build-macos-app --sign`, `--notarize`, `--dmg`, `--local-test`)
-- [web/README.md](web/README.md): the Assistant on the web, a scaffold run by hand against a gateway (not a release); renders a conversation from the gateway's replay view (`@abstractframework/panel-chat` 0.6.2, ui-kit 0.9.4), folding the ledger itself on a gateway before 0.17.0
+- [web/README.md](web/README.md): Assistant (web), a private preview registered as `assistant-web` in Gateway's console and tray Apps menu, locally buildable/installable pending npm publication; renders conversations from the gateway's replay view, folding the ledger itself on a gateway before 0.17.0
 
 ## Design Records
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records
@@ -306,7 +306,7 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 
 - [../phone/iphone/README.md](../phone/iphone/README.md) — AbstractAssistant for iPhone (0.16.0, carries the watch app; each device signs in on its own, the sign-in a Keychain item shared with that device's notification extension; Apple push): conversations, scoped tools, automations, notifications and tab badges from your event stream, restorable image previews and voice playback; [architecture](../phone/iphone/docs/architecture.md), [release history](../phone/iphone/CHANGELOG.md), [troubleshooting, notifications and app updates](../phone/iphone/docs/troubleshooting.md), [testing/distribution](../phone/iphone/docs/distribution.md) and [build guide](../phone/iphone/BUILD.md) (the five targets, `scripts/deploy-phone.sh`)
 - [../watch/apple/README.md](../watch/apple/README.md) — AbstractAssistant for Apple Watch (0.16.0, the iPhone app's independent companion, pre-release through TestFlight): voice around the orb with the work shown live, tools and workflow per conversation, images and recordings in answers, approvals, sessions with search and archive, automations, notifications from your event stream and Apple push, your avatar on the watch face; [build guide](../watch/apple/BUILD.md) (with the `--dump-notify` readout); its pages are indexed in [../watch/apple/docs/README.md](../watch/apple/docs/README.md)
-- [../web/README.md](../web/README.md) — the Assistant on the web: a scaffold on the framework's app server, run by hand against a gateway, not a release
+- [../web/README.md](../web/README.md) — Assistant (web), a private preview available through Gateway's console and tray Apps menu after a local build/install; npm publication remains pending
 
 ## Design records
 
@@ -7567,9 +7567,12 @@ offers `session_tool_policy`), the run's tool plan, and voice (Settings → Voic
 Tap/Hold to talk). What stays here: the gateway calls (`src/gateway/`), the conversation list and
 its titles, the workflow choice and the run input (desktop parity ports).
 
-Status: **scaffold** (backlog [1057](../docs/backlog/planned/1057_web_assistant.md),
-[ADR 0007](../docs/adr/0007_web_assistant.md), Proposed). The gateway does not list this app yet,
-so it is not installable from the console's Apps page; run it by hand as below.
+Status: **private preview** (backlog [1057](../docs/backlog/planned/1057_web_assistant.md),
+[ADR 0007](../docs/adr/0007_web_assistant.md)). Gateway's catalog and tray list it as
+**Assistant (web)**, separate from the desktop Assistant. Once installed locally,
+open **Apps → Assistant (web)** in the Gateway tray or console: the existing one-time
+handover signs you in at `<gateway>/apps/assistant-web/`. The package has not been
+published to npm yet; registry installation awaits that release.
 
 ## Run it against a gateway (development)
 
@@ -7594,8 +7597,9 @@ node bin/cli.js --gateway-url http://127.0.0.1:8080 --port 3008
 ```
 
 `bin/cli.js` takes the framework's shared app flags (`--gateway-url`, `--port`, `--host`,
-`--help`; abstractuic `app-server`). It listens on 127.0.0.1 only; once the gateway lists the app
-it serves it at `<gateway>/apps/assistant-web/` and signs you in by itself.
+`--help`; abstractuic `app-server`). It listens on 127.0.0.1 only. Gateway detects the
+running app and serves it at `<gateway>/apps/assistant-web/`; open it through Gateway
+Apps to use the signed-in handover.
 
 Dictation needs a secure page: `http://127.0.0.1`/`localhost`, or `https://`. From another
 computer over plain `http://` the microphone button says why it is off.
@@ -7635,7 +7639,7 @@ PYTHONPATH=. python -P web/scripts/gen_tool_policy_parity.py   # needs the packa
 | `src/styles/index.css` | App styles on the design tokens of `web/design/tokens.css` |
 | `design/` | Design tokens and mockups (owned separately) |
 
-The npm package (`@abstractframework/assistant`) is `private` until the gateway catalog lists it.
+The npm package (`@abstractframework/assistant`) remains `private` pending its first release.
 The Python wheel and sdist do not include `web/`.
 
 --- pyproject.toml ---
