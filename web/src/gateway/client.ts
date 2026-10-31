@@ -178,8 +178,16 @@ export class GatewayClient {
   listSessionRuns(limit: number, offset = 0) {
     const q =
       `runs?limit=${Math.max(1, Math.trunc(limit))}&offset=${Math.max(0, Math.trunc(offset))}` +
-      "&root_only=true&include_ledger_len=false&session_kind=chat,discussion";
+      "&root_only=true&include_ledger_len=false&include_metrics=true&session_kind=chat,discussion";
     return this.request("GET", q, undefined, "Conversations");
+  }
+
+  listWaitingRuns() {
+    return this.request("GET", "runs?status=waiting&root_only=false&limit=200&include_ledger_len=false", undefined, "Pending questions and approvals");
+  }
+
+  archiveSession(sessionId: string) {
+    return this.request("POST", `sessions/${encodeURIComponent(sessionId)}/archive`, {}, "The conversation could not be archived");
   }
 
   executableBundles(iface: string) {

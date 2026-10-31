@@ -1,3 +1,4 @@
+import { SessionReadMarker, sessionContentRevision, sessionReadTarget, type SessionReceipt, type SessionActivity } from "../vendor/abstractsessions/session_cards.js";
 /**
  * The open conversation, composed from the kit (ADR 0001; backlog 0030, 0032):
  * - `useWorkflowSession` + this app's transport (src/gateway/transport.ts) render the
@@ -119,6 +120,10 @@ export function Workspace(props: {
   onNewChat: () => void;
   onTurnEnded: () => void;
   onSignedOut: () => void;
+  readScope: string;
+  sessionActivity?: SessionActivity;
+  canConsume: boolean;
+  onRead: (receipt: SessionReceipt) => void;
 }) {
   const { client, host } = props;
   const [draft, setDraft] = useState("");
@@ -404,6 +409,12 @@ export function Workspace(props: {
       onRemoveAttachment={uploads.remove}
       onRetryAttachment={uploads.retry}
       messageProps={{
+        renderFooter: (m) => {
+          const status = m.runId === props.runId ? snapshot.status : props.sessionActivity?.content.find((c) => c.runId === m.runId)?.status;
+          if (!status) return null;
+          const target = sessionReadTarget(messages, m.runId || "", status);
+          return target.message === m && !snapshot.loading && !snapshot.error && props.readScope ? <><span>{target.outcome}</span><SessionReadMarker ownerKey={props.readScope} receipt={{ sessionId: props.sessionId, revision: sessionContentRevision(m.runId || "", status), updatedAt: "" }} enabled={props.canConsume} onRead={props.onRead} /></> : null;
+        },
         stats: technical ? undefined : [],
         // "link": a model's text cannot make the browser fetch a remote image.
         images: "link",

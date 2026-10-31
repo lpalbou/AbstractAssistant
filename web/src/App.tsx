@@ -19,7 +19,8 @@ import {
   type AfDrawerSystemProps,
   type GatewayConnection,
 } from "@abstractframework/ui-kit";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { sessionReadScope, useSessionReads } from "./vendor/abstractsessions/session_cards.js";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { version as APP_VERSION } from "../package.json";
 import { GatewayClient } from "./gateway/client";
@@ -69,7 +70,12 @@ function ConnectedApp(props: { client: GatewayClient; host: AssistantHost; conn:
   const [navOpen, setNavOpen] = useState(false);
   const [selectionEpoch, setSelectionEpoch] = useState(0);
   const onSignedOut = useCallback(() => void conn.refresh(), [conn]);
-  const conversations = useConversations(client, { onSignedOut, onAttentionSeen: setSeen });
+  const readScope = sessionReadScope(conn.status);
+  const scopeRef = useRef(readScope); scopeRef.current = readScope;
+  const selectionRef = useRef(selected); selectionRef.current = selected;
+  const conversations = useConversations(client, { scope: readScope, onSignedOut, onAttentionSeen: setSeen });
+  const receipts = useMemo(() => Object.values(conversations.activity).flatMap((a) => a.content), [conversations.activity]);
+  const reads = useSessionReads(readScope, receipts);
   const title = selected.sessionId ? conversations.titles[selected.sessionId] || "Conversation" : "New conversation";
   return (
     <AfAppShell
@@ -84,10 +90,19 @@ function ConnectedApp(props: { client: GatewayClient; host: AssistantHost; conn:
         content: (
           <SessionList
             rows={conversations.rows}
+            activity={conversations.activity}
+            isUnread={(row) => { const a = conversations.activity[row.session_id]; return Boolean(a && a.content.some(reads.isUnread)); }}
+            onArchive={async (row) => {
+              const owner = readScope;
+              await client.archiveSession(row.session_id);
+              if (scopeRef.current !== owner) return;
+              if (selectionRef.current.sessionId === row.session_id) { setSelectionEpoch((n) => n+1); setSelected({ sessionId: "", runId: "" }); }
+              await conversations.refresh();
+            }}
             titles={conversations.titles}
             truncated={conversations.truncated}
             error={conversations.error}
-            notice={conversations.notice}
+            notice={[conversations.notice, reads.error].filter(Boolean).join(" ")}
             activeId={selected.sessionId}
             onOpen={(r) => {
               setSelectionEpoch((n) => n + 1);
@@ -113,6 +128,10 @@ function ConnectedApp(props: { client: GatewayClient; host: AssistantHost; conn:
         runId={selected.runId}
         title={title}
         seen={seen}
+        onRead={reads.markRead}
+        sessionActivity={conversations.activity[selected.sessionId]}
+        readScope={readScope}
+        canConsume={!navOpen && !props.drawers.active}
         eventsNotice={conversations.eventsError}
         voicePrefs={voicePrefs}
         onVoicePrefsChange={setVoicePrefs}
@@ -199,7 +218,7 @@ function BrowserApp({ host }: { host: AssistantHost }) {
     <>
       <GatewayConnectModal {...conn.modalProps} />
       {conn.connected ? (
-        <ConnectedApp client={client} host={host} conn={conn} topBar={topBar} drawers={drawers}
+        <ConnectedApp key={sessionReadScope(conn.status)} client={client} host={host} conn={conn} topBar={topBar} drawers={drawers}
           appearance={companion.value} onSettings={() => setPanel("settings")} />
       ) : (
         <AfAppShell topBar={topBar} drawers={drawers}>

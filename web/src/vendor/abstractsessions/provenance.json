@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "owner": "@abstractframework/ui-kit",
+  "sources": {
+    "dist/session_cards.d.ts": "d6b8b039ffbca19613f54c4cbb8e4ae101a71e9ffe2293bebdd924ab68fa91ee",
+    "dist/session_card.d.ts": "4c10067a42ce071e25fce9bfa6191c876203a6e3199548e6a1a4d4ed1d1c8a7e",
+    "dist/session_activity.d.ts": "600dc9baf2e936985c87328184c48a6b8b336d6e11a7f8b3a734579934122f92",
+    "dist/session_reads.d.ts": "71db343fef241dff1d065649ff666e911c98ce9ef7366df2c90c670bae9ff0db",
+    "dist/icon.js": "465b94a71882bdc6f91aba5dba32370444e0df90980a5c77565663265b21e507",
+    "dist/relative_time.js": "da07fc7ef465673ae20f3c7ee9900cbd9c760e7798f731ca1ab25707d6bf7cf4",
+    "dist/session_card.js": "89ab5739b8cd2c620095f9fe0b32294c21e584785df7ba1248875973e620adb7",
+    "dist/session_activity.js": "b3186e8d0c6dd97412cf4f9d2ab699ba3fd4679781c5ad9ace5169a689561239",
+    "dist/session_reads.js": "865943c14974e2df79756f7175c76c94d3c5afdeb459ec239d5c6bd9b5338fa7",
+    "dist/session_cards.js": "412c9cee6c77fa957a3b14e4eaf4e2f8ae9507fffeb4647f075da2d2cc73036b",
+    "src/theme.css": "25561af05d72b17b3a65986790881d67d654aa635040727618230d0a270f758a"
+  },
+  "artifacts": {
+    "session_cards.js": "7029009592f5d7ccd7f2befdf12b4d85f755ed916b02f9b8f432654f95acb63b",
+    "session_cards.d.ts": "d6b8b039ffbca19613f54c4cbb8e4ae101a71e9ffe2293bebdd924ab68fa91ee",
+    "session_card.d.ts": "4c10067a42ce071e25fce9bfa6191c876203a6e3199548e6a1a4d4ed1d1c8a7e",
+    "session_activity.d.ts": "600dc9baf2e936985c87328184c48a6b8b336d6e11a7f8b3a734579934122f92",
+    "session_reads.d.ts": "71db343fef241dff1d065649ff666e911c98ce9ef7366df2c90c670bae9ff0db",
+    "session_cards.css": "6413163804ba403170bfeca3c09948ae7a121905f69b09a69b77e2f4abe37fc0"
+  }
+}

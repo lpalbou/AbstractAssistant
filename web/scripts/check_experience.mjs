@@ -30,6 +30,8 @@ const runs = new Map([["history", { session_id: "history-session", prompt: "An e
 const calls = { starts: [], speech: 0, recordings: 0, commands: [] };
 const report = {};
 let failSend = false;
+let failWaits = false;
+const failViews = new Set();
 function view(id) {
   const r = runs.get(id);
   const order = (seq) => ["2026-10-31T02:00:00Z", id, seq];
@@ -74,7 +76,8 @@ try {
     let result;
     if (path === "connection/gateway") result = json({ ok: true, has_session: true, gateway_url: "http://fake", gateway: { ok: true, principal: { user_id: "demo" } } });
     else if (path === "gateway/me") result = json({ ok: true, principal: { user_id: "demo" } });
-    else if (path === "gateway/runs") result = json({ items: [...runs].map(([id, r]) => ({ run_id: id, session_id: r.session_id, session_kind: "chat", status: r.status, created_at: "2026-10-31T02:00:00Z", updated_at: "2026-10-31T02:00:00Z" })), has_more: false });
+    else if (path === "gateway/runs" && url.searchParams.get("status") === "waiting" && failWaits) result = json({ detail: "Wait listing unavailable" }, 503);
+    else if (path === "gateway/runs") result = json({ items: [...runs].map(([id, r]) => ({ run_id: id, session_id: r.session_id, session_kind: "chat", status: r.status, created_at: r.created_at || r.at || "2026-10-31T02:00:00Z", updated_at: r.at || "2026-10-31T02:00:00Z", waiting: r.waiting || (r.interaction ? { reason: "user" } : null), parent_run_id: r.parent_run_id || null, tool_calls: r.tool_calls })), has_more: false });
     else if (path === "gateway/bundles") result = json({ executable_for: "abstractassistant.agent.v1", items: [], default_agent_workflows: { "abstractassistant.agent.v1": { name: "Assistant" } }, default_agent_workflows_unavailable: {} });
     else if (path === "gateway/accounts/me/preferences") result = json({ preferences: { default_workflow: { "abstractassistant.agent.v1": null } } });
     else if (path === "gateway/docs/corpus" && url.searchParams.get("app") === "assistant-web") result = json({ text: "Assistant documentation: use the microphone to speak and review words before sending." });
@@ -92,8 +95,9 @@ try {
     } else if (path === "gateway/commands") { calls.commands.push(body); result = json({ accepted: true }); }
     else {
       const m = /^gateway\/runs\/([^/]+)(.*)$/.exec(path), id = m?.[1], suffix = m?.[2];
-      if (id && runs.has(id) && suffix === "/view") result = json(view(id));
-      else if (id && runs.has(id) && ["/turns", "/history_bundle"].includes(suffix)) result = json({ session: { session_id: runs.get(id).session_id, turns: [{ run_id: id }] } });
+      if (id && failViews.has(id) && suffix === "/view") result = json({ detail: "History unavailable" }, 503);
+      else if (id && runs.has(id) && suffix === "/view") result = json(view(id));
+      else if (id && runs.has(id) && ["/turns", "/history_bundle"].includes(suffix)) result = json({ session: { session_id: runs.get(id).session_id, turns: [...runs].filter(([,r]) => r.session_id === runs.get(id).session_id && !r.parent_run_id).map(([run_id]) => ({ run_id })) } });
       else if (id && runs.has(id) && suffix === "/input_data") result = json({ input_data: { prompt: runs.get(id).prompt } });
       else if (id && runs.has(id) && suffix === "") result = json({ run_id: id, ...runs.get(id) });
       else if (path.endsWith("/stream")) result = { status: 200, contentType: "text/event-stream", body: "" };
@@ -167,7 +171,7 @@ try {
   assert.equal(await page.getByRole("textbox", { name: "Message" }).inputValue(), "Keep my draft");
   assert.equal(await page.getByRole("heading", { name: "Speaking", exact: true }).count(), 0);
   report.sendStopsSpeechAndKeepsFailedDraft = true;
-  await page.getByRole("button", { name: "Speak (TTS)", exact: true }).click();
+  await page.getByRole("button", { name: "Speak (TTS)", exact: true }).last().click();
   await page.getByRole("heading", { name: "Speaking", exact: true }).waitFor();
   await page.locator('[data-toolbar="new"]').click();
   await page.getByRole("heading", { name: "What’s on your mind?" }).waitFor();
@@ -309,6 +313,65 @@ try {
   await page.getByRole("button", { name: "New conversation", exact: true }).click();
   await page.getByText("Ask anything about AbstractAssistant.", { exact: true }).waitFor();
   report.docsLayoutAndQuestion = true;
+  await page.keyboard.press("Escape");
+  const stamp = () => new Date().toISOString();
+  runs.set("read-a", { session_id: "read-session", prompt: "A newly unread question", answer: "A newly unread answer", status: "completed", at: stamp(), tool_calls: 4 });
+  await page.getByRole("button", { name: "Refresh conversations", exact: true }).click();
+  const readCard = page.locator('.af-session-card').filter({ has: page.locator('[data-session-id="read-session"]') });
+  await readCard.locator('[data-session-id="read-session"]').waitFor();
+  assert.equal(await readCard.getAttribute("data-unread"), "true");
+  failViews.add("read-a");
+  await readCard.locator('.af-session-card__open').click();
+  await page.waitForTimeout(600);
+  assert.equal(await readCard.getAttribute("data-unread"), "true", "A failed history load does not consume content");
+  failViews.delete("read-a");
+  await readCard.locator('.af-session-card__open').click();
+  await page.getByText("A newly unread answer", { exact: true }).waitFor();
+  await page.waitForTimeout(500);
+  assert.equal(await readCard.getAttribute("data-unread"), null, "Loaded, visible content is consumed");
+  await page.locator('[data-toolbar="new"]').click();
+  runs.set("read-b", { session_id: "read-session", prompt: "A request still running", answer: "", status: "running", at: stamp() });
+  await page.getByRole("button", { name: "Refresh conversations", exact: true }).click();
+  await page.waitForTimeout(400);
+  assert.equal(await readCard.getAttribute("data-unread"), "true");
+  await readCard.locator('.af-session-card__open').click();
+  await page.getByText("A request still running", { exact: true }).waitFor();
+  await page.waitForTimeout(500);
+  assert.equal(await readCard.getAttribute("data-unread"), null);
+  await page.locator('[data-toolbar="new"]').click();
+  Object.assign(runs.get("read-b"), { status: "completed", answer: "The later completed answer", at: stamp() });
+  await page.getByRole("button", { name: "Refresh conversations", exact: true }).click();
+  await page.waitForTimeout(400);
+  assert.equal(await readCard.getAttribute("data-unread"), "true", "Completion remains new after its running request was viewed");
+  await readCard.locator('.af-session-card__open').click();
+  await page.getByText("The later completed answer", { exact: true }).waitFor();
+  await page.waitForTimeout(500);
+  assert.equal(await readCard.getAttribute("data-unread"), null);
+  // A real child-run human wait highlights its session and survives a failed wait refresh.
+  runs.set("read-child", { session_id: "read-session", prompt: "", answer: "", status: "waiting", parent_run_id: "read-b", waiting: { reason: "user" }, at: stamp() });
+  await page.getByRole("button", { name: "Refresh conversations", exact: true }).click();
+  await page.waitForTimeout(400);
+  assert.equal(await readCard.getAttribute("data-attention"), "true");
+  failWaits = true;
+  await page.getByRole("button", { name: "Refresh conversations", exact: true }).click();
+  await page.getByText(/Pending questions and approvals could not be refreshed/).waitFor();
+  assert.equal(await readCard.getAttribute("data-attention"), "true");
+  failWaits = false; runs.get("read-child").status = "completed";
+  await page.getByRole("button", { name: "Refresh conversations", exact: true }).click();
+  await page.waitForTimeout(400);
+  assert.equal(await readCard.getAttribute("data-attention"), null);
+  if (shots) await page.screenshot({ path: `${shots}/read-session.png` });
+  // Historical terminal failures have an actual visible outcome, not a prompt receipt.
+  await page.locator('[data-toolbar="new"]').click();
+  runs.set("historical-failure", { session_id: "failure-session", prompt: "An older request that failed", answer: "", status: "failed", created_at: new Date(Date.now()-1000).toISOString(), at: stamp() });
+  runs.set("newer-success", { session_id: "failure-session", prompt: "A newer successful request", answer: "A newer answer", status: "completed", created_at: stamp(), at: stamp() });
+  await page.getByRole("button", { name: "Refresh conversations", exact: true }).click();
+  const failureCard = page.locator('.af-session-card').filter({ has: page.locator('[data-session-id="failure-session"]') });
+  await failureCard.locator('.af-session-card__open').click();
+  await page.getByText("Request failed.", { exact: true }).waitFor();
+  await page.waitForTimeout(500);
+  assert.equal(await failureCard.getAttribute("data-unread"), null, "Viewing an older failure outcome acknowledges that revision");
+  report.sessionUnreadConsumptionAndAttention = true;
   assert.deepEqual(errors, []);
   report.javascriptErrors = 0;
   console.log(JSON.stringify(report));

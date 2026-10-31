@@ -123,3 +123,13 @@ PYTHONPATH=. python -P web/scripts/gen_tool_policy_parity.py   # needs the packa
 
 The npm package (`@abstractframework/assistant`) remains `private` pending its first release.
 The Python wheel and sdist do not include `web/`.
+
+### Compact conversation cards
+
+Conversation rows use AbstractUIC's shared Watch-style `SessionCard`: cyan marks unread
+content, orange marks a pending human question or approval, and a small ring marks work.
+Reading clears unread only when loaded content is visible in the focused page. It never
+answers or dismisses a pending approval. Read receipts are local to this browser and account;
+Code and Assistant share them when served on the same origin. Existing history is baselined
+on first use. Regenerate the canonical compatibility snapshot with `npm run sync:sessions`;
+the normal build verifies its provenance. Other devices keep independent read state.
