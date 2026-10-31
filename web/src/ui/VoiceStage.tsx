@@ -19,11 +19,11 @@ export function avatarPalette(design: string, pose: AvatarPose): AvatarPalette {
   return pose === "error" ? machine ? MACHINE_ERROR_PALETTE : ERROR_PALETTE : machine ? MACHINE_PALETTE : ORB_PALETTE;
 }
 
-function Orb(props: { voice: GatewayVoice; pose: AvatarPose; prefs: AssistantPreferences; onError: () => void }) {
+export function Orb(props: { voice: GatewayVoice; pose: AvatarPose; prefs: AssistantPreferences; onError: () => void; size?: number }) {
   const microphone = useVoiceLevel(props.pose === "listening" ? props.voice : null);
   const playback = useVoiceLevel(props.pose === "speaking" ? props.voice : null, "playback");
   const level = props.pose === "listening" ? microphone : props.pose === "speaking" ? playback : 0;
-  return <AppAvatar design={props.prefs.design} pose={props.pose} size={288} level={level}
+  return <AppAvatar design={props.prefs.design} pose={props.pose} size={props.size ?? 288} level={level}
     palette={avatarPalette(props.prefs.design, props.pose)} animated={props.prefs.animated} followCursor className="aa-orb" label={`Assistant · ${props.pose}`} onError={props.onError} />;
 }
 

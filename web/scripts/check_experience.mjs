@@ -41,10 +41,10 @@ function view(id) {
     version: "replay_view_v1", root_run_id: id, session_id: r.session_id, status: r.status, display_status: null,
     workflow: { id: "assistant@1:main", bundle_id: "assistant", bundle_version: "1", flow_id: "main", entrypoint: "main" },
     cursor: { token: `${id}:${2+(r.public_updates?.length||0)}~d1`, records: 2+(r.public_updates?.length||0), runs: { [id]: 2+(r.public_updates?.length||0) } },
-    runs: [{ run_id: id, parent_run_id: null, status: r.status, depth: 0, order: ["", id, 0, id], waiting: null, holds_interaction: false }],
+    runs: [{ run_id: id, parent_run_id: null, status: r.status, depth: 0, order: ["", id, 0, id], waiting: null, holds_interaction: false }, ...(r.child_runs || []).map(child => ({run_id:child,parent_run_id:id,status:r.status,depth:1,order:["",id,1,child],waiting:null,holds_interaction:false}))],
     interaction: r.interaction || null, open_waits: [], activities: [], artifacts: id === "history" ? [{id:"answer-file",run_id:id,path:"output.attachments[0]"},{id:"scratchpad-file",run_id:id,path:"output.scratchpad.steps"},{id:"session-file",run_id:id,path:"output.session.artifacts[0]"}] : [], warnings: [], usage: {},
     messages: [
-      ...(r.public_updates || []).map((u, i) => ({ id: u.id, role: "assistant", kind: "public_update", text: u.text, run_id: id, source: "emit_event", source_call_ids: [], order: order(i+1), step_ids: [], seqs: [i+1], artifact_ids: [] })),
+      ...(r.public_updates || []).map((u, i) => ({ id: u.id, role: "assistant", kind: "public_update", text: u.text, run_id: u.run_id || id, source: "emit_event", source_call_ids: [], order: order(i+1), step_ids: [], seqs: [i+1], artifact_ids: [] })),
       { id: `${id}:input`, role: "user", kind: "prompt", text: r.prompt, run_id: id, order: order(0), step_ids: [], seqs: [], source: "run_input", artifact_ids: [] },
       { id: `${id}:final`, role: "assistant", kind: "final", text: r.answer, run_id: id, order: order(2), step_ids: ["done"], seqs: [2], source: "ledger", artifact_ids: id === "history" ? ["answer-file","scratchpad-file","session-file"] : [] },
     ],
@@ -71,7 +71,8 @@ async function checkAvatar({page, runs, calls, report, shots}) {
   assert.equal(calls.starts.length,1);
   assert.equal(calls.starts[0].conversation,true);
   const live = runs.get("new-1");
-  live.public_updates = [{id:"new-1:public:1",text:"I found a quiet restaurant near the park."}];
+  live.child_runs = ["actor-child-1"];
+  live.public_updates = [{id:"new-1:public:1",run_id:"actor-child-1",text:"I found a quiet restaurant near the park."}];
   live.answer = "";
   await page.reload();
   await page.locator(".aa-session").filter({hasText:"Find a place for lunch"}).click();
@@ -88,7 +89,7 @@ async function checkAvatar({page, runs, calls, report, shots}) {
   await page.getByRole("button",{name:"Resume voice",exact:true}).click();
   await page.getByRole("button",{name:"Pause voice",exact:true}).waitFor();
   assert.equal(calls.speech,synthesisCount,"Resuming a narrated brève reuses its active speech key/audio");
-  await page.waitForFunction(()=>window.__avatarFrames.some(f=>f.pose===4));
+  await page.waitForFunction(()=>window.__avatarFrames.some(f=>f.pose===4 && f.level>.2));
   await page.getByRole("button",{name:"Silence voice",exact:true}).click();
   await page.getByRole("button",{name:"Read new replies aloud",exact:true}).click();
   report.busyPublicNarrationPauseResumeAndSpeakingPose = true;
@@ -101,6 +102,7 @@ async function checkAvatar({page, runs, calls, report, shots}) {
   assert.equal(calls.commands[0].type,"inject_guidance");
   assert.match(JSON.stringify(calls.commands[0]),/wheelchair access/);
   assert.match(JSON.stringify(calls.commands[0]),/new-1:public:1/);
+  assert.match(calls.commands[0].payload.guidance,/"run_id":"actor-child-1"/,"Replying to a public update preserves the actual actor child identity");
   report.activeReplyUsesGuidanceAndPinnedPublicContext = true;
   live.status = "waiting";
   live.interaction = {kind:"ask_user",run_id:"new-1",wait_key:"question:q1",step_id:"ask",seq:4,prompt:"Would you prefer lunch before one?",choices:[],allow_free_text:true,

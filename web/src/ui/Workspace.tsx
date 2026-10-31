@@ -45,8 +45,7 @@ import { buildRunInputData } from "../lib/run_input";
 import { selectWorkflow } from "../lib/workflow_selection";
 import type { AttentionSeen } from "./useConversations";
 import { assistantPresence, conversationPresentation, replyToRead } from "../lib/presentation";
-import { VoiceStage, avatarPalette } from "./VoiceStage";
-import { AppAvatar } from "./AppAvatar";
+import { VoiceStage, Orb } from "./VoiceStage";
 import type { AssistantPreferences } from "./useAssistantPreferences";
 
 export function mintSessionId(): string {
@@ -287,7 +286,7 @@ export function Workspace(props: {
           await interaction.onSubmit(text);
         } else {
           if (interaction) throw new Error("Use the request controls to answer it. A message does not grant permission.");
-          const guidance = conversationReply(text, replyContext, props.runId);
+          const guidance = conversationReply(text, replyContext, props.runId, snapshot.view?.root_run_id === props.runId ? snapshot.view.runs.map((run) => run.run_id) : []);
           const answer = await controller.sendCommand("inject_guidance", { guidance, display_text: text }) as { accepted?: boolean } | null;
           if (answer?.accepted === false) throw new Error("Your message was not accepted. Please try again.");
         }
@@ -322,7 +321,7 @@ export function Workspace(props: {
       setNotice("");
       props.onStarted(run_id, sid);
     },
-    [client, ensureSession, uploads, props, busy, avatarMode, interaction, replyContext, controller],
+    [client, ensureSession, uploads, props, busy, avatarMode, interaction, replyContext, controller, snapshot.view],
   );
 
   // The Assistant speaks as "Assistant" (the card's default is "Agent").
@@ -370,7 +369,7 @@ export function Workspace(props: {
     <WorkflowChat
       avatarConversation={avatarMode ? {
         sessionKey: `${props.readScope}:${props.sessionId || "new"}`,
-        avatar: <AppAvatar design={props.appearance.design} pose={voice.voice_ptt_recording ? "listening" : voice.tts_playback.status === "playing" ? "speaking" : presence.pose} size={320} animated={props.appearance.animated} palette={avatarPalette(props.appearance.design, voice.voice_ptt_recording ? "listening" : voice.tts_playback.status === "playing" ? "speaking" : presence.pose)} label="Your assistant" />,
+        avatar: <Orb voice={voice} prefs={props.appearance} pose={voice.voice_ptt_recording ? "listening" : voice.tts_playback.status === "playing" ? "speaking" : snapshot.run?.paused === true && !TERMINAL.has(snapshot.status) ? "waiting" : presence.pose} size={320} onError={() => setNotice("The avatar could not load. Voice and messages still work.")} />,
         ...conversationSnapshot(snapshot),
         listening: voice.voice_ptt_recording,
         speaking: voice.tts_playback.status === "playing",

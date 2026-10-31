@@ -9,7 +9,7 @@ export type PublicUpdate = {
     iteration?: number;
     sourceCallIds: string[];
 };
-export type AvatarConversationState = "idle" | "working" | "paused" | "listening" | "speaking" | "question" | "approval" | "completed" | "failed" | "disconnected";
+export type AvatarConversationState = "idle" | "working" | "paused" | "listening" | "speaking" | "question" | "approval" | "completed" | "failed" | "connecting" | "disconnected";
 export type ConversationAttention = {
     id: string;
     kind: "approval" | "question" | "completion";
@@ -31,7 +31,7 @@ export declare function publicUpdate(value: unknown, runId: string): PublicUpdat
 /** Public history contains user input and durable replies, never arbitrary assistant/system rows. */
 export declare function conversationMessages(messages: readonly ChatMessage[]): ChatMessage[];
 /** Quote only an explicitly selected public update from the current live run. */
-export declare function conversationReply(text: string, context: ChatMessage | null, currentRunId: string): string;
+export declare function conversationReply(text: string, context: ChatMessage | null, currentRunId: string, allowedSourceRunIds?: readonly string[]): string;
 /** Subtitle pages preserve words and punctuation; full text remains in history. */
 export declare function conversationPages(text: string, max?: number): string[];
 export declare function conversationState(input: {
