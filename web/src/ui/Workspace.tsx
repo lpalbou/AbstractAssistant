@@ -367,6 +367,7 @@ export function Workspace(props: {
       readReplies={props.voicePrefs.read_aloud === true} onReadRepliesChange={(read_aloud) => props.onVoicePrefsChange({ ...props.voicePrefs, read_aloud })}
       onTranscript={transcript} onPlayback={playback} onStop={stop} onType={focusComposer} onSettings={props.onSettings} autoSend={props.autoSend} />}
     <WorkflowChat
+      composerTrailingActions={<AfVoiceMicButton voice={voice} mode={props.captureMode} label="Talk" showStatus={false} onTranscript={transcript} unavailableReason={host.capabilities.microphone.available ? null : host.capabilities.microphone.reason} />}
       avatarConversation={avatarMode ? {
         onTechnicalView: () => { voice.stop_tts(); avatarPreferences.setMode("chat"); },
         sessionKey: `${props.readScope}:${props.sessionId || "new"}`,

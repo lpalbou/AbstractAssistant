@@ -99,6 +99,8 @@ export type DocsAssistantPanelProps = {
     messages: ChatMessage[];
     draft: string;
     onDraftChange: (value: string) => void;
+    /** Controls beside Send (the dictation microphone); Stop joins them while answering. */
+    composerTrailingActions?: React.ReactNode;
     onSend: () => void;
     onStop?: () => void;
     busy?: boolean;
@@ -144,6 +146,7 @@ export type DocsAssistantDrawerProps = DocsAssistantChatProps & {
     open: boolean;
     onClose: () => void;
     width?: number;
+    /** Where the drawer starts. Default "auto": under the kit top bar (`--af-topbar-h`), so the bar stays reachable. */
     topOffset?: number | "auto";
     className?: string;
     /**
