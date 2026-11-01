@@ -77,10 +77,10 @@
     "dist/chat_thread.js": "706440edcc7a3bbfea01c0747feb28c57bd85573f1b6a97007e5a076952a6f0b",
     "dist/file_drop.js": "4390bd4580ec49f9140d04be619047b1d4b865c0089df6975fed5b9b93152f5a",
     "dist/llm_delta.js": "ffaa8af4c15ba3a196ab8679678b6be0c54e8ebdb07a5367c8949ff8b1e27d3d",
-    "dist/docs_assistant.js": "8f68458e53b43bc90bffd099a03417deca591880e51690b939aef5a33ad872cc"
+    "dist/docs_assistant.js": "a8fe2ee65e93b3c8bbc4bd830bdf80d9228c99ad34bedf9df890bc11e8cb4a84"
   },
   "artifacts": {
-    "docs_assistant.js": "a6ef4c2599f4409ebe1ea9b804ffb56452e989c1ed385c867262c840f9e375d6",
+    "docs_assistant.js": "2fe09365b3839848adc971f671993721756e73bd108fe3442237f9f0526e367d",
     "artifact_preview.d.ts": "40c581cd1ef271dcb631c23f20898583822581c1c8e7ea0b0a68bbede8414432",
     "artifact_provenance.d.ts": "c4b4f810379ec2bfcde8f60db49fad72953cd07da16f4aff7e2bf22e0d3fe49a",
     "assistant_panel.d.ts": "46bde9b7f3a1e51074ba32c3f6b52cb0f63b0db439f010e0896498a22b1c5202",
