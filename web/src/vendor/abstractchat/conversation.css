@@ -411,6 +411,11 @@
   max-height: min(10.8em, calc(var(--vh-full, 100vh) * .32));
   box-shadow: none;
 }
+.pc-composer--compact .pc-composer__textarea:focus-visible {
+  /* The outer focus-within ring marks the whole composer. */
+  outline: none;
+  box-shadow: none;
+}
 .pc-composer--compact .pc-composer__row { gap: 6px; padding-left: 3px; }
 .pc-composer--compact .pc-composer__actions { flex: 1 1 0; flex-wrap: wrap; gap: 6px; }
 .pc-composer--compact .pc-composer__actions > .af-voice-mic { margin-inline-start: auto; }

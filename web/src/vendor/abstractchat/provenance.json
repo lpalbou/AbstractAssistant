@@ -39,7 +39,7 @@
     "dist/event_target.js": "b74dac025b8947651956bc72cabcdd7224dfd4c0785d438dbeab4ffe4b0e0843",
     "dist/present_interaction.js": "bd09753e119ebc22119e60061fd793b670e456ca12995bd4398ef2d757474948",
     "dist/conversation.js": "eea8a7fa716d6e7e0a71dacceced9b53533398ba41e10bdc7675961bd20ae897",
-    "src/panel_chat.css": "3f0b97d7b949f30193b8bb02813b1efe37042974c2c7dd0e9eaf9e9901f4adee"
+    "src/panel_chat.css": "11a0b87bfe2cbaad4c1c37e2448a6e89911f97ab430824adbe86dfa3764d4bba"
   },
   "artifacts": {
     "conversation.js": "4251fa3275e9e3ed509dab9fd77ecf4b175b1183bdf615b53a550c7a488f66f0",
@@ -89,6 +89,6 @@
     "workflow_progress.d.ts": "39537d3d9b44637345a16cbe7b3a48070d225a5bbf4490ffe06e208c3347a143",
     "workflow_runtime.d.ts": "de1279531b0cfed0090af18ee823a3a805b12de2e780fba2577e71cd9001e781",
     "workspace_browser.d.ts": "15a20e5e6075b5ef3393844002616cdec5812ef2a7af99b297b0f1375327cf7e",
-    "conversation.css": "3f0b97d7b949f30193b8bb02813b1efe37042974c2c7dd0e9eaf9e9901f4adee"
+    "conversation.css": "11a0b87bfe2cbaad4c1c37e2448a6e89911f97ab430824adbe86dfa3764d4bba"
   }
 }
