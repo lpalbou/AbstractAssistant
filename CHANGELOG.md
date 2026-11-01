@@ -7,6 +7,9 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Fixed
 
+- Tray conversation/automation picker aligns with its header control, stays within that
+  control's monitor after delayed updates, and limits its height so long lists scroll.
+
 - Web conversation read receipts wait for earlier history to finish restoring before acknowledging the opening snapshot.
 
 

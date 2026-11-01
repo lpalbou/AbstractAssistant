@@ -3255,6 +3255,9 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Fixed
 
+- Tray conversation/automation picker aligns with its header control, stays within that
+  control's monitor after delayed updates, and limits its height so long lists scroll.
+
 - Web conversation read receipts wait for earlier history to finish restoring before acknowledging the opening snapshot.
 
 
@@ -6411,6 +6414,22 @@ its own pending recording, scoped to its Gateway and sign-in. Retry and Discard 
 that question. After relaunching, **Not sent.** means a recording is still kept in this
 conversation; it does not describe the status of other discussions.
 
+**An optional avatar conversation.** Settings → Avatar conversation adds short public subtitles
+beside the orb and an explicit Talk button while the assistant works. Type or speak a correction;
+the screen says “Message sent” when accepted, and the assistant explains any changed plan when
+it next responds. Tap a subtitle to read it fully or pin a reply to that idea; Latest returns to
+following new updates. Scroll for earlier updates and the complete answer. The original view
+remains the default. New tasks and entity visits request public conversation support from a
+Gateway with the conversation endpoints; an older Gateway reports an error rather than inventing
+updates from technical activity or private reasoning.
+
+Questions show their declared time limit and fallback when supplied by the Gateway; essential
+questions have no time limit. The Watch does not continue a task on its own timer, and silence
+never approves an action. Settings → Conversation cues independently controls visual, spoken and
+haptic cues for questions, approvals and completion while this view is in front. Existing background
+notification policy remains in charge when the app is away. Microphone, haptic and background
+delivery depend on the Watch's permissions and device settings.
+
 **Swipe as in a browser.** A swipe to the right (your finger moving right, as with watchOS's Back)
 goes back to the page before, down to Home; a swipe to the left goes forward again to a page you
 came back from, and does nothing when there is none.
@@ -6571,6 +6590,18 @@ iPhone app); the Python package's history is in
 ## [Unreleased]
 
 ### Added
+
+- Restore questions, actual answers, timeout fallbacks and late replies in canonical chronological order; late words remain attached to their original question. Label omitted history and restore without speech or stale question prompts.
+- Preserve original human corrections separately from the context quoted to the assistant.
+- Restore accepted corrections from screened task replay and entity visit state; reconcile by server acceptance ID across polling, reconnects and view recreation. Identical words sent twice remain separate messages.
+- Restore visible task turns on opening, load older corrections with Show older, and retain the canonical entity visit reference per account, conversation and responder. Acceptance continues to mean sent, not considered.
+
+- Optional **Avatar conversation** view with public subtitles, pinned replies, Talk/Type during
+  work and accessible update history. Agent corrections use live guidance; entity conversations
+  use the canonical visit routes and preserve entity approval and privacy policy.
+- Server-owned clarification deadlines and declared fallback display, plus separate foreground
+  visual, spoken and haptic preferences for questions, approvals and completion. Task stopping in
+  this view remains pending until the Gateway reports the outcome.
 
 - **Voices in groups, with their language (AbstractGateway 0.16.0 voice library).** Settings → Voice
   lists **Your voices** (cloned or designed on the iPhone or the desktop), **Engine voices** and
@@ -7276,6 +7307,24 @@ sequenceDiagram
 
 ## Components
 
+The optional Avatar conversation view reads task subtitles only from `GET /runs/{root}/view`
+messages whose kind is `public_update`; it never derives them from activity text or reasoning.
+Task starts explicitly send `conversation: true`. A live correction uses the active foreground
+run's `inject_guidance` command, quoting the pinned public message. The receipt means accepted,
+not that a model has adopted the correction.
+
+Opted-in entity conversations use `/entities/{name}/visit/open` with `conversation: true`, then
+`/turn` and the privacy-screened `/state` response's `public_updates`. Corrections use `/guidance`;
+question answers use `/answer` with the exact wait key and target run. Entity tool approvals use
+the existing `/decision` route only for its matching visit run. A child approval not supported by
+that route is left for the main app; there is no generic-command fallback for an entity.
+
+`ConversationQuestion` validates purpose, importance, timestamps, a 120–300-second clarification
+deadline and its nonempty fallback. Essential questions cannot contain a deadline or fallback.
+Countdown display never resumes work: the server alone resolves expiration. Public-update source
+identity establishes lineage rather than semantic truth. Foreground cues are keyed by actual wait
+or live-result identity, and historical messages do not replay completion cues.
+
 | Component | Responsibility |
 |---|---|
 | `Sources/App` (SwiftUI) | Screens and navigation (one `NavigationStack`); see [design.md](design.md). |
@@ -7452,6 +7501,39 @@ builds the app for the simulator, installs it and captures one screenshot per sc
 `--screen` launch argument. The `AbstractAssistantWatchUITests` scheme runs UI tests that need a
 real tap. See [../BUILD.md](../BUILD.md).
 
+### Durable human corrections in the optional conversation view
+
+Guidance requests carry both the contextual `guidance` (or entity `text`) and the original
+`display_text`. A task command ACK is initially keyed by its command UUID: its command-store
+`seq` is unrelated to the runtime's steer-sidecar sequence. The host copies the command UUID to
+`client_message_id` in its reserved receipt, so replay replaces only that matching local admission
+with `<run>:guidance:<sidecar-seq>`. Entity guidance returns the sidecar sequence directly.
+`PublicGuidanceHistory` reconciles these identities, never wording: two accepted messages with
+the same words stay distinct. This is an admission receipt;
+the UI says “Message sent” and does not claim the actor considered or adopted it.
+
+Task history reads only screened `/runs/{id}/view` messages with `role=user`, `kind=guidance`,
+`source=user_guidance`, `guidance_status=accepted` and a canonical positive sequence ID. It does
+not decode actor events or raw ledger payloads into human speech. Entity history reads only the
+canonical visit state's screened `public_messages`, with the same role, kind, status and ID
+checks. The server enforces the reserved host node and idempotency-key provenance before either
+projection. Visible task turns restore on opening; Show older restores earlier turns without
+loading every run immediately. Entity restoration remembers only a scoped canonical visit ID;
+all words are re-read from that visit's authorized state route. These changes apply only to the
+optional view. Questions and actual responses now restore from canonical `question`/`answer`
+messages, while trusted `question_outcome` and `retained_reply` rows preserve deadline outcomes
+and late words. Entity visits expose the same screened rows as `public_questions`; the Watch
+never reads the home ledger. A retained reply cites its original question by run and question ID,
+and explicitly says it did not answer that question. Expiry is a host outcome, never user speech.
+
+The single public timeline merges briefs, guidance and question interactions using the server's
+`order=[timestamp, run_id, ledger_seq]`. It never invents an order from UUIDs, categories or text.
+Restoration is silent and cannot reopen a resolved wait. A trusted expiry can replace a stale
+question caption while work continues, without automatic narration. The canonical entity
+projection's positive omission counters and task replay window warnings produce “Some earlier
+exchanges are not loaded”; counts are shown only when supplied by the server. This timeline is
+public communication history, not a claim to display the model's complete context.
+
 --- watch/apple/BUILD.md ---
 # Building AbstractAssistant for Apple Watch
 
@@ -7518,6 +7600,11 @@ permission question would stop them.
 - **UI tests**: the `AbstractAssistantWatchUITests` scheme drives the app in the simulator where a
   real tap matters (for example, editing an automation's task starts from its current text).
   Screenshots of each step are written to the folder named by `TEST_RUNNER_SHOTS_DIR`.
+
+`AvatarConversationUITests` checks the optional subtitles view, Talk/Type availability while work
+continues, pinning and return to latest, and the unchanged default view. Package
+`PublicConversationTests` verifies strict question decoding and the task/entity wire routes.
+Simulator tests do not establish physical Watch microphone, haptic or background delivery behavior.
 
 ```sh
 TEST_RUNNER_SHOTS_DIR=/tmp/shots xcodebuild test -project ../../phone/iphone/AbstractAssistant.xcodeproj \
@@ -7783,6 +7870,34 @@ Conversation unread marks use the Gateway's account-wide read ledger. Confirmed 
 is shared with Code and native clients; failed writes retain the mark. Native clients need
 a build that supports `/api/gateway/me/session-reads`. Attachment previews fit the media
 with one filename, Download, and Close in the shared AbstractUIC dialog.
+
+
+## Avatar conversation view
+
+Choose **Avatar** in the conversation header for a second view over the same work.
+The avatar shows activity and short subtitles communicate discoveries, choices and
+questions. **Conversation history** opens the full public exchanges and final answer;
+**Conversation** restores the ordinary chat and technical details. Switching views
+preserves the current draft and attachments.
+
+While work continues, type or speak naturally to guide it. **Reply to this** pins a
+specific public update as context. Sending a correction makes it available to the
+assistant; the assistant's later response shows whether it adopted the correction.
+Questions use their displayed answer controls. Permission requests require an explicit
+choice; an ordinary message or silence grants no permission.
+
+Essential questions keep waiting. A clarification may state a two-to-five minute
+answer deadline and what will happen without an answer. **Conversation cues** controls
+visual and audio alerts independently for questions, permission requests and completion.
+Audio alerts default off. Voice narration uses the existing voice preference;
+reading history or editing a reply silences automatic narration. Playback can be paused
+or silenced without stopping the task.
+
+Public updates require a run started in Avatar mode and a backend supporting the public
+conversation protocol. Switching an already active legacy run changes its presentation;
+it does not manufacture missing updates. Tool details remain available in the ordinary
+view. Public updates describe the assistant's communicated conclusions, not private
+reasoning, and source references establish provenance rather than proof of correctness.
 
 --- pyproject.toml ---
 [build-system]

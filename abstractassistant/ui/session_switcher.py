@@ -23,7 +23,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from PyQt5 import sip
-from PyQt5.QtCore import QEvent, QSize, Qt, QUrl, QTimer, pyqtSignal
+from PyQt5.QtCore import QEvent, QPoint, QRect, QSize, Qt, QUrl, QTimer, pyqtSignal
 from PyQt5.QtGui import QDesktopServices, QFontMetrics, QTextLayout, QTextOption, QColor
 from PyQt5.QtWidgets import (
     QApplication,
@@ -33,6 +33,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QLayout,
     QMenu,
     QPushButton,
     QScrollArea,
@@ -1018,6 +1019,9 @@ class SessionSwitcher(QDialog):
         self.setObjectName("sessionSwitcher")
         self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self._popup_anchor = None
+        self._placement_pending = False
+        self._placing = False
         self.restyle()
         self.resize(SWITCHER_WIDTH, SWITCHER_HEIGHT)
 
@@ -1038,6 +1042,8 @@ class SessionSwitcher(QDialog):
         self.load_more_button: Optional[QPushButton] = None
 
         outer = QVBoxLayout(self)
+        # The scrollable list must never force a top-level window beyond its screen.
+        outer.setSizeConstraint(QLayout.SetNoConstraint)
         outer.setContentsMargins(0, 0, 0, 0)
         card = QFrame()
         card.setObjectName("switcherCard")
@@ -1167,6 +1173,7 @@ class SessionSwitcher(QDialog):
         footer_row.setSpacing(8)
         self.hint_label = QLabel(TAB_HINTS["sessions"])
         self.hint_label.setObjectName("switcherHint")
+        self.hint_label.setWordWrap(True)
         footer_row.addWidget(self.hint_label, 1, Qt.AlignVCenter)
         root.addWidget(footer)
         self._apply_tab()
@@ -1414,7 +1421,7 @@ class SessionSwitcher(QDialog):
         wanted = self.height() - scroll.height() + host.sizeHint().height()
         target = min(SWITCHER_HEIGHT, wanted)
         if target > self.height():
-            self.resize(SWITCHER_WIDTH, target)
+            self._place_popup(height=target)
 
     def _fit_list(self) -> None:
         """Settle rows built without a resize to elide them (see 0.6 notes)."""
@@ -1648,36 +1655,65 @@ class SessionSwitcher(QDialog):
             self.load_more_button.setText("Loading…")
         self.load_more_requested.emit()
 
-    def open_at(self, global_pos, *, screen_geometry=None) -> None:
-        """Show the popup at ``global_pos``, kept inside the screen.
+    def _place_popup(self, *, height=None) -> None:
+        """Fit both tabs after any layout change, using the opening anchor's screen."""
+        if self._popup_anchor is None or self._placing:
+            return
+        self._placing = True
+        try:
+            anchor, supplied_area, align_right = self._popup_anchor
+            screen = QApplication.screenAt(anchor) or QApplication.primaryScreen()
+            area = supplied_area or (screen.availableGeometry() if screen is not None else None)
+            if area is None:
+                return
+            area = QRect(area)
+            gap = min(8, max(0, min(area.width(), area.height()) // 8))
+            area.adjust(gap, gap, -gap, -gap)
+            # Keep desktop context visible; long lists scroll, including on small displays.
+            max_height = max(1, min(SWITCHER_HEIGHT, int(area.height() * 0.8)))
+            self.setMaximumSize(max(1, area.width()), max_height)
+            layout = self.layout()
+            if layout is not None:
+                layout.activate()
+            minimum = self.minimumSizeHint()
+            width = min(area.width(), max(SWITCHER_WIDTH, minimum.width()))
+            wanted_height = self.height() if height is None else height
+            wanted_height = min(max_height, max(minimum.height(), wanted_height))
+            self.resize(width, wanted_height)
+            x = anchor.x() - self.width() if align_right else anchor.x()
+            x = max(area.left(), min(x, area.right() - self.width() + 1))
+            y = max(area.top(), min(anchor.y(), area.bottom() - self.height() + 1))
+            self.move(x, y)
+        finally:
+            self._placing = False
 
-        Clamped with the popup's ACTUAL size after layout — its minimum size
-        wins over any requested width, so a constant would let content push it
-        off screen — on ``screen_geometry``, else the screen holding the anchor."""
+    def _schedule_placement(self) -> None:
+        if self._placement_pending or self._placing or self._popup_anchor is None:
+            return
+        self._placement_pending = True
+
+        def settle() -> None:
+            if sip.isdeleted(self):
+                return
+            self._placement_pending = False
+            if self.isVisible():
+                self._place_popup()
+
+        QTimer.singleShot(0, settle)
+
+    def event(self, event) -> bool:
+        result = super().event(event)
+        if event.type() == QEvent.LayoutRequest and hasattr(self, "_popup_anchor"):
+            self._schedule_placement()
+        return result
+
+    def open_at(self, global_pos, *, screen_geometry=None, align_right=False) -> None:
+        """Open below an anchor, optionally aligning its right edge, and keep it fitted."""
+        self._popup_anchor = (QPoint(global_pos), screen_geometry, align_right)
         self.adjustSize()
-        self.resize(SWITCHER_WIDTH, min(SWITCHER_HEIGHT, self.height() or SWITCHER_HEIGHT))
-        layout = self.layout()
-        if layout is not None:
-            layout.activate()
-        minimum = self.minimumSizeHint()
-        width = max(self.width(), minimum.width())
-        height = max(self.height(), minimum.height())
-        self.resize(width, height)
-        x, y = int(global_pos.x()), int(global_pos.y())
-        if screen_geometry is None:
-            screen = QApplication.screenAt(global_pos) or QApplication.primaryScreen()
-            screen_geometry = screen.availableGeometry() if screen is not None else None
-        if screen_geometry is not None:
-            x = max(
-                screen_geometry.x() + 8,
-                min(x, screen_geometry.x() + screen_geometry.width() - width - 8),
-            )
-            y = max(
-                screen_geometry.y() + 8,
-                min(y, screen_geometry.y() + screen_geometry.height() - height - 8),
-            )
-        self.move(x, y)
+        self._place_popup()
         self.show()
+        self._schedule_placement()
         self.raise_()
         self.search_edit.clear()
         self.search_edit.setFocus(Qt.ShortcutFocusReason)
@@ -1690,6 +1726,7 @@ class SessionSwitcher(QDialog):
         super().resizeEvent(event)
         for row in list(self._rows) + list(self._auto_rows):
             row.elide_labels(self.width() - 60)
+        self._schedule_placement()
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802 (Qt API)
         # ←/→ switch tabs while the filter is empty (else they move the caret).

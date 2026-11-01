@@ -6640,10 +6640,10 @@ class AssistantPalette(QMainWindow):
         self._apply_session_list_status(switcher)
         button = self._state("session_picker")
         try:
-            origin = button.mapToGlobal(QPoint(0, button.height() + 6))
+            origin = button.mapToGlobal(QPoint(button.width(), button.height() + 6))
         except Exception:
             origin = self.mapToGlobal(QPoint(0, 40))
-        switcher.open_at(origin, screen_geometry=self._available_screen_geometry())
+        switcher.open_at(origin, align_right=True)
         # The rows above are the cache; the gateway's answer replaces them.
         self._refresh_sessions_from_gateway()
         self._poll_automations()

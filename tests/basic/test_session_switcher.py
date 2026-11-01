@@ -572,7 +572,7 @@ def test_palette_opens_the_switcher_with_digests_already_loaded() -> None:
                 (list(records), active_session_id)
             ),
             "set_tab": lambda self, tab: None,
-            "open_at": lambda self, origin, screen_geometry=None: opened.append("open"),
+            "open_at": lambda self, origin, **kwargs: opened.append(("open", origin, kwargs)),
             "isVisible": lambda self: True,
         },
     )()
@@ -586,7 +586,9 @@ def test_palette_opens_the_switcher_with_digests_already_loaded() -> None:
     # Digests are read before the popup is shown, not after.
     assert calls == ["digests"]
     assert opened[0][0] and opened[0][0][0]["detailed"] is True
-    assert opened[1] == "open"
+    assert opened[1][0] == "open"
+    assert opened[1][1].x() == palette.session_picker.width()
+    assert opened[1][2] == {"align_right": True}, "screen follows the anchor, not the cursor"
 
     # A refresh of the header must NOT re-render an open popup any more: that
     # rebuild is what corrupted the layout and cost the palette its focus.
@@ -660,6 +662,68 @@ def test_the_popup_stays_on_screen_with_a_long_header() -> None:
     _app().processEvents()
     assert switcher.width() > SWITCHER_WIDTH
     assert switcher.frameGeometry().right() <= screen.right() - 8
+    switcher.close()
+    switcher.deleteLater()
+
+
+@pytest.mark.basic
+@pytest.mark.parametrize("screen_rect", [(0, 0, 1200, 800), (0, 0, 720, 480), (-1000, 40, 1000, 650)])
+def test_popup_stays_fitted_after_delayed_data_and_tab_layout(screen_rect) -> None:
+    """Gateway updates and post-show layouts must obey the same bounds as opening."""
+    from PyQt5.QtCore import QPoint, QRect
+
+    app = _app()
+    screen = QRect(*screen_rect)
+    anchor = QPoint(screen.right() - 20, screen.top() + 45)
+    switcher = SessionSwitcher()
+    switcher.set_digests([SessionDigest(session_id="one", title="One")])
+    switcher.open_at(anchor, screen_geometry=screen, align_right=True)
+    for _ in range(10):
+        app.processEvents()
+    assert abs(switcher.frameGeometry().right() - (anchor.x() - 1)) <= 1
+
+    switcher.set_digests([
+        SessionDigest(session_id=f"s{i}", title="A longer conversation title " * 5, turns=4)
+        for i in range(100)
+    ])
+    switcher.set_automations([
+        {"automation_id": f"a{i}", "title": "Scheduled work " * 5, "status": "active",
+         "occurrence_count": 150, "attention": {"unseen_count": 3}}
+        for i in range(10)
+    ])
+    # Simulate a late control/style minimum, after initial placement.
+    switcher.search_edit.setMinimumWidth(520)
+    for tab in ("automations", "sessions"):
+        switcher.set_tab(tab)
+        for _ in range(20):
+            app.processEvents()
+        frame = switcher.frameGeometry()
+        assert screen.adjusted(8, 8, -8, -8).contains(frame)
+        assert switcher.height() <= int((screen.height() - 16) * 0.8)
+        assert switcher.hint_label.isVisibleTo(switcher)
+        assert switcher.rect().contains(switcher.hint_label.mapTo(switcher, QPoint(0, 0)))
+    assert switcher.scroll.verticalScrollBar().maximum() > 0
+    switcher.close()
+    switcher.deleteLater()
+
+
+@pytest.mark.basic
+def test_popup_chooses_the_anchor_monitor_and_right_alignment(monkeypatch) -> None:
+    from PyQt5.QtCore import QPoint, QRect
+
+    app = _app()
+    area = QRect(-1200, 30, 1200, 760)
+    calls = []
+    screen = type("Screen", (), {"availableGeometry": lambda self: area})()
+    monkeypatch.setattr(QApplication, "screenAt", lambda point: (calls.append(QPoint(point)), screen)[1])
+    anchor = QPoint(-200, 80)
+    switcher = SessionSwitcher()
+    switcher.open_at(anchor, align_right=True)
+    for _ in range(10):
+        app.processEvents()
+    assert calls and all(point == anchor for point in calls)
+    assert switcher.frameGeometry().right() == anchor.x() - 1
+    assert area.adjusted(8, 8, -8, -8).contains(switcher.frameGeometry())
     switcher.close()
     switcher.deleteLater()
 
