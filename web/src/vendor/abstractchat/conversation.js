@@ -20,8 +20,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { codeLanguage, highlightCode, Icon } from "@abstractframework/ui-kit";
 
 // dist/utils.js
-function tryParseJson(text4) {
-  const trimmed = String(text4 ?? "").trim();
+function tryParseJson(text5) {
+  const trimmed = String(text5 ?? "").trim();
   if (!trimmed)
     return null;
   if (!(trimmed.startsWith("{") && trimmed.endsWith("}") || trimmed.startsWith("[") && trimmed.endsWith("]")))
@@ -83,8 +83,8 @@ function chatToMarkdown(messages, opts) {
   return `${lines.join("\n").trimEnd()}
 `;
 }
-async function copyText(text4) {
-  const value = String(text4 || "");
+async function copyText(text5) {
+  const value = String(text5 || "");
   if (!value)
     return false;
   try {
@@ -110,9 +110,9 @@ async function copyText(text4) {
 }
 function downloadTextFile(opts) {
   const filename = String(opts.filename || "").trim() || "export.txt";
-  const text4 = String(opts.text || "");
+  const text5 = String(opts.text || "");
   const mime = String(opts.mime || "text/plain;charset=utf-8");
-  const blob = new Blob([text4], { type: mime });
+  const blob = new Blob([text5], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -125,13 +125,13 @@ function downloadTextFile(opts) {
 
 // dist/text_links.js
 import { jsx as _jsx, Fragment as _Fragment, jsxs as _jsxs } from "react/jsx-runtime";
-function splitTextLinks(text4) {
+function splitTextLinks(text5) {
   const out = [];
   const pattern = /(?:https?:\/\/|www\.)[^\s<>"'`\\]+/gi;
   let end = 0;
-  for (const m of text4.matchAll(pattern)) {
+  for (const m of text5.matchAll(pattern)) {
     const start = m.index;
-    if (start > 0 && /[\w@]/.test(text4[start - 1]))
+    if (start > 0 && /[\w@]/.test(text5[start - 1]))
       continue;
     let label = m[0].replace(/[.,;:!?]+$/, "");
     for (const [open, close] of [
@@ -150,22 +150,22 @@ function splitTextLinks(text4) {
       continue;
     }
     if (start > end)
-      out.push({ text: text4.slice(end, start) });
+      out.push({ text: text5.slice(end, start) });
     out.push({ text: label, href });
     end = start + label.length;
   }
-  if (end < text4.length)
-    out.push({ text: text4.slice(end) });
+  if (end < text5.length)
+    out.push({ text: text5.slice(end) });
   return out;
 }
-function textLinks(text4) {
-  return splitTextLinks(text4).map((p, i) => p.href ? _jsx("a", { className: "pc-md_link", href: p.href, target: "_blank", rel: "noopener noreferrer", children: p.text }, i) : p.text);
+function textLinks(text5) {
+  return splitTextLinks(text5).map((p, i) => p.href ? _jsx("a", { className: "pc-md_link", href: p.href, target: "_blank", rel: "noopener noreferrer", children: p.text }, i) : p.text);
 }
-function TextLinks({ text: text4 }) {
-  return _jsx(_Fragment, { children: textLinks(String(text4 ?? "")) });
+function TextLinks({ text: text5 }) {
+  return _jsx(_Fragment, { children: textLinks(String(text5 ?? "")) });
 }
-function JsonTextLinks({ text: text4 }) {
-  return _jsxs(_Fragment, { children: ['"', splitTextLinks(text4).map((p, i) => p.href ? _jsx("a", { className: "pc-md_link", href: p.href, target: "_blank", rel: "noopener noreferrer", children: p.text }, i) : JSON.stringify(p.text).slice(1, -1)), '"'] });
+function JsonTextLinks({ text: text5 }) {
+  return _jsxs(_Fragment, { children: ['"', splitTextLinks(text5).map((p, i) => p.href ? _jsx("a", { className: "pc-md_link", href: p.href, target: "_blank", rel: "noopener noreferrer", children: p.text }, i) : JSON.stringify(p.text).slice(1, -1)), '"'] });
 }
 
 // dist/markdown.js
@@ -185,8 +185,8 @@ function MarkdownCodeBlock({ code, lang }) {
     timer.current = window.setTimeout(() => setState("idle"), 900);
   }, children: _jsx2(Icon, { name: state === "copied" ? "check" : "copy", size: 14 }) }), _jsx2("pre", { className: "pc-md_pre", children: _jsx2("code", { className: lang ? `language-${lang}` : void 0, children: tokens.map((t, k) => t.kind === "plain" ? _jsx2(React.Fragment, { children: t.text }, k) : _jsx2("span", { className: `af-code__${t.kind}`, children: t.text }, k)) }) })] });
 }
-function highlightInline(text4, state, linkify = true) {
-  const s = String(text4 ?? "");
+function highlightInline(text5, state, linkify = true) {
+  const s = String(text5 ?? "");
   if (linkify)
     return splitTextLinks(s).map((part, i) => part.href ? _jsx2("a", { className: "pc-md_link", href: part.href, target: "_blank", rel: "noopener noreferrer", children: highlightInline(part.text, state, false) }, i) : _jsx2(React.Fragment, { children: highlightInline(part.text, state, false) }, i));
   if (!state || !state.needles.length)
@@ -274,9 +274,9 @@ function imageLink(key, src, alt) {
 function isWordChar(ch) {
   return Boolean(ch) && /[\p{L}\p{N}]/u.test(ch);
 }
-function renderInline(text4, highlight) {
+function renderInline(text5, highlight) {
   const out = [];
-  const s = String(text4 ?? "");
+  const s = String(text5 ?? "");
   let i = 0;
   let buf = "";
   const flush = () => {
@@ -379,8 +379,8 @@ function renderInline(text4, highlight) {
   flush();
   return out;
 }
-function normalizeLines(text4) {
-  const s = String(text4 ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+function normalizeLines(text5) {
+  const s = String(text5 ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   return s.split("\n");
 }
 function parseListItemLine(line) {
@@ -494,8 +494,8 @@ function Markdown(props) {
     inlineImagePolicy = previous;
   }
 }
-function renderMarkdown({ text: text4, className, highlight, highlights, highlightClassName, highlightId }) {
-  const lines = normalizeLines(text4);
+function renderMarkdown({ text: text5, className, highlight, highlights, highlightClassName, highlightId }) {
+  const lines = normalizeLines(text5);
   const blocks = [];
   const needlesRaw = [];
   if (Array.isArray(highlights))
@@ -653,7 +653,7 @@ function responseTotal(response) {
 }
 async function readBoundedText(response, limit, knownSize) {
   const decoder = new TextDecoder();
-  let text4 = "";
+  let text5 = "";
   let received = 0;
   const reader = response.body?.getReader();
   if (reader) {
@@ -663,24 +663,24 @@ async function readBoundedText(response, limit, knownSize) {
         break;
       const chunk = value.subarray(0, limit - received);
       received += chunk.length;
-      text4 += decoder.decode(chunk, { stream: true });
+      text5 += decoder.decode(chunk, { stream: true });
     }
     await reader.cancel().catch(() => {
     });
   } else {
-    text4 = (await response.text()).slice(0, limit);
-    received = text4.length;
+    text5 = (await response.text()).slice(0, limit);
+    received = text5.length;
   }
   const total = responseTotal(response) ?? knownSize;
   const partial = total !== void 0 ? total > received : received >= limit;
-  return { text: text4, received, total, partial };
+  return { text: text5, received, total, partial };
 }
 function partialPreviewNote(total) {
   return `Showing the first ${PREVIEW_LIMIT_LABEL} of ${total !== void 0 ? formatFileSize(total) : "a file of unknown size"}; download for the rest.`;
 }
 function FileViewer(props) {
   const { markdownImages, inlineImage, renderMarkdown: renderMarkdown2, ...rest } = props;
-  return _jsx3(AfFileViewer, { ...rest, nowMs: props.nowMs ?? Date.now(), renderMarkdown: renderMarkdown2 || ((text4) => _jsx3(Markdown, { text: text4, ...markdownImages ? { images: markdownImages } : {}, ...inlineImage ? { inlineImage } : {} })) });
+  return _jsx3(AfFileViewer, { ...rest, nowMs: props.nowMs ?? Date.now(), renderMarkdown: renderMarkdown2 || ((text5) => _jsx3(Markdown, { text: text5, ...markdownImages ? { images: markdownImages } : {}, ...inlineImage ? { inlineImage } : {} })) });
 }
 
 // dist/workspace_browser.js
@@ -690,13 +690,13 @@ import { Icon as Icon2, formatExactTime, formatRelativeTime, gatewayApiPath as g
 async function gatewayResponseError(response, what) {
   let reason = "";
   try {
-    const text4 = await response.text();
+    const text5 = await response.text();
     try {
-      const body = JSON.parse(text4);
+      const body = JSON.parse(text5);
       const detail = body?.detail ?? body?.error ?? body?.message;
-      reason = typeof detail === "string" ? detail : detail && typeof detail.message === "string" ? detail.message : text4;
+      reason = typeof detail === "string" ? detail : detail && typeof detail.message === "string" ? detail.message : text5;
     } catch {
-      reason = text4;
+      reason = text5;
     }
   } catch {
     reason = "";
@@ -1579,16 +1579,16 @@ function JsonViewer(props) {
 
 // dist/message_content.js
 function ChatMessageContent(props) {
-  const text4 = String(props.text ?? "");
-  const parsed = useMemo4(() => tryParseJson(text4), [text4]);
+  const text5 = String(props.text ?? "");
+  const parsed = useMemo4(() => tryParseJson(text5), [text5]);
   const cls = ["pc-chat-content", props.className].filter(Boolean).join(" ");
   if (parsed !== null) {
     return _jsx9("div", { className: cls, children: _jsx9(JsonViewer, { value: parsed, collapseAfterDepth: props.jsonCollapseAfterDepth }) });
   }
   if (props.renderMarkdown) {
-    return _jsx9("div", { className: cls, children: props.renderMarkdown(text4) });
+    return _jsx9("div", { className: cls, children: props.renderMarkdown(text5) });
   }
-  return _jsx9("div", { className: cls, children: _jsx9(Markdown, { text: text4, images: props.images, inlineImage: props.inlineImage }) });
+  return _jsx9("div", { className: cls, children: _jsx9(Markdown, { text: text5, images: props.images, inlineImage: props.inlineImage }) });
 }
 
 // dist/tool_activity.js
@@ -2714,6 +2714,7 @@ var L = WORKFLOW_INTERACTION_LABELS;
 function WorkflowInteractionPanel(props) {
   const interaction = props.interaction;
   const card = props.variant === "card";
+  const conversation = props.variant === "conversation";
   const [freeText, setFreeText] = useState13("");
   const [payload, setPayload] = useState13(() => interaction.kind === "event-wait" ? interaction.initialPayload || "" : "");
   const [pending, setPending] = useState13(null);
@@ -2749,7 +2750,7 @@ function WorkflowInteractionPanel(props) {
       settledRef.current = true;
       setSettled(true);
       const note = result && typeof result === "object" && typeof result.outcomeNote === "string" ? String(result.outcomeNote) : "";
-      setOutcome(`Response sent. Waiting for the workflow to continue.${note ? ` ${note}` : ""}`);
+      setOutcome(conversation ? `Your choice was sent. I\u2019m waiting for work to continue.${note ? " Some actions may still be blocked by your saved permissions; review the details if needed." : ""}` : `Response sent. Waiting for the workflow to continue.${note ? ` ${note}` : ""}`);
     } catch (error) {
       if (!mountedRef.current || activeKeyRef.current !== requestKey || sequenceRef.current !== sequence)
         return;
@@ -2801,7 +2802,7 @@ function WorkflowInteractionPanel(props) {
       return;
     void run(failure.submission, () => submitWorkflowInteraction(interaction, failure.submission));
   };
-  const title = interaction.title || (interaction.kind === "tool-approval" ? "Tool approval required" : "Input required");
+  const title = conversation && interaction.kind === "tool-approval" ? interaction.publicRequest?.question || "May I take this next step?" : interaction.title || (interaction.kind === "tool-approval" ? "Tool approval required" : "Input required");
   const deferButton = (onDefer, label) => onDefer ? _jsx16("button", { type: "button", className: "pc-workflow-interaction__defer", "data-decision": "defer", disabled, onClick: () => void defer(onDefer), children: label }) : null;
   let body;
   if (interaction.kind === "ask-user") {
@@ -2812,6 +2813,10 @@ function WorkflowInteractionPanel(props) {
       if (freeText.trim())
         void run({ kind: "free-text", answer: freeText }, () => interaction.onSubmit(freeText));
     } }, `${interactionKey}:text`), _jsx16("button", { type: "button", className: "pc-btn", "data-decision": "submit", disabled: disabled || !freeText.trim(), onClick: () => void run({ kind: "free-text", answer: freeText }, () => interaction.onSubmit(freeText)), children: pending?.kind === "free-text" ? "Sending\u2026" : interaction.submitLabel || L.submit })] }) : null, interaction.onSkip || interaction.onDefer ? _jsxs13("div", { className: "pc-workflow-interaction__buttons pc-workflow-interaction__buttons--secondary", children: [deferButton(interaction.onDefer, interaction.deferLabel || L.keepWaiting), interaction.onSkip ? _jsx16("button", { type: "button", className: "pc-workflow-interaction__skip", "data-decision": "skip", disabled, onClick: () => void run({ kind: "skip" }, interaction.onSkip), children: pending?.kind === "skip" ? "Continuing\u2026" : interaction.skipLabel || L.skip }) : null] }) : null] });
+  } else if (interaction.kind === "tool-approval" && conversation) {
+    const request = interaction.publicRequest;
+    const needsReview = !request || request.reviewRequired;
+    body = _jsxs13("div", { className: "pc-workflow-interaction__body pc-public-approval", children: [_jsxs13("div", { className: "pc-public-approval__context", children: [_jsxs13("div", { className: "pc-public-approval__reason", children: [_jsx16("p", { className: "pc-public-approval__reason-label", children: "Why I\u2019m asking" }), _jsx16("p", { children: request?.explanation?.text || "The reason for this request isn\u2019t available here." })] }), request?.actions.length ? _jsx16("ul", { className: "pc-public-approval__targets", "aria-label": "What this will do", "data-uniform": request.actions.every((a) => a.kind === request.actions[0].kind) && !["write", "edit", "unknown"].includes(request.actions[0].kind) || void 0, children: request.actions.map((action, index) => _jsxs13("li", { children: [_jsx16(Icon8, { name: action.kind === "page" || action.kind === "search" ? "book" : action.kind === "write" || action.kind === "edit" ? "edit" : action.kind === "folder" ? "folder" : action.kind === "unknown" ? "info" : "file", size: 20 }), _jsxs13("span", { children: [_jsx16("span", { className: "pc-public-approval__action", children: action.label }), action.target ? _jsx16("span", { className: "pc-public-approval__target", children: action.target }) : null] })] }, index)) }) : null, needsReview ? _jsx16("p", { className: "pc-public-approval__note", children: "I can\u2019t describe this request clearly here. Review the details before allowing it." }) : _jsx16("p", { className: "pc-public-approval__note", children: "Allow once covers only what is shown here. I\u2019ll ask again for later requests." })] }, interactionKey), _jsxs13("div", { className: "pc-workflow-interaction__buttons pc-public-approval__buttons", children: [deferButton(interaction.onDefer, interaction.deferLabel || L.decideLater), _jsxs13("button", { type: "button", className: "pc-workflow-interaction__deny", "data-decision": "deny", disabled, onClick: () => void run({ kind: "deny" }, interaction.onDeny), children: [_jsx16(Icon8, { name: "x", size: 18 }), pending?.kind === "deny" ? "Declining\u2026" : interaction.denyLabel || L.deny] }), !needsReview ? _jsxs13("button", { type: "button", className: "pc-btn", "data-decision": "approve", disabled, onClick: () => void run({ kind: "approve" }, interaction.onApprove), children: [_jsx16(Icon8, { name: "check", size: 18 }), pending?.kind === "approve" ? "Allowing\u2026" : interaction.approveLabel || L.allowOnce] }) : null, props.onReviewTechnical ? _jsxs13("button", { type: "button", className: "pc-public-approval__review", disabled, onClick: props.onReviewTechnical, children: [_jsx16(Icon8, { name: "list", size: 18 }), "Review details"] }) : null] }), needsReview && !props.onReviewTechnical ? _jsx16("p", { className: "pc-public-approval__note", children: "Switch to the conversation\u2019s detailed view to review this request." }) : null, interaction.deniedNote ? _jsx16("p", { className: "pc-public-approval__note", role: "note", children: "Some of these actions are blocked by your saved permissions. Allow once cannot override that choice. Review details to see what is blocked." }) : null] });
   } else if (interaction.kind === "tool-approval") {
     const reason = String(interaction.disabledReason || "").trim();
     const broadDisabled = disabled || Boolean(reason);
@@ -2820,11 +2825,11 @@ function WorkflowInteractionPanel(props) {
       !reason && interaction.onApproveAll && interaction.approveAllDescription ? interaction.approveAllDescription : ""
     ].filter(Boolean);
     const scopeSummary = scopes.length ? String(interaction.broadScopeSummary || "").trim() : "";
-    body = _jsxs13("div", { className: "pc-workflow-interaction__body", children: [_jsxs13("div", { className: "pc-workflow-interaction__prompt", children: ["Allow ", _jsx16("strong", { children: interaction.toolName }), " to run?"] }), interaction.detail ? card ? _jsxs13("details", { className: "pc-workflow-interaction__review", children: [_jsx16("summary", { children: "Review" }), _jsx16("div", { className: "pc-workflow-interaction__detail", children: interaction.detail })] }) : _jsx16("div", { className: "pc-workflow-interaction__detail", children: interaction.detail }) : null, _jsxs13("div", { className: "pc-workflow-interaction__buttons", children: [deferButton(interaction.onDefer, interaction.deferLabel || L.decideLater), _jsx16("button", { type: "button", className: "pc-workflow-interaction__deny", "data-decision": "deny", disabled, onClick: () => void run({ kind: "deny" }, interaction.onDeny), children: pending?.kind === "deny" ? "Denying\u2026" : interaction.denyLabel || L.deny }), _jsx16("button", { type: "button", className: "pc-btn", "data-decision": "approve", disabled, onClick: () => void run({ kind: "approve" }, interaction.onApprove), children: pending?.kind === "approve" ? "Allowing\u2026" : interaction.approveLabel || L.allowOnce }), interaction.onApproveForSession ? _jsx16("button", { type: "button", className: "pc-workflow-interaction__allow-session", "data-decision": "approve-session", disabled: broadDisabled, title: reason || interaction.approveForSessionDescription || void 0, onClick: () => void run({ kind: "approve-session" }, interaction.onApproveForSession), children: pending?.kind === "approve-session" ? "Allowing\u2026" : interaction.approveForSessionLabel || L.allowForChat }) : null, (interaction.approveKinds || []).map((entry) => _jsx16("button", { type: "button", className: "pc-workflow-interaction__allow-session pc-workflow-interaction__allow-kind", "data-decision": "approve-kind", "data-kind": entry.kind, disabled: broadDisabled, title: reason || interaction.approveForSessionDescription || void 0, onClick: () => void run({ kind: "approve-kind", toolset: entry.kind }, entry.onApprove), children: pending?.kind === "approve-kind" && pending.toolset === entry.kind ? "Allowing\u2026" : entry.label || L.allowKindForChat(entry.kind) }, entry.kind)), interaction.onApproveAll ? _jsx16("button", { type: "button", className: "pc-workflow-interaction__allow-all", "data-decision": "approve-all", disabled: broadDisabled, title: reason || interaction.approveAllDescription || void 0, onClick: () => void run({ kind: "approve-all" }, interaction.onApproveAll), children: pending?.kind === "approve-all" ? "Allowing\u2026" : interaction.approveAllLabel || L.allowAll }) : null] }), scopeSummary ? _jsx16("p", { className: "pc-workflow-interaction__scope", "data-scope-summary": "", children: scopeSummary }) : null, interaction.remember ? _jsxs13("label", { className: "pc-workflow-interaction__remember", children: [_jsx16("input", { type: "checkbox", checked: interaction.remember.checked, disabled, onChange: (event) => interaction.remember.onChange(event.target.checked) }), _jsx16("span", { children: interaction.remember.label })] }) : null, interaction.deniedNote ? _jsx16("p", { className: "pc-workflow-interaction__unavailable", role: "note", "data-denied-note": "", children: interaction.deniedNote }) : null, interaction.denyOptions?.length ? _jsxs13("details", { className: "pc-workflow-interaction__more", "data-more": "", children: [_jsx16("summary", { children: "More" }), _jsx16("p", { className: "pc-workflow-interaction__scope", children: L.denyForChatNote }), _jsx16("div", { className: "pc-workflow-interaction__buttons", children: interaction.denyOptions.map((option) => _jsx16("button", { type: "button", className: "pc-workflow-interaction__deny", "data-decision": "deny-chat", "data-key": option.key, disabled, onClick: () => void run({ kind: "deny-chat", key: option.key }, option.onDeny), children: pending?.kind === "deny-chat" && pending.key === option.key ? "Denying\u2026" : option.label }, option.key)) })] }) : null, interaction.policySummary ? _jsx16("p", { className: "pc-workflow-interaction__scope", "data-policy-summary": "", children: interaction.policySummary }) : null, interaction.scopeNote ? _jsx16("p", { className: "pc-workflow-interaction__scope-note", role: "note", "data-scope-note": "", children: interaction.scopeNote }) : null, interaction.notCovered ? _jsx16("p", { className: "pc-workflow-interaction__unavailable", role: "note", "data-not-covered": "", children: interaction.notCovered }) : null, reason && (interaction.onApproveAll || interaction.onApproveForSession || interaction.approveKinds?.length) ? _jsx16("p", { className: "pc-workflow-interaction__unavailable", role: "note", children: reason }) : null, scopeSummary && scopes.length ? _jsxs13("details", { className: "pc-workflow-interaction__scope-details", "data-scope-details": "", children: [_jsx16("summary", { children: "What the broader choices allow" }), scopes.map((text4) => _jsx16("p", { className: "pc-workflow-interaction__scope", children: text4 }, text4))] }) : scopes.map((text4) => _jsx16("p", { className: "pc-workflow-interaction__scope", children: text4 }, text4))] });
+    body = _jsxs13("div", { className: "pc-workflow-interaction__body", children: [_jsxs13("div", { className: "pc-workflow-interaction__prompt", children: ["Allow ", _jsx16("strong", { children: interaction.toolName }), " to run?"] }), interaction.detail ? card ? _jsxs13("details", { className: "pc-workflow-interaction__review", children: [_jsx16("summary", { children: "Review" }), _jsx16("div", { className: "pc-workflow-interaction__detail", children: interaction.detail })] }) : _jsx16("div", { className: "pc-workflow-interaction__detail", children: interaction.detail }) : null, _jsxs13("div", { className: "pc-workflow-interaction__buttons", children: [deferButton(interaction.onDefer, interaction.deferLabel || L.decideLater), _jsx16("button", { type: "button", className: "pc-workflow-interaction__deny", "data-decision": "deny", disabled, onClick: () => void run({ kind: "deny" }, interaction.onDeny), children: pending?.kind === "deny" ? "Denying\u2026" : interaction.denyLabel || L.deny }), _jsx16("button", { type: "button", className: "pc-btn", "data-decision": "approve", disabled, onClick: () => void run({ kind: "approve" }, interaction.onApprove), children: pending?.kind === "approve" ? "Allowing\u2026" : interaction.approveLabel || L.allowOnce }), interaction.onApproveForSession ? _jsx16("button", { type: "button", className: "pc-workflow-interaction__allow-session", "data-decision": "approve-session", disabled: broadDisabled, title: reason || interaction.approveForSessionDescription || void 0, onClick: () => void run({ kind: "approve-session" }, interaction.onApproveForSession), children: pending?.kind === "approve-session" ? "Allowing\u2026" : interaction.approveForSessionLabel || L.allowForChat }) : null, (interaction.approveKinds || []).map((entry) => _jsx16("button", { type: "button", className: "pc-workflow-interaction__allow-session pc-workflow-interaction__allow-kind", "data-decision": "approve-kind", "data-kind": entry.kind, disabled: broadDisabled, title: reason || interaction.approveForSessionDescription || void 0, onClick: () => void run({ kind: "approve-kind", toolset: entry.kind }, entry.onApprove), children: pending?.kind === "approve-kind" && pending.toolset === entry.kind ? "Allowing\u2026" : entry.label || L.allowKindForChat(entry.kind) }, entry.kind)), interaction.onApproveAll ? _jsx16("button", { type: "button", className: "pc-workflow-interaction__allow-all", "data-decision": "approve-all", disabled: broadDisabled, title: reason || interaction.approveAllDescription || void 0, onClick: () => void run({ kind: "approve-all" }, interaction.onApproveAll), children: pending?.kind === "approve-all" ? "Allowing\u2026" : interaction.approveAllLabel || L.allowAll }) : null] }), scopeSummary ? _jsx16("p", { className: "pc-workflow-interaction__scope", "data-scope-summary": "", children: scopeSummary }) : null, interaction.remember ? _jsxs13("label", { className: "pc-workflow-interaction__remember", children: [_jsx16("input", { type: "checkbox", checked: interaction.remember.checked, disabled, onChange: (event) => interaction.remember.onChange(event.target.checked) }), _jsx16("span", { children: interaction.remember.label })] }) : null, interaction.deniedNote ? _jsx16("p", { className: "pc-workflow-interaction__unavailable", role: "note", "data-denied-note": "", children: interaction.deniedNote }) : null, interaction.denyOptions?.length ? _jsxs13("details", { className: "pc-workflow-interaction__more", "data-more": "", children: [_jsx16("summary", { children: "More" }), _jsx16("p", { className: "pc-workflow-interaction__scope", children: L.denyForChatNote }), _jsx16("div", { className: "pc-workflow-interaction__buttons", children: interaction.denyOptions.map((option) => _jsx16("button", { type: "button", className: "pc-workflow-interaction__deny", "data-decision": "deny-chat", "data-key": option.key, disabled, onClick: () => void run({ kind: "deny-chat", key: option.key }, option.onDeny), children: pending?.kind === "deny-chat" && pending.key === option.key ? "Denying\u2026" : option.label }, option.key)) })] }) : null, interaction.policySummary ? _jsx16("p", { className: "pc-workflow-interaction__scope", "data-policy-summary": "", children: interaction.policySummary }) : null, interaction.scopeNote ? _jsx16("p", { className: "pc-workflow-interaction__scope-note", role: "note", "data-scope-note": "", children: interaction.scopeNote }) : null, interaction.notCovered ? _jsx16("p", { className: "pc-workflow-interaction__unavailable", role: "note", "data-not-covered": "", children: interaction.notCovered }) : null, reason && (interaction.onApproveAll || interaction.onApproveForSession || interaction.approveKinds?.length) ? _jsx16("p", { className: "pc-workflow-interaction__unavailable", role: "note", children: reason }) : null, scopeSummary && scopes.length ? _jsxs13("details", { className: "pc-workflow-interaction__scope-details", "data-scope-details": "", children: [_jsx16("summary", { children: "What the broader choices allow" }), scopes.map((text5) => _jsx16("p", { className: "pc-workflow-interaction__scope", children: text5 }, text5))] }) : scopes.map((text5) => _jsx16("p", { className: "pc-workflow-interaction__scope", children: text5 }, text5))] });
   } else {
     body = _jsxs13("div", { className: "pc-workflow-interaction__body", children: [_jsx16("div", { className: "pc-workflow-interaction__prompt", children: interaction.prompt }), _jsxs13("label", { className: "pc-workflow-interaction__entry", children: [_jsx16("span", { children: interaction.payloadLabel || (interaction.eventName ? `Payload for ${interaction.eventName}` : "Event payload") }), _jsx16("textarea", { value: payload, onChange: (event) => setPayload(event.target.value), placeholder: interaction.payloadPlaceholder || "Enter payload", rows: card ? 1 : 2, "aria-label": interaction.payloadLabel || (interaction.eventName ? `Payload for ${interaction.eventName}` : "Event payload"), disabled }, `${interactionKey}:payload`)] }), _jsx16("div", { className: "pc-workflow-interaction__buttons", children: _jsx16("button", { type: "button", className: "pc-btn", "data-decision": "send-event", disabled, onClick: () => void run({ kind: "event", payload }, () => interaction.onSend(payload)), children: pending?.kind === "event" ? "Sending\u2026" : interaction.sendLabel || L.sendEvent }) })] });
   }
-  return _jsxs13("section", { className: ["pc-workflow-interaction", card ? "pc-workflow-interaction--card" : ""].filter(Boolean).join(" "), "data-variant": card ? "card" : "panel", "aria-labelledby": `pc-workflow-interaction-${interactionKey}`, children: [_jsxs13("div", { className: "pc-workflow-interaction__heading", children: [_jsx16(Icon8, { name: interaction.kind === "tool-approval" ? "warning" : interaction.kind === "event-wait" ? "history" : "info", size: card ? 14 : 16 }), _jsxs13("div", { children: [_jsx16("h3", { tabIndex: -1, id: `pc-workflow-interaction-${interactionKey}`, children: title }), interaction.description ? _jsx16("div", { className: "pc-workflow-interaction__description", children: interaction.description }) : null] })] }), body, failure ? _jsx16(ActionError, { message: failure.message, onRetry: retry, disabled }) : null, _jsx16("div", { className: "pc-workflow-interaction__outcome", "aria-live": "polite", children: outcome })] });
+  return _jsxs13("section", { className: ["pc-workflow-interaction", card ? "pc-workflow-interaction--card" : "", conversation ? "pc-workflow-interaction--conversation" : ""].filter(Boolean).join(" "), "data-variant": props.variant || "panel", "aria-labelledby": `pc-workflow-interaction-${interactionKey}`, children: [_jsxs13("div", { className: "pc-workflow-interaction__heading", children: [_jsx16(Icon8, { name: interaction.kind === "tool-approval" ? conversation ? "lock" : "warning" : interaction.kind === "event-wait" ? "history" : "info", size: card ? 14 : 16 }), _jsxs13("div", { children: [_jsx16("h3", { className: conversation && interaction.kind === "tool-approval" ? "pc-workflow-interaction__prompt" : void 0, tabIndex: -1, id: `pc-workflow-interaction-${interactionKey}`, children: title }), interaction.description && !(conversation && interaction.kind === "tool-approval") ? _jsx16("div", { className: "pc-workflow-interaction__description", children: interaction.description }) : null] })] }), body, failure ? _jsx16(ActionError, { message: conversation ? "Your choice could not be sent." : failure.message, onRetry: retry, disabled }) : null, _jsx16("div", { className: "pc-workflow-interaction__outcome", "aria-live": "polite", children: outcome })] });
 }
 
 // dist/avatar_conversation.js
@@ -2864,21 +2869,21 @@ function conversationMessages(messages) {
     return true;
   });
 }
-function conversationReply(text4, context, currentRunId, allowedSourceRunIds = []) {
+function conversationReply(text5, context, currentRunId, allowedSourceRunIds = []) {
   if (!context)
-    return text4;
+    return text5;
   if (context.kind !== "public_update" || !context.publicUpdate)
-    return text4;
+    return text5;
   if (!currentRunId || context.publicUpdate.runId !== context.runId || context.runId !== currentRunId && !allowedSourceRunIds.includes(context.publicUpdate.runId))
     throw new Error("The selected public update belongs to another run. Return to the latest exchange before guiding this run.");
   return `The person is replying to this quoted public update (context only):
 ${JSON.stringify({ message_id: context.id || context.publicUpdate.id, run_id: context.publicUpdate.runId, root_run_id: currentRunId, text: context.content })}
 
 The person's message:
-${text4}`;
+${text5}`;
 }
-function conversationPages(text4, max = 180) {
-  const words = text4.trim().split(/\s+/);
+function conversationPages(text5, max = 180) {
+  const words = text5.trim().split(/\s+/);
   const pages = [];
   let page = "";
   for (const word of words) {
@@ -3441,7 +3446,7 @@ function WorkflowChat(props) {
     ...props.messageProps,
     ...props.messageProps?.renderFooter ? { renderFooter: (m) => props.messageProps.renderFooter(props.messages.find((original) => original === m || original.id && original.id === m.id) || m) } : {},
     ...props.renderMarkdown ? { renderMarkdown: props.renderMarkdown } : {}
-  }, attended: Boolean(props.draft.trim()), interactionId: props.interaction ? `${props.interaction.kind}:${props.interaction.id}` : "", interaction: _jsxs15(_Fragment8, { children: [props.interaction ? _jsx18(WorkflowInteractionPanel, { interaction: props.interaction, disabled }) : null, blocked ? _jsx18("div", { className: "pc-workflow-chat__blocked", role: "status", children: props.blockedNotice }) : null] }) }) : _jsx18(ChatThread, { messages: transcript.messages, empty: props.emptyState, autoScroll: true, messageProps: {
+  }, attended: Boolean(props.draft.trim()), interactionId: props.interaction ? `${props.interaction.kind}:${props.interaction.id}` : "", interaction: _jsxs15(_Fragment8, { children: [props.interaction ? _jsx18(WorkflowInteractionPanel, { interaction: props.interaction, disabled, variant: "conversation", onReviewTechnical: props.avatarConversation.onTechnicalView }) : null, blocked ? _jsx18("div", { className: "pc-workflow-chat__blocked", role: "status", children: props.blockedNotice }) : null] }) }) : _jsx18(ChatThread, { messages: transcript.messages, empty: props.emptyState, autoScroll: true, messageProps: {
     ...props.messageProps,
     ...props.messageProps?.renderFooter ? {
       renderFooter: (m) => props.messageProps.renderFooter(props.messages.find((original) => original === m || original.id && original.id === m.id) || m)
@@ -4571,8 +4576,8 @@ function promptFromInput(input) {
   }
   return "";
 }
-function waitFromRecord(record2) {
-  const result = object(record2.result);
+function waitFromRecord(record3) {
+  const result = object(record3.result);
   return object(result?.wait);
 }
 function delegationWait(wait) {
@@ -4583,34 +4588,34 @@ function delegationWait(wait) {
 function sameWait(a, b) {
   return Boolean(a && a.runId === b.runId && text2(a.wait.wait_key) === text2(b.wait.wait_key));
 }
-function effect(record2) {
-  return object(record2.effect) || {};
+function effect(record3) {
+  return object(record3.effect) || {};
 }
-function runIdFrom(record2, fallback) {
-  return text2(record2.run_id) || fallback;
+function runIdFrom(record3, fallback) {
+  return text2(record3.run_id) || fallback;
 }
-function recordTimestamp(record2) {
-  return text2(record2.ended_at) || text2(record2.started_at) || void 0;
+function recordTimestamp(record3) {
+  return text2(record3.ended_at) || text2(record3.started_at) || void 0;
 }
-function subRunIds(record2) {
+function subRunIds(record3) {
   const out = /* @__PURE__ */ new Set();
   const add = (value) => {
     const id = text2(value);
     if (id)
       out.add(id);
   };
-  const result = object(record2.result);
+  const result = object(record3.result);
   add(result?.sub_run_id);
   add(result?.subRunId);
   add(result?.child_run_id);
-  const eff = effect(record2);
+  const eff = effect(record3);
   const payload = object(eff.payload);
   if (text2(eff.type) === "start_subworkflow") {
     add(payload?.sub_run_id);
     add(payload?.subRunId);
     add(payload?.child_run_id);
   }
-  const wait = waitFromRecord(record2);
+  const wait = waitFromRecord(record3);
   const details = object(wait?.details);
   add(details?.sub_run_id);
   add(details?.subRunId);
@@ -5824,13 +5829,13 @@ var WorkflowSessionController = class {
       if (child !== runId)
         void this.catchUpAndWatch(child, this.generation);
   }
-  foldRecord(runId, record2, key) {
-    const eff = effect(record2);
+  foldRecord(runId, record3, key) {
+    const eff = effect(record3);
     const effectType = text2(eff.type).toLowerCase();
-    const result = object(record2.result);
-    const recStatus = text2(record2.status).toLowerCase();
-    const timestamp = recordTimestamp(record2);
-    this.foldStopEvidence(runId, record2, effectType, recStatus);
+    const result = object(record3.result);
+    const recStatus = text2(record3.status).toLowerCase();
+    const timestamp = recordTimestamp(record3);
+    this.foldStopEvidence(runId, record3, effectType, recStatus);
     if (["llm_call", "tool_calls"].includes(effectType) && ["started", "running"].includes(recStatus)) {
       const at = Date.parse(timestamp || "");
       if (!Number.isFinite(at) || at >= this.displayStatusAt) {
@@ -5853,7 +5858,7 @@ var WorkflowSessionController = class {
       if (name === "user_guidance") {
         const message = object(eventPayload);
         const seq = message?.seq;
-        if (message && message.status === "accepted" && Number.isInteger(seq) && Number(seq) > 0 && message.run_id === runId && message.id === `${runId}:guidance:${seq}` && record2.node_id === "__host_user_guidance__" && record2.idempotency_key === `system:user_guidance:${seq}` && typeof message.text === "string" && message.text.trim()) {
+        if (message && message.status === "accepted" && Number.isInteger(seq) && Number(seq) > 0 && message.run_id === runId && message.id === `${runId}:guidance:${seq}` && record3.node_id === "__host_user_guidance__" && record3.idempotency_key === `system:user_guidance:${seq}` && typeof message.text === "string" && message.text.trim()) {
           this.addMessage({ id: message.id, role: "user", kind: "guidance", source: "user_guidance", runId, content: message.text, ts: timestamp });
         }
       }
@@ -5899,13 +5904,13 @@ var WorkflowSessionController = class {
           this.addMessage({ id: `event:${runId}:${key}`, role: "system", title: "Tool activity", content, ts: timestamp });
       }
     }
-    const waiting = waitFromRecord(record2);
+    const waiting = waitFromRecord(record3);
     if (recStatus === "waiting" && waiting && !terminal(this.snapshot.status) && !terminal(statusOf(this.runStates.get(runId) || null))) {
       this.resolvedWaits.delete(`${runId}:${text2(waiting.wait_key)}`);
-      this.set({ ...this.snapshot, interaction: this.interactionWith({ runId, wait: waiting, ...text2(record2.step_id) ? { stepId: text2(record2.step_id) } : {} }) });
+      this.set({ ...this.snapshot, interaction: this.interactionWith({ runId, wait: waiting, ...text2(record3.step_id) ? { stepId: text2(record3.step_id) } : {} }) });
     }
     if (effectType === "tool_calls")
-      for (const tool of foldWorkflowTools(this.toolActivities, { runId, cursor: this.cursors.get(runId) || 0, record: record2 }))
+      for (const tool of foldWorkflowTools(this.toolActivities, { runId, cursor: this.cursors.get(runId) || 0, record: record3 }))
         this.upsertTool(tool);
     if (effectType === "resume" && result?.resumed === true) {
       const resumedKey = text2(object(eff.payload)?.wait_key);
@@ -5918,10 +5923,10 @@ var WorkflowSessionController = class {
     }
   }
   /** Ledger evidence for the Stop states: open model calls and forced stops. */
-  foldStopEvidence(runId, record2, effectType, recStatus) {
+  foldStopEvidence(runId, record3, effectType, recStatus) {
     let changed = false;
     if (effectType === "llm_call") {
-      const stepId = text2(record2.step_id);
+      const stepId = text2(record3.step_id);
       if (stepId) {
         const stepKey = `${runId}:${stepId}`;
         if (recStatus === "started") {
@@ -5934,8 +5939,8 @@ var WorkflowSessionController = class {
       }
     }
     if (effectType === "emit_event" && recStatus === "completed") {
-      const payload = object(effect(record2).payload) || {};
-      const emitted = object(record2.result);
+      const payload = object(effect(record3).payload) || {};
+      const emitted = object(record3.result);
       const name = text2(payload.name) || text2(emitted?.name);
       const eventPayload = object(payload.payload !== void 0 ? payload.payload : emitted?.payload);
       if (name === "abstract.status" && text2(eventPayload?.killed_by) === "kill_switch") {
@@ -6455,14 +6460,14 @@ function matchingEvidence(raw, records) {
   for (const entry of records) {
     if (entry.runId !== raw.runId)
       continue;
-    const record2 = entry.record;
-    const result = object2(record2.result);
+    const record3 = entry.record;
+    const result = object2(record3.result);
     const storedWait = object2(result?.wait);
-    const effect2 = object2(record2.effect);
+    const effect2 = object2(record3.effect);
     const payload = object2(effect2?.payload);
     if (text3(storedWait?.wait_key) !== key && text3(payload?.wait_key) !== key)
       continue;
-    out.push(evidence(record2), evidence(payload), evidence(object2(payload?.details)), evidence(storedWait), evidence(object2(storedWait?.details)));
+    out.push(evidence(record3), evidence(payload), evidence(object2(payload?.details)), evidence(storedWait), evidence(object2(storedWait?.details)));
   }
   return out;
 }
@@ -6558,6 +6563,66 @@ function resolveWorkflowEventTarget(raw, records = [], currentRun) {
 
 // dist/present_interaction.js
 import { ToolCallWordsList } from "@abstractframework/ui-kit";
+
+// dist/public_approval.js
+var record2 = (v) => v && typeof v === "object" && !Array.isArray(v) ? v : null;
+var text4 = (v) => typeof v === "string" ? v.trim() : "";
+function publicApprovalRequest(calls, value, runId) {
+  const actions = calls.map((call) => {
+    let args = record2(call.arguments);
+    if (!args && typeof call.arguments === "string") {
+      try {
+        args = record2(JSON.parse(call.arguments));
+      } catch {
+      }
+    }
+    const a = args || {};
+    const path = text4(a.file_path) || text4(a.path);
+    switch (call.name) {
+      case "fetch_url":
+      case "skim_url": {
+        const method = a.method === void 0 ? "GET" : text4(a.method).toUpperCase();
+        const displayOptions = /* @__PURE__ */ new Set(["url", "method", "timeout", "include_binary_preview", "render_js", "keep_links", "include_full_content"]);
+        const extraRequestData = Object.keys(a).some((key) => !displayOptions.has(key) && a[key] !== void 0 && a[key] !== null);
+        if (!["GET", "HEAD"].includes(method) || extraRequestData)
+          return { kind: "unknown", label: "A website request that needs a closer look", target: text4(a.url) };
+        return { kind: "page", label: "Read a webpage", target: text4(a.url) };
+      }
+      case "web_search":
+      case "skim_websearch":
+        return { kind: "search", label: "Search the web", target: text4(a.query) };
+      case "read_file":
+        return { kind: "read", label: "Read a file", target: path };
+      case "write_file":
+        return { kind: "write", label: "Write to a file \u2014 this can replace its contents", target: path };
+      case "edit_file":
+        return { kind: "edit", label: "Change a file\u2019s contents", target: path };
+      case "list_files":
+        return { kind: "folder", label: "Look through a folder", target: text4(a.directory_path) || path || "The current workspace" };
+      default:
+        return { kind: "unknown", label: "An action that needs a closer look", target: "" };
+    }
+  });
+  const kind = actions[0]?.kind;
+  const same = actions.length > 0 && actions.every((a) => a.kind === kind);
+  const questions = {
+    page: ["May I read this webpage?", `May I read these ${actions.length} webpages?`],
+    search: ["May I search the web?", "May I make these web searches?"],
+    read: ["May I read this file?", `May I read these ${actions.length} files?`],
+    write: ["May I write to this file?", `May I write to these ${actions.length} files?`],
+    edit: ["May I change this file?", `May I change these ${actions.length} files?`],
+    folder: ["May I look through this folder?", "May I look through these folders?"]
+  };
+  const reviewRequired = !actions.length || actions.some((a) => a.kind === "unknown" || !a.target);
+  const question = same && questions[kind] ? questions[kind][actions.length === 1 ? 0 : 1] : "May I do these things?";
+  const source = record2(value);
+  const ids = calls.map((c) => text4(c.call_id) || text4(c.id));
+  const bound = source && Array.isArray(source.call_ids) ? source.call_ids : [];
+  const explanation = source && text4(runId) && text4(source.run_id) === runId && text4(source.update_id) && typeof source.iteration === "number" && Number.isInteger(source.iteration) && source.iteration > 0 && ids.length > 0 && ids.every(Boolean) && new Set(ids).size === ids.length && bound.length === ids.length && new Set(bound).size === bound.length && bound.every((id) => typeof id === "string" && ids.includes(id)) && text4(source.text) && text4(source.text).length <= 600 && !/```\s*diary\b|<\s*diary\b|<\s*think\b/i.test(text4(source.text)) ? { text: text4(source.text), updateId: text4(source.update_id) } : void 0;
+  return { question, actions, reviewRequired, ...explanation ? { explanation } : {} };
+}
+
+// dist/present_interaction.js
 function isReplayInteraction(value) {
   const v = value;
   return Boolean(v && typeof v === "object" && typeof v.run_id === "string" && typeof v.wait_key === "string" && !("wait" in v));
@@ -6675,6 +6740,7 @@ function presentInteraction(input, controller, options = {}) {
       kind: "tool-approval",
       title: `${calls.length || "Requested"} ${calls.length === 1 ? "action needs" : "actions need"} permission`,
       toolName: names.join(", ") || "the requested tools",
+      publicRequest: publicApprovalRequest(calls, details.public_action, raw.runId),
       description: "Review the targets below. Allow once approves this batch only.",
       detail: _jsxs16("div", { className: "pc-approval-summary", children: [_jsx19(ToolCallWordsList, { calls: calls.map((call) => {
         const args = toolArguments(call?.arguments);
@@ -6749,8 +6815,8 @@ function presentInteraction(input, controller, options = {}) {
         initialPayload: "{}",
         payloadLabel: "Event data (JSON)",
         sendLabel: "Send",
-        onSend: async (text4) => {
-          await answerEvent.call(controller, JSON.parse(text4 || "{}"), eventTarget);
+        onSend: async (text5) => {
+          await answerEvent.call(controller, JSON.parse(text5 || "{}"), eventTarget);
         }
       };
     }
@@ -6767,10 +6833,10 @@ function presentInteraction(input, controller, options = {}) {
       initialPayload: "{}",
       payloadLabel: "Event data (JSON)",
       sendLabel: "Send event",
-      onSend: async (text4) => {
+      onSend: async (text5) => {
         if (!target2)
           throw new Error(routing.error);
-        const payload = JSON.parse(text4 || "{}");
+        const payload = JSON.parse(text5 || "{}");
         const event = { name: target2.name, scope: target2.scope, payload };
         if (target2.scope === "session")
           event.session_id = target2.scopeId;
@@ -6792,6 +6858,7 @@ export {
   ToolActivity,
   ToolActivityGroup,
   WorkflowChat,
+  WorkflowInteractionPanel,
   conversationCueStep,
   conversationMessages,
   conversationNarrationStep,
@@ -6802,6 +6869,7 @@ export {
   outputArtifacts,
   playConversationCue,
   presentInteraction,
+  publicApprovalRequest,
   publicUpdate,
   submittedArtifacts,
   useAvatarConversationPreferences,

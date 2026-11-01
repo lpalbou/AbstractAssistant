@@ -368,6 +368,7 @@ export function Workspace(props: {
       onTranscript={transcript} onPlayback={playback} onStop={stop} onType={focusComposer} onSettings={props.onSettings} autoSend={props.autoSend} />}
     <WorkflowChat
       avatarConversation={avatarMode ? {
+        onTechnicalView: () => { voice.stop_tts(); avatarPreferences.setMode("chat"); },
         sessionKey: `${props.readScope}:${props.sessionId || "new"}`,
         avatar: <Orb voice={voice} prefs={props.appearance} pose={voice.voice_ptt_recording ? "listening" : voice.tts_playback.status === "playing" ? "speaking" : snapshot.run?.paused === true && !TERMINAL.has(snapshot.status) ? "waiting" : presence.pose} size={320} onError={() => setNotice("The avatar could not load. Voice and messages still work.")} />,
         ...conversationSnapshot(snapshot),

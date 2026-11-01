@@ -7897,6 +7897,11 @@ questions. **Conversation history** opens the full public exchanges and final an
 **Conversation** restores the ordinary chat and technical details. Switching views
 preserves the current draft and attachments.
 
+Avatar permission requests use ordinary actions, destinations and labeled decision
+icons. “Why I’m asking” shows the assistant’s public explanation when it belongs to
+that exact request. “Review details” opens Conversation mode for technical arguments
+and standing permissions. A missing explanation is stated explicitly.
+
 While work continues, type or speak naturally to guide it. **Reply to this** pins a
 specific public update as context. Sending a correction makes it available to the
 assistant; the assistant's later response shows whether it adopted the correction.

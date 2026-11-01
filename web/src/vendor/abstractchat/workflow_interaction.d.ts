@@ -1,4 +1,5 @@
 import React from "react";
+import type { PublicApprovalRequest } from "./public_approval.js";
 /**
  * The ONE wording set for questions and approvals (ADR 0001 §5, backlog 0032).
  * The native AbstractAssistant (Qt approval sheet, iPhone inbox) is the
@@ -81,6 +82,8 @@ export type WorkflowAskUserInteraction = WorkflowInteractionBase & {
 export type WorkflowToolApprovalInteraction = WorkflowInteractionBase & {
     kind: "tool-approval";
     toolName: string;
+    /** Ordinary action/targets and an explicitly batch-bound public explanation. */
+    publicRequest?: PublicApprovalRequest;
     /** Human-readable detail, such as a redacted argument summary. */
     detail?: React.ReactNode;
     /** Default "Allow once". */
@@ -161,8 +164,12 @@ export type WorkflowInteractionPanelProps = {
      * `"panel"` (default): the full panel under a chat transcript.
      * `"card"`: a compact card for served-state lists (a "Needs you" board, an
      * inbox): same decisions and callbacks, detail folded behind "Review".
+     * `"conversation"`: public action/targets/purpose with labeled decision icons;
+     * technical arguments and standing policy choices stay in the host's detailed view.
      */
-    variant?: "panel" | "card";
+    variant?: "panel" | "card" | "conversation";
+    /** Switch the host to its existing technical view; this never submits a decision. */
+    onReviewTechnical?: () => void;
 };
 /** Renders a single workflow wait without taking ownership of its transport. */
 export declare function WorkflowInteractionPanel(props: WorkflowInteractionPanelProps): React.ReactElement;

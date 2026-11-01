@@ -122,7 +122,8 @@ async function checkAvatar({page, runs, calls, report, shots}) {
   live.interaction = {kind:"tool_approval",run_id:"new-1",wait_key:"approval:1",step_id:"book",seq:5,prompt:"Reserve this table?",tool_calls:[{name:"reserve_table",arguments:{}}],details:null,command:{type:"resume",run_id:"new-1",payload:{wait_key:"approval:1"}},answer_payload:"{approved: true|false}"};
   await page.reload();
   await page.locator(".aa-session").filter({hasText:"Find a place for lunch"}).click();
-  await page.getByRole("button",{name:"Allow once",exact:true}).waitFor();
+  await page.getByRole("button",{name:"Deny",exact:true}).waitFor();
+  assert.equal(await page.getByRole("button",{name:"Allow once",exact:true}).count(),0,"An undescribed reservation requires detailed review before approval");
   await composer.fill("I am still thinking about it.");
   const before = calls.commands.length;
   await page.getByRole("button",{name:"Send",exact:true}).click();
@@ -134,7 +135,7 @@ async function checkAvatar({page, runs, calls, report, shots}) {
   if(shots) await page.screenshot({path:`${shots}/avatar-approval-phone.png`});
   const sendBox = await page.getByRole("button",{name:"Send",exact:true}).boundingBox();
   assert.ok(sendBox && sendBox.y >= 0 && sendBox.y + sendBox.height <= 900,"Composer remains visible on phone");
-  await page.getByRole("button",{name:"Conversation",exact:true}).click();
+  await page.getByRole("button",{name:"Review details",exact:true}).click();
   assert.equal(await composer.inputValue(),"I am still thinking about it.");
   report.defaultViewRestoredWithoutDraftLoss = true;
 }

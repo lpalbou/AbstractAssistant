@@ -11,4 +11,6 @@ export { useAvatarConversationPreferences, playConversationCue } from "./convers
 export { conversationReply } from "./conversation_model.js";
 export { conversationNarrationStep } from "./conversation_model.js";
 export { presentInteraction } from "./present_interaction.js";
+export { publicApprovalRequest, type PublicApprovalRequest } from "./public_approval.js";
+export { WorkflowInteractionPanel, type WorkflowInteraction } from "./workflow_interaction.js";
 //# sourceMappingURL=conversation.d.ts.map

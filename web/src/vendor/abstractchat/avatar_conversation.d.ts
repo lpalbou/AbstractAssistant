@@ -29,6 +29,8 @@ export type AvatarConversationOptions = {
     voiceControl?: React.ReactNode;
     /** Playback actions do not trigger the microphone interruption hook. */
     playbackControl?: React.ReactNode;
+    /** Open the host's detailed conversation; does not answer a pending request. */
+    onTechnicalView?: () => void;
 };
 export type AvatarConversationProps = AvatarConversationOptions & {
     messages: ChatMessage[];
