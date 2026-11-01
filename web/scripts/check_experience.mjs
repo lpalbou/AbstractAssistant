@@ -236,7 +236,9 @@ try {
   assert.equal(Math.min(...listening), 0, "Microphone silence stays zero");
   report.microphoneDrivesAvatar = true;
   report.microphoneLevelRange = [Math.min(...listening), Math.max(...listening)];
-  await page.getByRole("button", { name: "Recording — tap to stop" }).click();
+  // The composer's own microphone (the same control as every chat box) stops the recording the orb started: one pipeline, two entry points.
+  assert.equal(await page.getByRole("button", { name: "Recording — tap to stop" }).count(), 2, "orb and composer microphones reflect the same recording");
+  await page.getByRole("region", { name: "Workflow chat" }).getByRole("button", { name: "Recording — tap to stop" }).click();
   await page.getByRole("textbox", { name: "Message" }).waitFor();
   await page.waitForFunction(() => document.querySelector("textarea")?.value.includes("Words from the virtual microphone"));
   assert.equal(calls.recordings, 1);
