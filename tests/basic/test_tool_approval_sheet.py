@@ -109,6 +109,58 @@ def test_session_action_emits_session_for_a_trustable_batch() -> None:
 
 
 @pytest.mark.basic
+def test_named_session_choices_are_distinct_deduplicated_and_never_persist_defaults() -> None:
+    sheet, decisions = _sheet([READ_CALL, READ_CALL, WRITE_CALL])
+    assert list(sheet.tool_session_actions) == ["read_file", "write_file"]
+    assert len(sheet.allow_menu.actions()) == 3
+    assert (
+        sheet.tool_session_actions["read_file"].text()
+        == "Allow all read_file calls for this session"
+    )
+    sheet.tool_session_actions["read_file"].trigger()
+    assert decisions[0][0] == "tool_session"
+    assert decisions[0][1]["session_tools"] == ["read_file"]
+    assert decisions[0][1]["remember"] == []
+    assert decisions[0][1]["tool_calls"] == [READ_CALL, READ_CALL, WRITE_CALL]
+
+    sheet, _ = _sheet([READ_CALL, {"name": "mystery_tool", "arguments": {}}])
+    assert sheet.tool_session_actions["read_file"].isEnabled()
+    assert not sheet.tool_session_actions["mystery_tool"].isEnabled()
+    assert not sheet.allow_session_action.isEnabled()
+
+
+@pytest.mark.basic
+def test_raising_the_owner_resurfaces_only_a_pending_approval(monkeypatch) -> None:
+    from PyQt5.QtCore import QEvent
+    from PyQt5.QtWidgets import QWidget
+
+    app = _app()
+    parent = QWidget()
+    sheet = ToolApprovalSheet(tool_calls=[READ_CALL], risks=RISKS, parent=parent)
+    sheet.show()
+    app.processEvents()
+    raised, activated = [], []
+    monkeypatch.setattr(sheet, "raise_", lambda: raised.append(True))
+    monkeypatch.setattr(sheet, "activateWindow", lambda: activated.append(True))
+    QApplication.sendEvent(parent, QEvent(QEvent.WindowActivate))
+    app.processEvents()
+    assert raised and activated
+    assert sheet.windowHandle().transientParent() is parent.windowHandle()
+
+    # Native menus must keep keyboard focus while their sheet stays above the owner.
+    monkeypatch.setattr(QApplication, "activePopupWidget", lambda: sheet.allow_menu)
+    activated.clear()
+    sheet.bring_to_front()
+    assert not activated
+    sheet.reject()
+    raised.clear()
+    QApplication.sendEvent(parent, QEvent(QEvent.WindowActivate))
+    app.processEvents()
+    assert not raised
+    parent.deleteLater()
+
+
+@pytest.mark.basic
 def test_deny_and_defer_buttons_emit_their_decisions() -> None:
     sheet, decisions = _sheet([CMD_CALL])
     sheet.denyButton.click()
@@ -341,18 +393,17 @@ def test_remember_is_not_offered_for_a_lone_unavailable_or_unknown_tool() -> Non
 
 @pytest.mark.basic
 def test_session_action_states_how_far_the_grant_reaches() -> None:
-    # A destructive batch may still be trusted for the chat — the item says so
-    # and the grant it emits is capped at that tier.
+    # The all-tools choice covers the full enabled set, independent of this batch's rank.
     sheet, decisions = _sheet([CMD_CALL])
     assert sheet.allow_session_action.isEnabled() is True
-    assert sheet.allow_session_action.text() == "Allow all enabled tools in this chat, including destructive ones"
+    assert sheet.allow_session_action.text() == "Allow all enabled tools for this session"
     assert "destructive" in sheet.allow_session_action.toolTip()
     sheet.allow_session_action.trigger()
     assert decisions[0][0] == "session" and decisions[0][1]["trust_rank"] == 4
 
     sheet, _ = _sheet([READ_CALL])
-    assert sheet.allow_session_action.text() == "Allow all enabled tools in this chat"
-    assert "still asks" in sheet.allow_session_action.toolTip()
+    assert sheet.allow_session_action.text() == "Allow all enabled tools for this session"
+    assert "Disabled tools stay disabled" in sheet.allow_session_action.toolTip()
 
     sheet, _ = _sheet([READ_CALL, {"name": "mystery_tool", "arguments": {}}])
     assert sheet.allow_session_action.isEnabled() is False

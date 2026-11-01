@@ -1829,9 +1829,8 @@ class AssistantController:
                 out.append(name)
         return out
 
-    # Blanket ("trust this chat") grants stop at this gateway risk rank: observe
-    # (1) and act (2) qualify; outreach (3) and destroy (4) always keep asking
-    # unless the user set that tool to Auto by name.
+    # Default ceiling for the tier-limited API. The approval menu uses exact
+    # session tool selectors instead (grant_session_tools_auto_approval).
     TRUST_MAX_RISK_RANK = 2
 
     @staticmethod
@@ -1856,6 +1855,7 @@ class AssistantController:
         # grant is applied by the runtime at decision time (and is live for
         # runs already in flight), so the run keeps asking for the rest.
         trust_ceiling = self.session_trust_rank()
+        named = self._local_session_tool_names()
         if trust_ceiling and self.session_trust_path() != "local":
             trust_ceiling = 0
         for item in inventory.get("items") or []:
@@ -1867,7 +1867,7 @@ class AssistantController:
             mode = str(item.get("selected_mode") or "ask").strip().lower()
             if mode == "disabled" or item.get("available") is False:
                 continue
-            if mode == "approve" or (trust_ceiling and self._tool_trustable(item, trust_ceiling)):
+            if mode == "approve" or name in named or (trust_ceiling and self._tool_trustable(item, trust_ceiling)):
                 auto.append(name)
             else:
                 require.append(name)
@@ -1962,10 +1962,83 @@ class AssistantController:
 
     def _forget_session_trust(self, sid: str) -> None:
         self._session_auto_approve_all.discard(sid)
-        for attr in ("_session_trust_rank", "_session_trust_path"):
+        for attr in ("_session_trust_rank", "_session_trust_path", "_session_trust_tools"):
             table = getattr(self, attr, None)
             if isinstance(table, dict):
                 table.pop(sid, None)
+
+    def _local_session_tool_names(self, *, session_id: Optional[str] = None) -> set[str]:
+        sid = str(session_id or self.active_session_id or "").strip()
+        if self.session_trust_path(session_id=sid) != "local":
+            return set()
+        return set((getattr(self, "_session_trust_tools", None) or {}).get(sid, ()))
+
+    def grant_session_tools_auto_approval(
+        self, tool_names: Optional[List[str]] = None, *, session_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Approve named tools, or all currently enabled tools, for this session.
+
+        Expand against the current user selection before writing exact selectors.
+        This explicit session choice supersedes saved Ask defaults for these names;
+        it never enables a disabled tool or changes a persistent preference.
+        """
+        sid = str(session_id or self.active_session_id or "").strip()
+        if not sid:
+            raise ValueError("A session is required to save tool approval")
+        enabled = {
+            str(row.get("name") or "").strip()
+            for row in self.tool_inventory().get("items") or []
+            if isinstance(row, dict)
+            and row.get("available") is not False
+            and row.get("enabled") is not False
+            and row.get("selected_mode") != "disabled"
+            and str(row.get("name") or "").strip()
+        }
+        names = sorted(enabled if tool_names is None else set(tool_names))
+        if not names or any(name not in enabled for name in names):
+            raise ValueError("Session approval requires known, enabled tools")
+        if len(names) > 512:
+            raise ValueError("Session approval supports at most 512 tools")
+        path = self.session_tool_policy_path()
+        if path == "unavailable":
+            raise RuntimeError(self.session_tool_policy_reason)
+        policy = None
+        clamped = []
+        if path == "server":
+            answer = self.gateway.post_session_tool_policy(
+                sid,
+                {
+                    "approve": {"tools": names},
+                    "client": self.SESSION_TOOL_POLICY_CLIENT,
+                },
+            )
+            policy = answer.get("policy") if isinstance(answer, dict) else None
+            if (
+                not isinstance(policy, dict)
+                or policy.get("session_id") != sid
+                or not isinstance(policy.get("approve"), dict)
+            ):
+                raise RuntimeError("the gateway did not return this session's tool policy")
+            clamped = [dict(c) for c in policy.get("clamped") or [] if isinstance(c, dict)]
+            # Existing Gateway deny/ask rules still take precedence after a merge.
+            missing = set(names) - set(policy.get("approve") or {})
+            reported = {c.get("name") for c in clamped}
+            clamped.extend(
+                {"name": name, "reason": "not_covered"} for name in sorted(missing - reported)
+            )
+        rank = self.session_trust_rank(session_id=sid)
+        self._mirror_session_trust(sid, rank, path)
+        table = getattr(self, "_session_trust_tools", None)
+        if not isinstance(table, dict):
+            table = self._session_trust_tools = {}
+        table.setdefault(sid, set()).update(names)
+        return {
+            "path": path,
+            "session_id": sid,
+            "reason": self.session_tool_policy_reason,
+            "clamped": clamped,
+            "policy": policy,
+        }
 
     def grant_session_tool_auto_approval(
         self, *, session_id: Optional[str] = None, max_rank: Optional[int] = None
@@ -1975,7 +2048,8 @@ class AssistantController:
         The ceiling is the loudest risk tier the user actually saw when they
         granted it: approving a batch of file reads never buys blanket trust
         for a later destructive call, but granting it ON a destructive batch
-        does — the sheet says so on the item they clicked.
+        does. The approval menu uses grant_session_tools_auto_approval instead,
+        so its named/all-enabled choices are not limited by the current batch.
 
         Server path: POSTs ``{approve: {all, max_risk_rank}, ask, client}`` to
         the gateway's session tool policy; a refusal RAISES (no silent local
@@ -2047,10 +2121,10 @@ class AssistantController:
             request = policy.get("request") if isinstance(policy.get("request"), dict) else {}
             approve = request.get("approve") if isinstance(request.get("approve"), dict) else {}
             try:
-                rank = int(approve.get("max_risk_rank") or 4)
+                rank = int(approve.get("max_risk_rank") or 4) if approve.get("all") else 0
             except Exception:
                 rank = 4
-            self._mirror_session_trust(sid, max(1, min(4, rank)), "server")
+            self._mirror_session_trust(sid, max(0, min(4, rank)), "server")
             return policy
         if self.session_trust_path(session_id=sid) == "server":
             self._forget_session_trust(sid)
@@ -2082,7 +2156,8 @@ class AssistantController:
         if self.session_trust_path(session_id=session_id) != "local":
             return False
         ceiling = self.session_trust_rank(session_id=session_id)
-        if not ceiling:
+        named = self._local_session_tool_names(session_id=session_id)
+        if not ceiling and not named:
             return False
         if not isinstance(tool_calls, list) or not tool_calls:
             return False
@@ -2103,7 +2178,7 @@ class AssistantController:
             mode = str(item.get("selected_mode") or "ask").strip().lower()
             if mode == "disabled" or item.get("available") is False:
                 return False
-            if mode != "approve" and not self._tool_trustable(item, ceiling):
+            if mode != "approve" and name not in named and not (ceiling and self._tool_trustable(item, ceiling)):
                 return False
         return True
 

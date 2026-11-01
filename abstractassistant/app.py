@@ -11890,6 +11890,7 @@ class AssistantPalette(QMainWindow):
         self._note_user_wait(wait_key=wait_key, kind="approval", label=label, run_id=run_id, step_id=step_id)
         if alive and hasattr(sheet, "enqueue"):
             sheet.enqueue(list(tool_calls or []), run_id=run_id, wait_key=wait_key, risks=risks)
+            sheet.bring_to_front()
             return
         sheet = ToolApprovalDialog(
             tool_calls=list(tool_calls or []),
@@ -11907,8 +11908,7 @@ class AssistantPalette(QMainWindow):
         self._pause_voice_for_dialog()
         self._place_sheet(sheet)
         sheet.show()
-        sheet.raise_()
-        sheet.activateWindow()
+        sheet.bring_to_front()
 
     def _place_sheet(self, sheet: QDialog) -> None:
         """Center a sheet over the palette when visible, else near the tray."""
@@ -11968,7 +11968,7 @@ class AssistantPalette(QMainWindow):
         # Answered (approved or denied) — the run is no longer parked on the
         # user. "defer" returned above on purpose: it stays pending.
         self._clear_user_wait(wait_key)
-        approved = decision in {"once", "session"}
+        approved = decision in {"once", "tool_session", "session"}
 
         def send_decision(outcome: str) -> None:
             worker = self._state("_worker")
@@ -11993,15 +11993,15 @@ class AssistantPalette(QMainWindow):
                 self._set_history_status(f"Denied · {first}", tone="busy", badge_tone="thinking")
             self._resume_voice_after_dialog()
 
-        if decision != "session":
+        if decision not in {"tool_session", "session"}:
             send_decision("approved" if approved else "denied")
             return
-        # "Allow all enabled tools in this chat": the grant is written FIRST
+        # The exact session grant is written FIRST
         # (on a gateway with the session tool policy, that is the server-side
         # policy, so later covered calls never produce a wait), and only then
         # is the wait on screen answered, one-off (contract v1 §4: the policy
         # never answers a wait that already exists).
-        rank = int(details.get("trust_rank") or 0) or None
+        tools = list(details.get("session_tools") or []) if decision == "tool_session" else None
         sid = self._active_session_id()
         controller = self._controller
 
@@ -12012,12 +12012,12 @@ class AssistantPalette(QMainWindow):
         hub = self._state("_automations")
         if hub is None:
             try:
-                outcome = (True, controller.grant_session_tool_auto_approval(session_id=sid or None, max_rank=rank))
+                outcome = (True, controller.grant_session_tools_auto_approval(tools, session_id=sid or None))
             except Exception as exc:  # noqa: BLE001 - reported, the call is still approved once
                 outcome = (False, exc)
             granted(*outcome)
             return
-        hub.run(lambda: controller.grant_session_tool_auto_approval(session_id=sid or None, max_rank=rank), granted)
+        hub.run(lambda: controller.grant_session_tools_auto_approval(tools, session_id=sid or None), granted)
 
     def _report_session_grant(self, ok: bool, result: Any) -> None:
         """Say what a chat-wide grant did: a refusal (the shown call is still
@@ -12025,7 +12025,7 @@ class AssistantPalette(QMainWindow):
         if not ok:
             logger.warning("Chat-wide tool approval not saved: %s", result)
             self._set_banner(
-                f"“Allow all” for this chat was not saved: {result}. This call was approved once; "
+                f"Session approval was not saved: {result}. This call was approved once; "
                 "later ones will still ask.",
                 tone="error",
                 key="trust",

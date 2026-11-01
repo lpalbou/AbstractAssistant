@@ -4,7 +4,7 @@ post-hoc "tools used" dialog.
 Design rules (spec §3, adversarial findings 4 & 5):
 
 - The sheet is never modal and never runs a nested event loop. It reports
-  through ``decided(decision, info)`` — ``once`` | ``session`` | ``deny`` |
+  through ``decided(decision, info)`` — ``once`` | ``tool_session`` | ``session`` | ``deny`` |
   ``defer`` — exactly once per batch, and each batch carries its own
   ``run_id`` / ``wait_key`` so a second request can be queued behind the first
   (``enqueue``) instead of stealing its answer.
@@ -12,9 +12,8 @@ Design rules (spec §3, adversarial findings 4 & 5):
   ``autoDefault`` off so Return can never toggle an expander. Esc, the window
   close button and ``reject()`` all mean "decide later" — a dismissal never
   tells the model "denied".
-- Blanket trust ("Allow all enabled tools in this chat") lives in a menu
-  next to the primary button and is disabled for batches that reach outside,
-  destroy, or include a tool the gateway does not list.
+- Session grants live in the menu next to Allow once: named tools or every
+  enabled tool. Unknown and disabled tools cannot receive standing grants.
 - Risk comes from the gateway inventory via ``describe_tool_risk``; the card
   only lays it out. Colors come from ``theme.py`` tokens only.
 
@@ -24,9 +23,11 @@ Placement (centring over the palette, raise/activate) is the caller's job.
 from __future__ import annotations
 
 from collections import deque
+import logging
 from typing import Any, Deque, Dict, List, Optional
 
-from PyQt5.QtCore import QEvent, QObject, Qt, pyqtSignal
+from PyQt5 import sip
+from PyQt5.QtCore import QEvent, QObject, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QAbstractSpinBox,
@@ -67,14 +68,6 @@ from abstractassistant.ui.styles import MONO_STACK, dialog_stylesheet, refresh_s
 SHEET_WIDTH = 560
 SHEET_MIN_HEIGHT = 320
 SHEET_MAX_HEIGHT = 640
-# Above this tier the blanket grant is still OFFERED, but it names what it
-# covers: a grant made on a destructive batch is a decision, not a default.
-SESSION_TRUST_PLAIN_MAX_RANK = 2
-SESSION_TRUST_LABELS = {
-    3: "Allow all enabled tools in this chat, including ones that reach outside",
-    4: "Allow all enabled tools in this chat, including destructive ones",
-}
-
 _T = THEME
 _M = METRICS
 
@@ -606,6 +599,8 @@ class ToolApprovalSheet(QDialog):
         self._decided = True  # nothing loaded yet
         self._single_remember = False
         self._host_items: List[QWidget] = []
+        if parent is not None:
+            parent.installEventFilter(self)
 
         self._build_chrome()
         self.restyle()
@@ -754,7 +749,8 @@ class ToolApprovalSheet(QDialog):
         self.allowMenuButton.setFixedWidth(_M.control_sm)
         self.allow_menu = QMenu(self.allowMenuButton)
         self.allow_menu.setToolTipsVisible(True)
-        self.allow_session_action = QAction("Allow all enabled tools in this chat", self.allow_menu)
+        self.tool_session_actions: Dict[str, QAction] = {}
+        self.allow_session_action = QAction("Allow all enabled tools for this session", self.allow_menu)
         self.allow_session_action.triggered.connect(self._allow_session)
         self.allow_menu.addAction(self.allow_session_action)
         self.allowMenuButton.setMenu(self.allow_menu)
@@ -955,36 +951,45 @@ class ToolApprovalSheet(QDialog):
         self._fit_height()
 
     def _configure_session_action(self, tier: Dict[str, Any]) -> None:
-        """The blanket grant is always on offer for a batch of listed, enabled
-        tools — but it states how far it reaches, and the grant it emits is
-        capped at the tier the user is looking at."""
+        """Offer exact tool names separately from the session's whole enabled set."""
+        for action in self.tool_session_actions.values():
+            self.allow_menu.removeAction(action)
+            action.deleteLater()
+        self.tool_session_actions = {}
+        names = dict.fromkeys(card.presentation.name for card in self.card_widgets)
+        for name in names:
+            action = QAction(f"Allow all {name} calls for this session", self.allow_menu)
+            action.setEnabled(
+                all(
+                    card.presentation.available and not card.presentation.unknown
+                    for card in self.card_widgets
+                    if card.presentation.name == name
+                )
+            )
+            action.setToolTip(
+                f"Run this batch once and approve future {name} calls in this session. Other tools keep their current rules."
+            )
+            action.triggered.connect(
+                lambda _checked=False, tool=name: self._allow_tool_session(tool)
+            )
+            self.allow_menu.insertAction(self.allow_session_action, action)
+            self.tool_session_actions[name] = action
         reason = ""
-        rank = int(tier.get("rank") or 0)
         if tier.get("unknown"):
             reason = "Not offered: this batch includes a tool the gateway does not list."
         elif any(not card.presentation.available for card in self.card_widgets):
             reason = "Not offered: a tool in this batch is disabled on the gateway."
         self.allow_session_action.setEnabled(not reason)
-        self.allow_session_action.setText(
-            SESSION_TRUST_LABELS.get(rank, "Allow all enabled tools in this chat")
-        )
         if reason:
             self.allow_session_action.setToolTip(reason)
             self.allowMenuButton.setToolTip(reason)
             return
-        scope = str(tier.get("label") or "").strip().lower()
-        if rank > SESSION_TRUST_PLAIN_MAX_RANK and scope:
-            tip = (
-                f"Auto-approve every tool this Mac has not switched off — up to and including “{scope}” "
-                "calls like the ones above — for the rest of this chat (⇧⏎)"
-            )
-        else:
-            tip = (
-                "Auto-approve every tool this Mac has not switched off, for the rest of this chat (⇧⏎). "
-                "A later batch that reaches outside or destroys still asks."
-            )
+        tip = (
+            "Approve future calls to every tool currently enabled for this session, including "
+            "tools that send data or make destructive changes (⇧⏎). Disabled tools stay disabled."
+        )
         self.allow_session_action.setToolTip(tip)
-        self.allowMenuButton.setToolTip("More ways to allow (⇧⏎ allows all enabled tools in this chat)")
+        self.allowMenuButton.setToolTip("Allow a named tool or all enabled tools for this session")
 
     def _fit_height(self) -> None:
         layout = self.layout()
@@ -1009,22 +1014,24 @@ class ToolApprovalSheet(QDialog):
                 names.append(card.presentation.name)
         return names
 
-    def _decide(self, decision: str) -> None:
+    def _decide(self, decision: str, *, session_tools: Optional[List[str]] = None) -> None:
         if self._decided or not self.current_batch:
             return
         self._decided = True
         batch = self.current_batch
-        if decision in ("once", "session"):
+        if decision in ("once", "tool_session", "session"):
             self.approval_scope = decision
-        remember = self._remembered_names() if decision in ("once", "session") else []
+        remember = self._remembered_names() if decision == "once" else []
         info = {
             "run_id": str(batch.get("run_id") or ""),
             "wait_key": str(batch.get("wait_key") or ""),
             "remember": remember,
             "tool_calls": list(batch.get("tool_calls") or []),
-            # How far a "session" grant may reach: the loudest tier shown here.
+            # Report the displayed tier; session grants select exact tool names.
             "trust_rank": int((self.batch_risk or {}).get("rank") or 0),
         }
+        if decision == "tool_session":
+            info["session_tools"] = list(session_tools or [])
         self.decided.emit(decision, info)
         self._advance()
 
@@ -1083,6 +1090,11 @@ class ToolApprovalSheet(QDialog):
             return
         self._decide("session")
 
+    def _allow_tool_session(self, name: str) -> None:
+        action = self.tool_session_actions.get(name)
+        if action is not None and action.isEnabled():
+            self._decide("tool_session", session_tools=[name])
+
     def _deny(self) -> None:
         self._decide("deny")
 
@@ -1095,6 +1107,64 @@ class ToolApprovalSheet(QDialog):
             card.set_full_call_visible(show)
 
     # -- Qt overrides ------------------------------------------------------ #
+
+    def bring_to_front(self) -> None:
+        """Keep this pending decision above its owner, including Cocoa window levels."""
+        if not self.isVisible() or self._decided:
+            return
+        parent = self.parentWidget()
+        if parent is not None and parent.windowHandle() is not None:
+            if self.windowHandle().transientParent() is not parent.windowHandle():
+                self.windowHandle().setTransientParent(parent.windowHandle())
+        # Qt gives both our floating palette and its tool sheet level 8 on
+        # Cocoa. Raising the palette can therefore cover its pending decision.
+        import sys
+
+        if sys.platform == "darwin" and QApplication.platformName() == "cocoa":
+            try:
+                import AppKit
+                import objc
+
+                window = objc.objc_object(c_void_p=int(self.winId())).window()
+                owner = (
+                    objc.objc_object(c_void_p=int(parent.winId())).window()
+                    if parent is not None
+                    else None
+                )
+                if window is not None:
+                    window.setLevel_(
+                        max(
+                            int(AppKit.NSFloatingWindowLevel),
+                            int(owner.level()) + 1 if owner is not None else 0,
+                        )
+                    )
+            except Exception as exc:
+                if not getattr(self, "_native_stack_warning", False):
+                    self._native_stack_warning = True
+                    logging.getLogger(__name__).warning(
+                        "#FALLBACK: native approval stacking unavailable; using Qt: %s", exc
+                    )
+        self.raise_()
+        # Activating the sheet while its menu owns focus would dismiss the menu.
+        if QApplication.activePopupWidget() is None:
+            self.activateWindow()
+
+    def _queue_front(self) -> None:
+        def front() -> None:
+            if not sip.isdeleted(self):
+                self.bring_to_front()
+
+        QTimer.singleShot(0, front)
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        self.bring_to_front()
+        self._queue_front()
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        if obj is self.parentWidget() and event.type() in (QEvent.WindowActivate, QEvent.Show):
+            self._queue_front()
+        return super().eventFilter(obj, event)
 
     def accept(self) -> None:  # noqa: D401 (Qt API)
         self._decide("once")

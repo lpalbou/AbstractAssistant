@@ -189,10 +189,16 @@ earlier versions is ignored.
 
 Off and Ask narrow what the gateway allows; Auto pre-approves on this Mac. Tools you never
 configured follow the gateway's approval default. "Always allow … on this Mac" in the approval
-sheet is offered for the observe and act tiers only. "Allow all enabled tools in this chat" is
-always offered, and it reaches exactly as far as the batch you granted it on: granted on a
-read-only batch it keeps asking for outreach and destructive calls, granted on a destructive
-batch (the item then says so) it covers everything this page has not switched off, for that chat.
+sheet is offered for the observe and act tiers only. The arrow beside **Allow once** offers a
+session grant for each requested tool, plus **Allow all enabled tools for this session**.
+Named grants cover future calls to that tool; the all-tools choice covers every tool currently
+enabled, including outreach and destructive tools. These explicit session choices supersede this
+app's saved Ask defaults for the selected names without changing the defaults themselves.
+They never enable a disabled tool, and tools enabled later are not silently added to a grant.
+The Gateway stores the exact approved names for use across clients and restarts, subject to its
+authorization and existing deny/ask policy. A refused or clamped grant is reported, and the shown
+batch still receives a one-time answer. Older gateways use an explicitly reported in-app fallback.
+Click the palette's shield to remove the session grants and restore the saved defaults.
 
 ## Appearance & window
 

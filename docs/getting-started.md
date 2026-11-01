@@ -109,6 +109,13 @@ use. `Allow once` (Return) runs this batch, `Deny` (⌘D) refuses it, Esc decide
 question returns when you reopen the palette. Tick "Always allow … on this Mac" to stop being
 asked for that tool. The palette stays usable while the sheet is open.
 
+The arrow beside `Allow once` offers **Allow all <tool> calls for this session** and
+**Allow all enabled tools for this session**. The first remembers just that named tool;
+the second covers the tools currently enabled, including tools that send data or make changes.
+Neither enables a disabled tool or changes your saved defaults. Session approvals are stored by
+the Gateway and shared across clients; the shield button can restore the session's defaults.
+The sheet stays above the palette while a decision is pending.
+
 Questions from the assistant open a dialog with the rendered question and a multi-line answer
 box; you can also keep the run waiting or continue without answering.
 

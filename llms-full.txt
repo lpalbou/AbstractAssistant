@@ -557,6 +557,13 @@ use. `Allow once` (Return) runs this batch, `Deny` (⌘D) refuses it, Esc decide
 question returns when you reopen the palette. Tick "Always allow … on this Mac" to stop being
 asked for that tool. The palette stays usable while the sheet is open.
 
+The arrow beside `Allow once` offers **Allow all <tool> calls for this session** and
+**Allow all enabled tools for this session**. The first remembers just that named tool;
+the second covers the tools currently enabled, including tools that send data or make changes.
+Neither enables a disabled tool or changes your saved defaults. Session approvals are stored by
+the Gateway and shared across clients; the shield button can restore the session's defaults.
+The sheet stays above the palette while a decision is pending.
+
 Questions from the assistant open a dialog with the rendered question and a multi-line answer
 box; you can also keep the run waiting or continue without answering.
 
@@ -799,10 +806,16 @@ earlier versions is ignored.
 
 Off and Ask narrow what the gateway allows; Auto pre-approves on this Mac. Tools you never
 configured follow the gateway's approval default. "Always allow … on this Mac" in the approval
-sheet is offered for the observe and act tiers only. "Allow all enabled tools in this chat" is
-always offered, and it reaches exactly as far as the batch you granted it on: granted on a
-read-only batch it keeps asking for outreach and destructive calls, granted on a destructive
-batch (the item then says so) it covers everything this page has not switched off, for that chat.
+sheet is offered for the observe and act tiers only. The arrow beside **Allow once** offers a
+session grant for each requested tool, plus **Allow all enabled tools for this session**.
+Named grants cover future calls to that tool; the all-tools choice covers every tool currently
+enabled, including outreach and destructive tools. These explicit session choices supersede this
+app's saved Ask defaults for the selected names without changing the defaults themselves.
+They never enable a disabled tool, and tools enabled later are not silently added to a grant.
+The Gateway stores the exact approved names for use across clients and restarts, subject to its
+authorization and existing deny/ask policy. A refused or clamped grant is reported, and the shown
+batch still receives a one-time answer. Older gateways use an explicitly reported in-app fallback.
+Click the palette's shield to remove the session grants and restore the saved defaults.
 
 ## Appearance & window
 
@@ -3254,6 +3267,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 ## [Unreleased]
 
 ### Fixed
+
+- Native tool approval stays above the floating palette on macOS, including after the palette
+  is raised. Its Allow menu offers session approval for a named tool or all currently enabled
+  tools; grants use exact Gateway tool selectors without changing saved defaults.
 
 - Tray conversation/automation picker aligns with its header control, stays within that
   control's monitor after delayed updates, and limits its height so long lists scroll.
@@ -11331,9 +11348,8 @@ class AssistantController:
                 out.append(name)
         return out
 
-    # Blanket ("trust this chat") grants stop at this gateway risk rank: observe
-    # (1) and act (2) qualify; outreach (3) and destroy (4) always keep asking
-    # unless the user set that tool to Auto by name.
+    # Default ceiling for the tier-limited API. The approval menu uses exact
+    # session tool selectors instead (grant_session_tools_auto_approval).
     TRUST_MAX_RISK_RANK = 2
 
     @staticmethod
@@ -11358,6 +11374,7 @@ class AssistantController:
         # grant is applied by the runtime at decision time (and is live for
         # runs already in flight), so the run keeps asking for the rest.
         trust_ceiling = self.session_trust_rank()
+        named = self._local_session_tool_names()
         if trust_ceiling and self.session_trust_path() != "local":
             trust_ceiling = 0
         for item in inventory.get("items") or []:
@@ -11369,7 +11386,7 @@ class AssistantController:
             mode = str(item.get("selected_mode") or "ask").strip().lower()
             if mode == "disabled" or item.get("available") is False:
                 continue
-            if mode == "approve" or (trust_ceiling and self._tool_trustable(item, trust_ceiling)):
+            if mode == "approve" or name in named or (trust_ceiling and self._tool_trustable(item, trust_ceiling)):
                 auto.append(name)
             else:
                 require.append(name)
@@ -11464,10 +11481,83 @@ class AssistantController:
 
     def _forget_session_trust(self, sid: str) -> None:
         self._session_auto_approve_all.discard(sid)
-        for attr in ("_session_trust_rank", "_session_trust_path"):
+        for attr in ("_session_trust_rank", "_session_trust_path", "_session_trust_tools"):
             table = getattr(self, attr, None)
             if isinstance(table, dict):
                 table.pop(sid, None)
+
+    def _local_session_tool_names(self, *, session_id: Optional[str] = None) -> set[str]:
+        sid = str(session_id or self.active_session_id or "").strip()
+        if self.session_trust_path(session_id=sid) != "local":
+            return set()
+        return set((getattr(self, "_session_trust_tools", None) or {}).get(sid, ()))
+
+    def grant_session_tools_auto_approval(
+        self, tool_names: Optional[List[str]] = None, *, session_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Approve named tools, or all currently enabled tools, for this session.
+
+        Expand against the current user selection before writing exact selectors.
+        This explicit session choice supersedes saved Ask defaults for these names;
+        it never enables a disabled tool or changes a persistent preference.
+        """
+        sid = str(session_id or self.active_session_id or "").strip()
+        if not sid:
+            raise ValueError("A session is required to save tool approval")
+        enabled = {
+            str(row.get("name") or "").strip()
+            for row in self.tool_inventory().get("items") or []
+            if isinstance(row, dict)
+            and row.get("available") is not False
+            and row.get("enabled") is not False
+            and row.get("selected_mode") != "disabled"
+            and str(row.get("name") or "").strip()
+        }
+        names = sorted(enabled if tool_names is None else set(tool_names))
+        if not names or any(name not in enabled for name in names):
+            raise ValueError("Session approval requires known, enabled tools")
+        if len(names) > 512:
+            raise ValueError("Session approval supports at most 512 tools")
+        path = self.session_tool_policy_path()
+        if path == "unavailable":
+            raise RuntimeError(self.session_tool_policy_reason)
+        policy = None
+        clamped = []
+        if path == "server":
+            answer = self.gateway.post_session_tool_policy(
+                sid,
+                {
+                    "approve": {"tools": names},
+                    "client": self.SESSION_TOOL_POLICY_CLIENT,
+                },
+            )
+            policy = answer.get("policy") if isinstance(answer, dict) else None
+            if (
+                not isinstance(policy, dict)
+                or policy.get("session_id") != sid
+                or not isinstance(policy.get("approve"), dict)
+            ):
+                raise RuntimeError("the gateway did not return this session's tool policy")
+            clamped = [dict(c) for c in policy.get("clamped") or [] if isinstance(c, dict)]
+            # Existing Gateway deny/ask rules still take precedence after a merge.
+            missing = set(names) - set(policy.get("approve") or {})
+            reported = {c.get("name") for c in clamped}
+            clamped.extend(
+                {"name": name, "reason": "not_covered"} for name in sorted(missing - reported)
+            )
+        rank = self.session_trust_rank(session_id=sid)
+        self._mirror_session_trust(sid, rank, path)
+        table = getattr(self, "_session_trust_tools", None)
+        if not isinstance(table, dict):
+            table = self._session_trust_tools = {}
+        table.setdefault(sid, set()).update(names)
+        return {
+            "path": path,
+            "session_id": sid,
+            "reason": self.session_tool_policy_reason,
+            "clamped": clamped,
+            "policy": policy,
+        }
 
     def grant_session_tool_auto_approval(
         self, *, session_id: Optional[str] = None, max_rank: Optional[int] = None
@@ -11477,7 +11567,8 @@ class AssistantController:
         The ceiling is the loudest risk tier the user actually saw when they
         granted it: approving a batch of file reads never buys blanket trust
         for a later destructive call, but granting it ON a destructive batch
-        does — the sheet says so on the item they clicked.
+        does. The approval menu uses grant_session_tools_auto_approval instead,
+        so its named/all-enabled choices are not limited by the current batch.
 
         Server path: POSTs ``{approve: {all, max_risk_rank}, ask, client}`` to
         the gateway's session tool policy; a refusal RAISES (no silent local
@@ -11549,10 +11640,10 @@ class AssistantController:
             request = policy.get("request") if isinstance(policy.get("request"), dict) else {}
             approve = request.get("approve") if isinstance(request.get("approve"), dict) else {}
             try:
-                rank = int(approve.get("max_risk_rank") or 4)
+                rank = int(approve.get("max_risk_rank") or 4) if approve.get("all") else 0
             except Exception:
                 rank = 4
-            self._mirror_session_trust(sid, max(1, min(4, rank)), "server")
+            self._mirror_session_trust(sid, max(0, min(4, rank)), "server")
             return policy
         if self.session_trust_path(session_id=sid) == "server":
             self._forget_session_trust(sid)
@@ -11584,7 +11675,8 @@ class AssistantController:
         if self.session_trust_path(session_id=session_id) != "local":
             return False
         ceiling = self.session_trust_rank(session_id=session_id)
-        if not ceiling:
+        named = self._local_session_tool_names(session_id=session_id)
+        if not ceiling and not named:
             return False
         if not isinstance(tool_calls, list) or not tool_calls:
             return False
@@ -11605,7 +11697,7 @@ class AssistantController:
             mode = str(item.get("selected_mode") or "ask").strip().lower()
             if mode == "disabled" or item.get("available") is False:
                 return False
-            if mode != "approve" and not self._tool_trustable(item, ceiling):
+            if mode != "approve" and name not in named and not (ceiling and self._tool_trustable(item, ceiling)):
                 return False
         return True
 

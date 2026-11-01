@@ -57,7 +57,9 @@ class _Gateway:
             "version": 1,
             "session_id": sid,
             "revision": 1,
-            "approve": {"read_file": "all", "write_file": "all"},
+            "approve": {name: "tool" for name in body["approve"]["tools"]}
+            if "tools" in body.get("approve", {})
+            else {"read_file": "all", "write_file": "all"},
             "deny": {},
             "ask": list(body.get("ask") or []),
             "request": body,
@@ -204,9 +206,8 @@ def test_allow_all_writes_the_policy_before_the_shown_wait_is_answered() -> None
             "POST",
             "chat-a",
             {
-                "approve": {"all": True, "max_risk_rank": 3},
+                "approve": {"tools": ["read_file", "send_email", "write_file"]},
                 "client": "abstractassistant-desktop",
-                "ask": ["send_email"],
             },
         ),
         ("ANSWER", True, "tool_calls:run-1:agent"),
@@ -219,6 +220,76 @@ def test_allow_all_writes_the_policy_before_the_shown_wait_is_answered() -> None
     assert controller.should_auto_approve_tool_batch([{"name": "read_file"}]) is False
     assert controller.tool_policy_for_run()["require_approval_tools"] == ["read_file", "write_file", "send_email"]
     assert host.banners == []
+
+
+@pytest.mark.basic
+def test_named_session_choice_writes_only_that_name_before_answering_batch() -> None:
+    journal = []
+    controller = _controller(journal, supported=True)
+    host = _palette(controller, journal)
+    AssistantPalette._on_tool_decision(
+        host,
+        "tool_session",
+        {
+            "run_id": "run-1",
+            "wait_key": "wait-1",
+            "session_tools": ["read_file"],
+            "tool_calls": [{"name": "read_file"}, {"name": "write_file"}],
+        },
+    )
+    assert journal == [
+        (
+            "POST",
+            "chat-a",
+            {"approve": {"tools": ["read_file"]}, "client": "abstractassistant-desktop"},
+        ),
+        ("ANSWER", True, "wait-1"),
+    ]
+    assert controller.session_trust_rank() == 0
+    assert controller.preferences.tool_preferences == {"send_email": "ask", "write_file": "approve"}
+    controller.sync_session_tool_policy()
+    assert controller.session_trust_rank() == 0
+    assert controller.session_tool_auto_approval_active()
+
+
+@pytest.mark.basic
+def test_local_named_grants_do_not_widen_other_tools_or_sessions() -> None:
+    controller = _controller([], supported=False)
+    controller.grant_session_tools_auto_approval(["read_file"])
+    assert controller.should_auto_approve_tool_batch([{"name": "read_file"}])
+    assert not controller.should_auto_approve_tool_batch([{"name": "send_email"}])
+    assert not controller.should_auto_approve_tool_batch(
+        [{"name": "read_file"}, {"name": "send_email"}]
+    )
+    assert controller.tool_policy_for_run()["auto_approve_tools"] == ["read_file"]
+    assert not controller.should_auto_approve_tool_batch(
+        [{"name": "read_file"}], session_id="other"
+    )
+    controller.revoke_session_tool_auto_approval()
+    assert not controller.should_auto_approve_tool_batch([{"name": "read_file"}])
+
+
+@pytest.mark.basic
+@pytest.mark.parametrize("supported", [True, False])
+def test_all_session_tools_snapshot_excludes_disabled_and_unknown_names(supported) -> None:
+    journal = []
+    controller = _controller(journal, supported=supported)
+    items = [dict(row) for row in _ITEMS] + [
+        {"name": "off", "selected_mode": "disabled"},
+        {"name": "unavailable", "available": False},
+    ]
+    controller.tool_inventory = lambda: {"items": items}
+    for invalid in (["off"], ["unavailable"], ["mystery"], []):
+        with pytest.raises(ValueError):
+            controller.grant_session_tools_auto_approval(invalid)
+    assert not journal
+    controller.grant_session_tools_auto_approval()
+    items.append({"name": "later", "selected_mode": "ask"})
+    assert not controller.should_auto_approve_tool_batch([{"name": "later"}])
+    if supported:
+        assert journal[0][2]["approve"] == {"tools": ["read_file", "send_email", "write_file"]}
+    else:
+        assert controller.should_auto_approve_tool_batch([{"name": "send_email"}])
 
 
 @pytest.mark.basic
@@ -331,7 +402,7 @@ def test_without_the_capability_the_local_grant_is_the_reported_fallback(caplog:
     # ...and the person is told too, not only the log.
     assert any("in this app only" in text and key == "trust" for text, _tone, key in host.banners)
     assert controller.should_auto_approve_tool_batch([{"name": "read_file"}, {"name": "write_file"}]) is True
-    assert controller.should_auto_approve_tool_batch([{"name": "send_email"}]) is False
+    assert controller.should_auto_approve_tool_batch([{"name": "send_email"}]) is True
     controller.revoke_session_tool_auto_approval()
     assert journal == [("ANSWER", True, "tool_calls:run-1:agent")]  # no DELETE either
     assert controller.sync_session_tool_policy() is None

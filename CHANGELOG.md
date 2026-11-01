@@ -7,6 +7,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Fixed
 
+- Native tool approval stays above the floating palette on macOS, including after the palette
+  is raised. Its Allow menu offers session approval for a named tool or all currently enabled
+  tools; grants use exact Gateway tool selectors without changing saved defaults.
+
 - Tray conversation/automation picker aligns with its header control, stays within that
   control's monitor after delayed updates, and limits its height so long lists scroll.
 
