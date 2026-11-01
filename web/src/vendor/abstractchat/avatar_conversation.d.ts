@@ -34,6 +34,8 @@ export type AvatarConversationProps = AvatarConversationOptions & {
     messages: ChatMessage[];
     /** Existing authoritative question or approval controls, supplied by the host. */
     interaction?: React.ReactNode;
+    /** Exact currently rendered request; an empty ID means the host deferred it. */
+    interactionId?: string;
     /** Draft editing or other host-owned attention freezes rolling captions. */
     attended?: boolean;
     /** Shared final/attachment rendering, with private reasoning removed before presentation. */

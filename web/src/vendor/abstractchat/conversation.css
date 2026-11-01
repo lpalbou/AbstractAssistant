@@ -388,6 +388,71 @@
   flex-wrap: wrap;
 }
 
+/* Optional rounded multiline composer; all host actions remain in their slots. */
+.pc-composer.pc-composer--compact {
+  gap: 3px;
+  padding: 7px 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--ui-border-1, rgba(255, 255, 255, .1));
+  border-radius: 26px;
+  background: var(--ui-surface-1, rgba(0, 0, 0, .18));
+}
+.pc-composer--compact:focus-within {
+  border-color: var(--accent-border, rgba(96, 165, 250, .35));
+  box-shadow: 0 0 0 2px var(--accent-subtle, rgba(96, 165, 250, .12));
+}
+.pc-composer--compact .pc-composer__textarea {
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 18px;
+  background: transparent;
+  padding: 6px 8px;
+  min-height: calc(var(--pc-composer-rows, 2) * 1.35em + 12px);
+  max-height: min(10.8em, calc(var(--vh-full, 100vh) * .32));
+  box-shadow: none;
+}
+.pc-composer--compact .pc-composer__row { gap: 6px; padding-left: 3px; }
+.pc-composer--compact .pc-composer__actions { flex: 1 1 0; flex-wrap: wrap; gap: 6px; }
+.pc-composer--compact .pc-composer__actions > .af-voice-mic { margin-inline-start: auto; }
+.pc-composer.pc-composer--compact .pc-workflow-chat__icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.pc-composer--compact .pc-composer__row > .pc-composer__send--compact {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--ui-border-2, rgba(255, 255, 255, .2));
+  background: var(--text-primary, #eee);
+  color: var(--bg-primary, #14171d);
+}
+.pc-composer--compact .pc-composer__send--compact:disabled { opacity: .45; }
+.pc-composer--compact .pc-composer__send--compact[aria-busy="true"] > svg { animation: pc-compact-send-spin 1s linear infinite; }
+@keyframes pc-compact-send-spin { to { transform: rotate(360deg); } }
+@media (pointer: coarse) {
+  .pc-composer--compact .pc-composer__row > .pc-composer__send--compact {
+    flex-basis: var(--tap-min, 44px);
+    width: var(--tap-min, 44px);
+    min-width: var(--tap-min, 44px);
+    height: var(--tap-min, 44px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pc-composer--compact .pc-composer__send--compact[aria-busy="true"] > svg { animation: none; }
+}
+
 /* ------------------------------------------------------------------ */
 /* Chat thread + message cards                                         */
 /* ------------------------------------------------------------------ */
@@ -2636,6 +2701,43 @@ button.pc-ws__name:hover {
   flex: 1 0 auto;
 }
 .pc-avatar-conversation__scene > * { max-width: 100%; }
+.pc-avatar-conversation[data-has-request] {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  grid-auto-rows: max-content;
+  align-content: start;
+}
+.pc-avatar-conversation[data-has-request] > * { grid-column: 1 / -1; }
+.pc-avatar-conversation[data-has-request] .pc-avatar-conversation__scene {
+  grid-column: 1;
+  grid-row: 1;
+  flex: 0 0 auto;
+  min-height: 0;
+  height: 48px;
+}
+.pc-avatar-conversation[data-has-request] .pc-avatar-conversation__scene > * {
+  width: 48px !important;
+  height: 48px !important;
+}
+.pc-avatar-conversation[data-has-request] .pc-avatar-conversation__status {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: center;
+  text-align: start;
+}
+.pc-avatar-conversation__request {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  min-width: 0;
+  background: var(--ui-surface-0, var(--bg-primary, #191a25));
+}
+.pc-avatar-conversation__request .pc-workflow-interaction__detail {
+  max-height: clamp(48px, 10dvh, 96px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.pc-avatar-conversation__request .pc-workflow-interaction { margin: 0; }
 .pc-avatar-conversation__status { text-align: center; margin: 0; font-weight: 600; }
 .pc-avatar-conversation__attention { border-inline-start: 3px solid currentColor; padding: .5rem .75rem; margin: 0; }
 .pc-avatar-conversation__attention[data-kind="approval"] { color: var(--warning, #d6a648); }

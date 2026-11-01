@@ -3,6 +3,8 @@ export type ChatComposerProps = {
     value: string;
     onChange: (value: string) => void;
     onSubmit: () => void;
+    /** Compact rounded multiline box; the existing layout is the default. */
+    variant?: "default" | "compact";
     placeholder?: string;
     /** Accessible name for the message field. Falls back to its placeholder. */
     ariaLabel?: string;
