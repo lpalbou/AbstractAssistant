@@ -214,6 +214,9 @@ export type WorkflowSessionSnapshot = {
     /** Optional human-facing status emitted by `abstract.status` events. */
     displayStatus: string;
     loading: boolean;
+    /** Earlier session turns are still being restored. The current answer may
+     * already be rendered; hosts must wait before consuming an opening's history. */
+    historyLoading?: boolean;
     error: string | null;
     connection: WorkflowConnection;
     /** Browser/controller-local consent only; never persisted or a policy bypass. */

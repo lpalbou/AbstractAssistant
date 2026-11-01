@@ -1,8 +1,10 @@
+import type { AfGatewayFetch } from "@abstractframework/ui-kit";
 import React from "react";
 import { type ComposerAttachment } from "./attachment_uploads.js";
 import type { ChatMessage, ChatMessageCardProps } from "./chat_message_card.js";
 import { type WorkflowInteraction } from "./workflow_interaction.js";
 import type { StreamRepliesMode } from "./llm_delta.js";
+import { type AvatarConversationOptions } from "./avatar_conversation.js";
 /** What the host's steer door answered (`POST commands {type:"inject_guidance"}`
  * answers `{accepted, duplicate, seq}`; ui-kit `SteerSubmitResult` fits). */
 export type ChatSteerResult = {
@@ -36,8 +38,17 @@ export type ChatToolbar = {
     copyTranscript?: boolean;
 };
 export type WorkflowChatProps = {
+    /** Optional second presentation; the existing controlled composer and actions stay mounted. */
+    avatarConversation?: AvatarConversationOptions;
     /** Fully controlled transcript. The host owns message persistence and identity. */
     messages: ChatMessage[];
+    /** Authenticated app-origin artifact reads, never model-provided URLs. */
+    artifactFetch?: AfGatewayFetch;
+    attachmentScope?: string;
+    attachmentRun?: {
+        runId: string;
+        output: unknown;
+    };
     /** Fully controlled composer value. It is intentionally retained on failed sends. */
     draft: string;
     onDraftChange: (draft: string) => void;
@@ -79,6 +90,10 @@ export type WorkflowChatProps = {
     header?: React.ReactNode;
     footer?: React.ReactNode;
     composerExtras?: React.ReactNode;
+    /** Host controls beside Send (e.g. voice); left-side controls stay in composerExtras. */
+    composerTrailingActions?: React.ReactNode;
+    /** Rounded multiline by default; `legacy` opts into the former layout. */
+    composerVariant?: import("./chat_composer.js").ChatComposerVariant;
     /** Optional host-owned attachment picker/action. */
     onAttach?: () => void | Promise<unknown>;
     /**
@@ -123,9 +138,9 @@ export type WorkflowChatProps = {
     streamReplies?: StreamRepliesMode;
 };
 /**
- * Controlled chat presentation for workflow hosts. It does not fetch, poll,
- * mutate transcript state, or resume workflows: all gateway semantics stay in
- * the embedding controller.
+ * Controlled chat presentation for workflow hosts. Optional artifactFetch supplies
+ * authenticated attachment reads; run execution, persistence and approvals stay
+ * with the embedding host and controller.
  */
 export declare function WorkflowChat(props: WorkflowChatProps): React.ReactElement;
 export default WorkflowChat;

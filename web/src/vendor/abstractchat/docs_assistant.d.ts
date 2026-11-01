@@ -117,6 +117,7 @@ export type DocsAssistantPanelProps = {
     suggestions?: string[];
     onSuggestion?: (text: string) => void;
     placeholder?: string;
+    composerVariant?: import("./chat_composer.js").ChatComposerVariant;
     onSpeakToggle?: ChatMessageCardProps["onSpeakToggle"];
     getSpeakState?: ChatMessageCardProps["getSpeakState"];
 };
@@ -131,6 +132,7 @@ export type DocsAssistantChatProps = {
     connected: boolean;
     suggestions?: string[];
     placeholder?: string;
+    composerVariant?: import("./chat_composer.js").ChatComposerVariant;
     /** App voice overrides and playback preferences; absent = Gateway defaults. */
     voicePreferences?: VoiceClientPreferences;
     /** A kept-alive rail host can stop playback when its panel is hidden. */

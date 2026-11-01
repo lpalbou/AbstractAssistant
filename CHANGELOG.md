@@ -5,6 +5,11 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+### Changed
+
+- The web chat composer is the shared rounded multiline composer (AbstractUIC panel-chat 0.7.0),
+  styled once by the shared component; the microphone remains the orb above the conversation.
+
 ### Fixed
 
 - Native tool approval stays above the floating palette on macOS, including after the palette

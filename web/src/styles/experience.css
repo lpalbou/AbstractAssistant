@@ -84,12 +84,10 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
 .aa-chat .pc-chat-item--warn { border-color: var(--aa-approval-border); background: var(--aa-amber-bg); }
 .aa-chat .pc-chat-item--error { color: var(--aa-danger); background: var(--aa-danger-bg); }
 .aa-chat .pc-workflow-chat__composer { padding: 12px 22px 20px; border: 0; }
-.aa-chat .pc-composer { border: 1px solid var(--aa-border); border-radius: 22px; background: var(--aa-surface); padding: 10px 12px; box-shadow: var(--aa-shadow-card); }
-.aa-chat .pc-composer:focus-within { border-color: var(--aa-accent-border); }
-.aa-chat .pc-composer__textarea { font-size: 15px; background: transparent; border: 0; min-height: 48px; padding: 6px 8px; resize: none; }
-.aa-chat .pc-composer__row { gap: 8px; align-items: center; }
-.aa-chat .pc-composer__row > button { border-radius: 20px; min-width: 44px; min-height: 44px; border: 1px solid var(--aa-border); padding: 0 14px; color: var(--aa-on-accent); background: var(--aa-accent); font-size: 13px; }
-.aa-chat .pc-composer__row > button:disabled { opacity: .45; }
+/* The shared rounded composer (panel-chat) owns its shape, focus ring and targets; the
+ * app's tokens reach it through --ui-surface-1/--ui-border-1/--accent-*. Only the type size is ours. */
+.aa-chat .pc-composer__textarea { font-size: 15px; }
+@media (pointer: coarse) { .aa-chat .pc-composer__textarea { font-size: 16px; } }
 .aa-chat .pc-workflow-chat__footer { padding: 0 24px; border: 0; }
 .aa-chat__notes { display: grid; gap: 6px; }
 .aa-note { margin: 0; font-size: 13px; line-height: 1.6; color: var(--aa-text-muted); overflow-wrap: anywhere; }

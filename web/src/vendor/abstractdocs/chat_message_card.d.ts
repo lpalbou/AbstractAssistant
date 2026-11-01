@@ -1,3 +1,5 @@
+import { type MessageArtifact } from "./message_artifacts.js";
+import type { PublicUpdate } from "./conversation_model.js";
 import React from "react";
 import { type IconName } from "@abstractframework/ui-kit";
 import type { MarkdownImages } from "./markdown.js";
@@ -17,6 +19,9 @@ export type ChatMessage = {
      * README's "Messages from the replay view" mapping.
      */
     kind?: string;
+    /** Original public channel attribution, retained through replay. */
+    source?: string;
+    publicUpdate?: PublicUpdate;
     toolActivity?: WorkflowToolActivity;
     statistics?: WorkflowStatistics;
     runId?: string;
@@ -41,10 +46,13 @@ export type ChatMessage = {
     attachments?: ChatAttachment[];
     /**
      * Artifact ids this message carries (`replay_view_v1.messages[].artifact_ids`,
-     * or `$artifact` refs a host folded). Data only: a host resolves them into
-     * `media` / `attachments` (e.g. with a transport's `resolveArtifact`).
+     * or `$artifact` refs a host folded). WorkflowChat presents them as named
+     * file chips with its artifactFetch transport; hosts may also supply media.
      */
     artifactIds?: string[];
+    /** Unlisted replay refs require explicit output recovery, never raw-ID chips. */
+    artifactReferencesUnresolved?: boolean;
+    artifactRefs?: MessageArtifact[];
 };
 /**
  * One generated media item. `src` is supplied by the HOST (typically a

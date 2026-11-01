@@ -90,8 +90,10 @@ export type WorkflowChatProps = {
     header?: React.ReactNode;
     footer?: React.ReactNode;
     composerExtras?: React.ReactNode;
-    /** Optional compact rounded multiline presentation of the existing composer. */
-    composerVariant?: "default" | "compact";
+    /** Host controls beside Send (e.g. voice); left-side controls stay in composerExtras. */
+    composerTrailingActions?: React.ReactNode;
+    /** Rounded multiline by default; `legacy` opts into the former layout. */
+    composerVariant?: import("./chat_composer.js").ChatComposerVariant;
     /** Optional host-owned attachment picker/action. */
     onAttach?: () => void | Promise<unknown>;
     /**

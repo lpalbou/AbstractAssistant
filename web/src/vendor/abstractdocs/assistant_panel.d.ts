@@ -19,6 +19,7 @@ export type AssistantPanelProps = {
      * (e.g. "Connect to the gateway to use the assistant"). */
     blockedNotice?: string;
     placeholder?: string;
+    composerVariant?: import("./chat_composer.js").ChatComposerVariant;
     className?: string;
     /** Controlled history (optional). Uncontrolled by default. */
     messages?: ChatMessage[];

@@ -387,8 +387,12 @@
   align-items: center;
   flex-wrap: wrap;
 }
+.pc-composer__trailing { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-inline-start: auto; }
+.pc-composer__icon-action { display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; font: inherit; border: 1px solid transparent; background: transparent; color: inherit; }
+.pc-composer__icon-action:focus-visible { outline: 2px solid var(--accent, #7189c0); outline-offset: 2px; }
+.pc-composer__icon-action:disabled { opacity: .5; cursor: not-allowed; }
 
-/* Optional rounded multiline composer; all host actions remain in their slots. */
+/* Shared default rounded multiline composer; host actions keep their own semantics. */
 .pc-composer.pc-composer--compact {
   gap: 3px;
   padding: 7px 8px;
@@ -418,8 +422,8 @@
 }
 .pc-composer--compact .pc-composer__row { gap: 6px; padding-left: 3px; }
 .pc-composer--compact .pc-composer__actions { flex: 1 1 0; flex-wrap: wrap; gap: 6px; }
-.pc-composer--compact .pc-composer__actions > .af-voice-mic { margin-inline-start: auto; }
-.pc-composer.pc-composer--compact .pc-workflow-chat__icon-button {
+.pc-composer.pc-composer--compact .pc-workflow-chat__icon-button,
+.pc-composer.pc-composer--compact .pc-composer__icon-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2051,6 +2055,7 @@ button.pc-ws__name:hover {
   }
 
   .pc-workflow-chat__icon-button,
+  .pc-composer__icon-action,
   .pc-ws__icon-btn {
     min-width: var(--tap-min, 44px);
     min-height: var(--tap-min, 44px);
@@ -2765,11 +2770,11 @@ button.pc-ws__name:hover {
 .pc-public-approval__buttons > [data-decision="approve"] { border: 1px solid var(--accent-border, #7189c0); background: var(--accent-subtle, #7189c033); font-weight: 600; }
 .pc-public-approval__review { margin-inline-start: auto; }
 .pc-workflow-interaction--conversation .pc-workflow-interaction__body { margin-top: 6px; gap: 8px; }
-@media (max-height: 700px) {
-  .pc-avatar-conversation[data-has-request] { padding-block: 8px; gap: 8px; }
-  .pc-avatar-conversation[data-has-request] .pc-avatar-conversation__scene { height: 40px; }
-  .pc-avatar-conversation[data-has-request] .pc-avatar-conversation__scene > * { width: 40px !important; height: 40px !important; }
-}
+/* While a request is open the avatar yields the space: a small scene beside its status so the
+   question or approval and its controls stay visible at every viewport height. */
+.pc-avatar-conversation[data-has-request] { padding-block: 8px; gap: 8px; }
+.pc-avatar-conversation[data-has-request] .pc-avatar-conversation__scene { height: 40px; }
+.pc-avatar-conversation[data-has-request] .pc-avatar-conversation__scene > * { width: 40px !important; height: 40px !important; }
 .pc-avatar-conversation__status { text-align: center; margin: 0; font-weight: 600; }
 .pc-avatar-conversation__attention { border-inline-start: 3px solid currentColor; padding: .5rem .75rem; margin: 0; }
 .pc-avatar-conversation__attention[data-kind="approval"] { color: var(--warning, #d6a648); }

@@ -1297,13 +1297,14 @@ import { jsx as _jsx7, jsxs as _jsxs5 } from "react/jsx-runtime";
 import React3, { useCallback as useCallback2, useEffect as useEffect7, useRef as useRef5 } from "react";
 import { Icon as Icon4 } from "@abstractframework/ui-kit";
 var ChatComposer = React3.forwardRef(function ChatComposer2(props, ref) {
-  const compact = props.variant === "compact";
+  const compact = props.variant !== "legacy";
   const rows2 = typeof props.rows === "number" && Number.isFinite(props.rows) ? Math.max(1, Math.trunc(props.rows)) : compact ? 2 : 3;
   const disabled = Boolean(props.disabled);
   const busy = Boolean(props.busy);
-  const can_submit = !disabled && !busy && Boolean(String(props.value || "").trim());
+  const can_submit = !disabled && !busy && (props.canSubmit ?? Boolean(String(props.value || "").trim()));
   const sendLabel = busy ? props.busyLabel || "Thinking\u2026" : props.sendLabel || "Send";
   const textarea = useRef5(null);
+  const fallbackSizing = useRef5(false);
   const setTextarea = useCallback2((element) => {
     textarea.current = element;
     if (typeof ref === "function")
@@ -1311,32 +1312,41 @@ var ChatComposer = React3.forwardRef(function ChatComposer2(props, ref) {
     else if (ref)
       ref.current = element;
   }, [ref]);
+  const resizeTextarea = useCallback2(() => {
+    const element = textarea.current;
+    if (!element || !fallbackSizing.current)
+      return;
+    element.style.height = "0px";
+    const cap = parseFloat(getComputedStyle(element).maxHeight);
+    element.style.height = `${Math.min(element.scrollHeight, Number.isFinite(cap) ? cap : Infinity)}px`;
+  }, []);
   useEffect7(() => {
     const element = textarea.current;
     if (!compact || !element || typeof CSS !== "undefined" && CSS.supports?.("field-sizing", "content"))
       return;
-    const resize = () => {
-      element.style.height = "0px";
-      const cap = parseFloat(getComputedStyle(element).maxHeight);
-      element.style.height = `${Math.min(element.scrollHeight, Number.isFinite(cap) ? cap : Infinity)}px`;
-    };
-    resize();
-    window.addEventListener("resize", resize);
+    fallbackSizing.current = true;
+    resizeTextarea();
+    window.addEventListener("resize", resizeTextarea);
     let width = element.clientWidth;
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => {
       if (element.clientWidth !== width) {
         width = element.clientWidth;
-        resize();
+        resizeTextarea();
       }
     });
     observer?.observe(element);
     return () => {
+      fallbackSizing.current = false;
       observer?.disconnect();
-      window.removeEventListener("resize", resize);
+      window.removeEventListener("resize", resizeTextarea);
       element.style.removeProperty("height");
     };
-  }, [compact, props.value, rows2]);
+  }, [compact, resizeTextarea]);
+  useEffect7(() => {
+    resizeTextarea();
+  }, [props.value, rows2, resizeTextarea]);
   return _jsxs5("div", { className: ["pc-composer", compact ? "pc-composer--compact" : "", props.className].filter(Boolean).join(" "), children: [props.leading, _jsx7("textarea", {
+    id: props.textareaId,
     ref: setTextarea,
     className: ["pc-composer__textarea", props.textareaClassName].filter(Boolean).join(" "),
     value: props.value,
@@ -1351,11 +1361,14 @@ var ChatComposer = React3.forwardRef(function ChatComposer2(props, ref) {
     autoComplete: "off",
     placeholder: props.placeholder || "",
     "aria-label": props.ariaLabel || props.placeholder || "Message",
+    "aria-describedby": props.ariaDescribedBy,
     disabled,
     autoFocus: Boolean(props.autoFocus),
     onPaste: props.onPaste,
     onKeyDown: (e) => {
       if (e.key !== "Enter" || e.shiftKey)
+        return;
+      if (props.submitKey === "mod-enter" && !e.ctrlKey && !e.metaKey)
         return;
       if (e.nativeEvent.isComposing || e.keyCode === 229)
         return;
@@ -1364,7 +1377,7 @@ var ChatComposer = React3.forwardRef(function ChatComposer2(props, ref) {
         return;
       props.onSubmit();
     }
-  }), _jsxs5("div", { className: "pc-composer__row", children: [_jsx7("div", { className: "pc-composer__actions", children: props.actions }), _jsx7("button", { type: "button", className: [props.sendButtonClassName || "pc-btn", compact ? "pc-composer__send--compact" : ""].filter(Boolean).join(" "), "aria-label": compact ? sendLabel : void 0, title: compact ? sendLabel : void 0, "aria-busy": compact ? busy : void 0, disabled: !can_submit, onClick: () => props.onSubmit(), children: compact ? _jsx7(Icon4, { name: busy ? "loader" : "send", size: 17 }) : sendLabel })] }), props.overlay] });
+  }), _jsxs5("div", { className: "pc-composer__row", children: [_jsxs5("div", { className: "pc-composer__actions", children: [props.onAttach ? _jsxs5("button", { type: "button", className: compact ? "pc-composer__icon-action" : "pc-composer__icon-action pc-workflow-chat__icon-button", "aria-label": props.attachLabel || "Attach files", "data-af-tip": props.attachLabel || "Attach files", "aria-busy": props.attachPending || void 0, disabled: disabled || props.attachDisabled || props.attachPending, onClick: props.onAttach, children: [_jsx7(Icon4, { name: props.attachPending ? "loader" : compact ? "plus" : "paperclip", size: 16 }), _jsx7("span", { className: compact ? "pc-sr-only" : void 0, children: props.attachPending ? "Attaching\u2026" : props.attachLabel || "Attach" })] }) : null, props.actions] }), props.trailingActions ? _jsx7("div", { className: "pc-composer__trailing", children: props.trailingActions }) : null, _jsx7("button", { type: "button", className: [props.sendButtonClassName || "pc-btn", compact ? "pc-composer__send--compact" : ""].filter(Boolean).join(" "), "aria-label": compact ? sendLabel : void 0, "data-af-tip": compact ? sendLabel : void 0, "aria-busy": compact ? busy : void 0, disabled: !can_submit, onClick: () => props.onSubmit(), children: compact ? _jsx7(Icon4, { name: busy ? "loader" : "send", size: 17 }) : sendLabel })] }), props.overlay] });
 });
 
 // dist/chat_thread.js
@@ -3456,7 +3469,7 @@ function WorkflowChat(props) {
     if (props.avatarConversation)
       props.avatarConversation.onInterruptSpeech?.();
     props.onDraftChange(draft);
-  }, onSubmit: () => void submit(), placeholder: props.placeholder || "Send a message", ariaLabel: "Message", disabled, busy: steering ? sendPending : composerBusy, sendLabel: steering ? steerLabel : props.sendLabel, busyLabel: steering ? props.avatarConversation ? "Sending\u2026" : activeSteerMode === "queue" ? "Queueing\u2026" : "Steering\u2026" : props.busyLabel, rows: 2, leading: props.attachments || attachmentItems.length ? _jsxs15("div", { className: "pc-workflow-chat__attachments", children: [attachmentItems.length ? _jsx18(ComposerAttachmentChips, { items: attachmentItems, onRemove: props.onRemoveAttachment, onRetry: props.onRetryAttachment, disabled }) : null, props.attachments] }) : null, overlay: dropZone, onPaste: acceptsFiles ? onPaste : void 0, actions: _jsxs15(_Fragment8, { children: [props.onAttach ? _jsxs15("button", { type: "button", className: "pc-workflow-chat__icon-button", "aria-label": "Attach file", "data-af-tip": "Attach a file", disabled: disabled || attachPending, onClick: () => void attach(), children: [_jsx18(Icon9, { name: props.composerVariant === "compact" ? "plus" : "paperclip", size: 16 }), _jsx18("span", { className: props.composerVariant === "compact" ? "pc-sr-only" : void 0, children: attachPending ? "Attaching\u2026" : "Attach" })] }) : null, props.composerExtras, steering && steerModes.length > 1 ? _jsx18("span", { className: "pc-workflow-chat__steer-modes", role: "group", "aria-label": "While the run is busy", children: steerModes.map((mode) => _jsx18("button", { type: "button", className: "pc-workflow-chat__steer-mode", "data-steer-mode": mode, "aria-pressed": activeSteerMode === mode, disabled: disabled || sendPending, onClick: () => setSteerMode(mode), children: mode === "queue" ? "Queue next turn" : "Guide this run" }, mode)) }) : null, sending && props.onCancel ? _jsxs15("button", { type: "button", className: "pc-workflow-chat__stop", disabled: disabled || cancelPending || stopping, onClick: () => void cancel(), children: [_jsx18(Icon9, { name: "x", size: 14 }), _jsx18("span", { children: cancelPending || stopping ? "Stopping\u2026" : "Stop" })] }) : stopState ? _jsx18("span", { className: `pc-workflow-chat__stop-state pc-workflow-chat__stop-state--${stopState.phase}`, role: "status", "aria-live": "polite", children: stopState.label }) : null] }) }), steer ? _jsx18("div", { className: "pc-workflow-chat__steer-status", role: "status", "aria-live": "polite", children: steerNote }) : null, acceptsFiles ? _jsx18("div", { className: "pc-sr-only", role: "status", "aria-live": "polite", children: liveMessage }) : null] }), props.footer ? _jsx18("footer", { className: "pc-workflow-chat__footer", children: props.footer }) : null] });
+  }, onSubmit: () => void submit(), placeholder: props.placeholder || "Send a message", ariaLabel: "Message", disabled, busy: steering ? sendPending : composerBusy, sendLabel: steering ? steerLabel : props.sendLabel, busyLabel: steering ? props.avatarConversation ? "Sending\u2026" : activeSteerMode === "queue" ? "Queueing\u2026" : "Steering\u2026" : props.busyLabel, rows: 2, onAttach: props.onAttach ? () => void attach() : void 0, attachLabel: "Attach file", attachPending, leading: props.attachments || attachmentItems.length ? _jsxs15("div", { className: "pc-workflow-chat__attachments", children: [attachmentItems.length ? _jsx18(ComposerAttachmentChips, { items: attachmentItems, onRemove: props.onRemoveAttachment, onRetry: props.onRetryAttachment, disabled }) : null, props.attachments] }) : null, overlay: dropZone, onPaste: acceptsFiles ? onPaste : void 0, actions: _jsxs15(_Fragment8, { children: [props.composerExtras, steering && steerModes.length > 1 ? _jsx18("span", { className: "pc-workflow-chat__steer-modes", role: "group", "aria-label": "While the run is busy", children: steerModes.map((mode) => _jsx18("button", { type: "button", className: "pc-workflow-chat__steer-mode", "data-steer-mode": mode, "aria-pressed": activeSteerMode === mode, disabled: disabled || sendPending, onClick: () => setSteerMode(mode), children: mode === "queue" ? "Queue next turn" : "Guide this run" }, mode)) }) : null] }), trailingActions: props.composerTrailingActions || sending && props.onCancel || stopState ? _jsxs15(_Fragment8, { children: [props.composerTrailingActions, sending && props.onCancel ? _jsxs15("button", { type: "button", className: "pc-workflow-chat__stop", disabled: disabled || cancelPending || stopping, onClick: () => void cancel(), children: [_jsx18(Icon9, { name: "x", size: 14 }), _jsx18("span", { children: cancelPending || stopping ? "Stopping\u2026" : "Stop" })] }) : stopState ? _jsx18("span", { className: `pc-workflow-chat__stop-state pc-workflow-chat__stop-state--${stopState.phase}`, role: "status", "aria-live": "polite", children: stopState.label }) : null] }) : void 0 }), steer ? _jsx18("div", { className: "pc-workflow-chat__steer-status", role: "status", "aria-live": "polite", children: steerNote }) : null, acceptsFiles ? _jsx18("div", { className: "pc-sr-only", role: "status", "aria-live": "polite", children: liveMessage }) : null] }), props.footer ? _jsx18("footer", { className: "pc-workflow-chat__footer", children: props.footer }) : null] });
 }
 
 // dist/use_workflow_session.js
@@ -6852,6 +6865,7 @@ function presentInteraction(input, controller, options = {}) {
 }
 export {
   AvatarConversation,
+  ChatComposer,
   ChatMessageCard,
   ChatThread,
   DEFAULT_CONVERSATION_CUES,
