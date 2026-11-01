@@ -25,6 +25,7 @@ export type ConversationCuePreferences = Record<ConversationAttention["kind"], {
 export type ConversationCue = ConversationAttention & {
     channels: ConversationCuePreferences[ConversationAttention["kind"]];
 };
+/** The avatar always signals with both a visual and an audio cue; a host's settings can turn one off. */
 export declare const DEFAULT_CONVERSATION_CUES: ConversationCuePreferences;
 /** Validate the durable public channel at the presentation boundary, preserving exact text. */
 export declare function publicUpdate(value: unknown, runId: string): PublicUpdate | null;

@@ -2851,9 +2851,9 @@ import { useEffect as useEffect14, useMemo as useMemo7, useRef as useRef10, useS
 
 // dist/conversation_model.js
 var DEFAULT_CONVERSATION_CUES = {
-  approval: { visual: true, audio: false, haptic: false },
-  question: { visual: true, audio: false, haptic: false },
-  completion: { visual: true, audio: false, haptic: false }
+  approval: { visual: true, audio: true, haptic: false },
+  question: { visual: true, audio: true, haptic: false },
+  completion: { visual: true, audio: true, haptic: false }
 };
 var row = (v) => v && typeof v === "object" && !Array.isArray(v) ? v : null;
 function publicUpdate(value, runId) {
@@ -2992,8 +2992,7 @@ function AvatarConversationSession(props) {
   const [hovered, setHovered] = useState14(false);
   const [focused, setFocused] = useState14(false);
   const [selected, setSelected] = useState14(null);
-  const [localPreferences, setLocalPreferences] = useState14(DEFAULT_CONVERSATION_CUES);
-  const preferences = props.preferences || localPreferences;
+  const preferences = props.preferences || DEFAULT_CONVERSATION_CUES;
   const messages = useMemo7(() => conversationMessages(props.messages), [props.messages]);
   const latest = [...messages].reverse().find((m) => m.role === "assistant" || m.kind === "question_outcome") || null;
   const attended = Boolean(props.attended || history || paused || hovered || focused || selected);
@@ -3057,11 +3056,6 @@ function AvatarConversationSession(props) {
     setPage(0);
     props.onReplyContext?.(null);
   };
-  const preference = (kind, channel, checked) => {
-    const next = { ...preferences, [kind]: { ...preferences[kind], [channel]: checked } };
-    setLocalPreferences(next);
-    props.onPreferencesChange?.(next);
-  };
   const visibleAttention = props.attention && preferences[props.attention.kind].visual;
   const hasRequest = Boolean(props.interaction) && (props.interactionId === void 0 || Boolean(props.interactionId));
   return _jsxs14("section", { className: "pc-avatar-conversation", "aria-label": "Avatar conversation", "data-state": state, "data-has-request": hasRequest || void 0, children: [_jsx17("div", { className: "pc-avatar-conversation__scene", children: props.avatar }), _jsx17("p", { className: "pc-avatar-conversation__status", role: "status", children: labels[state] }), visibleAttention && !hasRequest ? _jsxs14("p", { className: "pc-avatar-conversation__attention", "data-kind": props.attention.kind, children: [props.attention.kind === "approval" ? "An explicit decision is required. Waiting never grants permission." : props.attention.kind === "completion" ? "The result is ready in conversation history." : props.attention.importance === "essential" ? "Your answer is required. I will keep waiting." : "Your input is welcome.", props.attention.kind === "question" && props.attention.importance === "clarification" ? _jsxs14(_Fragment7, { children: [" ", props.attention.deadline && Number.isFinite(Date.parse(props.attention.deadline)) ? _jsxs14(_Fragment7, { children: ["Answer by ", _jsx17("time", { dateTime: props.attention.deadline, children: new Date(props.attention.deadline).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) }), ". "] }) : null, props.attention.fallback ? `Without an answer: ${props.attention.fallback}` : ""] }) : null] }) : null, hasRequest ? _jsx17("div", { className: "pc-avatar-conversation__request", children: props.interaction }) : null, !hasRequest || shown ? _jsxs14("div", { className: "pc-avatar-conversation__captions", tabIndex: 0, "aria-label": "Public subtitles", "aria-live": attended ? "off" : "polite", onPointerDown: (event) => {
@@ -3095,7 +3089,7 @@ function AvatarConversationSession(props) {
     setShown(m);
     setPage(0);
     props.onReplyContext?.(m);
-  }, children: "Reply to this" }) : null] }, `${m.runId || ""}:${m.id || i}`)) }) : null, selected ? _jsxs14("p", { className: "pc-avatar-conversation__reply-context", children: ["Replying to the selected exchange. ", _jsx17("button", { type: "button", onClick: follow, children: "Clear reply context" })] }) : null, !hasRequest ? props.interaction : null, _jsxs14("details", { className: "pc-avatar-conversation__preferences", children: [_jsx17("summary", { children: "Conversation cues" }), _jsx17("p", { children: "Cues apply while this conversation is open. Audio plays only when the host provides it." }), ["approval", "question", "completion"].map((kind) => _jsxs14("fieldset", { children: [_jsx17("legend", { children: kind === "approval" ? "Permission requests" : kind === "question" ? "Questions" : "Completion" }), ["visual", "audio"].map((channel) => _jsxs14("label", { children: [_jsx17("input", { type: "checkbox", checked: preferences[kind][channel], onChange: (event) => preference(kind, channel, event.target.checked) }), channel === "visual" ? "Visual cue" : "Audio cue"] }, channel))] }, kind))] })] });
+  }, children: "Reply to this" }) : null] }, `${m.runId || ""}:${m.id || i}`)) }) : null, selected ? _jsxs14("p", { className: "pc-avatar-conversation__reply-context", children: ["Replying to the selected exchange. ", _jsx17("button", { type: "button", onClick: follow, children: "Clear reply context" })] }) : null, !hasRequest ? props.interaction : null] });
 }
 
 // dist/workflow_chat.js
@@ -6388,7 +6382,7 @@ function read(scope2) {
     if (!raw)
       return { mode: "chat", preferences: DEFAULT_CONVERSATION_CUES, error: null };
     const saved = JSON.parse(raw);
-    const preferences = Object.fromEntries(["approval", "question", "completion"].map((kind) => [kind, { visual: saved.preferences?.[kind]?.visual !== false, audio: saved.preferences?.[kind]?.audio === true, haptic: saved.preferences?.[kind]?.haptic === true }]));
+    const preferences = Object.fromEntries(["approval", "question", "completion"].map((kind) => [kind, { visual: saved.preferences?.[kind]?.visual !== false, audio: saved.preferences?.[kind]?.audio !== false, haptic: saved.preferences?.[kind]?.haptic === true }]));
     return { mode: saved.mode === "avatar" ? "avatar" : "chat", preferences, error: null };
   } catch (error) {
     return { mode: "chat", preferences: DEFAULT_CONVERSATION_CUES, error: `Conversation preferences could not be loaded: ${String(error)}` };

@@ -14,6 +14,7 @@ export type AvatarConversationOptions = {
     /** Snapshot/history reconstruction is a silent baseline, even if the stream is connected. */
     replaying?: boolean;
     attention?: ConversationAttention | null;
+    /** Cue channels per attention kind; both on by default. Hosts edit them in their settings, never inside this view. */
     preferences?: ConversationCuePreferences;
     onPreferencesChange?: (preferences: ConversationCuePreferences) => void;
     /** Foreground fresh-revision cues only. The host owns sounds/haptics. */
