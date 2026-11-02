@@ -43,6 +43,7 @@ Included files (in order):
 - watch/apple/docs/architecture.md
 - watch/apple/BUILD.md
 - web/README.md
+- web/CHANGELOG.md
 - pyproject.toml
 - abstractassistant/cli.py
 - abstractassistant/config.py
@@ -89,7 +90,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 
 - [phone/iphone/docs/troubleshooting.md](phone/iphone/docs/troubleshooting.md): dated automation runs, failure explanations, provider versus phone authentication, notifications and Apple push (the push forwarder, generic words on development builds), installed version/build and Apple-managed updates
 - [docs/macos-signing.md](docs/macos-signing.md): signing and notarizing the macOS app bundle (`build-macos-app --sign`, `--notarize`, `--dmg`, `--local-test`)
-- [web/README.md](web/README.md): Assistant (web), a private preview registered as `assistant-web` in Gateway's console and tray Apps menu, locally buildable/installable pending npm publication; renders conversations from the gateway's replay view, folding the ledger itself on a gateway before 0.17.0
+- [web/README.md](web/README.md): Assistant (web), the npm package `@abstractframework/assistant` registered as `assistant-web` in Gateway's console and tray Apps menu (install with `abstractgateway apps install assistant-web`, or `npx @abstractframework/assistant`); renders conversations from the gateway's replay view, folding the ledger itself on a gateway before 0.17.0; [web/CHANGELOG.md](web/CHANGELOG.md) records its npm release history
 
 ## Design Records
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records
@@ -320,7 +321,7 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 
 - [../phone/iphone/README.md](../phone/iphone/README.md) — AbstractAssistant for iPhone (0.17.0, carries the watch app; each device signs in on its own, the sign-in a Keychain item shared with that device's notification extension; Apple push): conversations, scoped tools, automations, notifications and tab badges from your event stream, restorable image previews and voice playback; [architecture](../phone/iphone/docs/architecture.md), [release history](../phone/iphone/CHANGELOG.md), [troubleshooting, notifications and app updates](../phone/iphone/docs/troubleshooting.md), [testing/distribution](../phone/iphone/docs/distribution.md) and [build guide](../phone/iphone/BUILD.md) (the five targets, `scripts/deploy-phone.sh`)
 - [../watch/apple/README.md](../watch/apple/README.md) — AbstractAssistant for Apple Watch (0.17.0, the iPhone app's independent companion, pre-release through TestFlight): voice around the orb with the work shown live, tools and workflow per conversation, images and recordings in answers, approvals, sessions with search and archive, automations, notifications from your event stream and Apple push, your avatar on the watch face; [build guide](../watch/apple/BUILD.md) (with the `--dump-notify` readout); its pages are indexed in [../watch/apple/docs/README.md](../watch/apple/docs/README.md)
-- [../web/README.md](../web/README.md) — Assistant (web), a private preview available through Gateway's console and tray Apps menu after a local build/install; npm publication remains pending; the in-app [browser guide](../web/docs/assistant-guide.md)
+- [../web/README.md](../web/README.md) — Assistant (web), published on npm as `@abstractframework/assistant` and installed from Gateway's console and tray Apps menu ([release history](../web/CHANGELOG.md)); the in-app [browser guide](../web/docs/assistant-guide.md)
 
 ## Design records
 
@@ -3278,6 +3279,12 @@ All notable changes to AbstractAssistant are documented in this file. Entries de
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
 ## [Unreleased]
+
+### Added
+
+- **Assistant (web) on npm.** The web Assistant is published as `@abstractframework/assistant`
+  (0.1.0), so AbstractGateway's **Apps → Assistant (web) → Install** works on any machine. It has
+  its own release history: [web/CHANGELOG.md](web/CHANGELOG.md).
 
 ## [0.17.0] - 2026-11-02
 
@@ -7882,12 +7889,33 @@ offers `session_tool_policy`), the run's tool plan, and voice (Settings → Voic
 Tap/Hold to talk). What stays here: the gateway calls (`src/gateway/`), the conversation list and
 its titles, the workflow choice and the run input (desktop parity ports).
 
-Status: **private preview** (backlog [1057](../docs/backlog/planned/1057_web_assistant.md),
-[ADR 0007](../docs/adr/0007_web_assistant.md)). Gateway's catalog and tray list it as
-**Assistant (web)**, separate from the desktop Assistant. Once installed locally,
-open **Apps → Assistant (web)** in the Gateway tray or console: the existing one-time
-handover signs you in at `<gateway>/apps/assistant-web/`. The package has not been
-published to npm yet; registry installation awaits that release.
+Published on npm as [`@abstractframework/assistant`](https://www.npmjs.com/package/@abstractframework/assistant)
+(release history: [CHANGELOG.md](CHANGELOG.md); design: [ADR 0007](../docs/adr/0007_web_assistant.md)).
+Gateway's catalog and tray list it as **Assistant (web)**, next to the desktop Assistant.
+
+## Install
+
+Through AbstractGateway (recommended): open **Apps → Assistant (web) → Install** in the gateway
+console or tray, or run
+
+```bash
+abstractgateway apps install assistant-web --launch
+```
+
+The gateway downloads the package from npm, checks it against the registry's integrity hash,
+installs its one runtime dependency and starts it. Open it from **Apps → Assistant (web)**: the
+one-time handover signs you in at `<gateway>/apps/assistant-web/`.
+
+On its own, with Node.js 18 or newer:
+
+```bash
+npx @abstractframework/assistant --gateway-url http://127.0.0.1:8080
+# or: npm install -g @abstractframework/assistant && abstractassistant-web
+```
+
+It serves on `http://127.0.0.1:3008/`; sign in with a gateway user id and token in the dialog.
+Without `--gateway-url` it follows the local gateway pointer (`~/.abstractframework/gateway.json`),
+then `http://127.0.0.1:8080`.
 
 ## Run it against a gateway (development)
 
@@ -7960,8 +7988,9 @@ PYTHONPATH=. python -P web/scripts/gen_tool_policy_parity.py   # needs the packa
 | `src/styles/index.css` | App styles on the design tokens of `web/design/tokens.css` |
 | `design/` | Design tokens and mockups (owned separately) |
 
-The npm package (`@abstractframework/assistant`) remains `private` pending its first release.
-The Python wheel and sdist do not include `web/`.
+The npm package (`@abstractframework/assistant`) ships `dist/`, `bin/`, this README, the
+CHANGELOG and the LICENSE; `npm run check:package` lists what a publish would ship and fails on
+anything else. The Python wheel and sdist do not include `web/`.
 
 To adopt a built shared-library update from a workspace checkout, run `npm run sync:avatars`
 and `npm run sync:docs`. Both snapshots come from canonical AbstractUIC implementations. The
@@ -8023,6 +8052,44 @@ conversation protocol. Switching an already active legacy run changes its presen
 it does not manufacture missing updates. Tool details remain available in the ordinary
 view. Public updates describe the assistant's communicated conclusions, not private
 reasoning, and source references establish provenance rather than proof of correctness.
+
+--- web/CHANGELOG.md ---
+# Changelog: AbstractAssistant for the web
+
+All notable changes to the web Assistant (`@abstractframework/assistant` on npm) are documented
+in this file. It is versioned and released independently of the Python package, whose history is
+in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package are `web-vX.Y.Z`.
+
+## [Unreleased]
+
+## [0.1.0] - 2026-11-02
+
+First public release on npm. AbstractGateway lists it as **Assistant (web)** and installs it from
+the npm registry (`abstractgateway apps install assistant-web`, or **Install** in the console and
+tray Apps menu); you can also run it yourself with `npx @abstractframework/assistant`.
+
+### Added
+
+- **Conversations in the browser.** Your gateway conversations, grouped by recency and searchable,
+  with live answers, Stop, attachments, copy and export, rendered from the gateway's replay view.
+  Requests that need you are listed first.
+- **Voice.** A Watch-style animated orb: tap to talk (or hold, in Voice settings), dictation into
+  the draft for review or sent automatically, read aloud that follows your voice setting, and
+  playback controls. The composer microphone and the orb share one recording.
+- **Avatar conversation view.** A second view over the same work: the avatar shows activity, short
+  subtitles carry discoveries, choices and questions, and **Conversation history** opens the full
+  exchanges. Permission requests use plain actions with the assistant's public explanation when the
+  gateway serves one.
+- **Approvals in the conversation.** Deny, Allow once, Allow for this chat or Decide later; a
+  chat's tool policy is stored on the gateway when it offers one.
+- **Avatar designs.** The 44-design AbstractAvatar catalog with previews of every activity state;
+  your choice is kept in this browser.
+- **Docs drawer.** Questions about the Assistant answered from its bundled browser guide, separate
+  from your main conversation.
+- **The app server** (`abstractassistant-web`): serves the built app on 127.0.0.1 (port 3008 by
+  default) and under the gateway at `/apps/assistant-web/`, takes the shared app flags
+  (`--gateway-url`, `--port`, `--host`, `--help`), and keeps the gateway session in an HttpOnly
+  cookie so the page never holds a gateway token.
 
 --- pyproject.toml ---
 [build-system]
@@ -24142,6 +24209,7 @@ INCLUDED_FILES: list[str] = [
     "watch/apple/docs/architecture.md",
     "watch/apple/BUILD.md",
     "web/README.md",
+    "web/CHANGELOG.md",
     "pyproject.toml",
     "abstractassistant/cli.py",
     "abstractassistant/config.py",

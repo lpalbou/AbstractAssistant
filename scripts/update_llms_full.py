@@ -52,6 +52,7 @@ INCLUDED_FILES: list[str] = [
     "watch/apple/docs/architecture.md",
     "watch/apple/BUILD.md",
     "web/README.md",
+    "web/CHANGELOG.md",
     "pyproject.toml",
     "abstractassistant/cli.py",
     "abstractassistant/config.py",
