@@ -4,15 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.16.5"
-description = "A sleek (macOS) system tray application providing instant access to LLMs"
+version = "0.17.0"
+description = "A gateway-native macOS menu-bar assistant for AbstractFramework: a compact palette, hands-free voice conversations, automations and a small CLI over AbstractGateway"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [
     {name = "Laurent-Philippe Albou", email = "contact@abstractcore.ai"}
 ]
-keywords = ["ai", "llm", "macos", "system-tray", "assistant"]
+keywords = ["ai", "llm", "macos", "system-tray", "assistant", "voice", "abstractgateway", "abstractframework"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: End Users/Desktop",
@@ -36,11 +36,12 @@ dependencies = [
     # 0.15.0: `abstractruntime.replay.apply_delta` keeps the client copy of the gateway's
     # replay view (one reducer, the runtime's; backlog 1063).
     "abstractruntime>=0.15.0",
-    # 0.19.3: the in-process audio player reports the start of every playback (before it, a
-    # stop left its "started" flag set and later replies never reported a start; backlog 1068).
+    # 0.19.5: the player's playback_status / recover_stream / try_stop_stream, used by the
+    # stalled-speech recovery and the non-blocking Stop (0.19.3: the start of every playback
+    # is reported; backlog 1068).
     # (0.11.4 was the first whose voice extras install `webrtcvad-wheels`; the macOS bundle's
     # PyInstaller hook, packaging/macos/hooks/hook-webrtcvad.py, copies its metadata.)
-    "abstractvoice[audio-io]>=0.19.3",
+    "abstractvoice[audio-io]>=0.19.5",
     # Used for an optional local config read (STT language hint) and the shared
     # About/identity helpers (abstractcore.utils.identity, new in 2.16.0); all
     # provider execution happens on the gateway, so no provider extras.
@@ -70,18 +71,18 @@ dependencies = [
 avatar = ["abstractavatar>=0.1.0"]
 lite = []  # Back-compat alias for the base install.
 voice = [
-    "abstractvoice[audio-io,stt]>=0.19.3",
+    "abstractvoice[audio-io,stt]>=0.19.5",
 ]
 apple = [
     "abstractcore[all-apple]>=2.16.0",
-    "abstractvoice[all-apple]>=0.19.3",
+    "abstractvoice[all-apple]>=0.19.5",
 ]
 gpu = [
     "abstractcore[all-gpu]>=2.16.0",
-    "abstractvoice[all-gpu]>=0.19.3",
+    "abstractvoice[all-gpu]>=0.19.5",
 ]
 all = [
-    "abstractvoice[audio-io,stt]>=0.19.3",
+    "abstractvoice[audio-io,stt]>=0.19.5",
 ]  # Back-compat alias for full voice I/O.
 dev = [
     "pytest>=7.0.0",
@@ -103,6 +104,7 @@ build-macos-app = "abstractassistant.build_macos_app:main"
 Homepage = "https://github.com/lpalbou/abstractassistant"
 Repository = "https://github.com/lpalbou/abstractassistant"
 Issues = "https://github.com/lpalbou/abstractassistant/issues"
+Changelog = "https://github.com/lpalbou/abstractassistant/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["."]

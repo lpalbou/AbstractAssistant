@@ -16,7 +16,7 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 
 - [settings.md](settings.md) — every setting, where its value comes from (gateway default vs. this app) and where it is stored, including the workflow choice, Stream replies, appearance and About
 - [voice.md](voice.md) — speaking replies, dictation, and the hands-free voice conversation loop
-- [automations.md](automations.md) — scheduled tasks on the gateway: the Sessions | Automations tabs, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and your event stream (the attention line, the menu-bar badge, one notification per item on a Mac), the capability gate, offline behavior, limits
+- [automations.md](automations.md) — scheduled tasks on the gateway: the Conversations | Automations tabs, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and your event stream (the attention badge, the menu-bar badge, one notification per item on a Mac), the capability gate, offline behavior, limits
 - [macos-signing.md](macos-signing.md) — signing and notarizing the macOS app bundle (`build-macos-app --sign`, `--notarize`, `--dmg`, `--local-test`): one-time Apple setup, credentials, verification and the failures you can meet
 
 ## iPhone, Apple Watch and the web

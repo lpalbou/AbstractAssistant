@@ -25,9 +25,10 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   as a chat, switch it off or on (**Active**), run it now, edit or archive it, answer the runs that wait for you, discuss a
   result, and get a tray notification only when a result is notable, a run fails or a run waits for
   you. See [docs/automations.md](docs/automations.md).
-- What waits for you, everywhere: the app follows your event stream on the gateway, so a line above
-  the transcript and the menu-bar badge show the approvals, questions and new automation results
-  across every conversation, within seconds. **Open** takes you to the conversation that waits. On
+- What waits for you, everywhere: the app follows your event stream on the gateway, so the attention
+  badge beside the session control and the menu-bar badge show the approvals, questions and new
+  automation results across every conversation, within seconds. A click on the badge opens exactly
+  what it counts. On
   one Mac you get one notification per item: the gateway's tray icon notifies first and the
   Assistant stays silent for what it already showed.
 - Live run activity in the transcript: the current step, elapsed time, recent tool calls with
@@ -62,11 +63,20 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   your automations, and your avatar on the watch face shows what needs you
   ([watch/apple/README.md](watch/apple/README.md)).
 
+## What's new
+
+0.17.0 adds the optional desktop activity avatar (the `avatar` extra), automations that open as
+the chat with a sectioned editor, tool approvals in words, Off / Ask / Auto tool settings, and the
+web Assistant's Avatar conversation view. See the [0.17.0 release notes](CHANGELOG.md#0170---2026-11-02).
+
 ## Install
 
 ```bash
 pip install "abstractassistant[voice]"
 ```
+
+Add the `avatar` extra (`pip install "abstractassistant[voice,avatar]"`) for the optional activity
+avatar in the palette.
 
 The `voice` extra adds local microphone capture (dictation and voice conversations). The base
 install covers text chat, spoken replies and gateway-backed media; STT and TTS run on the gateway

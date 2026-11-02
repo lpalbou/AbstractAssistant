@@ -5,39 +5,50 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
-### Changed
+## [0.17.0] - 2026-11-02
 
-- The web chat composer is the shared rounded multiline composer (AbstractUIC panel-chat 0.7.0),
-  styled once by the shared component; the microphone remains the orb above the conversation.
-
-### Fixed
-
-- Native tool approval stays above the floating palette on macOS, including after the palette
-  is raised. Its Allow menu offers session approval for a named tool or all currently enabled
-  tools; grants use exact Gateway tool selectors without changing saved defaults.
-
-- Tray conversation/automation picker aligns with its header control, stays within that
-  control's monitor after delayed updates, and limits its height so long lists scroll.
-
-- Web conversation read receipts wait for earlier history to finish restoring before acknowledging the opening snapshot.
-
-
-- Conversation consumption persists through the Gateway for shared web, Watch and iPhone unread state. Web cards have clearer spacing and attachment previews use one fitted header.
-
-
-- Paused streamed speech no longer expires or trusts a stale completion callback. Output
-  stalls get one attempt to reopen and continue pending speech with the matching AbstractVoice
-  player. Stop remains responsive while an output opens; late completions cannot reset a replayed
-  message or a newer voice conversation.
+The desktop palette gains an optional activity avatar, automations that open as the chat with a
+sectioned editor, tool approvals in words and Off / Ask / Auto tool settings; the web Assistant is
+redesigned around the Watch-style voice orb and gains the Avatar conversation view; conversations
+and read marks stay synchronized across desktop, web, iPhone and Watch. The iPhone and Apple Watch
+apps have their own release histories: [iPhone](phone/iphone/CHANGELOG.md) and
+[Apple Watch](watch/apple/CHANGELOG.md).
 
 ### Added
+
+- **Avatar conversation view (web Assistant).** Choose **Avatar** in the conversation header for a
+  second view over the same work: the avatar shows activity, short subtitles carry discoveries,
+  choices and questions, and **Conversation history** opens the full exchanges. Permission requests
+  use plain actions and decision icons with the assistant's public explanation ("Why I'm asking")
+  when the gateway serves one; **Review details** opens the ordinary view. You can guide a running
+  task by typing or speaking, pin a public update with **Reply to this**, and choose visual and audio
+  **Conversation cues** separately (audio off by default). See [web/README.md](web/README.md#avatar-conversation-view).
+- **Session tool grants by name (desktop).** The tool approval's Allow menu approves one named tool,
+  or every tool currently enabled, for the rest of the conversation, through the gateway's session
+  tool policy; saved defaults are unchanged.
 
 - **Desktop activity avatar:** an optional, locally generated AbstractAvatar portrait beneath the
   palette header, with design and motion controls in Appearance. It follows listening, speech,
   tools, thinking, waits and errors; it releases its native renderer while hidden. Install the
   `avatar` extra to enable support. The menu-bar icon and its controls are unchanged.
 
+- **Choosing a voice plays it** (backlog 1076). Settings → Models → Voice output: picking a voice plays a short
+  sample through the desktop's own speech path with the voice just chosen; a play/stop button beside the list
+  replays or stops it; a newer choice stops the older sample; "Synthesizing a sample…", "Playing a sample…" and
+  "The sample did not play: <reason>." say what happens. Nothing plays when Settings opens, and a reply being read
+  aloud is never cut by a sample (the kit's voice picker, AbstractUIC `AfVoiceSection`).
+
 ### Changed
+
+- **AbstractVoice 0.19.5 or later** (was 0.19.3) for the base install and every voice extra
+  (`voice`, `apple`, `gpu`, `all`): the desktop's stalled-speech recovery and its non-blocking Stop
+  use the player's playback status, stream recovery and non-blocking stop, which 0.19.5 provides.
+- The new `avatar` extra (`pip install "abstractassistant[avatar]"`) installs AbstractAvatar 0.1.0 or
+  later for the desktop activity avatar.
+
+- The web chat composer is the shared rounded multiline composer (AbstractUIC panel-chat 0.7.0),
+  styled once by the shared component, in the chat and in the Docs drawer. It carries a microphone in
+  the Conversation and Avatar views; it feeds the same recording as the orb, and either one stops it.
 
 - Tray conversation and automation cards use regular two-line titles, compact facts, darker
   surfaces, clear unread/attention markers and small hover/focus archive actions. Conversation
@@ -130,6 +141,25 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Fixed
 
+- The tray's discussion card names its automation on one elided line ("About <title>", the full
+  title on hover); a long automation title no longer runs past the card.
+- The web conversation's **Conversation | Avatar** view choice is a 44 px target on touch screens.
+
+- Native tool approval stays above the floating palette on macOS, including after the palette
+  is raised.
+
+- Tray conversation/automation picker aligns with its header control, stays within that
+  control's monitor after delayed updates, and limits its height so long lists scroll.
+
+- Web conversation read receipts wait for earlier history to finish restoring before acknowledging the opening snapshot.
+
+- Conversation consumption persists through the Gateway for shared web, Watch and iPhone unread state. Web cards have clearer spacing and attachment previews use one fitted header.
+
+- Paused streamed speech no longer expires or trusts a stale completion callback. Output
+  stalls get one attempt to reopen and continue pending speech with the matching AbstractVoice
+  player. Stop remains responsive while an output opens; late completions cannot reset a replayed
+  message or a newer voice conversation.
+
 - Cross-device approval updates clear the matching desktop prompt and tray state. Attention
   clicks reopen the pending gate in an already-selected conversation. The active watch follows
   subsequent requests after a single approval without granting permission to the next request.
@@ -181,14 +211,6 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   - "Oct 21, 2025 · 10:52 PM" for another year;
   - a bare date as its day alone;
   - no stamp at all for a malformed timestamp, never the raw text.
-
-### Added
-
-- **Choosing a voice plays it** (backlog 1076). Settings → Models → Voice output: picking a voice plays a short
-  sample through the desktop's own speech path with the voice just chosen; a play/stop button beside the list
-  replays or stops it; a newer choice stops the older sample; "Synthesizing a sample…", "Playing a sample…" and
-  "The sample did not play: <reason>." say what happens. Nothing plays when Settings opens, and a reply being read
-  aloud is never cut by a sample (the kit's voice picker, AbstractUIC `AfVoiceSection`).
 
 ## [0.16.5] - 2026-10-28
 
