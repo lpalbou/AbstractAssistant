@@ -99,7 +99,8 @@ sign-ins), `--test-known <url,url>` (gateways signed into, oldest first), `--tes
 aloud, its course — pieces, chunks, retries, how it ended — on the console: `xcrun devicectl device
 process launch --console`), `--piece-chars <n>` (speech requested in pieces of about n characters
 instead of 600), `--stalled-voice` / `--stalled-voice-fatal` (the sample voice's second piece times
-out twice, or four times until a tap), `--test-open <url>`, `--test-listen`,
+out twice, or four times until a tap), `--stalled-voice-midpiece` (its first request sends half
+its sound, goes quiet while that half plays, then breaks), `--test-open <url>`, `--test-listen`,
 `--test-pause`, `--test-rewind` (with `--rewind-1`), `--open-automation <n>`, `--run-now`,
 `--run-first`, `--scroll-bottom`, `--scroll-end-now`, `--home-bottom`, `--render-icon`,
 `--render-orb-work` (the orb at work, frame by frame, into Documents), `--render-orb-scenes` (the scene styles, robots included, at rest, speaking, listening, thinking and working, into Documents), `--reset-tools` (tool and

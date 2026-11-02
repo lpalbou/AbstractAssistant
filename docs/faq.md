@@ -170,10 +170,9 @@ See [settings.md](settings.md#live-replies).
 
 ## Is there an iPhone or Apple Watch app?
 
-Yes: **AbstractAssistant for iPhone and Apple Watch** is one app, version 0.16.0, in pre-release
-through TestFlight. The iPhone app carries the watch app; sign in on the iPhone and the watch is
-signed in too, and a watch without its iPhone signs in on its own. Both talk to the same gateway as
-this desktop app. See the [iPhone README](../phone/iphone/README.md) and the
+Yes: **AbstractAssistant for iPhone and Apple Watch** is one app, version 0.17.0, in pre-release
+through TestFlight. The iPhone app carries the watch app; the iPhone and the watch each sign in on
+their own, and neither needs the other. Both talk to the same gateway as this desktop app. See the [iPhone README](../phone/iphone/README.md) and the
 [watch README](../watch/apple/README.md).
 
 ## Why do notifications not reach my iPhone or watch while the app is closed?

@@ -210,14 +210,59 @@ reading listens for this event while active, rather than message-list refreshes,
 history and repeat polls remain silent. Entity speech retains its entity scope and voice.
 Per-request provider/model/voice overrides follow the newer Watch client contracts.
 
+## Reading aloud
+
+`VoiceController.read` turns the answer's Markdown into plain prose and cuts it into
+sentence-bounded pieces of about 600 characters (`SpeechText.pieces`, AbstractGatewayClient).
+It requests one piece at a time from `/voice/tts/stream`, and the next one only while less than
+45 s of sound waits to play. That look-ahead waits on a continuation resumed when a buffer has
+played, so a paused reading wakes nothing.
+
+```mermaid
+flowchart LR
+    Text[Answer text] --> Pieces[SpeechText.pieces]
+    Pieces -->|one stream at a time| Stream[/voice/tts/stream/]
+    Stream -->|WAV chunks| Retry[SpeechPieceRetry<br/>skips sound already here]
+    Retry --> Decode[Float32 buffers]
+    Decode --> Node[AVAudioPlayerNode] --> Pitch[Time pitch<br/>speed] --> Mixer[Main mixer]
+    Node -.->|buffer played| Pieces
+```
+
+Every chunk is decoded and scheduled on one AVAudioEngine graph (player node, time pitch for
+the chosen speed, main mixer), back to back and sample-contiguous. Each buffer's place on the
+node's timeline is recorded: right behind the previous one, or where the node is after a stall,
+so the playhead counts only sound that played.
+
+A piece whose stream breaks is requested again up to three times, 2 s apart, while the sound
+already received plays on. `SpeechPieceRetry` skips exactly the seconds of that piece already
+here: whole chunks are dropped and the chunk across the boundary is cut to the sample
+(`SpeechWAV`), so nothing is heard twice and nothing unheard is lost. A piece that still fails
+ends the reading with "The voice stopped early. Tap play to continue."; reading the same message
+again continues from that piece.
+
+**In the background.** The app declares the `audio` background mode, so a reading continues with
+the iPhone locked or in a pocket, and the piece requests keep running while it plays. The audio
+session (`.playback`, `.spokenAudio`) is active only while a reading plays or waits for its sound:
+pausing, stopping or finishing deactivates it and the app suspends as usual. A short background
+task covers the wait for a reading's first sound, before the engine runs. Voice capture still
+ends when the app leaves the front, and the orb's meter samples only while the app is in front.
+
+**Interruptions.** A call or Siri pauses the reading; the end of the interruption resumes it when
+the system allows. A reading you paused stays paused. Unplugged headphones pause it, and a reset
+audio service ends it.
+
+**Lock screen.** A reading started from a conversation is the Now Playing item: the conversation's
+title (or who answers) with play and pause on the lock screen, in Control Center and on the
+headphones' button. It is cleared when the reading ends.
+
 ## Voice settings and responder selection
 
 The Watch's pick-and-preview flow is preserved: selecting a voice immediately requests a
 short sample, and selecting a speed previews the current voice. Separate view-owned
 controllers stop old previews when navigating, backgrounding or changing account; recorder/
 player generations suppress obsolete completions. Speed is one of 1, 1.15, 1.3 or 1.5,
-stored per gateway/account and applied locally through AVAudioPlayer.enableRate/rate before
-playback. It applies to Assistant and entity speech while entity voice overrides remain
+stored per gateway/account and applied locally by the reading's time-pitch unit (no change of
+pitch). It applies to Assistant and entity speech while entity voice overrides remain
 entity-owned. Invalid persisted speeds restore to 1. No speed is sent to TTS providers.
 
 The voice list follows the gateway's voice library (AbstractGateway 0.16.0). `VoiceCatalog.parse`
@@ -380,7 +425,7 @@ validated and adapted to the same projection.
 
 Connection problems remain separate from run failures. Terminal failures and the activity
 panel remain visible after refresh. Reopening a completed conversation loads its latest
-turn's activity without reading conversation history aloud. Backgrounding cancels streams;
+turn's activity without reading conversation history aloud. Backgrounding cancels activity streams;
 account and conversation changes invalidate pending responses.
 
 **Approve** and **Deny** send the existing exact-key decision. **Approve all** is scoped to

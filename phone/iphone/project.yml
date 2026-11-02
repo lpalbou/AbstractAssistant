@@ -16,8 +16,8 @@ settings:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
     # The family's version: the iPhone app, the watch app and their extensions ship together.
-    MARKETING_VERSION: "0.16.0"
-    CURRENT_PROJECT_VERSION: "39"
+    MARKETING_VERSION: "0.17.0"
+    CURRENT_PROJECT_VERSION: "41"
     # Device installs: automatic signing with the developer's team. CLI/CI simulator builds pass
     # CODE_SIGNING_ALLOWED=NO (or CODE_SIGN_IDENTITY=-) and ignore this.
     CODE_SIGN_STYLE: Automatic
@@ -70,6 +70,9 @@ targets:
         NSLocalNetworkUsageDescription: Connect to your AbstractGateway on your local network.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+        # A reading goes on with the iPhone locked or in a pocket. The audio session is active only
+        # while a reading plays or waits for its sound, so the app suspends as usual otherwise.
+        UIBackgroundModes: [audio]
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
     settings:

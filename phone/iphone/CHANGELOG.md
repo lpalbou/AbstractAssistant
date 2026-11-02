@@ -3,26 +3,23 @@
 The iPhone app and its Apple Watch companion share one version and build number (since 0.16.0). Desktop package releases are
 listed in the repository’s [Changelog](../../CHANGELOG.md).
 
-## [Unreleased]
+## [0.17.0] — 2026-11-02
 
-### Fixed
-
-- Reconnecting reconciles unread attention before posting local alerts. Approvals and results
-  consumed on another client stay silent, and known-resolved notifications are withdrawn.
-  Genuine unread items remain eligible across reconnects and saved-state upgrades.
-
-- **An automation created on the iPhone runs unattended when its tools are set to Auto** (operator QA 2026-10-29, backlog
-  1079).
-  - Every automation was created with "ask before each tool" (`policy.tool_approval: "ask"`, hard-coded), although
-    the screen offers no such choice and says the permissions "are saved with the automation so it can run while
-    this iPhone is closed". Its runs parked on a tool approval for hours.
-  - The approval now follows the tool modes you chose: "ask" only when a tool is on Ask. The per-tool modes still
-    ride `policy.tool_policy`.
-  - Automations created before this keep their "ask" setting. Their waiting runs say so; set their tools to Auto in
-    the automation's Tools.
+What testers get since build 39 (0.16.0). The watch app inside it carries the same version.
 
 ### Added
 
+- **Reading goes on with the iPhone locked or in your pocket.** A reply being read aloud keeps
+  playing when you lock the iPhone or put it away. The lock screen, Control Center and the
+  headphones' button show the conversation with play and pause. A call or Siri pauses the reading
+  and it resumes afterwards; unplugging headphones pauses it. A paused or finished reading lets the
+  app rest as usual.
+- **Long answers are read in pieces, and a dropped connection no longer loses the reading.** The
+  answer is requested a few sentences at a time while the previous ones play. A piece interrupted
+  by the connection is requested again while what already arrived keeps playing, and the reading
+  continues exactly where the sound stopped, with nothing repeated. If the connection stays lost,
+  the reading ends with "The voice stopped early. Tap play to continue." and play continues from
+  that point.
 - **Your voices, the engine's and the shared ones (AbstractGateway 0.16.0 voice library).**
   Settings → Voice & reading → Voice lists the speaking voices in three groups: **Your voices**
   (the ones you cloned or designed), **Engine voices** and **Shared voices** (the gateway's
@@ -41,53 +38,6 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 - **Rename and delete your voices.** Swipe left on one of Your voices to rename or delete it.
   Shared voices are read-only; a gateway that refuses (one shared voice store: an administrator's
   act; a read-only voice) says why in its own words.
-
-### Changed
-
-- **The voice list is read compact** (`GET /voice/voices?compact=true`, the same voices, about a
-  fifth of the bytes). A UI test against a real gateway (`TEST_RUNNER_GW_URL`, `TEST_RUNNER_GW_TOKEN`)
-  opens a conversation with its messages and plays a chosen voice's sample.
-
-- **The sign-in lives in the Keychain, shared through the app group.** A Keychain item of the
-  app's service, readable after the first unlock (the notification extension reads it while the
-  device is locked), bound to this device, never in a backup, never synced; the app group doubles
-  as the access group so the extension (and, on the watch, the complication) read the same item.
-  A sign-in kept by an earlier build (a file in the app group) moves into the Keychain at its
-  first read, so nobody signs in again. The watch's kept sign-ins moved from UserDefaults into a
-  second Keychain item (backlog 1053).
-- **A paused reading shows a speaker, not a play triangle.** The message's read-aloud button is a
-  speaker at rest, pause while it reads and a filled speaker while paused (a tap resumes): a
-  play triangle never stands for reading aloud, on the iPhone as on the watch.
-
-- **One gateway client for the iPhone and the watch (backlog 1053 step 3).** `PhoneGatewayClient`
-  is gone: the app and `AssistantKit` use the watch's `AbstractGatewayClient` package
-  (`watch/apple/Packages/AbstractGatewayClient`), which now holds every route both apps call, and
-  `WATCH_SNAPSHOT.json` is deleted (there is no snapshot any more). The iPhone keeps reading once
-  (`readTries: 1`), its own persona (`AssistantPersona.iPhone`) and its demo data
-  (`MockGatewayClient(world: .phone)`). For the iPhone: a query with a `+` reaches the gateway intact;
-  the slow lists (automations, waits, runs) wait up to 45–60 s like the watch's; the newest turn of
-  a conversation is the one created last, not the one updated last; the tool modes saved as
-  `approve` read back as Ask. The package tests need macOS 26.
-
-### Added
-
-- **One product with the Apple Watch (version 0.16.0, build 39).** The iPhone app is now
-  AbstractAssistant (`ai.abstractframework.assistant`, the existing App Store record) and carries
-  the watch app as its companion (`ai.abstractframework.assistant.watchkitapp`). One project builds
-  both, their watch face complication and two notification service extensions. The iPhone and the
-  watch share one version from now on: 0.16.0 for both, the next number after the desktop app's
-  0.15.0, so the family reads as one release line. The earlier developer app
-  `ai.abstractframework.assistant.iphone` is retired. The iPhone and the watch sign in each on
-  their own: neither hands its sign-in to the other, and neither needs the other's app.
-- **Notifications while the app is closed (Apple push, framework backlog 1049).** The app registers
-  itself with your gateway at each sign-in, on each new push token and at most once a day, and
-  forgets the registration when you sign out; there is nothing to set up and no push setting (the
-  system's notification permission is the switch, asked once after your first sign-in). The
-  notification service extension reads the event from your own gateway and shows it as the app
-  would: "Approval needed" / "A question for you" (time-sensitive, opens the Inbox), "<automation> has
-  a result" / "<automation> failed" (opens Automations), a published alert with its title. A push for
-  an earlier sign-in says "From an earlier sign-in"; when the gateway cannot be read in time, the
-  generic text stays. Pushes are sent only once your gateway has a push forwarder.
 - **Sign a development iPhone in from the Mac (Debug builds only).** `scripts/deploy-phone.sh`
   builds the signed Debug app, installs it over CoreDevice and launches it with
   `--gateway URL --token TOKEN [--user ID]`: the app checks the token with GET /api/gateway/me,
@@ -98,29 +48,64 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ### Changed
 
+- **Read-aloud plays without cuts.** The streamed sound plays back to back on one audio graph, with
+  no gap between its short chunks.
+- **A conversation opens with one request** on a gateway that serves conversation history bundles
+  (a gateway without them is read turn by turn), under "Opening your conversation…" while it loads.
+- **Voice recordings and read-aloud audio stay out of your files.** Dictation recordings and the
+  audio of a reply read aloud are never shown as a message's attachments or in the conversation's
+  files; voice the assistant generates on request stays shareable.
+- **Read status follows your account.** Conversation cards outline unread answers, and reading an
+  answer on the iPhone, the watch or the web marks it read on all of them (AbstractGateway 0.19.0).
+- **The iPhone and the watch sign in each on their own.** Neither hands its sign-in to the other,
+  and neither needs the other's app.
+- **The voice list is read compact** (`GET /voice/voices?compact=true`, the same voices, about a
+  fifth of the bytes). A UI test against a real gateway (`TEST_RUNNER_GW_URL`, `TEST_RUNNER_GW_TOKEN`)
+  opens a conversation with its messages and plays a chosen voice's sample.
 - **The sign-in lives in the Keychain, shared through the app group.** A Keychain item of the
   app's service, readable after the first unlock (the notification extension reads it while the
   device is locked), bound to this device, never in a backup, never synced; the app group doubles
   as the access group so the extension (and, on the watch, the complication) read the same item.
-  A sign-in kept in a file by an earlier build is moved into the Keychain at its first read, so
-  nobody signs in again. The watch's kept sign-ins are a second Keychain item (backlog 1053).
-- A notification for an approval, a question or a result has the same identifier as its push
-  (the gateway's collapse id), and the app never shows again what a push already showed.
+  A sign-in kept by an earlier build (a file in the app group) moves into the Keychain at its
+  first read, so nobody signs in again. The watch's kept sign-ins moved from UserDefaults into a
+  second Keychain item (backlog 1053).
 - **A paused reading shows a speaker, not a play triangle.** The message's read-aloud button is a
   speaker at rest, pause while it reads and a filled speaker while paused (a tap resumes): a
   play triangle never stands for reading aloud, on the iPhone as on the watch.
-- An automation says what starts it in words: "When mail arrives in you@example.org", "When Python
-  news has a new item", "When Orders is called", "By hand", or the schedule's sentence (the gateway's
-  own words when it serves them); one that runs when something happens shows no next run. A run the
-  gateway retries reads "The gateway will retry this run."
+- **One gateway client for the iPhone and the watch (backlog 1053 step 3).** `PhoneGatewayClient`
+  is gone: the app and `AssistantKit` use the watch's `AbstractGatewayClient` package
+  (`watch/apple/Packages/AbstractGatewayClient`), which now holds every route both apps call, and
+  `WATCH_SNAPSHOT.json` is deleted (there is no snapshot any more). The iPhone keeps reading once
+  (`readTries: 1`), its own persona (`AssistantPersona.iPhone`) and its demo data
+  (`MockGatewayClient(world: .phone)`). For the iPhone: a query with a `+` reaches the gateway intact;
+  the slow lists (automations, waits, runs) wait up to 45–60 s like the watch's; the newest turn of
+  a conversation is the one created last, not the one updated last; the tool modes saved as
+  `approve` read back as Ask. The package tests need macOS 26.
 
 ### Fixed
 
+- Reconnecting reconciles unread attention before posting local alerts. Approvals and results
+  consumed on another client stay silent, and known-resolved notifications are withdrawn.
+  Genuine unread items remain eligible across reconnects and saved-state upgrades.
+- **An automation created on the iPhone runs unattended when its tools are set to Auto** (operator QA 2026-10-29, backlog
+  1079).
+  - Every automation was created with "ask before each tool" (`policy.tool_approval: "ask"`, hard-coded), although
+    the screen offers no such choice and says the permissions "are saved with the automation so it can run while
+    this iPhone is closed". Its runs parked on a tool approval for hours.
+  - The approval now follows the tool modes you chose: "ask" only when a tool is on Ask. The per-tool modes still
+    ride `policy.tool_policy`.
+  - Automations created before this keep their "ask" setting. Their waiting runs say so; set their tools to Auto in
+    the automation's Tools.
 - **The Inbox badge counts what the Inbox shows.** It counted the larger of the Inbox's list and the
   open waits of your event stream, and the stream can hold a wait the list leaves out (a flow
   editor's draft-test run, which the gateway's run list omits), so the tab read "1" over "Nothing
   needs you". The badge is now the number of rows in the Inbox; the stream only tells the app to
   read the list again, once more if it changed while a read was under way.
+- **New automation says whether it will ask before tools** (backlog 1081). Under Tools the sheet now says "Runs without
+  asking: no tool is on Ask." or "Asks before Send Email: a run that uses it waits for your approval, even while this
+  iPhone is closed.", for the Settings defaults and for custom tools, before you create it. An automation is no longer
+  created "ask" by accident.
+- **Tool modes read Off / Ask / Auto**, as on the desktop, the watch and the web (was Off / Auto / Approve).
 
 ### Known issues
 
@@ -129,13 +114,37 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
   app group (read with the watch's `--dump-notify` readout); the item itself is in the Inbox or
   Automations when you open the app.
 
-### Fixed
+## [0.16.0] — 2026-10-25
 
-- **New automation says whether it will ask before tools** (backlog 1081). Under Tools the sheet now says "Runs without
-  asking: no tool is on Ask." or "Asks before Send Email: a run that uses it waits for your approval, even while this
-  iPhone is closed.", for the Settings defaults and for custom tools, before you create it. An automation is no longer
-  created "ask" by accident.
-- **Tool modes read Off / Ask / Auto**, as on the desktop, the watch and the web (was Off / Auto / Approve).
+Build 39, the first build of AbstractAssistant for iPhone with the watch app inside.
+
+### Added
+
+- **One product with the Apple Watch (version 0.16.0, build 39).** The iPhone app is now
+  AbstractAssistant (`ai.abstractframework.assistant`, the existing App Store record) and carries
+  the watch app as its companion (`ai.abstractframework.assistant.watchkitapp`). One project builds
+  both, their watch face complication and two notification service extensions. The iPhone and the
+  watch share one version from now on: 0.16.0 for both, the next number after the desktop app's
+  0.15.0, so the family reads as one release line. The earlier developer app
+  `ai.abstractframework.assistant.iphone` is retired.
+- **Notifications while the app is closed (Apple push, framework backlog 1049).** The app registers
+  itself with your gateway at each sign-in, on each new push token and at most once a day, and
+  forgets the registration when you sign out; there is nothing to set up and no push setting (the
+  system's notification permission is the switch, asked once after your first sign-in). The
+  notification service extension reads the event from your own gateway and shows it as the app
+  would: "Approval needed" / "A question for you" (time-sensitive, opens the Inbox), "<automation> has
+  a result" / "<automation> failed" (opens Automations), a published alert with its title. A push for
+  an earlier sign-in says "From an earlier sign-in"; when the gateway cannot be read in time, the
+  generic text stays. Pushes are sent only once your gateway has a push forwarder.
+
+### Changed
+
+- A notification for an approval, a question or a result has the same identifier as its push
+  (the gateway's collapse id), and the app never shows again what a push already showed.
+- An automation says what starts it in words: "When mail arrives in you@example.org", "When Python
+  news has a new item", "When Orders is called", "By hand", or the schedule's sentence (the gateway's
+  own words when it serves them); one that runs when something happens shows no next run. A run the
+  gateway retries reads "The gateway will retry this run."
 
 ## [0.7.0] — 2026-10-25
 

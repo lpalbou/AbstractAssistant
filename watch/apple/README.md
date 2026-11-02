@@ -2,7 +2,7 @@
 
 **Your AI, everywhere. On your wrist.** A voice-first Apple Watch app for your AbstractGateway.
 
-Version 0.16.0 · watchOS 26 or later · the companion of the [AbstractAssistant iPhone
+Version 0.17.0 · watchOS 26 or later · the companion of the [AbstractAssistant iPhone
 app](../../phone/iphone/README.md), and independent (it also works with no iPhone nearby) ·
 pre-release through TestFlight. See [CHANGELOG.md](CHANGELOG.md) for what changed.
 
@@ -27,9 +27,12 @@ voice button beside Back plays, pauses and rewinds. A tap on the orb pauses or r
 and at rest the same hold reads the last answer aloud. Once a conversation has a message, swipe
 to the left from the orb for its numbers and files (each one shareable).
 
-Spoken answers prepare the next piece while the current one plays. A slow connection or voice
-engine can still cause a pause while more audio arrives. If the speech stream ends early or a
-piece cannot play, the watch shows a failure instead of treating a partial reading as complete.
+Long answers are read in pieces, the next prepared while the current one plays. A piece
+interrupted by the connection is requested again while what already arrived keeps playing, and
+it continues exactly where the sound stopped. A slow connection or voice engine can still cause a
+pause while more audio arrives. If the connection does not come back, the watch says **The voice
+stopped early. Tap the speaker to continue.** and the tap continues from there; the answer's
+recordings play once its text is done.
 
 If a voice upload or transcription fails, the watch keeps the recording and shows the error
 with **Retry** and **Discard** in that conversation. Each conversation and responder keeps
