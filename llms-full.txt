@@ -86,7 +86,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/voice.md](docs/voice.md): spoken replies, dictation, the hands-free conversation loop and its failure handling
 - [docs/automations.md](docs/automations.md): configurable growing-context budgets and result email; scheduled tasks on the gateway as the Assistant shows them: the Conversations | Automations tabs, New automation and Schedule this conversation (Gateway default first; When = Repeat / Daily / Weekly / Monthly / Once at / email, the gateway's schedule-preview sentence and the account time-zone line; stop after / stop at), served schedule and next run, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications from your event stream (the attention badge, the menu-bar badge, one notification per item on a Mac), the capability gate, limits
 
-- [phone/iphone/README.md](phone/iphone/README.md): AbstractAssistant for iPhone (0.17.0), the container of the watch app (one product, two independent devices: each signs in on its own, the sign-in a Keychain item shared with that device's notification extension; Apple push with notification service extensions, [phone/iphone/BUILD.md](phone/iphone/BUILD.md) lists the five targets and bundle ids), native iPhone assistant, scoped tools and automations, notifications and tab badges from your event stream, generated images and voice attached to restored messages, long answers read aloud in pieces that resume where the sound stopped and go on with the iPhone locked; [phone/iphone/CHANGELOG.md](phone/iphone/CHANGELOG.md) records native release history; [phone/iphone/docs/architecture.md](phone/iphone/docs/architecture.md) covers authenticated artifact previews, session restoration and reading aloud (pieces, retry, background audio, Now Playing); [phone/iphone/BUILD.md](phone/iphone/BUILD.md) covers isolated builds; [phone/iphone/docs/distribution.md](phone/iphone/docs/distribution.md) explains combined iPhone + independent Watch delivery in one Store listing, credential-free CI, human-approved uploads and TestFlight-to-Store promotion
+- [phone/iphone/README.md](phone/iphone/README.md): AbstractAssistant for iPhone (0.17.0), the container of the watch app (one product, two independent devices: each signs in on its own, the sign-in a Keychain item shared with that device's notification extension; Apple push with notification service extensions, [phone/iphone/BUILD.md](phone/iphone/BUILD.md) lists the five targets and bundle ids), native iPhone assistant, scoped tools and automations, notifications and tab badges from your event stream, generated images and voice attached to restored messages, long answers read aloud in pieces that resume from where the sound stopped and go on with the iPhone locked; [phone/iphone/CHANGELOG.md](phone/iphone/CHANGELOG.md) records native release history; [phone/iphone/docs/architecture.md](phone/iphone/docs/architecture.md) covers authenticated artifact previews, session restoration and reading aloud (pieces, retry, background audio, Now Playing); [phone/iphone/BUILD.md](phone/iphone/BUILD.md) covers isolated builds; [phone/iphone/docs/distribution.md](phone/iphone/docs/distribution.md) explains combined iPhone + independent Watch delivery in one Store listing, credential-free CI, human-approved uploads and TestFlight-to-Store promotion
 
 - [phone/iphone/docs/troubleshooting.md](phone/iphone/docs/troubleshooting.md): dated automation runs, failure explanations, provider versus phone authentication, notifications and Apple push (the push forwarder, generic words on development builds), installed version/build and Apple-managed updates
 - [docs/macos-signing.md](docs/macos-signing.md): signing and notarizing the macOS app bundle (`build-macos-app --sign`, `--notarize`, `--dmg`, `--local-test`)
@@ -4826,7 +4826,8 @@ gateway's refusal is shown as it says it. Speed choices
 Restored history is never read automatically.
 
 Long answers are read in pieces. A piece interrupted by the connection is requested again while
-what already arrived keeps playing, and it continues exactly where the sound stopped. If the
+what already arrived keeps playing, and it continues from where the sound stopped (with a cloned
+voice, a few words at that point may repeat or be skipped). If the
 connection does not come back, the reading ends with **The voice stopped early. Tap play to
 continue.**, and play continues from there. Reading continues with the iPhone locked or in your
 pocket. The lock screen and Control Center show the conversation with play and pause. A call
@@ -5123,7 +5124,8 @@ What testers get since build 39 (0.16.0). The watch app inside it carries the sa
 - **Long answers are read in pieces, and a dropped connection no longer loses the reading.** The
   answer is requested a few sentences at a time while the previous ones play. A piece interrupted
   by the connection is requested again while what already arrived keeps playing, and the reading
-  continues exactly where the sound stopped, with nothing repeated. If the connection stays lost,
+  continues from where the sound stopped instead of starting the piece over (with a cloned voice,
+  a few words at that point may repeat or be skipped). If the connection stays lost,
   the reading ends with "The voice stopped early. Tap play to continue." and play continues from
   that point.
 - **Your voices, the engine's and the shared ones (AbstractGateway 0.16.0 voice library).**
@@ -5572,9 +5574,11 @@ node's timeline is recorded: right behind the previous one, or where the node is
 so the playhead counts only sound that played.
 
 A piece whose stream breaks is requested again up to three times, 2 s apart, while the sound
-already received plays on. `SpeechPieceRetry` skips exactly the seconds of that piece already
-here: whole chunks are dropped and the chunk across the boundary is cut to the sample
-(`SpeechWAV`), so nothing is heard twice and nothing unheard is lost. A piece that still fails
+already received plays on. `SpeechPieceRetry` skips the seconds of that piece already here:
+whole chunks are dropped and the chunk across the boundary is cut to the sample (`SpeechWAV`).
+With a voice that is rendered the same way on every request, the seam is exact. With a sampled
+voice (Qwen3-TTS, cloned voices) the retry's audio differs in length, so the seam lands within a
+few words of the true one, at worst about a sentence; the piece is never replayed from its start. A piece that still fails
 ends the reading with "The voice stopped early. Tap play to continue."; reading the same message
 again continues from that piece.
 
@@ -6534,7 +6538,8 @@ to the left from the orb for its numbers and files (each one shareable).
 
 Long answers are read in pieces, the next prepared while the current one plays. A piece
 interrupted by the connection is requested again while what already arrived keeps playing, and
-it continues exactly where the sound stopped. A slow connection or voice engine can still cause a
+it continues from where the sound stopped (with a cloned voice, a few words at that point may
+repeat or be skipped). A slow connection or voice engine can still cause a
 pause while more audio arrives. If the connection does not come back, the watch says **The voice
 stopped early. Tap the speaker to continue.** and the tap continues from there; the answer's
 recordings play once its text is done.
@@ -6727,7 +6732,8 @@ What testers get since build 39 (0.16.0), inside the iPhone app of the same vers
 - **Long answers are read in pieces, and a dropped connection no longer loses the reading.** The
   answer is requested a few sentences at a time while the previous ones play. A piece interrupted
   by the connection is requested again while what already arrived keeps playing, and the reading
-  continues exactly where the sound stopped, with nothing repeated. If the connection stays lost,
+  continues from where the sound stopped instead of starting the piece over (with a cloned voice,
+  a few words at that point may repeat or be skipped). If the connection stays lost,
   the watch says "The voice stopped early. Tap the speaker to continue." and the tap continues from
   there; the app coming back after a lost connection continues by itself.
 - Optional **Avatar conversation** view with public subtitles, pinned replies, Talk/Type during
@@ -7545,9 +7551,11 @@ or live-result identity, and historical messages do not replay completion cues.
   the next only while less than 45 s of audio waits. That look-ahead waits on a continuation
   resumed when a chunk finishes playing (no timer), so a paused or suspended reading wakes nothing.
   A piece whose stream breaks is requested again up to three times, 2 s apart, while the audio
-  already received plays on; `SpeechPieceRetry` skips exactly the seconds of that piece already
-  here (whole chunks dropped, the boundary chunk cut to the sample by `SpeechWAV`), so nothing is
-  heard twice and nothing unheard is lost. A piece that still fails ends the reading with "The
+  already received plays on; `SpeechPieceRetry` skips the seconds of that piece already here
+  (whole chunks dropped, the boundary chunk cut to the sample by `SpeechWAV`). The seam is exact
+  for a voice rendered the same way on every request; with a sampled voice (Qwen3-TTS, cloned
+  voices) it lands within a few words of the true one, at worst about a sentence, and the piece
+  is never replayed from its start. A piece that still fails ends the reading with "The
   voice stopped early. Tap the speaker to continue."; the tap, or the app coming back after a link
   error, continues from that piece. An answer's recordings play after its text: when the text
   stops early they wait for its continuation, and when the voice never starts they play alone.

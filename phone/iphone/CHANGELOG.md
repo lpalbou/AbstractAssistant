@@ -17,7 +17,8 @@ What testers get since build 39 (0.16.0). The watch app inside it carries the sa
 - **Long answers are read in pieces, and a dropped connection no longer loses the reading.** The
   answer is requested a few sentences at a time while the previous ones play. A piece interrupted
   by the connection is requested again while what already arrived keeps playing, and the reading
-  continues exactly where the sound stopped, with nothing repeated. If the connection stays lost,
+  continues from where the sound stopped instead of starting the piece over (with a cloned voice,
+  a few words at that point may repeat or be skipped). If the connection stays lost,
   the reading ends with "The voice stopped early. Tap play to continue." and play continues from
   that point.
 - **Your voices, the engine's and the shared ones (AbstractGateway 0.16.0 voice library).**

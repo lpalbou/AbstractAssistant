@@ -217,9 +217,11 @@ or live-result identity, and historical messages do not replay completion cues.
   the next only while less than 45 s of audio waits. That look-ahead waits on a continuation
   resumed when a chunk finishes playing (no timer), so a paused or suspended reading wakes nothing.
   A piece whose stream breaks is requested again up to three times, 2 s apart, while the audio
-  already received plays on; `SpeechPieceRetry` skips exactly the seconds of that piece already
-  here (whole chunks dropped, the boundary chunk cut to the sample by `SpeechWAV`), so nothing is
-  heard twice and nothing unheard is lost. A piece that still fails ends the reading with "The
+  already received plays on; `SpeechPieceRetry` skips the seconds of that piece already here
+  (whole chunks dropped, the boundary chunk cut to the sample by `SpeechWAV`). The seam is exact
+  for a voice rendered the same way on every request; with a sampled voice (Qwen3-TTS, cloned
+  voices) it lands within a few words of the true one, at worst about a sentence, and the piece
+  is never replayed from its start. A piece that still fails ends the reading with "The
   voice stopped early. Tap the speaker to continue."; the tap, or the app coming back after a link
   error, continues from that piece. An answer's recordings play after its text: when the text
   stops early they wait for its continuation, and when the voice never starts they play alone.

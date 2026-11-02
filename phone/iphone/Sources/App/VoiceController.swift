@@ -87,7 +87,7 @@ private final class OutputLevels: @unchecked Sendable {
 
 /// Speaking a reply: the text is requested in pieces (`SpeechText.pieces`, about 600 characters,
 /// one stream at a time, the next while under `aheadSeconds` of sound waits), so a piece whose
-/// stream breaks is requested again while what arrived plays — the retry skipping exactly the sound
+/// stream breaks is requested again while what arrived plays — the retry skipping the seconds of sound
 /// already here (`SpeechPieceRetry`) — and a reading that still fails ends with "The voice stopped
 /// early" and goes on from that piece when the same message is read again (2026-11-01: one request
 /// for ten minutes of audio was lost whole when the link went quiet for 90 s). The sound plays
@@ -323,8 +323,8 @@ private final class OutputLevels: @unchecked Sendable {
     /// Requests the pieces from `nextPiece` on, one stream at a time, the next once less than
     /// `aheadSeconds` of sound waits. A piece whose stream breaks (the link, the gateway) is
     /// requested again up to `retries` times, 2 s apart, while the sound already here plays on; the
-    /// retry's stream skips exactly the seconds of that piece already here (`SpeechPieceRetry`), so
-    /// nothing is heard twice and nothing unheard is lost.
+    /// retry's stream skips the seconds of that piece already here (`SpeechPieceRetry`: exact for a
+    /// voice rendered the same way each time, within a few words for a sampled or cloned voice).
     /// Returns the error that ended the reading, nil once every piece has arrived.
     private func readPieces(client: any GatewayClient, scope: SpeechScope, voice: VoiceChoice?, epoch: Int) async -> Error? {
         while nextPiece < pieces.count {

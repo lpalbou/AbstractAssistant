@@ -29,7 +29,8 @@ to the left from the orb for its numbers and files (each one shareable).
 
 Long answers are read in pieces, the next prepared while the current one plays. A piece
 interrupted by the connection is requested again while what already arrived keeps playing, and
-it continues exactly where the sound stopped. A slow connection or voice engine can still cause a
+it continues from where the sound stopped (with a cloned voice, a few words at that point may
+repeat or be skipped). A slow connection or voice engine can still cause a
 pause while more audio arrives. If the connection does not come back, the watch says **The voice
 stopped early. Tap the speaker to continue.** and the tap continues from there; the answer's
 recordings play once its text is done.

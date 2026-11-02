@@ -272,9 +272,9 @@ final class Speaker: NSObject, ObservableObject {
     /// Requests the pieces from `nextPiece` on, one stream at a time, the next once less than
     /// `aheadSeconds` of audio waits. A piece whose stream breaks (the link, the gateway) is
     /// requested again up to `retries` times, 2 s apart, while the audio already here plays on; the
-    /// retry's stream skips exactly the seconds of that piece already here (`SpeechPieceRetry`), so
-    /// nothing is heard twice and nothing unheard is lost. Returns the error that ended the
-    /// reading, nil once every piece has arrived.
+    /// retry's stream skips the seconds of that piece already here (`SpeechPieceRetry`: exact for a
+    /// voice rendered the same way each time, within a few words for a sampled or cloned voice).
+    /// Returns the error that ended the reading, nil once every piece has arrived.
     private func readPieces() async -> Error? {
         guard let scope, let client else { return nil }
         let voice = VoicePrefs.voice(for: scope)

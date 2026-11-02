@@ -14,7 +14,8 @@ What testers get since build 39 (0.16.0), inside the iPhone app of the same vers
 - **Long answers are read in pieces, and a dropped connection no longer loses the reading.** The
   answer is requested a few sentences at a time while the previous ones play. A piece interrupted
   by the connection is requested again while what already arrived keeps playing, and the reading
-  continues exactly where the sound stopped, with nothing repeated. If the connection stays lost,
+  continues from where the sound stopped instead of starting the piece over (with a cloned voice,
+  a few words at that point may repeat or be skipped). If the connection stays lost,
   the watch says "The voice stopped early. Tap the speaker to continue." and the tap continues from
   there; the app coming back after a lost connection continues by itself.
 - Optional **Avatar conversation** view with public subtitles, pinned replies, Talk/Type during

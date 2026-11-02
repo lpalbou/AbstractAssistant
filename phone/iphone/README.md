@@ -122,7 +122,8 @@ gateway's refusal is shown as it says it. Speed choices
 Restored history is never read automatically.
 
 Long answers are read in pieces. A piece interrupted by the connection is requested again while
-what already arrived keeps playing, and it continues exactly where the sound stopped. If the
+what already arrived keeps playing, and it continues from where the sound stopped (with a cloned
+voice, a few words at that point may repeat or be skipped). If the
 connection does not come back, the reading ends with **The voice stopped early. Tap play to
 continue.**, and play continues from there. Reading continues with the iPhone locked or in your
 pocket. The lock screen and Control Center show the conversation with play and pause. A call

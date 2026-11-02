@@ -234,9 +234,11 @@ node's timeline is recorded: right behind the previous one, or where the node is
 so the playhead counts only sound that played.
 
 A piece whose stream breaks is requested again up to three times, 2 s apart, while the sound
-already received plays on. `SpeechPieceRetry` skips exactly the seconds of that piece already
-here: whole chunks are dropped and the chunk across the boundary is cut to the sample
-(`SpeechWAV`), so nothing is heard twice and nothing unheard is lost. A piece that still fails
+already received plays on. `SpeechPieceRetry` skips the seconds of that piece already here:
+whole chunks are dropped and the chunk across the boundary is cut to the sample (`SpeechWAV`).
+With a voice that is rendered the same way on every request, the seam is exact. With a sampled
+voice (Qwen3-TTS, cloned voices) the retry's audio differs in length, so the seam lands within a
+few words of the true one, at worst about a sentence; the piece is never replayed from its start. A piece that still fails
 ends the reading with "The voice stopped early. Tap play to continue."; reading the same message
 again continues from that piece.
 

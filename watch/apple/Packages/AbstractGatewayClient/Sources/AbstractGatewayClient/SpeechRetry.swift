@@ -4,11 +4,13 @@ import Foundation
 /// the person had already heard). When a piece's stream breaks, the sound of that piece that already
 /// arrived stays queued and plays on: nothing is cut or dropped. The piece is requested again, and
 /// the new stream's first `kept` seconds — the sound already here — are skipped: whole chunks are
-/// dropped, the chunk across the boundary is trimmed to the sample. Nothing is heard twice and
-/// nothing unheard is lost, as long as the gateway voices the same text to the same sound on the
-/// retry (the streamed engines are deterministic for one text and voice; a sampling engine that is
-/// not would shift the seam by the difference, never replay the piece). Pure, so it is tested in this
-/// package and shared by the watch and the iPhone.
+/// dropped, the chunk across the boundary is trimmed to the sample. The seam is exact when the
+/// gateway voices the same text to the same sound on the retry. A sampling engine (Qwen3-TTS, and
+/// cloned voices above all: no seed, and the speaker check may regenerate a segment) voices it with
+/// a different length, so the seam lands within a few words of the true one, at worst about a
+/// sentence; it never replays the piece. An exact seam needs segment-aware stream offsets from the
+/// gateway, which will replace this skip. Pure, so it is tested in this package and shared by the
+/// watch and the iPhone.
 public struct SpeechPieceRetry: Sendable, Equatable {
     /// Seconds of this piece's sound kept so far (queued to play, playing or played).
     public private(set) var kept: Double = 0
