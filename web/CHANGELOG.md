@@ -23,6 +23,14 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
   runs it, its **Tools** (each Off, Ask or Auto, from the gateway's defaults), every interval from
   30 seconds to a week or every day at a time, and whether its runs build on each other.
 
+### Changed
+
+- **The orb no longer follows the mouse.** Only avatars with eyes (such as the Hover robot,
+  the Eye, the Rover and the Watch faces and robots) look toward the pointer while Ready, and
+  only their eyes move, easing back to centre after two idle seconds. The orb and every other
+  avatar stay still. Uses the shared AbstractUIC avatar rule and the refreshed AbstractAvatar
+  renderer.
+
 ## [0.1.0] - 2026-11-02
 
 First public release on npm. AbstractGateway lists it as **Assistant (web)** and installs it from

@@ -64,10 +64,22 @@ function catalog(core) {
     const count = core.avatar_style_count();
     if (!Number.isInteger(count) || count < 1 || count > 256)
         throw new Error("Invalid avatar catalog size");
-    const designs = Array.from({ length: count }, (_, i) => ({ id: field(i, 0), name: field(i, 1), description: field(i, 2), watchCode: field(i, 3), family: field(i, 4) }));
+    const designs = Array.from({ length: count }, (_, i) => ({ id: field(i, 0), name: field(i, 1), description: field(i, 2), watchCode: field(i, 3), family: field(i, 4),
+        gaze: field(i, 5) === "eyes" ? "eyes" : "none" }));
     if (new Set(designs.map(d => d.id)).size !== count || designs.some(d => !/^[a-z][a-z0-9_-]{0,63}$/.test(d.id)))
         throw new Error("Invalid avatar catalog identity");
     return designs;
+}
+/** The one pointer-to-gaze rule for every host: a normalized gaze target for a design whose
+ * catalog says it has eyes, from a mouse or pen position relative to the avatar's bounds.
+ * Any other design, touch input or empty bounds gets undefined: the renderer moves only
+ * eyes, and nothing at all for a design without them. */
+export function avatarGazeTarget(design, pointer, bounds) {
+    if (design?.gaze !== "eyes" || pointer.pointerType === "touch" || !(bounds.width > 0) || !(bounds.height > 0))
+        return undefined;
+    const axis = (v) => Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0;
+    return [axis((pointer.clientX - bounds.x - bounds.width / 2) / (bounds.width / 2)),
+        axis((pointer.clientY - bounds.y - bounds.height / 2) / (bounds.height / 2))];
 }
 export async function avatarDesigns(source) { return catalog(await load(source)); }
 function pack(c) {
