@@ -179,8 +179,11 @@ with one filename, Download, and Close in the shared AbstractUIC dialog.
 ## Avatar conversation view
 
 Choose **Avatar** in the conversation header for a second view over the same work.
-The avatar shows activity and short subtitles communicate discoveries, choices and
-questions. **Conversation history** opens the full public exchanges and final answer;
+The avatar shows activity, and captions under it roll in realtime with what the
+assistant says publicly during the current turn: discoveries, choices, questions and
+then the answer, with the newest at the bottom (nothing cycles). Captions show Markdown,
+links and files like the conversation does; a long answer starts at its first line and
+scrolls in place. **Conversation history** opens the full public exchanges;
 **Conversation** restores the ordinary chat and technical details. Switching views
 preserves the current draft and attachments.
 

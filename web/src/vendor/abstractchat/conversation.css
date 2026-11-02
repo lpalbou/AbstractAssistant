@@ -2692,54 +2692,51 @@ button.pc-ws__name:hover {
   .pc-artifact-preview .af-modal__title { padding-right: 56px; }
   .pc-artifact-preview .af-file-viewer__head > button { right: 70px; width: 44px; height: 44px; }
 }
+/* Avatar view (AvatarConversation). One column that fits its container without scrolling: the
+   avatar takes whatever height is left, the rolling captions keep a fixed number of lines, and
+   the actions stay last, directly above the host's composer. Nothing auto-cycles. */
 .pc-avatar-conversation {
+  --pc-avatar-caption-lines: 4;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: .75rem;
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
   padding: clamp(.75rem, 3vw, 1.5rem);
   color: var(--text-primary, inherit);
 }
-.pc-workflow-chat__transcript > .pc-avatar-conversation { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
-.pc-avatar-conversation > * { flex-shrink: 0; }
+.pc-workflow-chat__transcript > .pc-avatar-conversation { flex: 1 1 0; min-height: 0; overflow-y: auto; }
+.pc-avatar-conversation > * { flex: 0 0 auto; min-width: 0; }
+.pc-avatar-conversation__presence {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: .5rem;
+  min-height: 6rem;
+}
 .pc-avatar-conversation__scene {
+  container-type: size;
   display: grid;
-  place-items: center;
-  min-height: clamp(180px, 32vh, 380px);
-  flex: 1 0 auto;
-}
-.pc-avatar-conversation__scene > * { max-width: 100%; }
-.pc-avatar-conversation[data-has-request] {
-  display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
-  grid-auto-rows: max-content;
-  align-content: start;
-}
-.pc-avatar-conversation[data-has-request] > * { grid-column: 1 / -1; }
-.pc-avatar-conversation[data-has-request] .pc-avatar-conversation__scene {
-  grid-column: 1;
-  grid-row: 1;
-  flex: 0 0 auto;
+  flex: 1 1 0;
   min-height: 0;
-  height: 48px;
+  place-items: center;
 }
-.pc-avatar-conversation[data-has-request] .pc-avatar-conversation__scene > * {
-  width: 48px !important;
-  height: 48px !important;
-}
-.pc-avatar-conversation[data-has-request] .pc-avatar-conversation__status {
-  grid-column: 2;
-  grid-row: 1;
-  align-self: center;
-  text-align: start;
-}
+/* The host's avatar (a canvas or image) scales down with the space left, never distorted. */
+.pc-avatar-conversation__scene > * { max-width: 100cqw; max-height: 100cqh; object-fit: contain; }
+/* While a request is open or history is read, the avatar yields the space: a small scene beside
+   its status, so the question or approval and its controls stay visible at every height. */
+.pc-avatar-conversation[data-compact] .pc-avatar-conversation__presence { flex: 0 0 auto; flex-direction: row; align-items: center; min-height: 0; gap: .75rem; }
+.pc-avatar-conversation[data-compact] .pc-avatar-conversation__scene { flex: 0 0 48px; height: 48px; }
+.pc-avatar-conversation[data-compact] .pc-avatar-conversation__scene > * { width: 48px !important; height: 48px !important; }
+.pc-avatar-conversation[data-compact] .pc-avatar-conversation__status { text-align: start; }
 .pc-avatar-conversation__request {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  min-width: 0;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--ui-surface-0, var(--bg-primary, #191a25));
 }
 .pc-avatar-conversation__request .pc-workflow-interaction__detail {
@@ -2770,39 +2767,73 @@ button.pc-ws__name:hover {
 .pc-public-approval__buttons > [data-decision="approve"] { border: 1px solid var(--accent-border, #7189c0); background: var(--accent-subtle, #7189c033); font-weight: 600; }
 .pc-public-approval__review { margin-inline-start: auto; }
 .pc-workflow-interaction--conversation .pc-workflow-interaction__body { margin-top: 6px; gap: 8px; }
-/* While a request is open the avatar yields the space: a small scene beside its status so the
-   question or approval and its controls stay visible at every viewport height. */
-.pc-avatar-conversation[data-has-request] { padding-block: 8px; gap: 8px; }
-.pc-avatar-conversation[data-has-request] .pc-avatar-conversation__scene { height: 40px; }
+.pc-avatar-conversation[data-has-request] { --pc-avatar-caption-lines: 2; padding-block: 8px; gap: 8px; }
+.pc-avatar-conversation[data-has-request] .pc-avatar-conversation__scene { flex-basis: 40px; height: 40px; }
 .pc-avatar-conversation[data-has-request] .pc-avatar-conversation__scene > * { width: 40px !important; height: 40px !important; }
 .pc-avatar-conversation__status { text-align: center; margin: 0; font-weight: 600; }
 .pc-avatar-conversation__attention { border-inline-start: 3px solid currentColor; padding: .5rem .75rem; margin: 0; }
 .pc-avatar-conversation__attention[data-kind="approval"] { color: var(--warning, #d6a648); }
-.pc-avatar-conversation__captions { width: min(100%, 46rem); margin-inline: auto; }
-.pc-avatar-conversation__captions > p {
-  font-size: clamp(1.1rem, 2.5vw, 1.45rem);
+/* Rolling captions: a fixed number of lines; the newest caption enters at the bottom, older ones
+   move up and fade out at the top edge. The area scrolls (wheel, touch, keyboard) to reread the
+   turn or the rest of a long answer; an edge fades whenever text continues past it. Every line
+   sits on the 1.5em grid (no gaps or block margins), so the area always holds whole lines. */
+.pc-avatar-conversation__captions {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  box-sizing: content-box;
+  width: min(100%, 46rem);
+  height: calc(var(--pc-avatar-caption-lines) * 1.5em);
+  margin: 0 auto;
+  padding: 0;
+  list-style: none;
+  font-size: clamp(1rem, 1.6vw, 1.2rem);
   line-height: 1.5;
-  height: 4.5em;
-  margin: 0;
   overflow-y: auto;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
 }
-.pc-avatar-conversation__captions:focus-visible { outline: 2px solid currentColor; outline-offset: 5px; }
-.pc-avatar-conversation__actions, .pc-avatar-conversation__pages { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .5rem; }
+.pc-avatar-conversation[data-has-request] .pc-avatar-conversation__captions { margin-top: auto; }
+.pc-avatar-conversation__captions { --pc-caption-fade-top: #000; --pc-caption-fade-bottom: #000; }
+.pc-avatar-conversation__captions[data-scrolled] { --pc-caption-fade-top: transparent; }
+.pc-avatar-conversation__captions[data-more] { --pc-caption-fade-bottom: transparent; }
+.pc-avatar-conversation__captions:is([data-scrolled], [data-more]) {
+  -webkit-mask-image: linear-gradient(to bottom, var(--pc-caption-fade-top), #000 .75em, #000 calc(100% - .75em), var(--pc-caption-fade-bottom));
+  mask-image: linear-gradient(to bottom, var(--pc-caption-fade-top), #000 .75em, #000 calc(100% - .75em), var(--pc-caption-fade-bottom));
+}
+.pc-avatar-conversation__captions:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
+.pc-avatar-conversation__captions > li { flex: 0 0 auto; animation: pc-avatar-caption-enter .35s ease-out; transition: opacity .3s ease; }
+.pc-avatar-conversation__captions > li:first-child { margin-top: auto; }
+.pc-avatar-conversation__captions > li:not(:last-child) { opacity: .62; }
+.pc-avatar-conversation__captions > li[data-attention="completion"] { border-inline-start: 3px solid var(--accent-border, #7189c0); padding-inline-start: .6em; }
+@keyframes pc-avatar-caption-enter { from { opacity: 0; transform: translateY(.6em); } }
+/* Caption density for the shared message renderer: content only, at subtitle size. */
+.pc-avatar-conversation__captions .pc-chat-item.pc-chat-item--caption { max-width: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
+.pc-avatar-conversation__captions .pc-chat-item--caption :is(.pc-chat-body, .pc-chat-content, .pc-md) { font-size: inherit; line-height: inherit; overflow-wrap: anywhere; }
+.pc-avatar-conversation__captions .pc-chat-item--caption .pc-chat-content :where(*) { margin-block: 0; line-height: inherit; }
+.pc-avatar-conversation__captions .pc-chat-item--caption .pc-chat-content hr { margin-block: calc(.75em - .5px); }
+.pc-avatar-conversation__captions .pc-chat-item--caption .pc-chat-content :is(h1, h2, h3, h4, h5, h6) { font-size: 1em; line-height: inherit; }
+.pc-avatar-conversation__captions .pc-chat-item--caption .pc-chat-content code { font-size: .85em; }
+.pc-avatar-conversation__captions .pc-chat-item--caption :is(.pc-chat-media, .pc-chat-attachments) { margin-top: 0; font-size: .85em; }
+.pc-avatar-conversation__actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .5rem; }
+/* Host-supplied control groups (voiceControl, playbackControl) wrap and space like the row itself. */
+.pc-avatar-conversation__actions > span { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .5rem; }
 .pc-avatar-conversation button { font: inherit; color: inherit; background: transparent; border: 1px solid var(--ui-border-1, #7776); border-radius: .4rem; padding: .4rem .65rem; cursor: pointer; }
+.pc-avatar-conversation__actions button { min-height: 44px; min-width: 44px; }
 .pc-avatar-conversation button:disabled { opacity: .5; cursor: default; }
 .pc-avatar-conversation button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
-.pc-avatar-conversation__history { margin: 0; padding-inline-start: 1.5rem; }
+.pc-avatar-conversation__history { flex: 1 1 0; min-height: 0; margin: 0; padding-inline-start: 1.5rem; overflow-y: auto; overscroll-behavior: contain; }
 .pc-avatar-conversation__history > li { padding: .75rem .25rem; border-bottom: 1px solid var(--ui-border-1, #7774); }
 .pc-avatar-conversation__history p { white-space: pre-wrap; overflow-wrap: anywhere; margin: .4rem 0; }
 .pc-avatar-conversation__reply-context { margin: 0; }
-.pc-avatar-conversation__preferences { font-size: .9em; }
-.pc-avatar-conversation__preferences summary { cursor: pointer; }
-.pc-avatar-conversation__preferences fieldset { display: inline-flex; flex-wrap: wrap; gap: .75rem; margin: .4rem; border: 1px solid var(--ui-border-1, #7776); }
-.pc-avatar-conversation__preferences label { display: inline-flex; align-items: center; gap: .3rem; }
+@media (max-width: 479.98px) {
+  .pc-avatar-conversation { --pc-avatar-caption-lines: 3; }
+  .pc-avatar-conversation[data-has-request] { --pc-avatar-caption-lines: 2; }
+}
 @media (pointer: coarse) {
-  .pc-avatar-conversation button, .pc-avatar-conversation summary, .pc-avatar-conversation__preferences label { min-height: 44px; }
+  .pc-avatar-conversation button, .pc-avatar-conversation summary { min-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .pc-avatar-conversation *, .pc-avatar-conversation *::before, .pc-avatar-conversation *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }

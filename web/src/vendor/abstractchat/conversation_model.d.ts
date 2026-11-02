@@ -31,10 +31,33 @@ export declare const DEFAULT_CONVERSATION_CUES: ConversationCuePreferences;
 export declare function publicUpdate(value: unknown, runId: string): PublicUpdate | null;
 /** Public history contains user input and durable replies, never arbitrary assistant/system rows. */
 export declare function conversationMessages(messages: readonly ChatMessage[]): ChatMessage[];
+/** The plain label a person sees for a public message in the Avatar view's history. */
+export declare function conversationLabel(m: ChatMessage): "You" | "Update" | "Question" | "Answer";
 /** Quote only an explicitly selected public update from the current live run. */
 export declare function conversationReply(text: string, context: ChatMessage | null, currentRunId: string, allowedSourceRunIds?: readonly string[]): string;
-/** Subtitle pages preserve words and punctuation; full text remains in history. */
-export declare function conversationPages(text: string, max?: number): string[];
+/** One rolling caption: a public message of the current turn, ready for the shared message renderer. */
+export type ConversationCaption = {
+    /** Stable across renders and appends (run + public id), so a caption never re-enters. */
+    key: string;
+    kind: "update" | "question" | "outcome" | "answer";
+    /** The message as presented: private fields (reasoning, live state, tool activity, stats) removed. */
+    message: ChatMessage;
+    /** The message it was made from; while that object is unchanged the caption object is reused. */
+    source: ChatMessage;
+};
+/**
+ * The rolling captions: what the assistant has said publicly in the CURRENT turn (after the
+ * person's latest message; accepted mid-run guidance does not start a new turn), oldest first,
+ * the newest last. Pure and time-free: the same messages always give the same captions, so
+ * nothing cycles; a new public message is appended and earlier captions keep their keys. The
+ * final answer is one caption, never split. Every public message of the turn is kept (the
+ * caption area scrolls). With `pinnedRequest`, questions are left out: the open question is
+ * shown once, pinned above the captions with its answer controls. Pass the previous result as
+ * `previous` to reuse each caption object whose source message is unchanged.
+ */
+export declare function conversationCaptions(messages: readonly ChatMessage[], options?: {
+    pinnedRequest?: boolean;
+}, previous?: readonly ConversationCaption[]): ConversationCaption[];
 export declare function conversationState(input: {
     status?: AvatarConversationState;
     listening?: boolean;

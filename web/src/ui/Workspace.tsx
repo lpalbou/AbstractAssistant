@@ -387,7 +387,6 @@ export function Workspace(props: {
         playbackControl: <span role="group" aria-label="Voice controls">
           {voice.tts_supported && <button type="button" aria-pressed={props.voicePrefs.read_aloud === true} onClick={() => { voice.stop_tts(); props.onVoicePrefsChange({ ...props.voicePrefs, read_aloud: !props.voicePrefs.read_aloud }); }}>Read new replies aloud</button>}
           {["playing", "paused"].includes(voice.tts_playback.status) && <><button type="button" onClick={playback}>{voice.tts_playback.status === "paused" ? "Resume voice" : "Pause voice"}</button><button type="button" onClick={() => voice.stop_tts()}>Silence voice</button></>}
-          <button type="button" onClick={props.onSettings}>Assistant settings</button>
         </span>,
       } : undefined}
                 artifactFetch={client.fetchGateway}
