@@ -2849,7 +2849,7 @@ function WorkflowInteractionPanel(props) {
 
 // dist/avatar_conversation.js
 import { jsx as _jsx17, jsxs as _jsxs14, Fragment as _Fragment7 } from "react/jsx-runtime";
-import { useEffect as useEffect14, useMemo as useMemo7, useRef as useRef10, useState as useState14 } from "react";
+import React6, { useEffect as useEffect14, useMemo as useMemo7, useRef as useRef10, useState as useState14 } from "react";
 
 // dist/conversation_model.js
 var DEFAULT_CONVERSATION_CUES = {
@@ -2900,14 +2900,14 @@ function conversationReply(text5, context, currentRunId, allowedSourceRunIds = [
   if (context.kind !== "public_update" || !context.publicUpdate)
     return text5;
   if (!currentRunId || context.publicUpdate.runId !== context.runId || context.runId !== currentRunId && !allowedSourceRunIds.includes(context.publicUpdate.runId))
-    throw new Error("The selected public update belongs to another run. Return to the latest exchange before guiding this run.");
+    throw new Error("The update you chose to reply to is from an earlier exchange. Choose Clear reply context, then send your message again.");
   return `The person is replying to this quoted public update (context only):
 ${JSON.stringify({ message_id: context.id || context.publicUpdate.id, run_id: context.publicUpdate.runId, root_run_id: currentRunId, text: context.content })}
 
 The person's message:
 ${text5}`;
 }
-function conversationCaptions(messages, limit = 12) {
+function conversationCaptions(messages, options = {}, previous = []) {
   const visible = conversationMessages(messages);
   let start = 0;
   for (let i = visible.length - 1; i >= 0; i--) {
@@ -2916,11 +2916,19 @@ function conversationCaptions(messages, limit = 12) {
       break;
     }
   }
-  return visible.slice(start).filter((m) => m.role !== "user").slice(-Math.max(1, limit)).map((m) => ({
-    key: publicKey(m),
-    kind: m.kind === "public_update" ? "update" : m.kind === "question" ? "question" : m.kind === "question_outcome" ? "outcome" : "answer",
-    message: { ...m, reasoning: void 0, live: void 0, toolActivity: void 0, statistics: void 0, stats: void 0 }
-  }));
+  const reusable = new Map(previous.map((caption) => [caption.key, caption]));
+  return visible.slice(start).filter((m) => m.role !== "user" && !(options.pinnedRequest && m.kind === "question")).map((m) => {
+    const key = publicKey(m);
+    const known = reusable.get(key);
+    if (known && known.source === m)
+      return known;
+    return {
+      key,
+      kind: m.kind === "public_update" ? "update" : m.kind === "question" ? "question" : m.kind === "question_outcome" ? "outcome" : "answer",
+      message: { ...m, reasoning: void 0, live: void 0, toolActivity: void 0, statistics: void 0, stats: void 0 },
+      source: m
+    };
+  });
 }
 function conversationState(input) {
   if (input.status === "completed" || input.status === "failed")
@@ -2999,13 +3007,18 @@ function AvatarConversation(props) {
   return _jsx17(AvatarConversationSession, { ...props }, props.sessionKey);
 }
 var captionVariant = () => "caption";
+var CaptionCard = React6.memo(function CaptionCard2(props) {
+  return _jsx17(ChatMessageCard, { ...props, showCopy: false, variant: captionVariant });
+});
 function AvatarConversationSession(props) {
   const [history, setHistory] = useState14(false);
   const [selected, setSelected] = useState14(null);
-  const [scrolled, setScrolled] = useState14(false);
+  const [edges, setEdges] = useState14({ top: false, bottom: false });
   const preferences = props.preferences || DEFAULT_CONVERSATION_CUES;
   const messages = useMemo7(() => conversationMessages(props.messages), [props.messages]);
-  const captions = useMemo7(() => conversationCaptions(props.messages), [props.messages]);
+  const hasRequest = Boolean(props.interaction) && (props.interactionId === void 0 || Boolean(props.interactionId));
+  const previousCaptions = useRef10([]);
+  const captions = useMemo7(() => previousCaptions.current = conversationCaptions(props.messages, { pinnedRequest: hasRequest }, previousCaptions.current), [props.messages, hasRequest]);
   const attended = Boolean(props.attended || history || selected);
   useEffect14(() => {
     props.onAttendedChange?.(attended);
@@ -3028,18 +3041,21 @@ function AvatarConversationSession(props) {
       callbacks.current.onInterruptSpeech?.();
   }, [props.listening]);
   const newest = captions.length ? captions[captions.length - 1].key : "";
+  const measureEdges = (box) => {
+    const last = box.lastElementChild;
+    const top = box.scrollTop > 1 && !(last && Math.abs(last.offsetTop - box.scrollTop) <= 1);
+    const bottom = box.scrollTop + box.clientHeight < box.scrollHeight - 1;
+    setEdges((old) => old.top === top && old.bottom === bottom ? old : { top, bottom });
+  };
   useEffect14(() => {
     const box = captionList.current;
-    const last = box?.lastElementChild;
-    if (!box || !last)
+    if (!box)
       return;
-    box.scrollTop = last.offsetHeight > box.clientHeight ? last.offsetTop : box.scrollHeight;
-  }, [newest, history]);
-  const onCaptionScroll = (event) => {
-    const box = event.currentTarget;
-    const starts = Array.from(box.children, (child) => child.offsetTop);
-    setScrolled(box.scrollTop > 1 && !starts.some((top) => Math.abs(top - box.scrollTop) <= 1));
-  };
+    const last = box.lastElementChild;
+    if (last)
+      box.scrollTop = last.offsetHeight > box.clientHeight ? last.offsetTop : box.scrollHeight;
+    measureEdges(box);
+  }, [newest, history, captions.length]);
   useEffect14(() => {
     const connected = !props.replaying && (!props.connection || props.connection === "connected" || props.status === "completed" || props.status === "failed") && (typeof document === "undefined" || document.visibilityState !== "hidden");
     const next = conversationCueStep(cursor.current, { sessionKey: props.sessionKey, connected, attended, attention: props.attention, preferences });
@@ -3062,14 +3078,13 @@ function AvatarConversationSession(props) {
     props.onReplyContext?.(null);
   };
   const attention = props.attention && preferences[props.attention.kind].visual ? props.attention : null;
-  const hasRequest = Boolean(props.interaction) && (props.interactionId === void 0 || Boolean(props.interactionId));
-  const captionProps = { ...props.messageProps, renderFooter: void 0, onSpeakToggle: void 0, getSpeakState: void 0, showCopy: false, variant: captionVariant };
+  const shared = props.messageProps;
   return _jsxs14("section", { className: "pc-avatar-conversation", "aria-label": "Avatar conversation", "data-state": state, "data-has-request": hasRequest || void 0, "data-compact": hasRequest || history || void 0, children: [_jsxs14("div", { className: "pc-avatar-conversation__presence", children: [_jsx17("div", { className: "pc-avatar-conversation__scene", children: props.avatar }), _jsx17("p", { className: "pc-avatar-conversation__status", role: "status", children: labels[state] })] }), attention && attention.kind !== "completion" && !hasRequest ? _jsxs14("p", { className: "pc-avatar-conversation__attention", "data-kind": attention.kind, children: [attention.kind === "approval" ? "An explicit decision is required. Waiting never grants permission." : attention.importance === "essential" ? "Your answer is required. I will keep waiting." : "Your input is welcome.", attention.kind === "question" && attention.importance === "clarification" ? _jsxs14(_Fragment7, { children: [" ", attention.deadline && Number.isFinite(Date.parse(attention.deadline)) ? _jsxs14(_Fragment7, { children: ["Answer by ", _jsx17("time", { dateTime: attention.deadline, children: new Date(attention.deadline).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) }), ". "] }) : null, attention.fallback ? `Without an answer: ${attention.fallback}` : ""] }) : null] }) : null, hasRequest ? _jsx17("div", { className: "pc-avatar-conversation__request", children: props.interaction }) : null, history ? _jsx17("ol", { className: "pc-avatar-conversation__history", "aria-label": "Public conversation history", tabIndex: 0, children: messages.map((m, i) => _jsxs14("li", { children: [_jsx17("strong", { children: conversationLabel(m) }), _jsx17(ChatMessageCard, { ...props.messageProps, message: { ...m, reasoning: void 0, live: void 0, toolActivity: void 0 } }), m.publicUpdate ? _jsx17("button", { type: "button", "aria-pressed": selected === m, onClick: () => {
     interrupt();
     setSelected(m);
     setHistory(false);
     props.onReplyContext?.(m);
-  }, children: "Reply to this" }) : null] }, `${m.runId || ""}:${m.id || i}`)) }) : _jsx17("ol", { ref: captionList, className: "pc-avatar-conversation__captions", "aria-label": "Public subtitles", "aria-live": attended ? "off" : "polite", tabIndex: 0, "data-scrolled": scrolled || void 0, onScroll: onCaptionScroll, children: captions.map((caption, i) => _jsx17("li", { "data-kind": caption.kind, "data-attention": attention?.kind === "completion" && caption.kind === "answer" && i === captions.length - 1 ? "completion" : void 0, children: _jsx17(ChatMessageCard, { ...captionProps, message: caption.message }) }, caption.key)) }), selected ? _jsxs14("p", { className: "pc-avatar-conversation__reply-context", children: ["Replying to the selected exchange. ", _jsx17("button", { type: "button", onClick: clearReply, children: "Clear reply context" })] }) : null, !hasRequest ? props.interaction : null, _jsxs14("div", { className: "pc-avatar-conversation__actions", children: [_jsx17("button", { type: "button", "aria-expanded": history, onClick: () => {
+  }, children: "Reply to this" }) : null] }, `${m.runId || ""}:${m.id || i}`)) }) : _jsx17("ol", { ref: captionList, className: "pc-avatar-conversation__captions", "aria-label": "Public subtitles", "aria-live": attended ? "off" : "polite", tabIndex: 0, "data-scrolled": edges.top || void 0, "data-more": edges.bottom || void 0, onScroll: (event) => measureEdges(event.currentTarget), children: captions.map((caption, i) => _jsx17("li", { "data-kind": caption.kind, "data-attention": attention?.kind === "completion" && caption.kind === "answer" && i === captions.length - 1 ? "completion" : void 0, children: _jsx17(CaptionCard, { message: caption.message, renderMarkdown: shared?.renderMarkdown, images: shared?.images, inlineImage: shared?.inlineImage, onOpenMedia: shared?.onOpenMedia, jsonCollapseAfterDepth: shared?.jsonCollapseAfterDepth }) }, caption.key)) }), selected ? _jsxs14("p", { className: "pc-avatar-conversation__reply-context", children: ["Replying to the selected exchange. ", _jsx17("button", { type: "button", onClick: clearReply, children: "Clear reply context" })] }) : null, !hasRequest ? props.interaction : null, _jsxs14("div", { className: "pc-avatar-conversation__actions", children: [_jsx17("button", { type: "button", "aria-expanded": history, onClick: () => {
     interrupt();
     setHistory((v) => !v);
   }, children: "Conversation history" }), props.voiceControl ? _jsx17("span", { onPointerDownCapture: interrupt, onKeyDownCapture: (event) => {

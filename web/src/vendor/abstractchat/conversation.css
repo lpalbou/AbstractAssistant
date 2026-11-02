@@ -2775,12 +2775,13 @@ button.pc-ws__name:hover {
 .pc-avatar-conversation__attention[data-kind="approval"] { color: var(--warning, #d6a648); }
 /* Rolling captions: a fixed number of lines; the newest caption enters at the bottom, older ones
    move up and fade out at the top edge. The area scrolls (wheel, touch, keyboard) to reread the
-   turn or the rest of a long answer. */
+   turn or the rest of a long answer; an edge fades whenever text continues past it. Every line
+   sits on the 1.5em grid (no gaps or block margins), so the area always holds whole lines. */
 .pc-avatar-conversation__captions {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: .4em;
+  gap: 0;
   box-sizing: content-box;
   width: min(100%, 46rem);
   height: calc(var(--pc-avatar-caption-lines) * 1.5em);
@@ -2795,7 +2796,13 @@ button.pc-ws__name:hover {
   scrollbar-width: thin;
 }
 .pc-avatar-conversation[data-has-request] .pc-avatar-conversation__captions { margin-top: auto; }
-.pc-avatar-conversation__captions[data-scrolled] { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 .75em); mask-image: linear-gradient(to bottom, transparent, #000 .75em); }
+.pc-avatar-conversation__captions { --pc-caption-fade-top: #000; --pc-caption-fade-bottom: #000; }
+.pc-avatar-conversation__captions[data-scrolled] { --pc-caption-fade-top: transparent; }
+.pc-avatar-conversation__captions[data-more] { --pc-caption-fade-bottom: transparent; }
+.pc-avatar-conversation__captions:is([data-scrolled], [data-more]) {
+  -webkit-mask-image: linear-gradient(to bottom, var(--pc-caption-fade-top), #000 .75em, #000 calc(100% - .75em), var(--pc-caption-fade-bottom));
+  mask-image: linear-gradient(to bottom, var(--pc-caption-fade-top), #000 .75em, #000 calc(100% - .75em), var(--pc-caption-fade-bottom));
+}
 .pc-avatar-conversation__captions:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
 .pc-avatar-conversation__captions > li { flex: 0 0 auto; animation: pc-avatar-caption-enter .35s ease-out; transition: opacity .3s ease; }
 .pc-avatar-conversation__captions > li:first-child { margin-top: auto; }
@@ -2805,11 +2812,11 @@ button.pc-ws__name:hover {
 /* Caption density for the shared message renderer: content only, at subtitle size. */
 .pc-avatar-conversation__captions .pc-chat-item.pc-chat-item--caption { max-width: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
 .pc-avatar-conversation__captions .pc-chat-item--caption :is(.pc-chat-body, .pc-chat-content, .pc-md) { font-size: inherit; line-height: inherit; overflow-wrap: anywhere; }
-.pc-avatar-conversation__captions .pc-chat-item--caption .pc-chat-content :is(p, ul, ol, pre, blockquote, table, h1, h2, h3, h4, h5, h6) { margin-block: 0 .4em; }
+.pc-avatar-conversation__captions .pc-chat-item--caption .pc-chat-content :where(*) { margin-block: 0; line-height: inherit; }
+.pc-avatar-conversation__captions .pc-chat-item--caption .pc-chat-content hr { margin-block: calc(.75em - .5px); }
 .pc-avatar-conversation__captions .pc-chat-item--caption .pc-chat-content :is(h1, h2, h3, h4, h5, h6) { font-size: 1em; line-height: inherit; }
 .pc-avatar-conversation__captions .pc-chat-item--caption .pc-chat-content code { font-size: .85em; }
-.pc-avatar-conversation__captions .pc-chat-item--caption .pc-chat-content > :last-child { margin-bottom: 0; }
-.pc-avatar-conversation__captions .pc-chat-item--caption :is(.pc-chat-media, .pc-chat-attachments) { margin-top: .4em; font-size: .85em; }
+.pc-avatar-conversation__captions .pc-chat-item--caption :is(.pc-chat-media, .pc-chat-attachments) { margin-top: 0; font-size: .85em; }
 .pc-avatar-conversation__actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .5rem; }
 /* Host-supplied control groups (voiceControl, playbackControl) wrap and space like the row itself. */
 .pc-avatar-conversation__actions > span { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .5rem; }
