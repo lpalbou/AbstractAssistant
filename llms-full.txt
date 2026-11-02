@@ -8017,6 +8017,10 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
   conversation (Markdown, links, files); they no longer split an answer into pages that cycle, and
   the Previous / Next / Pause subtitle buttons are gone. The captions and the Conversation history,
   Talk and read-aloud buttons sit above the message box at every width.
+- **No settings inside the Avatar view.** Its "Assistant settings" button is gone; settings open
+  from **Settings** in the conversations sidebar (behind **Open Conversations** on a phone), as in
+  the rest of the app. The history beside the avatar uses plain labels (You, Update, Question,
+  Answer) and no longer lists technical source ids.
 
 ### Fixed
 

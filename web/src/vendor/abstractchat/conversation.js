@@ -2885,6 +2885,15 @@ function conversationMessages(messages) {
     return true;
   });
 }
+function conversationLabel(m) {
+  if (m.role === "user")
+    return "You";
+  if (m.kind === "public_update")
+    return "Update";
+  if (m.kind === "question" || m.kind === "question_outcome")
+    return "Question";
+  return "Answer";
+}
 function conversationReply(text5, context, currentRunId, allowedSourceRunIds = []) {
   if (!context)
     return text5;
@@ -3055,7 +3064,7 @@ function AvatarConversationSession(props) {
   const attention = props.attention && preferences[props.attention.kind].visual ? props.attention : null;
   const hasRequest = Boolean(props.interaction) && (props.interactionId === void 0 || Boolean(props.interactionId));
   const captionProps = { ...props.messageProps, renderFooter: void 0, onSpeakToggle: void 0, getSpeakState: void 0, showCopy: false, variant: captionVariant };
-  return _jsxs14("section", { className: "pc-avatar-conversation", "aria-label": "Avatar conversation", "data-state": state, "data-has-request": hasRequest || void 0, "data-compact": hasRequest || history || void 0, children: [_jsxs14("div", { className: "pc-avatar-conversation__presence", children: [_jsx17("div", { className: "pc-avatar-conversation__scene", children: props.avatar }), _jsx17("p", { className: "pc-avatar-conversation__status", role: "status", children: labels[state] })] }), attention && attention.kind !== "completion" && !hasRequest ? _jsxs14("p", { className: "pc-avatar-conversation__attention", "data-kind": attention.kind, children: [attention.kind === "approval" ? "An explicit decision is required. Waiting never grants permission." : attention.importance === "essential" ? "Your answer is required. I will keep waiting." : "Your input is welcome.", attention.kind === "question" && attention.importance === "clarification" ? _jsxs14(_Fragment7, { children: [" ", attention.deadline && Number.isFinite(Date.parse(attention.deadline)) ? _jsxs14(_Fragment7, { children: ["Answer by ", _jsx17("time", { dateTime: attention.deadline, children: new Date(attention.deadline).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) }), ". "] }) : null, attention.fallback ? `Without an answer: ${attention.fallback}` : ""] }) : null] }) : null, hasRequest ? _jsx17("div", { className: "pc-avatar-conversation__request", children: props.interaction }) : null, history ? _jsx17("ol", { className: "pc-avatar-conversation__history", "aria-label": "Public conversation history", tabIndex: 0, children: messages.map((m, i) => _jsxs14("li", { children: [_jsx17("strong", { children: m.role === "user" ? "You" : m.kind === "question_outcome" ? "Question status" : m.kind === "public_update" ? "Public update" : "Reply" }), _jsx17(ChatMessageCard, { ...props.messageProps, message: { ...m, reasoning: void 0, live: void 0, toolActivity: void 0 } }), m.publicUpdate?.sourceCallIds.length ? _jsxs14("details", { children: [_jsx17("summary", { children: "Sources" }), _jsx17("ul", { children: m.publicUpdate.sourceCallIds.map((id) => _jsx17("li", { children: id }, id)) })] }) : null, m.publicUpdate ? _jsx17("button", { type: "button", "aria-pressed": selected === m, onClick: () => {
+  return _jsxs14("section", { className: "pc-avatar-conversation", "aria-label": "Avatar conversation", "data-state": state, "data-has-request": hasRequest || void 0, "data-compact": hasRequest || history || void 0, children: [_jsxs14("div", { className: "pc-avatar-conversation__presence", children: [_jsx17("div", { className: "pc-avatar-conversation__scene", children: props.avatar }), _jsx17("p", { className: "pc-avatar-conversation__status", role: "status", children: labels[state] })] }), attention && attention.kind !== "completion" && !hasRequest ? _jsxs14("p", { className: "pc-avatar-conversation__attention", "data-kind": attention.kind, children: [attention.kind === "approval" ? "An explicit decision is required. Waiting never grants permission." : attention.importance === "essential" ? "Your answer is required. I will keep waiting." : "Your input is welcome.", attention.kind === "question" && attention.importance === "clarification" ? _jsxs14(_Fragment7, { children: [" ", attention.deadline && Number.isFinite(Date.parse(attention.deadline)) ? _jsxs14(_Fragment7, { children: ["Answer by ", _jsx17("time", { dateTime: attention.deadline, children: new Date(attention.deadline).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) }), ". "] }) : null, attention.fallback ? `Without an answer: ${attention.fallback}` : ""] }) : null] }) : null, hasRequest ? _jsx17("div", { className: "pc-avatar-conversation__request", children: props.interaction }) : null, history ? _jsx17("ol", { className: "pc-avatar-conversation__history", "aria-label": "Public conversation history", tabIndex: 0, children: messages.map((m, i) => _jsxs14("li", { children: [_jsx17("strong", { children: conversationLabel(m) }), _jsx17(ChatMessageCard, { ...props.messageProps, message: { ...m, reasoning: void 0, live: void 0, toolActivity: void 0 } }), m.publicUpdate ? _jsx17("button", { type: "button", "aria-pressed": selected === m, onClick: () => {
     interrupt();
     setSelected(m);
     setHistory(false);
@@ -6846,6 +6855,7 @@ export {
   WorkflowInteractionPanel,
   conversationCaptions,
   conversationCueStep,
+  conversationLabel,
   conversationMessages,
   conversationNarrationStep,
   conversationReply,

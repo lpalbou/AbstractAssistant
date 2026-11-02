@@ -31,6 +31,8 @@ export declare const DEFAULT_CONVERSATION_CUES: ConversationCuePreferences;
 export declare function publicUpdate(value: unknown, runId: string): PublicUpdate | null;
 /** Public history contains user input and durable replies, never arbitrary assistant/system rows. */
 export declare function conversationMessages(messages: readonly ChatMessage[]): ChatMessage[];
+/** The plain label a person sees for a public message in the Avatar view's history. */
+export declare function conversationLabel(m: ChatMessage): "You" | "Update" | "Question" | "Answer";
 /** Quote only an explicitly selected public update from the current live run. */
 export declare function conversationReply(text: string, context: ChatMessage | null, currentRunId: string, allowedSourceRunIds?: readonly string[]): string;
 /** One rolling caption: a public message of the current turn, ready for the shared message renderer. */
