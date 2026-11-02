@@ -191,11 +191,26 @@ class AutomationsClient:
 
     def list_all(self, *, status: Optional[str] = None, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Every summary, following ``next_cursor`` (v1 clients poll full pages)."""
+        return self.list_all_counted(status=status, limit=limit)[0]
+
+    def list_all_counted(
+        self, *, status: Optional[str] = None, limit: Optional[int] = None
+    ) -> "tuple[List[Dict[str, Any]], Dict[str, int]]":
+        """``list_all`` plus the first page's served counts (ADR 0048):
+        ``{"paused": n, "archived": n}`` with only the counts the gateway serves
+        (``paused_automations_count``; ``archived_automations_count``, else
+        ``archived_automations``)."""
         items: List[Dict[str, Any]] = []
+        counts: Dict[str, int] = {}
         cursor: Optional[str] = None
         seen: set = set()
         for _ in range(_MAX_PAGES):
             page = self.list(status=status, cursor=cursor, limit=limit)
+            if cursor is None:
+                for key, served in (("paused", ("paused_automations_count",)), ("archived", ("archived_automations_count", "archived_automations"))):
+                    value = next((page.get(k) for k in served if isinstance(page.get(k), int) and not isinstance(page.get(k), bool)), None)
+                    if value is not None:
+                        counts[key] = int(value)
             batch = page.get("items")
             if not isinstance(batch, list):
                 raise AutomationApiError(
@@ -204,10 +219,10 @@ class AutomationsClient:
             items.extend(item for item in batch if isinstance(item, dict))
             nxt = page.get("next_cursor")
             if not isinstance(nxt, str) or not nxt or nxt in seen:
-                return items
+                return items, counts
             seen.add(nxt)
             cursor = nxt
-        return items
+        return items, counts
 
     def get(self, automation_id: str) -> Dict[str, Any]:
         """``GET /automations/{id}`` → ``{definition, active_revision, summary}``."""

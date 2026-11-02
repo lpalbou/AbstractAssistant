@@ -236,6 +236,8 @@ final class AppModel: ObservableObject {
     /// How many automations are paused (the gateway's count, ADR 0048); nil from a gateway that
     /// serves no sections (the list is then drawn as it comes, with no Paused section).
     @Published private(set) var automationsPausedCount: Int?
+    /// How many automations are archived (the gateway's count; nil when it serves none).
+    @Published private(set) var automationsArchivedCount: Int?
     /// The automations call failed while waits and runs were fine (shown on the Automations screen only).
     @Published var automationsError: String?
     /// The automations have been read once (they arrive after the conversations: their call is the
@@ -271,6 +273,7 @@ final class AppModel: ObservableObject {
                 let list = page.items
                 guard let self, !Task.isCancelled else { return }
                 automations = merged(list); automationsPausedCount = page.pausedAutomations
+                automationsArchivedCount = page.archivedAutomations
                 automationsError = nil; automationsLoaded = true; automationsReadAt = Date()
                 // An automation finished a run since the last look: its notification, shown as a banner
                 // with the app in front (Settings → Notifications), unless its own page is on screen.
@@ -626,7 +629,7 @@ final class AppModel: ObservableObject {
         recordingConnectionKey = KeptQuestion.connectionKey(gateway: signIn.gateway, user: signIn.user, tenant: signIn.tenant, credential: signIn.credential)
         client = LiveGatewayClient(baseURL: signIn.gateway, credential: signIn.credential)
         gatewayHost = signIn.gateway.host() ?? signIn.gateway.absoluteString
-        waits = []; waitsReadState = .checking; runs = []; automations = []; principal = nil; lastError = nil; failures = 0; failingSince = nil; unreachable = false; seenWaitIDs = []; entities = []; automationsLoaded = false; automationsPausedCount = nil; automationsError = nil; automationsTask?.cancel(); automationsTask = nil; automationsLoading = false; automationsReadAt = nil
+        waits = []; waitsReadState = .checking; runs = []; automations = []; principal = nil; lastError = nil; failures = 0; failingSince = nil; unreachable = false; seenWaitIDs = []; entities = []; automationsLoaded = false; automationsPausedCount = nil; automationsArchivedCount = nil; automationsError = nil; automationsTask?.cancel(); automationsTask = nil; automationsLoading = false; automationsReadAt = nil
         definitions = [:]; results = [:]; savedAt = [:]
         forgetTools()                                    // each account has its own tools (email, …)
         workflows = []; workflowsReadAt = nil; MediaStore.shared.clear()
@@ -665,7 +668,7 @@ final class AppModel: ObservableObject {
         if !SavedSignIn.clear() { notice = "The sign-in could not be removed from this watch's Keychain." }
         stopPolling()
         client = MockGatewayClient(world: .watch); gatewayHost = "—"; recordingConnectionKey = "signed-out"
-        waits = []; waitsReadState = .checking; runs = []; automations = []; principal = nil; lastError = nil; failures = 0; failingSince = nil; unreachable = false; seenWaitIDs = []; entities = []; automationsLoaded = false; automationsPausedCount = nil; automationsError = nil; automationsTask?.cancel(); automationsTask = nil; automationsLoading = false; automationsReadAt = nil
+        waits = []; waitsReadState = .checking; runs = []; automations = []; principal = nil; lastError = nil; failures = 0; failingSince = nil; unreachable = false; seenWaitIDs = []; entities = []; automationsLoaded = false; automationsPausedCount = nil; automationsArchivedCount = nil; automationsError = nil; automationsTask?.cancel(); automationsTask = nil; automationsLoading = false; automationsReadAt = nil
         definitions = [:]; results = [:]; savedAt = [:]
         forgetTools()
         workflows = []; workflowsReadAt = nil; MediaStore.shared.clear()

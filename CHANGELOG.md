@@ -17,6 +17,11 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   gateway's order (active ones first, most recent activity first) and keeps the paused ones behind a
   "Paused · N" row that opens them on a click. A gateway that does not serve sections (0.19.0 and
   earlier) shows the list as before.
+- **Archived automations in the switcher: one "Archived · N" section.** The archived listing is read
+  from the gateway and drawn folded at the end of the Automations tab, like Paused; the "Show
+  archived" button is gone (it could show nothing: the gateway leaves archived automations out of
+  its default listing). The filter also finds paused and archived automations while their section
+  is closed.
 
 ## [0.17.0] - 2026-11-02
 

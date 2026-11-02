@@ -18,7 +18,8 @@ import Testing
           {"automation_id":"p","title":"P","status":"paused","section":"paused","last_activity_at":"2026-11-02T12:00:00+00:00"}],
          "next_cursor":null,"paused_automations_count":3,"archived_automations_count":1,"archived_automations":1}
         """)
-        #expect(p.pausedAutomations == 3)
+        #expect(p.pausedAutomations == 3 && p.archivedAutomations == 1)
+        #expect(archivedLabel(p.archivedAutomations) == "Archived · 1" && archivedLabel(0) == "Archived" && archivedLabel(nil) == "Archived")
         let s = AutomationSections(p)
         #expect(s.main.map(\.id) == ["b", "a"])          // the served order, never re-sorted
         #expect(s.pausedCount == 3 && s.showsPaused)       // the gateway's count, not the page's
@@ -28,11 +29,12 @@ import Testing
     @Test func anOlderGatewayGetsTodaysList() throws {
         let p = try page("""
         {"items":[{"automation_id":"p","title":"P","status":"paused"},{"automation_id":"a","title":"A","status":"active"}],
-         "next_cursor":null,"archived_automations":0}
+         "next_cursor":null,"archived_automations":2}
         """)
         let s = AutomationSections(p)
         #expect(s.main.map(\.id) == ["p", "a"])           // every row, as it came
         #expect(s.pausedCount == nil && !s.showsPaused)    // no Paused section: never derived from `status`
+        #expect(p.archivedAutomations == 2)                 // an older gateway's `archived_automations`
     }
 
     @Test func noPausedAutomationNoPausedSection() throws {

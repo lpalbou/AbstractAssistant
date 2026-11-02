@@ -26,10 +26,7 @@ struct AutomationsScreen: View {
                             }.buttonStyle(.plain).padding(.top, 12).accessibilityIdentifier("automations.create")
                         }.frame(maxWidth: .infinity).padding(.horizontal, 8).padding(.vertical, 32)
                     }
-                    NavigationLink { ArchivedAutomationsScreen() } label: {
-                        Label("Archived", systemImage: "archivebox").foregroundStyle(PhoneTheme.secondary)
-                    }.accessibilityIdentifier("automations.archived")
-                    // The gateway's order (ADR 0048): the active ones, then the paused ones folded under Paused.
+                    // The gateway's order (ADR 0048): the active ones, then Paused · N, then Archived.
                     let sections = store.automationSections
                     ForEach(sections.main) { automation in AutomationListCard(automation: automation) { archiving = automation } }
                     if let paused = sections.pausedCount, paused > 0 {
@@ -37,6 +34,9 @@ struct AutomationsScreen: View {
                             Label("Paused · \(paused)", systemImage: "pause.circle").foregroundStyle(PhoneTheme.secondary)
                         }.accessibilityIdentifier("automations.paused")
                     }
+                    NavigationLink { ArchivedAutomationsScreen() } label: {
+                        Label(archivedLabel(store.automationsArchivedCount), systemImage: "archivebox").foregroundStyle(PhoneTheme.secondary)
+                    }.accessibilityIdentifier("automations.archived")
                 }.padding(22)
             }.background(PhoneTheme.ground).navigationTitle("Automations").navigationBarTitleDisplayMode(.inline).refreshable { await store.refresh() }
                 .toolbar { ToolbarItem(placement: .principal) { NavigationCaption(title: "Automations", demo: store.isDemo) }; ToolbarItem(placement: .topBarTrailing) { if !store.automations.isEmpty { Button("New automation", systemImage: "plus") { creating = true } } } }
@@ -116,8 +116,8 @@ private struct AutomationMarkdownPreview: View {
     }
 }
 
-/// The paused automations (`GET /automations?status=paused`), in the gateway's order, as the same
-/// cards (a tap opens one, where Resume is).
+/// The paused automations (`GET /automations?status=paused&limit=200`, one page: a phone list), in
+/// the gateway's order, as the same cards (a tap opens one, where Resume is).
 private struct PausedAutomationsScreen: View {
     @Environment(AssistantStore.self) private var store
     @State private var rows: [AutomationSummary] = []
@@ -147,7 +147,7 @@ private struct PausedAutomationsScreen: View {
         guard let client = store.client else { return }
         loading = true; defer { loading = false }
         do { rows = try await client.pausedAutomations(); error = nil }
-        catch { self.error = error.localizedDescription }
+        catch { self.error = "Couldn't load the paused automations." }
     }
 }
 

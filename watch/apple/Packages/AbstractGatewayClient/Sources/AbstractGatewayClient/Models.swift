@@ -916,10 +916,36 @@ public struct AutomationsPage: Codable, Sendable {
     public var nextCursor: String?
     /// How many of yours are paused (ADR 0048), whatever the page holds; nil from an older gateway.
     public var pausedAutomations: Int?
-    public init(items: [AutomationSummary], nextCursor: String? = nil, pausedAutomations: Int? = nil) {
+    /// How many of yours are archived (`archived_automations_count`, else `archived_automations`).
+    public var archivedAutomations: Int?
+    public init(items: [AutomationSummary], nextCursor: String? = nil, pausedAutomations: Int? = nil, archivedAutomations: Int? = nil) {
         self.items = items; self.nextCursor = nextCursor; self.pausedAutomations = pausedAutomations
+        self.archivedAutomations = archivedAutomations
     }
-    enum CodingKeys: String, CodingKey { case items, nextCursor = "next_cursor", pausedAutomations = "paused_automations_count" }
+    enum CodingKeys: String, CodingKey {
+        case items, nextCursor = "next_cursor", pausedAutomations = "paused_automations_count"
+        case archivedAutomations = "archived_automations_count", archivedLegacy = "archived_automations"
+    }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        items = try c.decode([AutomationSummary].self, forKey: .items)
+        nextCursor = try c.decodeIfPresent(String.self, forKey: .nextCursor)
+        pausedAutomations = try? c.decodeIfPresent(Int.self, forKey: .pausedAutomations)
+        archivedAutomations = (try? c.decodeIfPresent(Int.self, forKey: .archivedAutomations)) ?? (try? c.decodeIfPresent(Int.self, forKey: .archivedLegacy))
+    }
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(items, forKey: .items); try c.encodeIfPresent(nextCursor, forKey: .nextCursor)
+        try c.encodeIfPresent(pausedAutomations, forKey: .pausedAutomations)
+        try c.encodeIfPresent(archivedAutomations, forKey: .archivedAutomations)
+    }
+}
+
+/// "Archived · 6" when the gateway serves the count and it is not 0, else "Archived": the same
+/// label shape as "Paused · N" (ADR 0048).
+public func archivedLabel(_ count: Int?) -> String {
+    if let n = count, n > 0 { return "Archived · \(n)" }
+    return "Archived"
 }
 
 /// The automations list as every Apple app draws it (ADR 0048): the gateway's rows in the gateway's

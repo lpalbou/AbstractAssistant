@@ -23,6 +23,9 @@ final class PausedSectionPhoneUITests: XCTestCase {
         for _ in 0..<8 where !(paused.exists && paused.isHittable) { app.swipeUp() }
         XCTAssertTrue(paused.isHittable, app.debugDescription)
         XCTAssertTrue(paused.label.contains("Paused · 2"), paused.label)
+        // ADR 0048: the active ones, then Paused · N, then Archived.
+        let archived = app.descendants(matching: .any)["automations.archived"].firstMatch
+        XCTAssertTrue(archived.exists && archived.frame.minY > paused.frame.minY, "Archived is not after Paused")
         capture(app, "phone-p2-list-bottom")
         paused.tap()
         XCTAssertTrue(app.buttons["automation.open.auto-consolidate"].waitForExistence(timeout: 10), app.debugDescription)

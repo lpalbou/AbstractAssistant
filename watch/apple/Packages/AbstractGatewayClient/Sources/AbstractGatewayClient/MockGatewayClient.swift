@@ -406,7 +406,8 @@ public actor MockGatewayClient: GatewayClient {
         }
         out = out.filter { $0.status != "archived" }
         let ordered = out.filter { $0.section != "paused" } + out.filter { $0.section == "paused" }
-        return AutomationsPage(items: ordered, pausedAutomations: ordered.filter { $0.section == "paused" }.count)
+        let archived = listedAutomations.filter { archivedAutomationIds.contains($0.id) || statuses[$0.id] == "archived" }.count
+        return AutomationsPage(items: ordered, pausedAutomations: ordered.filter { $0.section == "paused" }.count, archivedAutomations: archived)
     }
     public func pausedAutomations() async throws -> [AutomationSummary] {
         try await automationList().items.filter { $0.section == "paused" }

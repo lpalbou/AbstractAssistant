@@ -51,7 +51,7 @@ struct AutomationsView: View {
                 .accessibilityIdentifier("automations.paused")
             }
             NavigationLink(value: Route.archivedAutomations) {
-                Label("Archived", systemImage: "archivebox").font(.rounded(.footnote)).foregroundStyle(Theme.muted)
+                Label(archivedLabel(model.automationsArchivedCount), systemImage: "archivebox").font(.rounded(.footnote)).foregroundStyle(Theme.muted)
             }
             .accessibilityIdentifier("automations.archived")
         }
@@ -195,8 +195,8 @@ private struct ArchivingAutomation: ViewModifier {
     }
 }
 
-/// Paused automations (`GET /automations?status=paused`), in the gateway's order: the same rows as
-/// the list (a tap opens one, where Resume is).
+/// Paused automations (`GET /automations?status=paused&limit=200`, one page: a watch list), in the
+/// gateway's order: the same rows as the list (a tap opens one, where Resume is).
 struct PausedAutomationsView: View {
     @EnvironmentObject private var model: AppModel
     @State private var items: [AutomationSummary] = []
