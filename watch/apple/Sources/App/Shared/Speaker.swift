@@ -292,13 +292,17 @@ final class Speaker: NSObject, ObservableObject {
                 do {
                     for try await raw in client.speech(text: pieces[i], scope: scope, voice: voice) {
                         if Task.isCancelled { return nil }
-                        guard let wav = try retry.admit(wav: raw) else { trace("skipped a chunk of piece \(i + 1) already here"); continue }
+                        let admitted: Data?
+                        do { admitted = try retry.admit(wav: raw) } catch {
+                            // Not a WAV: no player can play it, and asking again would not change it.
+                            state = .failed("This speech could not be played."); stop(); return nil
+                        }
+                        guard let wav = admitted else { trace("skipped a chunk of piece \(i + 1) already here"); continue }
                         enqueue(wav, piece: i)
                     }
                     break
                 } catch {
                     if Task.isCancelled || error is CancellationError { return nil }
-                    if error is SpeechWAV.Unreadable { return error }
                     retry.requestAgain()
                     trace("piece \(i + 1) failed on try \(attempt) after \(String(format: "%.2f", retry.kept)) s of it: \(error)")
                     guard attempt <= Self.retries, LiveGatewayClient.isTransient(error) else { return error }
