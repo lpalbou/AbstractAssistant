@@ -84,7 +84,8 @@ either way.
 
 Requirements: Python 3.10+, an AbstractGateway you can reach (0.16.0 or later for the voice
 library and the chat-wide tool policy; an older gateway keeps the labeled local grant and refuses
-the voice library's requests). AbstractCore is installed as a
+the voice library's requests; 0.19.0 or later for read marks shared across your devices, without
+which conversation cards show no unread marks). AbstractCore is installed as a
 dependency (its minimum version is set in `pyproject.toml`). macOS is the primary tray target;
 Linux and Windows may work but are not packaged to the same standard.
 

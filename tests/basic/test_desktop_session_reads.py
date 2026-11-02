@@ -16,6 +16,7 @@ class Client:
         self.posts = []
         self.fail = False
         self.incomplete = False
+        self.reject = set()
 
     def session_reads(self, ids):
         self.gets.append(ids)
@@ -28,6 +29,8 @@ class Client:
         self.posts.append(rows)
         if self.fail:
             raise OSError("offline")
+        if any((row["session_id"], row["run_id"], row["status"]) in self.reject for row in rows):
+            raise OSError("409 session_revision_changed")
         if self.incomplete:
             return {"items": []}
         values = []
@@ -92,6 +95,38 @@ def test_failed_and_incomplete_writes_retain_unread_and_retry_proven_revision():
     client.incomplete = False
     state.refresh(client, [run()])
     assert not state.facts("chat")["unread"] and not state.pending and not state.error
+
+
+def test_a_failed_or_cancelled_turn_without_an_answer_is_read_by_its_shown_prompt():
+    client = Client()
+    state = SessionReads()
+    for status in ("failed", "cancelled"):
+        state.refresh(client, [run(status=status)])
+        assert state.facts("chat")["unread"]
+        receipts = state.displayed("chat", [{"role": "user", "run_id": "r1"}])
+        assert [r["status"] for r in receipts] == [status]
+        assert state.consume(client, receipts)
+        assert not state.facts("chat")["unread"]
+    # A completed turn still needs its answer on screen.
+    state.refresh(client, [run("r2")])
+    assert not state.displayed("chat", [{"role": "user", "run_id": "r2"}])
+
+
+def test_a_receipt_for_a_revision_the_listing_dropped_never_blocks_later_writes():
+    client = Client()
+    state = SessionReads()
+    state.refresh(client, [run(status="running")])
+    client.fail = True
+    assert not state.consume(client, state.displayed("chat", [{"role": "user", "run_id": "r1"}]))
+    assert state.pending == {("chat", "r1", "request")}
+    client.fail = False
+    # The run finished meanwhile: the gateway refuses the old request revision, which is
+    # gone from the listing too.
+    client.reject = {("chat", "r1", "request")}
+    state.refresh(client, [run(), run("r2")])
+    assert ("chat", "r1", "request") not in state.pending
+    assert state.consume(client, state.displayed("chat", [{"role": "assistant", "run_id": "r2"}]))
+    assert ("chat", "r2", "completed") in state.seen and not state.pending
 
 
 def test_late_completion_cannot_broaden_captured_display_snapshot():

@@ -226,8 +226,9 @@ the stream. Whether the gateway offers live replies is read from
   the gateway lists `session_kind` among `runs.list.filters` in its capabilities); titles come from a session's first run's
   `input_data` and transcripts from its latest run's `history_bundle`
   ([architecture.md](architecture.md#sessions))
-- Conversation reads: `GET/POST /api/gateway/me/session-reads` (immutable account-scoped
-  run revisions; filtered GETs and POST batches contain at most 100 turns). The native client
+- Conversation reads: `GET/POST /api/gateway/me/session-reads` (AbstractGateway 0.19.0 or later;
+  immutable account-scoped run revisions; filtered GETs and POST batches contain at most 100
+  turns; on an older gateway the cards show no unread marks). The native client
   exposes `session_reads` and `mark_session_reads`. `archive_session` calls
   `POST /api/gateway/sessions/{session_id}/archive`; the response must confirm that same session.
 - Runs: `/api/gateway/runs/start`, `/api/gateway/runs/{run_id}`,

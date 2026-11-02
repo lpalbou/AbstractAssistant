@@ -196,7 +196,8 @@ either way.
 
 Requirements: Python 3.10+, an AbstractGateway you can reach (0.16.0 or later for the voice
 library and the chat-wide tool policy; an older gateway keeps the labeled local grant and refuses
-the voice library's requests). AbstractCore is installed as a
+the voice library's requests; 0.19.0 or later for read marks shared across your devices, without
+which conversation cards show no unread marks). AbstractCore is installed as a
 dependency (its minimum version is set in `pyproject.toml`). macOS is the primary tray target;
 Linux and Windows may work but are not packaged to the same standard.
 
@@ -319,7 +320,7 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 
 - [../phone/iphone/README.md](../phone/iphone/README.md) — AbstractAssistant for iPhone (0.16.0, carries the watch app; each device signs in on its own, the sign-in a Keychain item shared with that device's notification extension; Apple push): conversations, scoped tools, automations, notifications and tab badges from your event stream, restorable image previews and voice playback; [architecture](../phone/iphone/docs/architecture.md), [release history](../phone/iphone/CHANGELOG.md), [troubleshooting, notifications and app updates](../phone/iphone/docs/troubleshooting.md), [testing/distribution](../phone/iphone/docs/distribution.md) and [build guide](../phone/iphone/BUILD.md) (the five targets, `scripts/deploy-phone.sh`)
 - [../watch/apple/README.md](../watch/apple/README.md) — AbstractAssistant for Apple Watch (0.16.0, the iPhone app's independent companion, pre-release through TestFlight): voice around the orb with the work shown live, tools and workflow per conversation, images and recordings in answers, approvals, sessions with search and archive, automations, notifications from your event stream and Apple push, your avatar on the watch face; [build guide](../watch/apple/BUILD.md) (with the `--dump-notify` readout); its pages are indexed in [../watch/apple/docs/README.md](../watch/apple/docs/README.md)
-- [../web/README.md](../web/README.md) — Assistant (web), a private preview available through Gateway's console and tray Apps menu after a local build/install; npm publication remains pending
+- [../web/README.md](../web/README.md) — Assistant (web), a private preview available through Gateway's console and tray Apps menu after a local build/install; npm publication remains pending; the in-app [browser guide](../web/docs/assistant-guide.md)
 
 ## Design records
 
@@ -1645,8 +1646,9 @@ the stream. Whether the gateway offers live replies is read from
   the gateway lists `session_kind` among `runs.list.filters` in its capabilities); titles come from a session's first run's
   `input_data` and transcripts from its latest run's `history_bundle`
   ([architecture.md](architecture.md#sessions))
-- Conversation reads: `GET/POST /api/gateway/me/session-reads` (immutable account-scoped
-  run revisions; filtered GETs and POST batches contain at most 100 turns). The native client
+- Conversation reads: `GET/POST /api/gateway/me/session-reads` (AbstractGateway 0.19.0 or later;
+  immutable account-scoped run revisions; filtered GETs and POST batches contain at most 100
+  turns; on an older gateway the cards show no unread marks). The native client
   exposes `session_reads` and `mark_session_reads`. `archive_session` calls
   `POST /api/gateway/sessions/{session_id}/archive`; the response must confirm that same session.
 - Runs: `/api/gateway/runs/start`, `/api/gateway/runs/{run_id}`,
@@ -3417,6 +3419,9 @@ apps have their own release histories: [iPhone](phone/iphone/CHANGELOG.md) and
 - The tray's discussion card names its automation on one elided line ("About <title>", the full
   title on hover); a long automation title no longer runs past the card.
 - The web conversation's **Conversation | Avatar** view choice is a 44 px target on touch screens.
+- Opening a conversation whose last turn failed or was cancelled marks it read: its shown prompt
+  is the whole turn when there is no answer.
+- A read receipt for a turn that has since moved on no longer blocks the receipts that follow it.
 
 - Native tool approval stays above the floating palette on macOS, including after the palette
   is raised.
@@ -7972,14 +7977,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "abstractassistant"
 version = "0.17.0"
-description = "A sleek (macOS) system tray application providing instant access to LLMs"
+description = "A gateway-native macOS menu-bar assistant for AbstractFramework: a compact palette, hands-free voice conversations, automations and a small CLI over AbstractGateway"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [
     {name = "Laurent-Philippe Albou", email = "contact@abstractcore.ai"}
 ]
-keywords = ["ai", "llm", "macos", "system-tray", "assistant"]
+keywords = ["ai", "llm", "macos", "system-tray", "assistant", "voice", "abstractgateway", "abstractframework"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: End Users/Desktop",
@@ -8071,6 +8076,7 @@ build-macos-app = "abstractassistant.build_macos_app:main"
 Homepage = "https://github.com/lpalbou/abstractassistant"
 Repository = "https://github.com/lpalbou/abstractassistant"
 Issues = "https://github.com/lpalbou/abstractassistant/issues"
+Changelog = "https://github.com/lpalbou/abstractassistant/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["."]

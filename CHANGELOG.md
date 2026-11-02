@@ -144,6 +144,9 @@ apps have their own release histories: [iPhone](phone/iphone/CHANGELOG.md) and
 - The tray's discussion card names its automation on one elided line ("About <title>", the full
   title on hover); a long automation title no longer runs past the card.
 - The web conversation's **Conversation | Avatar** view choice is a 44 px target on touch screens.
+- Opening a conversation whose last turn failed or was cancelled marks it read: its shown prompt
+  is the whole turn when there is no answer.
+- A read receipt for a turn that has since moved on no longer blocks the receipts that follow it.
 
 - Native tool approval stays above the floating palette on macOS, including after the palette
   is raised.
