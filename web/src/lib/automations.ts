@@ -98,9 +98,11 @@ export function titleAfterTask(newTask: string, oldTitle: string | undefined, ol
 /**
  * `POST /automations` for a new automation, as the watch writes it (`NewAutomation.body`): the task as
  * the workflow's prompt (the gateway's default for the interface, or a chosen workflow with its
- * inputs), the tools its runs may use and which ask first, `schedule@2` every or daily at, whether
- * each run builds on the earlier ones (and how much of them it reads), and `tool_approval` "ask"
- * only when one tool asks.
+ * inputs), the tools its runs may use (`tools`, `_runtime.allowed_tools` in its inputs) and which
+ * run unasked or ask first (the definition's `policy.tool_policy`: the runtime applies the
+ * definition's policy to every run and drops a run-input one), `schedule@2` every or daily at,
+ * whether each run builds on the earlier ones (and how much of them it reads), and `tool_approval`
+ * "ask" only when one tool asks.
  */
 export function newAutomationBody(input: {
   requestId: string;
@@ -114,21 +116,18 @@ export function newAutomationBody(input: {
   tools: RunToolPlan;
 }): JsonObject {
   const task = input.task.trim();
-  const runtime: JsonObject = { allowed_tools: [...input.tools.allowed_tools] };
-  if (input.tools.tool_policy)
-    runtime.tool_policy = {
-      auto_approve_tools: [...input.tools.tool_policy.auto_approve_tools],
-      require_approval_tools: [...input.tools.tool_policy.require_approval_tools],
-    };
   const base: JsonObject = input.workflow ? { ...input.workflow.input_data } : { prompt: task };
   const prior = base._runtime && typeof base._runtime === "object" && !Array.isArray(base._runtime) ? (base._runtime as JsonObject) : {};
-  const input_data: JsonObject = { ...base, tools: [...input.tools.tools], _runtime: { ...prior, ...runtime } };
+  const input_data: JsonObject = { ...base, tools: [...input.tools.tools], _runtime: { ...prior, allowed_tools: [...input.tools.allowed_tools] } };
   const target: JsonObject = input.workflow
     ? { bundle_ref: input.workflow.bundle_ref, flow_id: input.workflow.flow_id, input_data }
     : { flow_id: "@default", interface: AUTOMATION_INTERFACE, input_data };
   const context: JsonObject = { mode: input.buildsOnEarlierRuns ? "growing" : "independent" };
   if (input.buildsOnEarlierRuns && input.growingMaxTokens && input.growingMaxTokens > 0) context.growing = { max_tokens: input.growingMaxTokens };
-  const asks = (input.tools.tool_policy?.require_approval_tools.length ?? 0) > 0;
+  const split = input.tools.tool_policy;
+  const asks = (split?.require_approval_tools.length ?? 0) > 0;
+  const policy: JsonObject = { tool_approval: asks ? "ask" : "auto" };
+  if (split) policy.tool_policy = { auto_approve_tools: [...split.auto_approve_tools], require_approval_tools: [...split.require_approval_tools] };
   return {
     request_id: input.requestId,
     title: titleOfTask(task),
@@ -139,7 +138,7 @@ export function newAutomationBody(input: {
       config: input.when.kind === "every" ? { kind: "every", every: input.when.every } : { kind: "daily", at: input.when.at },
     },
     context,
-    policy: { tool_approval: asks ? "ask" : "auto" },
+    policy,
   };
 }
 

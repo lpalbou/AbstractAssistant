@@ -53,10 +53,10 @@ describe("a new automation, as the watch writes it", () => {
       request_id: "q1",
       title: "Check the news",
       target: { flow_id: "@default", interface: AUTOMATION_INTERFACE, input_data: { prompt: "Check the news\nand summarize", tools: ["web_search", "write_file"],
-        _runtime: { allowed_tools: ["web_search", "write_file"], tool_policy: { auto_approve_tools: ["web_search"], require_approval_tools: [] } } } },
+        _runtime: { allowed_tools: ["web_search", "write_file"] } } },
       trigger: { source_id: "schedule", source_version: 2, config: { kind: "every", every: "12h" } },
       context: { mode: "independent" },
-      policy: { tool_approval: "auto" },
+      policy: { tool_approval: "auto", tool_policy: { auto_approve_tools: ["web_search"], require_approval_tools: [] } },
     });
   });
 
@@ -65,10 +65,11 @@ describe("a new automation, as the watch writes it", () => {
       when: { kind: "daily", at: "08:00" }, buildsOnEarlierRuns: true, growingMaxTokens: 40_000,
       tools: { ...tools, tool_policy: { auto_approve_tools: [], require_approval_tools: ["write_file"] } } });
     expect(body.target).toEqual({ bundle_ref: "digest@1.0.0", flow_id: "main", input_data: { prompt: "Digest", lang: "fr", tools: ["web_search", "write_file"],
-      _runtime: { keep: true, allowed_tools: ["web_search", "write_file"], tool_policy: { auto_approve_tools: [], require_approval_tools: ["write_file"] } } } });
+      _runtime: { keep: true, allowed_tools: ["web_search", "write_file"] } } });
     expect(body.trigger).toEqual({ source_id: "schedule", source_version: 2, config: { kind: "daily", at: "08:00" } });
     expect(body.context).toEqual({ mode: "growing", growing: { max_tokens: 40_000 } });
-    expect(body.policy).toEqual({ tool_approval: "ask" });
+    // The split rides the definition's policy (the runtime drops a run-input one).
+    expect(body.policy).toEqual({ tool_approval: "ask", tool_policy: { auto_approve_tools: [], require_approval_tools: ["write_file"] } });
   });
 
   it("titles: the task's first line, at most 120 characters; a title named by its task follows it", () => {

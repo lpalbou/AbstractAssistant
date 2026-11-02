@@ -16,10 +16,12 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
   **Run** starts a run now and **Stop** ends the run in progress. **Edit** changes its title, task,
   whether it is active, how often it runs and whether each run builds on the earlier ones (and how
   much of them it reads). Talking on its page opens a conversation about its latest run; a run
-  waiting for you opens where you answer it. The archive button asks first and **Restore** brings an
-  archived one back. **New** creates one: its task, the flow that runs it, every interval from 30
-  seconds to a week or every day at a time, and whether its runs build on each other; its runs use
-  the same tools as your conversations.
+  waiting for you opens where you answer it; a tool request is answered on its page (**Deny**,
+  **Approve all**, **Approve**), and **Approve all** lists the tools under **Allowed for its runs**,
+  which this browser then approves when it sees them until **Ask again**. The archive button asks
+  first and **Restore** brings an archived one back. **New** creates one: its task, the flow that
+  runs it, its **Tools** (each Off, Ask or Auto, from the gateway's defaults), every interval from
+  30 seconds to a week or every day at a time, and whether its runs build on each other.
 
 ## [0.1.0] - 2026-11-02
 

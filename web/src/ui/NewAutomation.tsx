@@ -1,13 +1,16 @@
 import {
   AfSwitch,
   AutomationWorkflowPicker,
+  ToolModeEditor,
+  inheritedToolModes,
   gatewayApiPath,
-  normalizeToolCatalog,
   planRunTools,
   prepareAutomationTarget,
   type AutomationSummary,
   type AutomationTarget,
   type AutomationWorkflowPickerOptions,
+  type ToolCatalogItem,
+  type ToolModeLayer,
 } from "@abstractframework/ui-kit";
 import { useEffect, useMemo, useState } from "react";
 
@@ -29,8 +32,9 @@ export function workflowRequest(client: GatewayClient): NonNullable<AutomationWo
 /**
  * A new automation, as the watch creates one: the task, the workflow that runs it (the gateway's
  * default first, then the others it offers this account), when it runs (the shared intervals, or
- * every day at a time) and whether each run builds on the earlier ones. Its tools are the ones this
- * app's conversations use (the gateway's defaults for this account). Create opens its page.
+ * every day at a time), the tools its runs may use (each Off, Ask or Auto, from the gateway's
+ * defaults: the watch's Tools page for "This automation") and whether each run builds on the
+ * earlier ones. Create opens its page.
  */
 export function NewAutomation(props: { client: GatewayClient; automations: Automations; onCreated: (s: AutomationSummary) => void; onCancel: () => void }) {
   const { api, refresh } = props.automations;
@@ -43,6 +47,18 @@ export function NewAutomation(props: { client: GatewayClient; automations: Autom
   const [defaultTokens, setDefaultTokens] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
+  const [catalog, setCatalog] = useState<ToolCatalogItem[] | null>(null);
+  const [toolsError, setToolsError] = useState("");
+  const [draftTools, setDraftTools] = useState<ToolModeLayer>({});
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const readCatalog = props.automations.catalog;
+  useEffect(() => {
+    let cancelled = false;
+    readCatalog().then((c) => !cancelled && setCatalog(c), (e) => !cancelled && setToolsError(automationErrorText(e)));
+    return () => {
+      cancelled = true;
+    };
+  }, [readCatalog]);
   const options = useMemo<AutomationWorkflowPickerOptions>(() => ({ interfaceId: AUTOMATION_INTERFACE, request: workflowRequest(props.client) }), [props.client]);
 
   // The gateway's default memory, shown until a number is typed.
@@ -63,7 +79,9 @@ export function NewAutomation(props: { client: GatewayClient; automations: Autom
   const tokensProblem = remembers && tokensText.trim() !== "" && tokens === null ? "Numbers only, more than 0." : "";
   const at = clockOf(dailyAt);
   const when: NewAutomationWhen | null = choice === DAILY ? (at ? { kind: "daily", at } : null) : { kind: "every", every: choice };
-  const ready = task.trim() !== "" && when !== null && !tokensProblem && !creating;
+  // Without its tools it is not created (the workflow's own and the gateway's grant would ignore
+  // what was turned off), as on the watch.
+  const ready = task.trim() !== "" && when !== null && !tokensProblem && !creating && catalog !== null;
 
   const create = async () => {
     if (!when) return;
@@ -76,7 +94,7 @@ export function NewAutomation(props: { client: GatewayClient; automations: Autom
         const prepared = await prepareAutomationTarget({ ...target, input_data: { ...(target.input_data || {}), prompt: text } }, options);
         workflow = { bundle_ref: (prepared as { bundle_ref: string }).bundle_ref, flow_id: prepared.flow_id, input_data: (prepared.input_data || {}) as JsonObject };
       }
-      const tools = planRunTools(normalizeToolCatalog(await props.client.discoveryTools()));
+      const tools = planRunTools(catalog ?? [], { session: draftTools });
       const body = newAutomationBody({ requestId: crypto.randomUUID(), task: text, workflow, when, buildsOnEarlierRuns: remembers, growingMaxTokens: remembers ? tokens : null, tools });
       const created = await api.createAutomation(body as unknown as Parameters<typeof api.createAutomation>[0]);
       await refresh();
@@ -96,6 +114,15 @@ export function NewAutomation(props: { client: GatewayClient; automations: Autom
           <textarea rows={5} value={task} placeholder="What should it do?" onChange={(e) => setTask(e.target.value)} autoFocus />
         </label>
         <AutomationWorkflowPicker target={target} options={options} onChange={setTarget} />
+        {catalog ? (
+          <ToolModeEditor catalog={catalog} layer="session" value={draftTools} inherited={inheritedToolModes(catalog, {}, "session")}
+            onChange={setDraftTools} onReset={() => setDraftTools({})} rowLabel="Tools" open={toolsOpen} onToggle={() => setToolsOpen((o) => !o)}
+            note="It runs on its own: a tool on Ask waits for you." />
+        ) : (
+          <p className={`aa-note${toolsError ? " aa-note--error" : ""}`} role={toolsError ? "alert" : "status"}>
+            {toolsError ? `Couldn't load your tools. ${toolsError}` : "Loading tools…"}
+          </p>
+        )}
         <label className="aa-field"><span>When</span>
           <select value={choice} onChange={(e) => setChoice(e.target.value)}>
             {EVERY_PRESETS.map((e) => <option key={e} value={e}>{everyLabel(e)}</option>)}

@@ -33,11 +33,14 @@ ends it (the automation keeps its schedule). **Edit** changes its title, its tas
 active, how often it runs and whether each run builds on its earlier runs (and how much of them
 it reads); a change made elsewhere meanwhile is refused, so open it again. Type in the message
 field to talk about its latest run: this opens a new conversation about it and never changes
-the automation. When a run waits for you, **Answer** opens it where you can review the request.
+the automation. When a run asks to use a tool, its page shows the request: **Approve** or **Deny**
+it, or **Approve all** to allow those tools for this automation's runs. They are listed under
+**Allowed for its runs**, and this browser approves them when it sees them, until **Ask again**.
+Another kind of request opens with **Answer**, where you can review it.
 
 **New** creates one: what it should do, the flow that runs it (the gateway's default unless you
-choose another), how often it runs or every day at a time, and whether each run builds on the
-earlier ones. Its runs use the same tools as your conversations.
+choose another), its **Tools** (each Off, Ask or Auto; a tool on Ask waits for you), how often it
+runs or every day at a time, and whether each run builds on the earlier ones.
 
 ## Speak and listen
 

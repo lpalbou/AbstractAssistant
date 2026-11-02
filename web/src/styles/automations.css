@@ -33,6 +33,16 @@
 .aa-automation-head__task span { display: block; font-size: 11px; color: var(--aa-text-muted); }
 .aa-automation-head__note { display: inline-flex; align-items: center; gap: 5px; margin: 0; font-size: 12px; color: var(--aa-text-muted); }
 
+/* A run's tool request (Deny · Approve all · Approve) and "Allowed for its runs" (Ask again). */
+.aa-approval, .aa-trust { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--aa-amber, var(--aa-border-strong)); border-radius: 14px; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.aa-approval p, .aa-trust p { margin: 0; }
+.aa-approval ul { margin: 0; padding-left: 18px; }
+.aa-approval__title, .aa-trust__title { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
+.aa-trust__title { color: var(--aa-amber-text, var(--aa-text)); }
+.aa-trust__note { color: var(--aa-text-muted); font-size: 12px; }
+.aa-approval__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.aa-trust .aa-button { align-self: flex-start; }
+
 .aa-form-page { height: 100%; overflow: auto; border-left: 1px solid var(--aa-border); }
 .aa-form { display: flex; flex-direction: column; gap: 16px; max-width: var(--aa-reading-max); margin: 0 auto; padding: 24px; }
 .aa-form h1 { margin: 0; font-family: var(--aa-font-rounded); font-size: 20px; font-weight: 600; letter-spacing: -.03em; }
@@ -53,3 +63,6 @@
   .aa-automation-head__line { flex-wrap: wrap; }
   .aa-automation-head__line .aa-chat__title { flex-basis: 100%; }
 }
+
+/* The kit's Off · Ask · Auto segments reach 44 px on touch (their height already does). */
+@media (pointer: coarse) { .aa-form .af-tool-modes__seg button { min-width: 44px; } }

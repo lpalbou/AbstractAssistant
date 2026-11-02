@@ -1,11 +1,12 @@
-import { Icon, isApiError, type AutomationDefinition, type AutomationSummary, type OccurrenceRow } from "@abstractframework/ui-kit";
+import { Icon, describeToolCall, isApiError, readableKey, trustAfterApproveAll, waitToolCalls, type AttentionWait, type AutomationDefinition, type AutomationSummary, type OccurrenceRow, type ToolCatalogItem } from "@abstractframework/ui-kit";
 import { WorkflowChat } from "../vendor/abstractchat/conversation.js";
 import { automationCardNext, automationCardSchedule } from "../vendor/abstractsessions/session_cards.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { GatewayClient } from "../gateway/client";
+import { automationToolModes, automationTrust, setAutomationTrust } from "../lib/automation_tools";
 import { RUNS_SHOWN, latestDiscussable, runMessages, waitingRun } from "../lib/automations";
-import { automationErrorText, type Automations } from "./useAutomations";
+import { answerToolWait, automationErrorText, type Automations } from "./useAutomations";
 
 /** "0:07", "1:05": how long a Run has been starting. */
 export function elapsedText(ms: number): string {
@@ -34,7 +35,7 @@ export function AutomationPage(props: {
   /** A conversation was started (about this automation, or a run to answer): open it. */
   onOpenConversation: (sessionId: string, runId: string) => void;
 }) {
-  const { api, replace } = props.automations;
+  const { api, replace, catalog, approveTrusted, trustScope } = props.automations;
   const id = props.summary.automation_id;
   const [summary, setSummary] = useState(props.summary);
   const [definition, setDefinition] = useState<AutomationDefinition | null>(null);
@@ -44,13 +45,19 @@ export function AutomationPage(props: {
   const [now, setNow] = useState(Date.now());
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState("");
+  const [tools, setTools] = useState<ToolCatalogItem[]>([]);
+  const [trust, setTrust] = useState<string[]>(() => automationTrust(trustScope, props.summary.automation_id));
+  const [answering, setAnswering] = useState(false);
+  useEffect(() => void catalog().then(setTools, () => undefined), [catalog]);
   const mounted = useRef(true);
   useEffect(() => () => void (mounted.current = false), []);
   useEffect(() => setSummary(props.summary), [props.summary]);
 
   /** Reads it again: the row (to the list too) and its definition. */
   const reread = useCallback(async () => {
-    const detail = await api.getAutomation(id);
+    let detail = await api.getAutomation(id);
+    // A request its Approve all covers is answered by this browser (the watch's rule).
+    if (await approveTrusted([detail.summary]).catch(() => false)) detail = await api.getAutomation(id);
     if (!mounted.current) return detail.summary;
     setSummary(detail.summary);
     setDefinition(detail.definition);
@@ -87,7 +94,7 @@ export function AutomationPage(props: {
   }, [api, id, readRuns, reread]);
 
   // While a run is in progress (or starting): read it every 3 s; its runs again once it is over.
-  const running = Boolean(summary.current_occurrence);
+  const running = Boolean(summary.current_occurrence) || summary.attention.pending_waits > 0;
   useEffect(() => {
     if (!running && starting === null) return;
     const timer = setInterval(() => {
@@ -154,13 +161,41 @@ export function AutomationPage(props: {
     }
   };
 
+  // The run's tool request (the newest), answered here as on the watch's approval page.
+  const toolWait: AttentionWait | null = summary.attention.waits.filter((w) => w.kind === "tool_approval" && waitToolCalls(w)).slice(-1)[0] ?? null;
+  const calls = toolWait ? waitToolCalls(toolWait) ?? [] : [];
+  const modes = definition ? automationToolModes(tools, definition) : null;
+  const widened = modes && calls.length && calls.every((c) => modes[c.name] && modes[c.name] !== "off")
+    ? trustAfterApproveAll(tools, modes, calls.map((c) => c.name), trust) : null;
+  const decide = async (approved: boolean, all = false) => {
+    if (!toolWait) return;
+    setAnswering(true);
+    setError("");
+    try {
+      if (all && widened) {
+        setAutomationTrust(trustScope, id, widened);
+        setTrust(widened);
+      }
+      await answerToolWait(props.client, toolWait, approved);
+      await reread();
+    } catch (e) {
+      setError(automationErrorText(e));
+    } finally {
+      setAnswering(false);
+    }
+  };
+  const askAgain = () => {
+    setAutomationTrust(trustScope, id, []);
+    setTrust([]);
+  };
+
   const task = taskOf(definition);
   const count = Number.isSafeInteger(summary.occurrence_count) ? summary.occurrence_count : null;
   const paused = summary.status === "paused";
   const ended = summary.status === "completed" || summary.status === "failed";
   const next = summary.status === "active" ? automationCardNext(summary.next_run_at, now) : "";
-  const waiting = waitingRun(runs ?? []);
-  const showStop = running && starting === null;
+  const waiting = toolWait ? null : waitingRun(runs ?? []);
+  const showStop = Boolean(summary.current_occurrence) && starting === null;
   const messages = runMessages(runs ?? []);
   const canTalk = latestDiscussable(runs ?? []) !== null;
 
@@ -197,6 +232,25 @@ export function AutomationPage(props: {
             {starting !== null && <p className="aa-automation-head__starting" role="status">{running ? "Running…" : "Starting…"} {elapsedText(now - starting)}</p>}
             {task && task !== summary.title && <p className="aa-automation-head__task"><span>Task</span>{task}</p>}
             {summary.context_mode === "growing" && <p className="aa-automation-head__note"><Icon name="loop" size={14} /> Builds on its earlier runs</p>}
+            {trust.length > 0 && (
+              <div className="aa-trust" role="group" aria-label="Allowed for its runs">
+                <p className="aa-trust__title"><Icon name="check" size={14} /> Allowed for its runs</p>
+                <p>{trust.map(readableKey).join(", ")}</p>
+                <p className="aa-trust__note">Approved by this browser when it sees them.</p>
+                <button type="button" className="aa-button" onClick={askAgain}>Ask again</button>
+              </div>
+            )}
+            {toolWait && (
+              <div className="aa-approval" role="group" aria-label="A run asks for approval">
+                <p className="aa-approval__title">A run asks to:</p>
+                <ul>{calls.map((c, i) => <li key={i}>{describeToolCall(c).sentence}</li>)}</ul>
+                <div className="aa-approval__actions">
+                  <button type="button" className="aa-button" disabled={answering} onClick={() => void decide(false)}>Deny</button>
+                  {widened && <button type="button" className="aa-button" disabled={answering} onClick={() => void decide(true, true)}>Approve all</button>}
+                  <button type="button" className="aa-button aa-button--primary" disabled={answering} onClick={() => void decide(true)}>Approve</button>
+                </div>
+              </div>
+            )}
           </div>
         }
         footer={error || waiting ? (

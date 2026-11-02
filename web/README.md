@@ -31,9 +31,14 @@ the active automations first and the most recently active at the top, then **Pau
 counts, and an older gateway gets every automation in one list), an automation's latest runs as a
 conversation (opening it marks its new results seen), Run and Stop, Edit (title, task, active, how
 often, memory; sent with the revision it was read at), archive and restore, talking about its
-latest run (a new conversation, the automation unchanged), and New automation. The cards are
-AbstractUIC's Watch-style `AutomationCard`; the gateway calls, the flow picker and the edit rules
-are the kit's (`createAutomationsClient`, `AutomationWorkflowPicker`, `reviseChanges`).
+latest run (a new conversation, the automation unchanged), a run's tool request answered on its
+page with **Approve all** filling **Allowed for its runs** (kept in this browser, per account;
+this browser then approves those tools for the automation's runs when it reads the list), and New
+automation with its **Tools** (Off, Ask or Auto per tool; the split rides the definition's
+`policy.tool_policy`). The cards are AbstractUIC's Watch-style `AutomationCard`; the gateway
+calls, the flow picker, the tool editor and the edit and Approve all rules are the kit's
+(`createAutomationsClient`, `AutomationWorkflowPicker`, `ToolModeEditor`, `reviseChanges`,
+`trustAfterApproveAll`). Run-finished notifications stay on the native apps.
 
 The Docs drawer keeps its question field at the bottom and scrolls the conversation
 above it. Its questions use Assistant documentation and stay separate from your
@@ -148,7 +153,7 @@ PYTHONPATH=. python -P web/scripts/gen_tool_policy_parity.py   # needs the packa
 | `bin/server.js`, `bin/cli.js` | The app server: built files, mount under `/apps/assistant-web/`, gateway session proxy |
 | `src/host/` | What the page needs from its host (gateway URLs, authentication, native capabilities); the browser host |
 | `src/gateway/` | Gateway calls (SSE over fetch, framed by the kit's `sseFrames`) and the kit's `WorkflowTransport` over them, with `replayView` (panel-chat 0.6.2: the conversation, every turn of it, is rendered from the gateway's replay view on AbstractGateway >= 0.17.0, the ledger fold otherwise) |
-| `src/lib/` | Pure logic with tests: session fold, titles, workflow choice, run input, theme group, automations (the list's sections, a new automation's body, runs as messages) |
+| `src/lib/` | Pure logic with tests: session fold, titles, workflow choice, run input, theme group, automations (the list's sections, a new automation's body, runs as messages, its tools and "Allowed for its runs") |
 | `src/ui/` | The Assistant space on the kit: the conversation (`WorkflowChat`), the conversation and automation lists (the shell's navigation), an automation's page, Edit and New, Settings → Voice |
 | `src/vendor/abstractavatar/`, `src/vendor/abstractdocs/` | Generated, hash-checked shared rendering and Docs artifacts; standalone builds use these pinned snapshots |
 | `src/styles/index.css` | App styles on the design tokens of `web/design/tokens.css` |

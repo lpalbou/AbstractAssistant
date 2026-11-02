@@ -7845,9 +7845,14 @@ the active automations first and the most recently active at the top, then **Pau
 counts, and an older gateway gets every automation in one list), an automation's latest runs as a
 conversation (opening it marks its new results seen), Run and Stop, Edit (title, task, active, how
 often, memory; sent with the revision it was read at), archive and restore, talking about its
-latest run (a new conversation, the automation unchanged), and New automation. The cards are
-AbstractUIC's Watch-style `AutomationCard`; the gateway calls, the flow picker and the edit rules
-are the kit's (`createAutomationsClient`, `AutomationWorkflowPicker`, `reviseChanges`).
+latest run (a new conversation, the automation unchanged), a run's tool request answered on its
+page with **Approve all** filling **Allowed for its runs** (kept in this browser, per account;
+this browser then approves those tools for the automation's runs when it reads the list), and New
+automation with its **Tools** (Off, Ask or Auto per tool; the split rides the definition's
+`policy.tool_policy`). The cards are AbstractUIC's Watch-style `AutomationCard`; the gateway
+calls, the flow picker, the tool editor and the edit and Approve all rules are the kit's
+(`createAutomationsClient`, `AutomationWorkflowPicker`, `ToolModeEditor`, `reviseChanges`,
+`trustAfterApproveAll`). Run-finished notifications stay on the native apps.
 
 The Docs drawer keeps its question field at the bottom and scrolls the conversation
 above it. Its questions use Assistant documentation and stay separate from your
@@ -7962,7 +7967,7 @@ PYTHONPATH=. python -P web/scripts/gen_tool_policy_parity.py   # needs the packa
 | `bin/server.js`, `bin/cli.js` | The app server: built files, mount under `/apps/assistant-web/`, gateway session proxy |
 | `src/host/` | What the page needs from its host (gateway URLs, authentication, native capabilities); the browser host |
 | `src/gateway/` | Gateway calls (SSE over fetch, framed by the kit's `sseFrames`) and the kit's `WorkflowTransport` over them, with `replayView` (panel-chat 0.6.2: the conversation, every turn of it, is rendered from the gateway's replay view on AbstractGateway >= 0.17.0, the ledger fold otherwise) |
-| `src/lib/` | Pure logic with tests: session fold, titles, workflow choice, run input, theme group, automations (the list's sections, a new automation's body, runs as messages) |
+| `src/lib/` | Pure logic with tests: session fold, titles, workflow choice, run input, theme group, automations (the list's sections, a new automation's body, runs as messages, its tools and "Allowed for its runs") |
 | `src/ui/` | The Assistant space on the kit: the conversation (`WorkflowChat`), the conversation and automation lists (the shell's navigation), an automation's page, Edit and New, Settings → Voice |
 | `src/vendor/abstractavatar/`, `src/vendor/abstractdocs/` | Generated, hash-checked shared rendering and Docs artifacts; standalone builds use these pinned snapshots |
 | `src/styles/index.css` | App styles on the design tokens of `web/design/tokens.css` |
@@ -8055,10 +8060,12 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
   **Run** starts a run now and **Stop** ends the run in progress. **Edit** changes its title, task,
   whether it is active, how often it runs and whether each run builds on the earlier ones (and how
   much of them it reads). Talking on its page opens a conversation about its latest run; a run
-  waiting for you opens where you answer it. The archive button asks first and **Restore** brings an
-  archived one back. **New** creates one: its task, the flow that runs it, every interval from 30
-  seconds to a week or every day at a time, and whether its runs build on each other; its runs use
-  the same tools as your conversations.
+  waiting for you opens where you answer it; a tool request is answered on its page (**Deny**,
+  **Approve all**, **Approve**), and **Approve all** lists the tools under **Allowed for its runs**,
+  which this browser then approves when it sees them until **Ask again**. The archive button asks
+  first and **Restore** brings an archived one back. **New** creates one: its task, the flow that
+  runs it, its **Tools** (each Off, Ask or Auto, from the gateway's defaults), every interval from
+  30 seconds to a week or every day at a time, and whether its runs build on each other.
 
 ## [0.1.0] - 2026-11-02
 

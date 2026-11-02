@@ -20,6 +20,8 @@ export function AutomationList(props: {
   onSettings: () => void;
 }) {
   const { state, command, loadArchived, refresh } = props.automations;
+  // The first page (50), as the watch reads it: with more automations than that, the paused ones
+  // past it are counted ("Paused · N", the gateway's figure) but not listed.
   const [query, setQuery] = useState("");
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState("");
@@ -68,7 +70,7 @@ export function AutomationList(props: {
           <Icon name="plus" size={16} /> New
         </button>
       </div>
-      <label className="aa-search"><Icon name="clock" size={15} /><input aria-label="Search automations" placeholder="Find an automation" value={query} onChange={(e) => setQuery(e.target.value)} /></label>
+      <label className="aa-search"><Icon name="chat" size={15} /><input aria-label="Search automations" placeholder="Find an automation" value={query} onChange={(e) => setQuery(e.target.value)} /></label>
       {state.error ? (
         <p className="aa-sidebar__error" role="alert">
           {state.error}{" "}

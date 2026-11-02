@@ -49,7 +49,9 @@ function automation(id, title, status, section, extra = {}) {
   };
 }
 const automationRows = [
-  automation("auto-morning", "Morning digest", "active", "active", { attention: { pending_waits: 0, unread: true, unseen_count: 1, cursor: "att1:41", items: [], waits: [] } }),
+  automation("auto-morning", "Morning digest", "active", "active", { attention: { pending_waits: 1, unread: true, unseen_count: 1, cursor: "att1:41", items: [],
+    waits: [{ run_id: "occ-4", wait_key: "tool_approval:occ-4", kind: "tool_approval", reason: "user", index: 4,
+      details: [{ name: "fetch_url", arguments: { url: "https://example.org/a/very/long/path/that/does/not/break/anywhere/at/all/because/it/is/one/word" } }] }] } }),
   automation("auto-long", LONG, "active", "active"),
   automation("auto-notes", "Consolidate my notes", "paused", "paused", { occurrence_count: 0, next_run_at: undefined }),
 ];
@@ -111,7 +113,11 @@ function answer(path, mode) {
   }
   if (path.startsWith("api/gateway/bundles?")) return json({ executable_for: "abstractcode.agent.v1", items: [
     { bundle_id: "digest", bundle_version: "1.0.0", owner: { kind: "gateway" }, shipped: true, entrypoints: [{ flow_id: "main", name: "Daily digest", interfaces: ["abstractcode.agent.v1"] }] }] });
-  if (path.startsWith("api/gateway/discovery/tools")) return json({ items: [] });
+  if (path.startsWith("api/gateway/discovery/tools")) return json({ items: [
+    { name: "web_search", toolset: "web", enabled: true, approval_default: "ask", risk_rank: 1, description: "Search the web." },
+    { name: "fetch_url", toolset: "web", enabled: true, approval_default: "ask", risk_rank: 1, description: "Read a web page." },
+    { name: "write_file", toolset: "files", enabled: true, approval_default: "ask", risk_rank: 2, description: "Write a file in the workspace." },
+  ] });
   if (path.startsWith("api/gateway/discovery/capabilities")) return json({ capabilities: {} });
   if (path.startsWith("api/gateway/voice/defaults")) return json({ tts: { configured: true, provider: "piper", model: "en_US-amy" }, stt: { configured: true, provider: "faster-whisper", model: "large-v3" }, source: "gateway" });
   if (path.startsWith("api/gateway/voice/voices")) return json({ items: [] });
@@ -271,6 +277,8 @@ try {
       await page.getByRole("button", { name: /Morning digest/ }).first().click();
       await page.locator(".aa-automation-head").waitFor();
       await page.getByText("It failed: The provider could not be reached.").waitFor();
+      await page.getByRole("group", { name: "A run asks for approval" }).waitFor();
+      await page.getByRole("button", { name: "Approve all" }).waitFor();
       await page.waitForTimeout(150);
       await measureView(page, `${tag}-page`, errors);
       if (shots) await page.screenshot({ path: join(shots, `${tag}-page.png`) });
@@ -283,6 +291,9 @@ try {
       await openNav();
       await page.getByRole("button", { name: "New", exact: true }).click();
       await page.getByRole("heading", { name: "New automation" }).waitFor();
+      // Its tools, opened (the watch's Tools page for "This automation").
+      await page.getByRole("button", { name: /^Change/ }).first().click();
+      await page.getByText("It runs on its own: a tool on Ask waits for you.").waitFor();
       await page.waitForTimeout(150);
       await measureView(page, `${tag}-new`, errors);
       if (shots) await page.screenshot({ path: join(shots, `${tag}-new.png`) });

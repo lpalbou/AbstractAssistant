@@ -100,7 +100,7 @@ function ConnectedApp(props: { client: GatewayClient; host: AssistantHost; conn:
   const reads = useSessionReads(readScope, receipts, readClient);
   readRefresh.current = reads.refresh;
   const title = selected.sessionId ? conversations.titles[selected.sessionId] || "Conversation" : "New conversation";
-  const automations = useAutomations(client);
+  const automations = useAutomations(client, readScope);
   const [tab, setTab] = useState<NavTab>("conversations");
   const [view, setView] = useState<MainView>({ kind: "chat" });
   const heading = <NavChoice tab={tab} onChange={setTab} />;
