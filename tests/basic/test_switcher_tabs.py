@@ -566,3 +566,37 @@ def test_the_active_switch_follows_the_gateway_status_only(status, checked, shor
         assert row.active_switch.isChecked() is checked and not row.active_switch.busy
         assert "Last attempt failed: refused" in row.active_switch.toolTip()
     row.deleteLater()
+
+
+@pytest.mark.basic
+def test_paused_automations_fold_under_their_own_section_in_the_served_order() -> None:
+    """ADR 0048: the rows are drawn in the gateway's order; the ones it serves in the "paused"
+    section fold under "Paused · N" (closed at first, opened by a click); a gateway that serves
+    no `section` gets today's list, paused ones included, in its order."""
+    served = []
+    for summary, section in zip(_summaries(), ("active", "paused", "active")):
+        served.append(dict(summary, section=section, status="paused" if section == "paused" else summary["status"]))
+    sw = _switcher(served)
+    sw.set_tab("automations")
+    ids = lambda: [r.automation_id for r in sw.automation_tab_rows]  # noqa: E731
+    active = [s["automation_id"] for s in served if s["section"] == "active"]
+    paused = [s["automation_id"] for s in served if s["section"] == "paused"]
+    assert ids() == active  # served order, the paused one folded
+    assert sw.paused_toggle is not None and sw.paused_toggle.text() == "Paused · 1"
+    assert not sw.paused_toggle.isChecked()
+    sw.paused_toggle.click()
+    assert ids() == active + paused  # opened: the same cards, after the active ones
+    assert sw.paused_toggle.isChecked()
+    sw.paused_toggle.click()
+    assert ids() == active
+    sw.deleteLater()
+
+    # An older gateway (no `section`): every row as served, no Paused section.
+    older = [dict(s) for s in served]
+    for s in older:
+        s.pop("section")
+    sw = _switcher(older)
+    sw.set_tab("automations")
+    assert [r.automation_id for r in sw.automation_tab_rows] == [s["automation_id"] for s in older]
+    assert sw.paused_toggle is None
+    sw.deleteLater()

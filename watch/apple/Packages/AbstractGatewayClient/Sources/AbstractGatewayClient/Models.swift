@@ -486,6 +486,9 @@ public struct AutomationSummary: Codable, Hashable, Sendable, Identifiable {
     /// The schedule's sentence, nil for a trigger that is not a schedule: `scheduleText` without the
     /// watch's fallbacks (the source id, "when an email arrives"). What `triggerWords` says.
     public var scheduleSentence: String?
+    /// Where the gateway draws it (ADR 0048): "active", "paused" or "archived"; nil from a gateway
+    /// that serves no sections (then the list is drawn as it comes, with no Paused section).
+    public var section: String?
     public var every: String? { triggerConfig?["every"]?.stringValue }
 
     /// It runs when something happens (mail, a feed item, a call), not on a clock: no next run.
@@ -529,6 +532,7 @@ public struct AutomationSummary: Codable, Hashable, Sendable, Identifiable {
         case id, automationId = "automation_id", name, title, status, scheduleText = "schedule_text", lastOccurrence = "last_occurrence"
         case nextFireAt = "next_fire_at", attention, contextMode = "context_mode", occurrenceCount = "occurrence_count", trigger, cadence, detail
         case revision, currentOccurrence = "current_occurrence", growingMaxTokens = "growing_max_tokens", triggerText = "trigger_text"
+        case section
     }
     enum TriggerKeys: String, CodingKey { case sourceId = "source_id", sourceVersion = "source_version", config, summary }
 
@@ -551,6 +555,7 @@ public struct AutomationSummary: Codable, Hashable, Sendable, Identifiable {
         revision = try? c.decodeIfPresent(Int.self, forKey: .revision)
         triggerText = try? c.decodeIfPresent(String.self, forKey: .triggerText)
         currentOccurrence = try? c.decodeIfPresent(CurrentOccurrence.self, forKey: .currentOccurrence)
+        section = try? c.decodeIfPresent(String.self, forKey: .section)
         if let t = try? c.nestedContainer(keyedBy: TriggerKeys.self, forKey: .trigger) {
             triggerSource = try? t.decodeIfPresent(String.self, forKey: .sourceId)
             triggerSourceVersion = try? t.decodeIfPresent(Int.self, forKey: .sourceVersion)
@@ -579,6 +584,7 @@ public struct AutomationSummary: Codable, Hashable, Sendable, Identifiable {
         try c.encodeIfPresent(scheduleText, forKey: .scheduleText); try c.encodeIfPresent(lastOccurrence, forKey: .lastOccurrence)
         try c.encodeIfPresent(nextFireAt, forKey: .nextFireAt); try c.encodeIfPresent(attention, forKey: .attention)
         try c.encodeIfPresent(cadence, forKey: .cadence); try c.encodeIfPresent(detail, forKey: .detail)
+        try c.encodeIfPresent(section, forKey: .section)
     }
 
     /// Short second line for a row: schedule, last result, unseen count.
@@ -908,7 +914,36 @@ struct AutomationSummaryResponse: Decodable { var summary: AutomationSummary }
 public struct AutomationsPage: Codable, Sendable {
     public var items: [AutomationSummary]
     public var nextCursor: String?
-    enum CodingKeys: String, CodingKey { case items, nextCursor = "next_cursor" }
+    /// How many of yours are paused (ADR 0048), whatever the page holds; nil from an older gateway.
+    public var pausedAutomations: Int?
+    public init(items: [AutomationSummary], nextCursor: String? = nil, pausedAutomations: Int? = nil) {
+        self.items = items; self.nextCursor = nextCursor; self.pausedAutomations = pausedAutomations
+    }
+    enum CodingKeys: String, CodingKey { case items, nextCursor = "next_cursor", pausedAutomations = "paused_automations_count" }
+}
+
+/// The automations list as every Apple app draws it (ADR 0048): the gateway's rows in the gateway's
+/// order, the paused ones behind a folded "Paused" section. Nothing is sorted or decided here: the
+/// gateway says which section each row is in. A gateway that serves no sections gets today's list
+/// (every row, as it comes, and no Paused section).
+public struct AutomationSections: Equatable, Sendable {
+    /// The rows drawn first, in the served order.
+    public let main: [AutomationSummary]
+    /// How many are paused (the Paused section's count); nil: the gateway serves no sections.
+    public let pausedCount: Int?
+
+    public init(_ page: AutomationsPage) { self.init(page.items, pausedCount: page.pausedAutomations) }
+
+    public init(_ items: [AutomationSummary], pausedCount served: Int?) {
+        guard served != nil || items.contains(where: { $0.section != nil }) else {
+            main = items; pausedCount = nil; return
+        }
+        main = items.filter { $0.section != "paused" && $0.section != "archived" }
+        pausedCount = served ?? items.filter { $0.section == "paused" }.count
+    }
+
+    /// The Paused section is drawn (folded) when the gateway serves sections and one is paused.
+    public var showsPaused: Bool { (pausedCount ?? 0) > 0 }
 }
 
 // MARK: - Commands

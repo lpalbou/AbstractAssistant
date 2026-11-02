@@ -11,6 +11,13 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   (0.1.0), so AbstractGateway's **Apps → Assistant (web) → Install** works on any machine. It has
   its own release history: [web/CHANGELOG.md](web/CHANGELOG.md).
 
+### Changed
+
+- **Paused automations fold under "Paused · N" in the switcher.** The Automations tab draws the
+  gateway's order (active ones first, most recent activity first) and keeps the paused ones behind a
+  "Paused · N" row that opens them on a click. A gateway that does not serve sections (0.19.0 and
+  earlier) shows the list as before.
+
 ## [0.17.0] - 2026-11-02
 
 The desktop palette gains an optional activity avatar, automations that open as the chat with a

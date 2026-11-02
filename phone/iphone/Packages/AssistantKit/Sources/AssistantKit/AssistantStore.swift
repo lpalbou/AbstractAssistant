@@ -129,6 +129,11 @@ public final class AssistantStore {
 
     public private(set) var waits: [Wait] = []
     public private(set) var automations: [AutomationSummary] = []
+    /// How many automations are paused (the gateway's count, ADR 0048); nil from a gateway that serves
+    /// no sections (the list is then drawn as it comes, with no Paused section).
+    public private(set) var automationsPausedCount: Int?
+    /// The automations as the screen draws them: the gateway's order, the paused ones folded.
+    public var automationSections: AutomationSections { AutomationSections(automations, pausedCount: automationsPausedCount) }
     /// The names automation triggers are said with (connections' labels, mailboxes' addresses).
     public private(set) var triggerNames = TriggerNames()
     /// The person's event stream (backlog 1047): badges and local notifications.
@@ -229,7 +234,7 @@ public final class AssistantStore {
         approvalPoll?.cancel(); approvalPoll = nil
         poll?.cancel(); poll = nil; turn?.cancel(); turn = nil; stopping?.cancel(); stopping = nil
         isStopping = false; stopRequested = false; sendInFlight = false; sendID = nil; unknownStart = false; cancelledRunID = nil
-        client = nil; connection = nil; principal = nil; messages = []; runs = []; waits = []; automations = []; entities = []
+        client = nil; connection = nil; principal = nil; messages = []; runs = []; waits = []; automations = []; automationsPausedCount = nil; entities = []
         titles = [:]; entityChatIDs = [:]; entityVisitIDs = [:]; toolSelections = [:]; measuredMessages = []; activeEntityRunID = nil; activeRunID = nil; selectedEntity = nil; restorationID = nil
         completedReply = nil; quietEntityRestoreID = nil
         phase = .ready; error = nil; automationsError = nil; entitiesError = nil; loadingEntities = false; lastRefresh = nil; isRefreshing = false; isOpening = false
@@ -335,8 +340,11 @@ public final class AssistantStore {
             }
             lastRefresh = Date(); error = nil
             do {
-                let rows = try await client.automations()
-                guard epoch == generation else { return }; if archives == automationArchiveRevision { automations = rows }; automationsError = nil
+                let page = try await client.automationList()
+                let rows = page.items
+                guard epoch == generation else { return }
+                if archives == automationArchiveRevision { automations = rows; automationsPausedCount = page.pausedAutomations }
+                automationsError = nil
                 let unnamed = rows.filter { ($0.triggerText ?? "").isEmpty }
                 let wantsConnections = unnamed.contains { ["feed.item", "webhook.received"].contains($0.triggerSource ?? "") }
                 let wantsMailboxes = unnamed.contains { $0.triggerSource == "email.received" }

@@ -5,6 +5,12 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
 
+### Changed
+
+- Automations open on the active ones, most recent activity first; the paused ones are one tap away
+  under "Paused · N". With a gateway that does not serve sections (0.19.0 and earlier) the list stays
+  as before.
+
 ### Fixed
 
 - Reconnecting reconciles unread attention before posting local alerts. Approvals and results

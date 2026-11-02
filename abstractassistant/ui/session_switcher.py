@@ -200,6 +200,9 @@ def _build_qss() -> str:
     QPushButton#switcherTab:checked, QPushButton#switcherScope:checked {{ color: {THEME.text_primary}; border-color: {THEME.accent}; }}
     QPushButton#switcherTab:focus, QPushButton#switcherLoadMore:focus {{ border-color: {THEME.accent}; }}
     QFrame#switcherFooter, QFrame#switcherHeader, QScrollArea#switcherScroll, QWidget#switcherList {{ background: transparent; border: none; }}
+    QPushButton#switcherSection {{ color: {THEME.text_muted}; background: transparent; border: none; border-radius: 8px; padding: 8px 6px; font-size: {METRICS.font_ui}px; font-weight: 400; text-align: left; }}
+    QPushButton#switcherSection:hover {{ color: {THEME.text_secondary}; background: {THEME.overlay_hover}; }}
+    QPushButton#switcherSection:focus {{ border: 1px solid {THEME.accent}; }}
     """
 
 
@@ -1038,6 +1041,9 @@ class SessionSwitcher(QDialog):
         self._selected_index = -1
         self._tab = "sessions"
         self._automations: List[Dict[str, Any]] = []
+        # ADR 0048: the Paused section opens on a click and starts folded.
+        self._paused_open = False
+        self.paused_toggle: Optional[QPushButton] = None
         self._automation_status = ""
         self._automations_available = False
         self._auto_rows: List[AutomationTabRow] = []
@@ -1382,24 +1388,51 @@ class SessionSwitcher(QDialog):
             status.setWordWrap(True)
             self.auto_layout.addWidget(status)
         show_archived = self.show_archived.isChecked()
-        for summary in self._automations:
-            if summary.get("status") == "archived" and not show_archived:
-                continue
-            row = AutomationTabRow(summary, parent=self.auto_host)
-            row.open_requested.connect(self._on_automation_open)
-            row.control_requested.connect(self._on_row_control)
-            pending = self._pending.get(row.automation_id)
-            if pending is not None:
-                control, before, _token = pending
-                if command_confirmed(control, before, summary):
-                    del self._pending[row.automation_id]
-                else:
-                    row.set_pending(control)
-            row.focus_requested.connect(self._on_row_hovered)
-            self.auto_layout.addWidget(row)
-            self._auto_rows.append(row)
+        shown = [s for s in self._automations if s.get("status") != "archived" or show_archived]
+        # ADR 0048: the gateway's order as served; the rows it puts in the "paused" section fold
+        # under "Paused · N". A gateway that serves no `section` gets today's list.
+        sectioned = any("section" in s for s in shown)
+        paused = [s for s in shown if sectioned and s.get("section") == "paused"]
+        paused_ids = {str(s.get("automation_id")) for s in paused}
+        for summary in shown:
+            if str(summary.get("automation_id")) not in paused_ids:
+                self._add_automation_row(summary)
+        self.paused_toggle = None
+        if paused:
+            toggle = QPushButton(f"Paused · {len(paused)}", self.auto_host)
+            toggle.setObjectName("switcherSection")
+            toggle.setIcon(symbol_icon("pause", color=THEME.text_muted, size=14))
+            toggle.setCheckable(True)
+            toggle.setChecked(self._paused_open)
+            toggle.setCursor(Qt.PointingHandCursor)
+            toggle.setToolTip("Hide the paused automations" if self._paused_open else "Show the paused automations")
+            toggle.toggled.connect(self._on_paused_toggled)
+            self.auto_layout.addWidget(toggle)
+            self.paused_toggle = toggle
+            if self._paused_open:
+                for summary in paused:
+                    self._add_automation_row(summary)
         self.auto_layout.addStretch(1)
         self._after_rebuild()
+
+    def _add_automation_row(self, summary: Dict[str, Any]) -> None:
+        row = AutomationTabRow(summary, parent=self.auto_host)
+        row.open_requested.connect(self._on_automation_open)
+        row.control_requested.connect(self._on_row_control)
+        pending = self._pending.get(row.automation_id)
+        if pending is not None:
+            control, before, _token = pending
+            if command_confirmed(control, before, summary):
+                del self._pending[row.automation_id]
+            else:
+                row.set_pending(control)
+        row.focus_requested.connect(self._on_row_hovered)
+        self.auto_layout.addWidget(row)
+        self._auto_rows.append(row)
+
+    def _on_paused_toggled(self, checked: bool) -> None:
+        self._paused_open = bool(checked)
+        self._rebuild_automations()
 
     def _after_rebuild(self) -> None:
         self.tab_bar.setVisible(self._automations_available)
