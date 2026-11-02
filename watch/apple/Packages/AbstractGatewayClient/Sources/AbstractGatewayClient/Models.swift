@@ -1459,7 +1459,7 @@ struct SpeechEvent: Decodable {
 public enum SyntheticSpeech {
     public static func wav(seconds: Double, seed: Int, rate: Int = 16_000) -> Data {
         let n = Int(seconds * Double(rate))
-        var pcm = Data(capacity: n * 2)
+        var pcm = [UInt8](); pcm.reserveCapacity(n * 2)
         for i in 0..<n {
             let t = Double(i) / Double(rate)
             let syllable = max(0, sin(t * 2 * .pi * (3.1 + Double(seed) * 0.4)))
@@ -1469,6 +1469,11 @@ public enum SyntheticSpeech {
             var sample = Int16(max(-1, min(1, v)) * 32_000).littleEndian
             withUnsafeBytes(of: &sample) { pcm.append(contentsOf: $0) }
         }
+        return wav(pcm: pcm[...], rate: rate)
+    }
+
+    /// A 16-bit mono WAV of these PCM bytes (a part of a synthetic sound, as one streamed chunk).
+    public static func wav(pcm: ArraySlice<UInt8>, rate: Int = 16_000) -> Data {
         var header = Data()
         func u32(_ v: UInt32) { var x = v.littleEndian; withUnsafeBytes(of: &x) { header.append(contentsOf: $0) } }
         func u16(_ v: UInt16) { var x = v.littleEndian; withUnsafeBytes(of: &x) { header.append(contentsOf: $0) } }

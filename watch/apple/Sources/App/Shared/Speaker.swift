@@ -11,9 +11,11 @@ import SwiftUI
 ///
 /// The text is requested in pieces (`SpeechText.pieces`, about 600 characters each), one stream at
 /// a time, the next while under `aheadSeconds` of audio wait: a piece whose stream breaks is
-/// requested again while what arrived plays, and a reading that still fails goes on from that
-/// piece with a tap (2026-11-01: one request for ten minutes of audio was lost whole when the link
-/// went quiet for 90 s).
+/// requested again while what arrived plays, the retry skipping the sound already here
+/// (`SpeechPieceRetry`), and a reading that still fails goes on from that piece with a tap
+/// (2026-11-01: one request for ten minutes of audio was lost whole when the link went quiet for
+/// 90 s). The recordings wait for the text: they never play before the rest of a reading that
+/// stopped early.
 @MainActor
 final class Speaker: NSObject, ObservableObject {
     /// `rate`: the speed chosen in Settings → Voice for speech; 1 for a recording. `piece`: the
@@ -23,8 +25,10 @@ final class Speaker: NSObject, ObservableObject {
     enum State: Equatable { case idle, preparing, speaking, paused, finished, failed(String) }
 
     @Published private(set) var state: State = .idle
-    /// Seconds of speech received so far and played so far (for the progress line).
+    /// Seconds of sound received so far and played so far (for the progress line).
     @Published private(set) var receivedSeconds: Double = 0
+    /// Seconds of the text's speech received (the recordings apart).
+    private var speechSeconds: Double = 0
     @Published private(set) var playedSeconds: Double = 0
 
     /// Chunks to play; analysis is optional and may be cached when replaying a chunk.
@@ -72,6 +76,11 @@ final class Speaker: NSObject, ObservableObject {
     private var lastError: Error?
     /// Audio waiting to play beyond which the next piece is not requested yet.
     private static let aheadSeconds = 45.0
+    /// The look-ahead waits here, with no timer, until a chunk has played (or the reading stops):
+    /// a paused or suspended reading consumes nothing, so it wakes nothing (watch battery rule).
+    private var consumed: CheckedContinuation<Void, Never>?
+    /// The recordings, downloaded, waiting for the text to finish (`nil`: one could not be fetched).
+    private var heldClips: [Data?] = []
     /// Requests of one piece after its first failed, 2 s apart.
     private static let retries = 3
     /// `--piece-chars <n>` (debug builds): smaller pieces, so a short sample answer has several.
@@ -202,37 +211,49 @@ final class Speaker: NSObject, ObservableObject {
         pieces = spoken.isEmpty ? [] : SpeechText.pieces(spoken, target: Self.pieceTarget, cap: Self.pieceTarget * 4 / 3)
         nextPiece = 0; self.scope = scope; self.client = client; lastError = nil
         guard activateSession() else { return }
-        state = .preparing; streamDone = false; streamError = nil; receivedSeconds = 0; playedSeconds = 0
+        state = .preparing; streamDone = false; streamError = nil; receivedSeconds = 0; speechSeconds = 0; playedSeconds = 0
         buffering = true; refilling = false
         RuntimeKeeper.shared.hold(holder)
         trace("reading \(spoken.count) chars in \(pieces.count) pieces, \(clips.count) recordings")
         task = Task { [weak self] in
-            // The recordings download while the text is spoken; they play after it, even when the
-            // voice fails, and one that cannot be fetched does not keep the others from playing.
+            // The recordings download while the text is spoken and play after it; one that cannot
+            // be fetched does not keep the others from playing.
             async let recordings = Self.download(clips, client: client)
             var voiceError: Error?
             if scope != nil, let self, !self.pieces.isEmpty { voiceError = await self.readPieces() }
             guard let self, !Task.isCancelled else { return }
-            let spokenSeconds = self.receivedSeconds
-            if !clips.isEmpty { self.awaitingClips = true; self.advanceIfIdle() }
+            if !clips.isEmpty, !self.textGoesOn(after: voiceError) { self.awaitingClips = true; self.advanceIfIdle() }
             let fetched = await recordings
             guard !Task.isCancelled else { return }
             self.awaitingClips = false
-            for data in fetched.compactMap({ $0 }) {
-                guard !Task.isCancelled else { return }
-                self.enqueue(data, rate: 1, piece: -1)
-            }
-            self.streamDone = true
-            if let error = voiceError {
-                self.streamError = spokenSeconds > 0 ? "The voice stopped early. \(Self.describe(error))" : Self.describe(error)
-                self.lastError = error
-                Self.log.error("voice failed after \(spokenSeconds, format: .fixed(precision: 1), privacy: .public) s at piece \(self.nextPiece + 1, privacy: .public)/\(self.pieces.count, privacy: .public): \(String(describing: error), privacy: .public)")
-                self.trace("voice failed after \(String(format: "%.1f", spokenSeconds)) s: \(error)")
-            } else if fetched.contains(where: { $0 == nil }) {
-                self.streamError = "A recording could not be played."
-            }
-            self.advanceIfIdle()                          // what arrived plays, even under the buffer
+            self.heldClips = fetched
+            self.textEnded(voiceError)
         }
+    }
+
+    /// The text stopped early after some of it was spoken: it goes on with a tap, so its
+    /// recordings wait for that (they never play before the rest of the text). A voice that never
+    /// spoke gives way to them.
+    private func textGoesOn(after error: Error?) -> Bool { error != nil && speechSeconds > 0 }
+
+    /// The text has ended (`error`: it stopped early). Its recordings play now unless the text goes
+    /// on later (`resumeReading`); what arrived plays, even under the buffer.
+    private func textEnded(_ error: Error?) {
+        if let error {
+            streamError = speechSeconds > 0 ? "The voice stopped early. \(Self.describe(error))" : Self.describe(error)
+            lastError = error
+            Self.log.error("voice failed after \(self.speechSeconds, format: .fixed(precision: 1), privacy: .public) s at piece \(self.nextPiece + 1, privacy: .public)/\(self.pieces.count, privacy: .public): \(String(describing: error), privacy: .public)")
+            trace("voice failed after \(String(format: "%.1f", speechSeconds)) s: \(error)")
+        }
+        if !textGoesOn(after: error) {
+            for data in heldClips.compactMap({ $0 }) { enqueue(data, rate: 1, piece: -1) }
+            if heldClips.contains(where: { $0 == nil }), streamError == nil { streamError = "A recording could not be played." }
+            heldClips = []
+        } else if !heldClips.isEmpty {
+            trace("\(heldClips.count) recordings wait for the rest of the text")
+        }
+        streamDone = true
+        advanceIfIdle()
     }
 
     private func activateSession() -> Bool {
@@ -250,32 +271,36 @@ final class Speaker: NSObject, ObservableObject {
 
     /// Requests the pieces from `nextPiece` on, one stream at a time, the next once less than
     /// `aheadSeconds` of audio waits. A piece whose stream breaks (the link, the gateway) is
-    /// requested again up to `retries` times, 2 s apart, while the audio already here plays; its
-    /// sounds not yet played are dropped first, so nothing is heard twice but the sentence under
-    /// way. Returns the error that ended the reading, nil once every piece has arrived.
+    /// requested again up to `retries` times, 2 s apart, while the audio already here plays on; the
+    /// retry's stream skips exactly the seconds of that piece already here (`SpeechPieceRetry`), so
+    /// nothing is heard twice and nothing unheard is lost. Returns the error that ended the
+    /// reading, nil once every piece has arrived.
     private func readPieces() async -> Error? {
         guard let scope, let client else { return nil }
         let voice = VoicePrefs.voice(for: scope)
         while nextPiece < pieces.count {
             while aheadSeconds() >= Self.aheadSeconds {
-                try? await Task.sleep(for: .milliseconds(500))
+                await withCheckedContinuation { consumed = $0 }
                 if Task.isCancelled { return nil }
             }
             let i = nextPiece
             var attempt = 0
+            var retry = SpeechPieceRetry()
             while true {
                 attempt += 1
                 trace("piece \(i + 1)/\(pieces.count) started: \(pieces[i].count) chars, try \(attempt)")
                 do {
-                    for try await wav in client.speech(text: pieces[i], scope: scope, voice: voice) {
+                    for try await raw in client.speech(text: pieces[i], scope: scope, voice: voice) {
                         if Task.isCancelled { return nil }
+                        guard let wav = try retry.admit(wav: raw) else { trace("skipped a chunk of piece \(i + 1) already here"); continue }
                         enqueue(wav, piece: i)
                     }
                     break
                 } catch {
                     if Task.isCancelled || error is CancellationError { return nil }
-                    dropUnplayed(piece: i)
-                    trace("piece \(i + 1) failed on try \(attempt): \(error)")
+                    if error is SpeechWAV.Unreadable { return error }
+                    retry.requestAgain()
+                    trace("piece \(i + 1) failed on try \(attempt) after \(String(format: "%.2f", retry.kept)) s of it: \(error)")
                     guard attempt <= Self.retries, LiveGatewayClient.isTransient(error) else { return error }
                     try? await Task.sleep(for: .seconds(2))
                     if Task.isCancelled { return nil }
@@ -295,15 +320,8 @@ final class Speaker: NSObject, ObservableObject {
         return s
     }
 
-    /// A piece's sounds not yet started (the request is made again: they would be heard twice).
-    private func dropUnplayed(piece i: Int) {
-        if let next = successor, next.chunk.piece == i { unscheduleSuccessor() }
-        let dropped = queue.filter { $0.piece == i }
-        guard !dropped.isEmpty else { return }
-        queue.removeAll { $0.piece == i }
-        receivedSeconds -= dropped.reduce(0) { $0 + $1.duration }
-        trace("dropped \(dropped.count) unplayed sounds of piece \(i + 1)")
-    }
+    /// Wakes the look-ahead (a chunk has played, or the reading stopped).
+    private func wakeLookAhead() { consumed?.resume(); consumed = nil }
 
     /// A reading that stopped early can go on from the piece that was lost.
     var canResume: Bool {
@@ -318,7 +336,7 @@ final class Speaker: NSObject, ObservableObject {
     }
 
     /// Goes on from the piece whose stream was lost (the voice button's tap on a reading that
-    /// stopped early; the app coming back after a link error).
+    /// stopped early; the app coming back after a link error), then plays the recordings held for it.
     func resumeReading() {
         guard canResume else { return }
         if let other = Self.current, other !== self { other.stop(keepSession: true) }
@@ -332,14 +350,7 @@ final class Speaker: NSObject, ObservableObject {
             guard let self else { return }
             let error = await self.readPieces()
             guard !Task.isCancelled else { return }
-            self.streamDone = true
-            if let error {
-                self.streamError = "The voice stopped early. \(Self.describe(error))"
-                self.lastError = error
-                Self.log.error("voice failed again at piece \(self.nextPiece + 1, privacy: .public)/\(self.pieces.count, privacy: .public): \(String(describing: error), privacy: .public)")
-                self.trace("voice failed again: \(error)")
-            }
-            self.advanceIfIdle()
+            self.textEnded(error)
         }
     }
 
@@ -359,6 +370,7 @@ final class Speaker: NSObject, ObservableObject {
     /// `keepSession`: another reading starts right after (the session stays active for it).
     func stop(keepSession: Bool) {
         task?.cancel(); task = nil
+        wakeLookAhead()
         cancelAnalysis()
         successor?.player.stop(); successor = nil
         completions.removeAll()
@@ -366,7 +378,7 @@ final class Speaker: NSObject, ObservableObject {
         player?.stop(); player = nil
         scheduledEnd = 0
         queue.removeAll(); history.removeAll(); currentData = nil; startAt = 0
-        pieces.removeAll(); nextPiece = 0; lastError = nil
+        pieces.removeAll(); nextPiece = 0; lastError = nil; heldClips = []
         if isActive || state == .paused { state = .idle }
         if keepSession { RuntimeKeeper.shared.release(holder) } else { release() }
     }
@@ -439,6 +451,7 @@ final class Speaker: NSObject, ObservableObject {
         let duration = (try? AVAudioPlayer(data: wav))?.duration ?? 0
         queue.append((wav, duration, [], rate, piece))
         receivedSeconds += duration
+        if piece >= 0 { speechSeconds += duration }
         trace("chunk \(wav.count) bytes (\(String(format: "%.1f", duration)) s, piece \(piece + 1)), received \(String(format: "%.1f", receivedSeconds)) s, played \(String(format: "%.1f", playedSeconds)) s")
         advanceIfIdle()
         scheduleSuccessor()
@@ -604,6 +617,7 @@ final class Speaker: NSObject, ObservableObject {
             scheduledEnd = 0
             advanceIfIdle()
         }
+        wakeLookAhead()
     }
 
     /// Lets go of the watch and, when this is the voice playing, of the audio session (a player

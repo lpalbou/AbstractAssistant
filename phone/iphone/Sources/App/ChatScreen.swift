@@ -201,7 +201,12 @@ struct ChatScreen: View {
                 }
             }
             .onChange(of: scenePhase) { _, phase in
-                if phase == .background || (phase == .inactive && voice.inputPhase != .authorizing) { cancelVoice(); media.stop() }
+                // Capture never outlives the app's front; a reading goes on locked or in a pocket.
+                if phase == .background || (phase == .inactive && voice.inputPhase != .authorizing) {
+                    if voice.inputPending { cancelVoice() }
+                    media.stop()
+                }
+                voice.scene(visible: phase != .background)
             }
             .onDisappear { readMarkerVisible = false; composing = false; cancelVoice(); if media.preview == nil { media.reset() } else { media.stop() }; attachments.cancel(); cancelMedia() }
             .onChange(of: voice.inputPhase) { _, phase in if phase == .ready { finishVoice() } }
@@ -263,7 +268,7 @@ struct ChatScreen: View {
                     Button { UIPasteboard.general.string = message.text } label: { Image(systemName: "document.on.document") }.accessibilityLabel("Copy answer").accessibilityIdentifier(message.id == store.messages.last(where: { $0.role == .assistant })?.id ? "chat.latest-copy" : "answer.copy." + message.id)
                     if let client = store.client, let scope = store.selectedEntity.map({ SpeechScope.entity($0) }) ?? message.runID.map({ SpeechScope.run($0) }) {
                         // A speaker reads aloud (filled while paused: a tap resumes); never a play triangle.
-                        Button { if voice.speaking && voice.readingID == message.id { voice.togglePause() } else { cancelVoice(); media.stop(); voice.read(message.text, client: client, scope: scope, choice: store.preferences.voice, speed: store.preferences.speed, messageID: message.id) } } label: { Image(systemName: voice.speaking && voice.readingID == message.id ? (voice.paused ? "speaker.wave.2.fill" : "pause.fill") : "speaker.wave.2") }.accessibilityLabel(voice.speaking && voice.readingID == message.id ? "Pause or resume reading" : "Read answer aloud")
+                        Button { if voice.speaking && voice.readingID == message.id { voice.togglePause() } else { cancelVoice(); media.stop(); voice.read(message.text, client: client, scope: scope, choice: store.preferences.voice, speed: store.preferences.speed, messageID: message.id, title: readingTitle) } } label: { Image(systemName: voice.speaking && voice.readingID == message.id ? (voice.paused ? "speaker.wave.2.fill" : "pause.fill") : "speaker.wave.2") }.accessibilityLabel(voice.speaking && voice.readingID == message.id ? "Pause or resume reading" : "Read answer aloud")
                     }
                     if voice.speaking && voice.readingID == message.id { Button { cancelVoice() } label: { Image(systemName: "stop.fill") }.accessibilityLabel("Stop reading") }
                     }
@@ -387,8 +392,10 @@ struct ChatScreen: View {
     private func read(_ reply: ConversationMessage) {
         guard let client = store.client, !voice.recording, !reply.text.isEmpty else { return }
         let scope = store.selectedEntity.map(SpeechScope.entity) ?? reply.runID.map(SpeechScope.run)
-        if let scope { voice.read(reply.text, client: client, scope: scope, choice: store.preferences.voice, speed: store.preferences.speed, messageID: reply.id) }
+        if let scope { voice.read(reply.text, client: client, scope: scope, choice: store.preferences.voice, speed: store.preferences.speed, messageID: reply.id, title: readingTitle) }
     }
+    /// The lock screen's name for a reading: the conversation's title, else who answers.
+    private var readingTitle: String { store.titles[store.sessionID] ?? store.conversationTitle }
     private func cancelMedia() { mediaGeneration = UUID(); mediaTask?.cancel(); mediaTask = nil; mediaLoading = false }
     private func stage(_ url: URL, owned: Bool = false, origin: (UUID, String)?) {
         guard let origin, origin.0 == store.contextID, origin.1 == store.sessionID else { if owned { ImportedMedia.remove(url) }; return }

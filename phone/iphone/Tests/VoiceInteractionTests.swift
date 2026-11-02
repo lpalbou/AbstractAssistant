@@ -212,8 +212,8 @@ final class VoiceInteractionTests: XCTestCase {
     /// The reading is requested in pieces (two sentences, two pieces here); the mock's second piece
     /// times out twice, then plays: the reading ends whole, with no error, in four requests.
     @MainActor func testALostPieceIsRequestedAgainAndTheReadingGoesOn() async throws {
-        MockGatewayClient.stalledVoiceFailures = 2...3; MockGatewayClient.stalledVoiceCalls = 0
-        defer { MockGatewayClient.stalledVoiceFailures = nil }
+        resetStalledVoice(); defer { resetStalledVoice() }
+        MockGatewayClient.stalledVoiceFailures = 2...3
         let voice = VoiceController(configureAudio: false, pieceTarget: 30); defer { voice.stop() }   // two sentences, two pieces
         voice.read("The first sentence is here. The second sentence is there.", client: MockGatewayClient(world: .phone), scope: .run("test"), messageID: "m1")
         XCTAssertTrue(voice.speaking)
@@ -227,8 +227,8 @@ final class VoiceInteractionTests: XCTestCase {
     /// piece with "The voice stopped early. Tap play to continue." Reading the same message again
     /// requests the second piece only (one more request), and ends well.
     @MainActor func testAPieceLostForGoodStopsEarlyAndReadingAgainGoesOnFromIt() async throws {
-        MockGatewayClient.stalledVoiceFailures = 2...5; MockGatewayClient.stalledVoiceCalls = 0
-        defer { MockGatewayClient.stalledVoiceFailures = nil }
+        resetStalledVoice(); defer { resetStalledVoice() }
+        MockGatewayClient.stalledVoiceFailures = 2...5
         let voice = VoiceController(configureAudio: false, pieceTarget: 30); defer { voice.stop() }   // two sentences, two pieces
         let text = "The first sentence is here. The second sentence is there."
         voice.read(text, client: MockGatewayClient(world: .phone), scope: .run("test"), messageID: "m1")
@@ -247,8 +247,8 @@ final class VoiceInteractionTests: XCTestCase {
     /// Three pieces, 2 s of sound each, scheduled back to back on the one engine: playback ends
     /// after about the summed duration (no gap, no overlap, no re-play), with no error.
     @MainActor func testThreeChunksPlayBackToBackForTheirSummedDuration() async throws {
-        MockGatewayClient.stalledVoiceFailures = 100...100; MockGatewayClient.stalledVoiceCalls = 0   // never fails: one 2 s chunk per piece
-        defer { MockGatewayClient.stalledVoiceFailures = nil }
+        resetStalledVoice(); defer { resetStalledVoice() }
+        MockGatewayClient.stalledVoiceFailures = 100...100   // never fails: one 2 s chunk per piece
         let voice = VoiceController(configureAudio: false, pieceTarget: 30); defer { voice.stop() }
         voice.read("The first sentence is here. The second sentence is there. The third one ends it.", client: MockGatewayClient(world: .phone), scope: .run("test"))
         var started: ContinuousClock.Instant?
@@ -264,24 +264,101 @@ final class VoiceInteractionTests: XCTestCase {
         XCTAssertGreaterThan(elapsed, .seconds(5.6)); XCTAssertLessThan(elapsed, .seconds(7.2), "the three chunks did not play back to back (\(elapsed))")
     }
 
-    /// The second piece's stream sends its sound, then breaks: that unplayed chunk is dropped and
-    /// not heard twice when the piece is requested again, the first piece's sound goes on
-    /// uninterrupted, and the reading ends well — 4 s played, not 6.
-    @MainActor func testDroppingAPendingPieceKeepsTheSoundGoingWithoutReplaying() async throws {
-        MockGatewayClient.stalledVoiceFailures = 2...2; MockGatewayClient.stalledVoiceCalls = 0; MockGatewayClient.stalledVoiceYieldsBeforeFailing = true
-        defer { MockGatewayClient.stalledVoiceFailures = nil; MockGatewayClient.stalledVoiceYieldsBeforeFailing = false }
+    /// The mock's stall settings back to their defaults (a test sets the ones it needs).
+    private func resetStalledVoice() {
+        MockGatewayClient.stalledVoiceFailures = nil; MockGatewayClient.stalledVoiceCalls = 0; MockGatewayClient.stalledVoiceChunks = 1
+        MockGatewayClient.stalledVoiceYieldsBeforeFailing = 0; MockGatewayClient.stalledVoiceStall = .zero
+    }
+
+    /// The second piece's stream sends its whole sound, then breaks: that sound plays (the retry's
+    /// 2 s wait is covered by it) and the retry's copy of it is skipped, never heard twice — 4 s
+    /// played, not 6, with no silence between the pieces.
+    @MainActor func testSoundThatArrivedBeforeABreakPlaysOnceAndCoversTheRetry() async throws {
+        resetStalledVoice(); defer { resetStalledVoice() }
+        MockGatewayClient.stalledVoiceFailures = 2...2; MockGatewayClient.stalledVoiceYieldsBeforeFailing = 1
         let voice = VoiceController(configureAudio: false, pieceTarget: 30); defer { voice.stop() }
         voice.read("The first sentence is here. The second sentence is there.", client: MockGatewayClient(world: .phone), scope: .run("test"))
         var wentQuiet = false
         for _ in 0..<400 {
             if !voice.speaking { break }
-            if voice.playedSeconds > 0.5, voice.preparing { wentQuiet = true }   // nothing to play between the pieces
+            if voice.playedSeconds > 0.5, voice.preparing { wentQuiet = true }
             try await Task.sleep(for: .milliseconds(25))
         }
         XCTAssertFalse(voice.speaking, "the reading did not end"); XCTAssertNil(voice.error)
         XCTAssertEqual(MockGatewayClient.stalledVoiceCalls, 3)
-        XCTAssertEqual(voice.playedSeconds, 4.0, accuracy: 0.15, "the dropped chunk was played (6 s) or the first piece was cut")
-        XCTAssertTrue(wentQuiet, "the retry's 2 s wait should have left nothing scheduled for a moment")
+        XCTAssertEqual(voice.playedSeconds, 4.0, accuracy: 0.05, "the retry's copy was played (6 s) or the sound that arrived was dropped (2 s)")
+        XCTAssertFalse(wentQuiet, "the sound that arrived before the break should have played through the retry's wait")
+    }
+
+    /// Council 2026-11-02 A3 + A4. The second piece's stream sends two of its four half-second
+    /// chunks, stays quiet until they have partly played (the node then starves for about 2 s: its
+    /// timeline runs on over silence), and breaks. Every chunk that arrived plays out whole, the
+    /// retry skips exactly that second and plays the other: the person hears the text's 4 s once.
+    /// After the stall the playhead is placed again, so the sound waiting is the retry's second,
+    /// not "nothing" (the node's own clock ran 2 s ahead).
+    @MainActor func testAPieceBrokenMidwayIsHeardOnceAndThePlayheadSurvivesTheStall() async throws {
+        resetStalledVoice(); defer { resetStalledVoice() }
+        MockGatewayClient.stalledVoiceFailures = 2...2; MockGatewayClient.stalledVoiceChunks = 4
+        MockGatewayClient.stalledVoiceYieldsBeforeFailing = 2; MockGatewayClient.stalledVoiceStall = .milliseconds(2500)
+        let voice = VoiceController(configureAudio: false, pieceTarget: 30); defer { voice.stop() }
+        voice.read("The first sentence is here. The second sentence is there.", client: MockGatewayClient(world: .phone), scope: .run("test"))
+        var starved = false, aheadAfterStall: Double?
+        for _ in 0..<600 {
+            if !voice.speaking { break }
+            if voice.playedSeconds >= 2.9, voice.preparing { starved = true }
+            if starved, aheadAfterStall == nil, !voice.preparing { aheadAfterStall = voice.aheadSeconds() }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertFalse(voice.speaking, "the reading did not end"); XCTAssertNil(voice.error)
+        XCTAssertEqual(MockGatewayClient.stalledVoiceCalls, 3)
+        XCTAssertTrue(starved, "the stall should have left nothing to play for a while")
+        XCTAssertEqual(voice.playedSeconds, 4.0, accuracy: 0.05, "a sound was heard twice (more) or one was cut (less)")
+        XCTAssertGreaterThan(aheadAfterStall ?? 0, 0.8, "after the stall the playhead ran ahead of the sound: \(String(describing: aheadAfterStall))")
+        XCTAssertLessThanOrEqual(aheadAfterStall ?? 9, 1.01)
+    }
+
+    /// A call (an interruption) pauses the reading and keeps it; its end, with the system's
+    /// go-ahead, resumes it where it stopped: the reading ends whole.
+    @MainActor func testAnInterruptionPausesTheReadingAndItsEndResumesIt() async throws {
+        resetStalledVoice(); defer { resetStalledVoice() }
+        MockGatewayClient.stalledVoiceFailures = 100...100                              // never fails: 2 s a piece
+        let voice = VoiceController(configureAudio: false, pieceTarget: 30); defer { voice.stop() }
+        voice.read("The first sentence is here. The second sentence is there.", client: MockGatewayClient(world: .phone), scope: .run("test"))
+        for _ in 0..<200 { if voice.playedSeconds >= 2 { break }; try await Task.sleep(for: .milliseconds(20)) }
+        func post(_ type: AVAudioSession.InterruptionType, resume: Bool = false) {
+            var info: [AnyHashable: Any] = [AVAudioSessionInterruptionTypeKey: type.rawValue]
+            if resume { info[AVAudioSessionInterruptionOptionKey] = AVAudioSession.InterruptionOptions.shouldResume.rawValue }
+            NotificationCenter.default.post(name: AVAudioSession.interruptionNotification, object: nil, userInfo: info)
+        }
+        post(.began)
+        for _ in 0..<50 { if voice.paused { break }; try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertTrue(voice.paused, "the interruption did not pause the reading"); XCTAssertTrue(voice.speaking)
+        let held = voice.playedSeconds
+        try await Task.sleep(for: .milliseconds(1500))
+        XCTAssertEqual(voice.playedSeconds, held, "the reading went on during the call")
+        XCTAssertNil(voice.error)
+        post(.ended, resume: true)
+        for _ in 0..<50 { if !voice.paused { break }; try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertFalse(voice.paused, "the end of the interruption did not resume the reading")
+        for _ in 0..<300 { if !voice.speaking { break }; try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertFalse(voice.speaking, "the resumed reading did not end"); XCTAssertNil(voice.error)
+        XCTAssertEqual(voice.playedSeconds, 4.0, accuracy: 0.05)
+    }
+
+    /// The person paused: the end of an interruption never resumes a reading it did not pause.
+    @MainActor func testAnInterruptionsEndLeavesAReadingThePersonPaused() async throws {
+        resetStalledVoice(); defer { resetStalledVoice() }
+        MockGatewayClient.stalledVoiceFailures = 100...100
+        let voice = VoiceController(configureAudio: false, pieceTarget: 30); defer { voice.stop() }
+        voice.read("The first sentence is here. The second sentence is there.", client: MockGatewayClient(world: .phone), scope: .run("test"))
+        for _ in 0..<200 { if voice.playedSeconds >= 2 { break }; try await Task.sleep(for: .milliseconds(20)) }
+        voice.togglePause(); XCTAssertTrue(voice.paused)
+        NotificationCenter.default.post(name: AVAudioSession.interruptionNotification, object: nil, userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue])
+        NotificationCenter.default.post(name: AVAudioSession.interruptionNotification, object: nil, userInfo: [
+            AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue,
+            AVAudioSessionInterruptionOptionKey: AVAudioSession.InterruptionOptions.shouldResume.rawValue])
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertTrue(voice.paused, "an interruption's end resumed a reading the person had paused"); XCTAssertTrue(voice.speaking)
     }
 
     @MainActor func testSpeakingSpeedAppliesToActualPlaybackAndNewPreviewReplacesOld() async throws {
