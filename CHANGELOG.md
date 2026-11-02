@@ -5,6 +5,12 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+### Added
+
+- **Assistant (web) on npm.** The web Assistant is published as `@abstractframework/assistant`
+  (0.1.0), so AbstractGateway's **Apps → Assistant (web) → Install** works on any machine. It has
+  its own release history: [web/CHANGELOG.md](web/CHANGELOG.md).
+
 ## [0.17.0] - 2026-11-02
 
 The desktop palette gains an optional activity avatar, automations that open as the chat with a
