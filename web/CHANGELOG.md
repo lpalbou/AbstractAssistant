@@ -6,6 +6,18 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 
 ## [Unreleased]
 
+### Changed
+
+- **Avatar view captions.** The captions under the avatar are a realtime rolling list of the
+  current turn's public updates, questions and answer, newest at the bottom, rendered like the
+  conversation (Markdown, links, files); they no longer split an answer into pages that cycle, and
+  the Previous / Next / Pause subtitle buttons are gone. The captions and the Conversation history,
+  Talk and read-aloud buttons sit above the message box at every width.
+
+### Fixed
+
+- The selected Conversation / Avatar tab is readable in the light theme.
+
 ## [0.1.0] - 2026-11-02
 
 First public release on npm. AbstractGateway lists it as **Assistant (web)** and installs it from

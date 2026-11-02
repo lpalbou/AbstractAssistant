@@ -39,11 +39,16 @@ export type AvatarConversationProps = AvatarConversationOptions & {
     interaction?: React.ReactNode;
     /** Exact currently rendered request; an empty ID means the host deferred it. */
     interactionId?: string;
-    /** Draft editing or other host-owned attention freezes rolling captions. */
+    /** Draft editing or other host-owned attention: silences narration and non-essential cues. Captions keep rolling. */
     attended?: boolean;
-    /** Shared final/attachment rendering, with private reasoning removed before presentation. */
+    /** Shared message rendering (captions and history), with private reasoning removed before presentation. */
     messageProps?: Omit<ChatMessageCardProps, "message">;
 };
-/** Optional public presentation. No model, microphone, network or permission side effects. */
+/**
+ * Optional public presentation: the avatar, its status, the current turn's public messages as
+ * realtime rolling captions (newest at the bottom, never cycling), any open question or
+ * approval, and the person's actions (history, voice, playback), all above the host's composer.
+ * No model, microphone, network or permission side effects.
+ */
 export declare function AvatarConversation(props: AvatarConversationProps): React.ReactElement;
 //# sourceMappingURL=avatar_conversation.d.ts.map

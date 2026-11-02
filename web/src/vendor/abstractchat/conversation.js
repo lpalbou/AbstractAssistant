@@ -2375,24 +2375,26 @@ function ChatMessageCard(props) {
   const has_text = Boolean(String(m.content || "").trim());
   if (m.toolActivity)
     return _jsx13(ToolActivity, { tool: m.toolActivity, showCopy: props.showCopy });
-  const footer2 = props.renderFooter ? props.renderFooter(m) : null;
-  if (props.variant?.(m) === "hint" || m.kind === "tool_policy_decision") {
+  const variant = props.variant?.(m);
+  const caption = variant === "caption";
+  const footer2 = props.renderFooter && !caption ? props.renderFooter(m) : null;
+  if (variant === "hint" || m.kind === "tool_policy_decision") {
     const level = String(m.level || "").trim().toLowerCase();
     return _jsxs10("div", { className: ["pc-chat-hint", level === "warn" || level === "error" ? `pc-chat-hint--${level}` : "", props.className].filter(Boolean).join(" "), role: "note", "data-variant": "hint", children: [_jsx13("span", { className: "pc-chat-hint__text", children: String(m.content || "") }), footer2 != null && footer2 !== false ? _jsx13("div", { className: "pc-chat-footer", children: footer2 }) : null] });
   }
-  return _jsxs10("div", { className: ["pc-chat-item", `pc-chat-item--${role_ui.variant}`, live ? "pc-chat-item--live" : "", props.className].filter(Boolean).join(" "), ...live ? { "aria-busy": true } : {}, children: [_jsxs10("div", { className: "pc-chat-header", children: [_jsx13("div", { className: "pc-chat-avatar", "aria-hidden": "true", children: _jsx13(Icon6, { name: role_ui.icon, size: 14 }) }), _jsx13("span", { className: "pc-chat-role", children: role_ui.label }), live ? _jsxs10("span", { className: "pc-chat-live-indicator", title: live.label ? `Pending: ${live.label}` : "The reply is still being written", children: [_jsx13("span", { className: "pc-chat-live-dot", "aria-hidden": "true" }), live.label || "streaming"] }) : null, live?.caption ? _jsx13("span", { className: "pc-chat-live-caption", children: live.caption }) : null, _jsx13("span", { className: "pc-chat-header-spacer" }), time_label ? _jsx13("time", { className: "pc-chat-time", dateTime: time_iso || void 0, title: time_title || void 0, children: time_label }) : null, _jsxs10("div", { className: "pc-chat-header-actions", children: [show_speaker ? _jsx13("button", { className: "pc-chat-icon-btn", type: "button", "aria-label": speak_blocked || speak.title, title: speak_blocked || speak.title, "data-speak-state": speak_blocked ? "unavailable" : speak_state, ...speak_blocked ? { "aria-disabled": true } : {}, onClick: can_speak ? () => props.onSpeakToggle?.(m) : void 0, children: _jsx13(Icon6, { name: speak.icon, size: 22, className: speak.spinning ? "pc-chat-speak-spinner" : void 0 }, speak.icon) }) : null, show_copy ? _jsx13("button", { className: `pc-chat-icon-btn ${copy_state !== "idle" ? `pc-chat-icon-btn--${copy_state}` : ""}`.trim(), type: "button", "aria-label": "Copy message", title: copy_state === "idle" ? "Copy" : copy_state === "copied" ? "Copied" : "Copy failed", onClick: async () => {
+  return _jsxs10("div", { className: ["pc-chat-item", `pc-chat-item--${role_ui.variant}`, caption ? "pc-chat-item--caption" : "", live ? "pc-chat-item--live" : "", props.className].filter(Boolean).join(" "), ...live ? { "aria-busy": true } : {}, ...caption ? { "data-variant": "caption" } : {}, children: [caption ? null : _jsxs10("div", { className: "pc-chat-header", children: [_jsx13("div", { className: "pc-chat-avatar", "aria-hidden": "true", children: _jsx13(Icon6, { name: role_ui.icon, size: 14 }) }), _jsx13("span", { className: "pc-chat-role", children: role_ui.label }), live ? _jsxs10("span", { className: "pc-chat-live-indicator", title: live.label ? `Pending: ${live.label}` : "The reply is still being written", children: [_jsx13("span", { className: "pc-chat-live-dot", "aria-hidden": "true" }), live.label || "streaming"] }) : null, live?.caption ? _jsx13("span", { className: "pc-chat-live-caption", children: live.caption }) : null, _jsx13("span", { className: "pc-chat-header-spacer" }), time_label ? _jsx13("time", { className: "pc-chat-time", dateTime: time_iso || void 0, title: time_title || void 0, children: time_label }) : null, _jsxs10("div", { className: "pc-chat-header-actions", children: [show_speaker ? _jsx13("button", { className: "pc-chat-icon-btn", type: "button", "aria-label": speak_blocked || speak.title, title: speak_blocked || speak.title, "data-speak-state": speak_blocked ? "unavailable" : speak_state, ...speak_blocked ? { "aria-disabled": true } : {}, onClick: can_speak ? () => props.onSpeakToggle?.(m) : void 0, children: _jsx13(Icon6, { name: speak.icon, size: 22, className: speak.spinning ? "pc-chat-speak-spinner" : void 0 }, speak.icon) }) : null, show_copy ? _jsx13("button", { className: `pc-chat-icon-btn ${copy_state !== "idle" ? `pc-chat-icon-btn--${copy_state}` : ""}`.trim(), type: "button", "aria-label": "Copy message", title: copy_state === "idle" ? "Copy" : copy_state === "copied" ? "Copied" : "Copy failed", onClick: async () => {
     const ok = await copyText(String(m.content || ""));
     set_copy_state(ok ? "copied" : "failed");
     if (copy_timer.current !== null)
       window.clearTimeout(copy_timer.current);
     copy_timer.current = window.setTimeout(() => set_copy_state("idle"), 900);
-  }, children: _jsx13(Icon6, { name: "copy", size: 22 }) }) : null] })] }), reasoning.trim() ? _jsxs10("details", { className: "pc-chat-thinking", children: [_jsx13("summary", { children: "Thinking" }), _jsx13("div", { className: "pc-chat-thinking-body", children: reasoning })] }) : null, has_text || !live && !media.length ? _jsx13("div", { className: "pc-chat-body", children: _jsx13(ChatMessageContent, { text: String(m.content || ""), renderMarkdown: props.renderMarkdown, jsonCollapseAfterDepth: props.jsonCollapseAfterDepth, images: props.images || (role_ui.variant === "user" ? "inline" : "link"), inlineImage: props.inlineImage }) }) : null, media.length ? _jsx13("div", { className: "pc-chat-media", children: media.map((item, idx) => _jsx13(ChatMediaItem, { item, onOpenFile: props.onOpenMedia, markdown: { renderMarkdown: props.renderMarkdown, images: props.images, inlineImage: props.inlineImage } }, item.id || `${item.kind}:${item.src}:${idx}`)) }) : null, m.artifactRefs?.length ? _jsx13("div", { className: "pc-chat-attachments", "aria-label": "Attached files", children: m.artifactRefs.map((a) => _jsx13(MessageArtifactChip, { artifact: a }, `${a.runId}:${a.id}`)) }) : null, attachments.length ? _jsx13("div", { className: "pc-chat-attachments", "aria-label": "Attachments", children: attachments.map((a, idx) => {
+  }, children: _jsx13(Icon6, { name: "copy", size: 22 }) }) : null] })] }), reasoning.trim() && !caption ? _jsxs10("details", { className: "pc-chat-thinking", children: [_jsx13("summary", { children: "Thinking" }), _jsx13("div", { className: "pc-chat-thinking-body", children: reasoning })] }) : null, has_text || !live && !media.length ? _jsx13("div", { className: "pc-chat-body", children: _jsx13(ChatMessageContent, { text: String(m.content || ""), renderMarkdown: props.renderMarkdown, jsonCollapseAfterDepth: props.jsonCollapseAfterDepth, images: props.images || (role_ui.variant === "user" ? "inline" : "link"), inlineImage: props.inlineImage }) }) : null, media.length ? _jsx13("div", { className: "pc-chat-media", children: media.map((item, idx) => _jsx13(ChatMediaItem, { item, onOpenFile: props.onOpenMedia, markdown: { renderMarkdown: props.renderMarkdown, images: props.images, inlineImage: props.inlineImage } }, item.id || `${item.kind}:${item.src}:${idx}`)) }) : null, m.artifactRefs?.length ? _jsx13("div", { className: "pc-chat-attachments", "aria-label": "Attached files", children: m.artifactRefs.map((a) => _jsx13(MessageArtifactChip, { artifact: a }, `${a.runId}:${a.id}`)) }) : null, attachments.length ? _jsx13("div", { className: "pc-chat-attachments", "aria-label": "Attachments", children: attachments.map((a, idx) => {
     const label = String(a.label || "").trim() || "attachment";
     const target2 = String(a.target || "").trim();
     const title = String(a.title || "").trim();
     const disabled = Boolean(a.disabled) || typeof a.onClick !== "function";
     return _jsxs10("button", { type: "button", className: "pc-chat-attachment-chip", title: title || label, onClick: disabled ? void 0 : a.onClick, disabled, children: [_jsx13(Icon6, { name: "paperclip", size: 14 }), target2 ? _jsx13("span", { className: `pc-chat-attachment-target pc-chat-attachment-target--${target2}`, children: target2 }) : null, _jsx13("span", { className: "pc-chat-attachment-name", children: label })] }, a.id || `${label}:${idx}`);
-  }) }) : null, stats.length ? _jsx13("div", { className: "pc-chat-stats", "aria-label": "Stats", children: stats.slice(0, 12).map((s, idx) => {
+  }) }) : null, stats.length && !caption ? _jsx13("div", { className: "pc-chat-stats", "aria-label": "Stats", children: stats.slice(0, 12).map((s, idx) => {
     const label = String(s.label || "").trim();
     if (!label)
       return null;
@@ -2846,7 +2848,7 @@ function WorkflowInteractionPanel(props) {
 }
 
 // dist/avatar_conversation.js
-import { jsx as _jsx17, Fragment as _Fragment7, jsxs as _jsxs14 } from "react/jsx-runtime";
+import { jsx as _jsx17, jsxs as _jsxs14, Fragment as _Fragment7 } from "react/jsx-runtime";
 import { useEffect as useEffect14, useMemo as useMemo7, useRef as useRef10, useState as useState14 } from "react";
 
 // dist/conversation_model.js
@@ -2866,6 +2868,7 @@ function publicUpdate(value, runId) {
     return null;
   return { id: p.id, text: p.text, runId, sourceCallIds: [...new Set(p.source_call_ids)], ...typeof p.session_id === "string" ? { sessionId: p.session_id } : {}, ...typeof p.iteration === "number" ? { iteration: p.iteration } : {} };
 }
+var publicKey = (m) => `${m.runId || ""}:${m.publicUpdate?.id || m.id || `${m.kind}:${m.content}`}`;
 function conversationMessages(messages) {
   const seen = /* @__PURE__ */ new Set();
   return messages.filter((m) => {
@@ -2875,7 +2878,7 @@ function conversationMessages(messages) {
     const allowed = m.role === "user" || m.role === "assistant" && ["public_update", "answer", "final", "question", "attachments"].includes(m.kind || "") || m.role === "system" && m.kind === "question_outcome" && m.source === "emit_event";
     if (!allowed || m.kind === "public_update" && !m.publicUpdate)
       return false;
-    const key = `${m.runId || ""}:${m.publicUpdate?.id || m.id || `${m.kind}:${m.content}`}`;
+    const key = publicKey(m);
     if (seen.has(key))
       return false;
     seen.add(key);
@@ -2895,20 +2898,20 @@ ${JSON.stringify({ message_id: context.id || context.publicUpdate.id, run_id: co
 The person's message:
 ${text5}`;
 }
-function conversationPages(text5, max = 180) {
-  const words = text5.trim().split(/\s+/);
-  const pages = [];
-  let page = "";
-  for (const word of words) {
-    if (page && page.length + word.length + 1 > max) {
-      pages.push(page);
-      page = "";
+function conversationCaptions(messages, limit = 12) {
+  const visible = conversationMessages(messages);
+  let start = 0;
+  for (let i = visible.length - 1; i >= 0; i--) {
+    if (visible[i].role === "user" && visible[i].kind !== "guidance") {
+      start = i + 1;
+      break;
     }
-    page += `${page ? " " : ""}${word}`;
   }
-  if (page)
-    pages.push(page);
-  return pages;
+  return visible.slice(start).filter((m) => m.role !== "user").slice(-Math.max(1, limit)).map((m) => ({
+    key: publicKey(m),
+    kind: m.kind === "public_update" ? "update" : m.kind === "question" ? "question" : m.kind === "question_outcome" ? "outcome" : "answer",
+    message: { ...m, reasoning: void 0, live: void 0, toolActivity: void 0, statistics: void 0, stats: void 0 }
+  }));
 }
 function conversationState(input) {
   if (input.status === "completed" || input.status === "failed")
@@ -2986,27 +2989,23 @@ var labels = {
 function AvatarConversation(props) {
   return _jsx17(AvatarConversationSession, { ...props }, props.sessionKey);
 }
+var captionVariant = () => "caption";
 function AvatarConversationSession(props) {
   const [history, setHistory] = useState14(false);
-  const [paused, setPaused] = useState14(false);
-  const [hovered, setHovered] = useState14(false);
-  const [focused, setFocused] = useState14(false);
   const [selected, setSelected] = useState14(null);
+  const [scrolled, setScrolled] = useState14(false);
   const preferences = props.preferences || DEFAULT_CONVERSATION_CUES;
   const messages = useMemo7(() => conversationMessages(props.messages), [props.messages]);
-  const latest = [...messages].reverse().find((m) => m.role === "assistant" || m.kind === "question_outcome") || null;
-  const attended = Boolean(props.attended || history || paused || hovered || focused || selected);
+  const captions = useMemo7(() => conversationCaptions(props.messages), [props.messages]);
+  const attended = Boolean(props.attended || history || selected);
   useEffect14(() => {
     props.onAttendedChange?.(attended);
     return () => props.onAttendedChange?.(false);
   }, [attended, props.onAttendedChange]);
-  const [shown, setShown] = useState14(latest);
-  const [page, setPage] = useState14(0);
-  const shownText = shown?.content || (shown?.attachments?.length || shown?.artifactRefs?.length || shown?.media?.length ? "A result file is ready. Open conversation history to view it." : "");
-  const pages = useMemo7(() => conversationPages(shownText), [shownText]);
   const state = conversationState(props);
   const cursor = useRef10(null);
   const narrationCursor = useRef10(null);
+  const captionList = useRef10(null);
   const callbacks = useRef10(props);
   callbacks.current = props;
   useEffect14(() => {
@@ -3019,18 +3018,19 @@ function AvatarConversationSession(props) {
     if (props.listening)
       callbacks.current.onInterruptSpeech?.();
   }, [props.listening]);
+  const newest = captions.length ? captions[captions.length - 1].key : "";
   useEffect14(() => {
-    if (!attended) {
-      setShown(latest);
-      setPage(0);
-    }
-  }, [latest, attended]);
-  useEffect14(() => {
-    if (attended || page >= pages.length - 1)
+    const box = captionList.current;
+    const last = box?.lastElementChild;
+    if (!box || !last)
       return;
-    const timer = setTimeout(() => setPage((p) => p + 1), Math.max(6500, (pages[page]?.length || 0) * 55));
-    return () => clearTimeout(timer);
-  }, [attended, page, pages]);
+    box.scrollTop = last.offsetHeight > box.clientHeight ? last.offsetTop : box.scrollHeight;
+  }, [newest, history]);
+  const onCaptionScroll = (event) => {
+    const box = event.currentTarget;
+    const starts = Array.from(box.children, (child) => child.offsetTop);
+    setScrolled(box.scrollTop > 1 && !starts.some((top) => Math.abs(top - box.scrollTop) <= 1));
+  };
   useEffect14(() => {
     const connected = !props.replaying && (!props.connection || props.connection === "connected" || props.status === "completed" || props.status === "failed") && (typeof document === "undefined" || document.visibilityState !== "hidden");
     const next = conversationCueStep(cursor.current, { sessionKey: props.sessionKey, connected, attended, attention: props.attention, preferences });
@@ -3048,48 +3048,25 @@ function AvatarConversationSession(props) {
     }
   }, [messages, props.sessionKey, props.connection, props.replaying, props.status, props.narrate, props.listening, props.onNarrate, props.onInterruptSpeech, attended]);
   const interrupt = () => props.onInterruptSpeech?.();
-  const follow = () => {
-    setHistory(false);
-    setPaused(false);
+  const clearReply = () => {
     setSelected(null);
-    setShown(latest);
-    setPage(0);
     props.onReplyContext?.(null);
   };
-  const visibleAttention = props.attention && preferences[props.attention.kind].visual;
+  const attention = props.attention && preferences[props.attention.kind].visual ? props.attention : null;
   const hasRequest = Boolean(props.interaction) && (props.interactionId === void 0 || Boolean(props.interactionId));
-  return _jsxs14("section", { className: "pc-avatar-conversation", "aria-label": "Avatar conversation", "data-state": state, "data-has-request": hasRequest || void 0, children: [_jsx17("div", { className: "pc-avatar-conversation__scene", children: props.avatar }), _jsx17("p", { className: "pc-avatar-conversation__status", role: "status", children: labels[state] }), visibleAttention && !hasRequest ? _jsxs14("p", { className: "pc-avatar-conversation__attention", "data-kind": props.attention.kind, children: [props.attention.kind === "approval" ? "An explicit decision is required. Waiting never grants permission." : props.attention.kind === "completion" ? "The result is ready in conversation history." : props.attention.importance === "essential" ? "Your answer is required. I will keep waiting." : "Your input is welcome.", props.attention.kind === "question" && props.attention.importance === "clarification" ? _jsxs14(_Fragment7, { children: [" ", props.attention.deadline && Number.isFinite(Date.parse(props.attention.deadline)) ? _jsxs14(_Fragment7, { children: ["Answer by ", _jsx17("time", { dateTime: props.attention.deadline, children: new Date(props.attention.deadline).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) }), ". "] }) : null, props.attention.fallback ? `Without an answer: ${props.attention.fallback}` : ""] }) : null] }) : null, hasRequest ? _jsx17("div", { className: "pc-avatar-conversation__request", children: props.interaction }) : null, !hasRequest || shown ? _jsxs14("div", { className: "pc-avatar-conversation__captions", tabIndex: 0, "aria-label": "Public subtitles", "aria-live": attended ? "off" : "polite", onPointerDown: (event) => {
-    if (event.pointerType === "touch") {
-      interrupt();
-      setPaused(true);
-    }
-  }, onMouseEnter: () => setHovered(true), onMouseLeave: () => setHovered(false), onFocus: () => setFocused(true), onBlur: (event) => {
-    if (!event.currentTarget.contains(event.relatedTarget))
-      setFocused(false);
-  }, children: [_jsx17("p", { children: pages[page] || "Public updates and replies will appear here." }), pages.length > 1 ? _jsxs14("div", { className: "pc-avatar-conversation__pages", children: [_jsx17("button", { type: "button", disabled: page === 0, onClick: () => {
-    interrupt();
-    setPaused(true);
-    setPage((p) => Math.max(0, p - 1));
-  }, children: "Previous subtitle" }), _jsxs14("span", { children: [page + 1, " / ", pages.length] }), _jsx17("button", { type: "button", disabled: page === pages.length - 1, onClick: () => {
-    interrupt();
-    setPaused(true);
-    setPage((p) => Math.min(pages.length - 1, p + 1));
-  }, children: "Next subtitle" })] }) : null] }) : null, _jsxs14("div", { className: "pc-avatar-conversation__actions", children: [_jsx17("button", { type: "button", "aria-pressed": paused, onClick: () => {
-    interrupt();
-    setPaused((v) => !v);
-  }, children: paused ? "Resume subtitles" : "Pause subtitles" }), _jsx17("button", { type: "button", "aria-expanded": history, onClick: () => {
-    interrupt();
-    setHistory((v) => !v);
-  }, children: "Conversation history" }), attended ? _jsx17("button", { type: "button", onClick: follow, children: "Return to latest" }) : null, props.voiceControl ? _jsx17("span", { onPointerDownCapture: interrupt, onKeyDownCapture: (event) => {
-    if (event.key === "Enter" || event.key === " ")
-      interrupt();
-  }, children: props.voiceControl }) : null, props.playbackControl] }), history ? _jsx17("ol", { className: "pc-avatar-conversation__history", "aria-label": "Public conversation history", children: messages.map((m, i) => _jsxs14("li", { children: [_jsx17("strong", { children: m.role === "user" ? "You" : m.kind === "question_outcome" ? "Question status" : m.kind === "public_update" ? "Public update" : "Reply" }), _jsx17(ChatMessageCard, { ...props.messageProps, message: { ...m, reasoning: void 0, live: void 0, toolActivity: void 0 } }), m.publicUpdate?.sourceCallIds.length ? _jsxs14("details", { children: [_jsx17("summary", { children: "Sources" }), _jsx17("ul", { children: m.publicUpdate.sourceCallIds.map((id) => _jsx17("li", { children: id }, id)) })] }) : null, m.publicUpdate ? _jsx17("button", { type: "button", "aria-pressed": selected === m, onClick: () => {
+  const captionProps = { ...props.messageProps, renderFooter: void 0, onSpeakToggle: void 0, getSpeakState: void 0, showCopy: false, variant: captionVariant };
+  return _jsxs14("section", { className: "pc-avatar-conversation", "aria-label": "Avatar conversation", "data-state": state, "data-has-request": hasRequest || void 0, "data-compact": hasRequest || history || void 0, children: [_jsxs14("div", { className: "pc-avatar-conversation__presence", children: [_jsx17("div", { className: "pc-avatar-conversation__scene", children: props.avatar }), _jsx17("p", { className: "pc-avatar-conversation__status", role: "status", children: labels[state] })] }), attention && attention.kind !== "completion" && !hasRequest ? _jsxs14("p", { className: "pc-avatar-conversation__attention", "data-kind": attention.kind, children: [attention.kind === "approval" ? "An explicit decision is required. Waiting never grants permission." : attention.importance === "essential" ? "Your answer is required. I will keep waiting." : "Your input is welcome.", attention.kind === "question" && attention.importance === "clarification" ? _jsxs14(_Fragment7, { children: [" ", attention.deadline && Number.isFinite(Date.parse(attention.deadline)) ? _jsxs14(_Fragment7, { children: ["Answer by ", _jsx17("time", { dateTime: attention.deadline, children: new Date(attention.deadline).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) }), ". "] }) : null, attention.fallback ? `Without an answer: ${attention.fallback}` : ""] }) : null] }) : null, hasRequest ? _jsx17("div", { className: "pc-avatar-conversation__request", children: props.interaction }) : null, history ? _jsx17("ol", { className: "pc-avatar-conversation__history", "aria-label": "Public conversation history", tabIndex: 0, children: messages.map((m, i) => _jsxs14("li", { children: [_jsx17("strong", { children: m.role === "user" ? "You" : m.kind === "question_outcome" ? "Question status" : m.kind === "public_update" ? "Public update" : "Reply" }), _jsx17(ChatMessageCard, { ...props.messageProps, message: { ...m, reasoning: void 0, live: void 0, toolActivity: void 0 } }), m.publicUpdate?.sourceCallIds.length ? _jsxs14("details", { children: [_jsx17("summary", { children: "Sources" }), _jsx17("ul", { children: m.publicUpdate.sourceCallIds.map((id) => _jsx17("li", { children: id }, id)) })] }) : null, m.publicUpdate ? _jsx17("button", { type: "button", "aria-pressed": selected === m, onClick: () => {
     interrupt();
     setSelected(m);
-    setShown(m);
-    setPage(0);
+    setHistory(false);
     props.onReplyContext?.(m);
-  }, children: "Reply to this" }) : null] }, `${m.runId || ""}:${m.id || i}`)) }) : null, selected ? _jsxs14("p", { className: "pc-avatar-conversation__reply-context", children: ["Replying to the selected exchange. ", _jsx17("button", { type: "button", onClick: follow, children: "Clear reply context" })] }) : null, !hasRequest ? props.interaction : null] });
+  }, children: "Reply to this" }) : null] }, `${m.runId || ""}:${m.id || i}`)) }) : _jsx17("ol", { ref: captionList, className: "pc-avatar-conversation__captions", "aria-label": "Public subtitles", "aria-live": attended ? "off" : "polite", tabIndex: 0, "data-scrolled": scrolled || void 0, onScroll: onCaptionScroll, children: captions.map((caption, i) => _jsx17("li", { "data-kind": caption.kind, "data-attention": attention?.kind === "completion" && caption.kind === "answer" && i === captions.length - 1 ? "completion" : void 0, children: _jsx17(ChatMessageCard, { ...captionProps, message: caption.message }) }, caption.key)) }), selected ? _jsxs14("p", { className: "pc-avatar-conversation__reply-context", children: ["Replying to the selected exchange. ", _jsx17("button", { type: "button", onClick: clearReply, children: "Clear reply context" })] }) : null, !hasRequest ? props.interaction : null, _jsxs14("div", { className: "pc-avatar-conversation__actions", children: [_jsx17("button", { type: "button", "aria-expanded": history, onClick: () => {
+    interrupt();
+    setHistory((v) => !v);
+  }, children: "Conversation history" }), props.voiceControl ? _jsx17("span", { onPointerDownCapture: interrupt, onKeyDownCapture: (event) => {
+    if (event.key === "Enter" || event.key === " ")
+      interrupt();
+  }, children: props.voiceControl }) : null, props.playbackControl] })] });
 }
 
 // dist/workflow_chat.js
@@ -6867,10 +6844,10 @@ export {
   ToolActivityGroup,
   WorkflowChat,
   WorkflowInteractionPanel,
+  conversationCaptions,
   conversationCueStep,
   conversationMessages,
   conversationNarrationStep,
-  conversationPages,
   conversationReply,
   conversationSnapshot,
   conversationState,
