@@ -279,8 +279,10 @@ private final class OutputLevels: @unchecked Sendable {
         }
         guard speaking else { return }
         switch event {
-        case .interrupted: if !paused { pause(); pausedByInterruption = true }
-        case .interruptionEnded(let shouldResume): if shouldResume, paused, pausedByInterruption { resume() }
+        case .interrupted: PhoneTrace.note("voice: interruption began"); if !paused { pause(); pausedByInterruption = true }
+        case .interruptionEnded(let shouldResume):
+            PhoneTrace.note("voice: interruption ended (resume: \(shouldResume))")
+            if shouldResume, paused, pausedByInterruption { resume() }
         case .routeLost: if !paused { pause() }
         case .reset: stop(); error = "Audio was interrupted. Tap play to try again."
         }
@@ -300,6 +302,7 @@ private final class OutputLevels: @unchecked Sendable {
         pitch.rate = Float(PhonePreferences.validSpeed(speed))
         speaking = true; preparing = true; readingID = messageID; startSampling()
         Self.log.info("reading \(plain.count, privacy: .public) chars in \(self.pieces.count, privacy: .public) pieces from piece \(self.nextPiece + 1, privacy: .public)")
+        PhoneTrace.note("voice: reading \(plain.count) chars in \(pieces.count) pieces from piece \(nextPiece + 1)")
         let epoch = generation
         let voice: VoiceChoice? = { if case .run = scope { choice } else { nil } }()
         if configureAudio {
@@ -339,6 +342,7 @@ private final class OutputLevels: @unchecked Sendable {
             while true {
                 attempt += 1
                 Self.log.info("piece \(i + 1, privacy: .public)/\(self.pieces.count, privacy: .public) started: \(self.pieces[i].count, privacy: .public) chars, try \(attempt, privacy: .public)")
+                PhoneTrace.note("voice: piece \(i + 1)/\(pieces.count) try \(attempt), app \(isActive() ? "in front" : "in the background"), \(String(format: "%.1f", playedSeconds)) s played")
                 do {
                     for try await raw in client.speech(text: pieces[i], scope: scope, voice: voice) {
                         try Task.checkCancellation(); guard epoch == generation else { return nil }
@@ -351,6 +355,7 @@ private final class OutputLevels: @unchecked Sendable {
                     if error is PlaybackFailure || error is SpeechWAV.Unreadable { return error }
                     retry.requestAgain()
                     Self.log.error("piece \(i + 1, privacy: .public) failed on try \(attempt, privacy: .public) after \(retry.kept, format: .fixed(precision: 2), privacy: .public) s of it: \(String(describing: error), privacy: .public)")
+                    PhoneTrace.note("voice: piece \(i + 1) failed on try \(attempt) after \(String(format: "%.2f", retry.kept)) s of it: \(error.localizedDescription)")
                     guard attempt <= Self.retries, LiveGatewayClient.isTransient(error) else { return error }
                     try? await Task.sleep(for: .seconds(2))
                     if Task.isCancelled || epoch != generation { return nil }
@@ -479,6 +484,7 @@ private final class OutputLevels: @unchecked Sendable {
                 if failure as? GatewayError == .unauthorized { onUnauthorized?() }
             }
         }
+        PhoneTrace.note("voice: reading ended after \(String(format: "%.1f", playedSeconds)) s played, app \(isActive() ? "in front" : "in the background")\(error.map { ": " + $0 } ?? "")")
         speaking = false; preparing = false; paused = false; readingID = nil; stopSampling()
         stopEngine(); deactivateAudio(); endReadingTasks()
     }
@@ -572,6 +578,7 @@ private final class OutputLevels: @unchecked Sendable {
     /// The scene left the screen (`false`) or came back: the orb's meter samples only while seen
     /// (a reading goes on in the background without it).
     func scene(visible: Bool) {
+        if speaking { PhoneTrace.note("voice: app \(visible ? "back in front" : "in the background") while reading, \(String(format: "%.1f", playedSeconds)) s played") }
         if !visible, !inputPending { stopSampling() }
         else if visible, speaking, sampler == nil { startSampling() }
     }
@@ -582,6 +589,7 @@ private final class OutputLevels: @unchecked Sendable {
     func pause() {
         guard speaking, !paused else { return }
         paused = true; pausedByInterruption = false
+        PhoneTrace.note("voice: paused at \(String(format: "%.1f", elapsedSeconds)) s")
         pausedAt = nodeSampleTime()
         if node.isPlaying { node.pause() }
         if engine.isRunning { engine.pause() }
@@ -601,6 +609,7 @@ private final class OutputLevels: @unchecked Sendable {
             stop(); self.error = "The reading could not resume. Tap play to try again."; return
         }
         paused = false; pausedByInterruption = false
+        PhoneTrace.note("voice: resumed at \(String(format: "%.1f", elapsedSeconds)) s")
         if engine.isRunning, !inFlight.isEmpty { node.play() }
         pausedAt = nil
         updateNowPlaying()
