@@ -180,6 +180,7 @@ struct RoutePage: View {
         case .archivedSessions: ArchivedSessionsView()
         case .sessionSearch(let q): SessionSearchView(query: q)
         case .archivedAutomations: ArchivedAutomationsView()
+        case .pausedAutomations: PausedAutomationsView()
         case .toolGroup(let scope, let id): ToolGroupView(scope: scope, groupId: id)
         case .link(let url): LinkView(url: url)
         case .answer(let ref): AskView(initialPhase: .idle, opening: ref)

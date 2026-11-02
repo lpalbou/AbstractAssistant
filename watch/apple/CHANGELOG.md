@@ -27,6 +27,12 @@ iPhone app); the Python package's history is in
   its language, and **Voices that speak** keeps one language's voices when the gateway offers
   several. Voices are created on the iPhone or the desktop; the watch says so.
 
+### Changed
+
+- **Automations open on what runs.** The list shows the active automations, most recent activity
+  first; the paused ones are one tap away under "Paused · N", next to Archived. With a gateway that
+  does not serve sections (0.19.0 and earlier) the list stays as before.
+
 ### Fixed
 
 - **Needs you** shows loading, retryable errors and a confirmed empty state when

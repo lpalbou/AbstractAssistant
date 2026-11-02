@@ -65,7 +65,7 @@ def test_tabs_switch_by_keyboard_and_the_last_one_is_remembered(tmp_path: Path) 
     sw = _switcher()
     seen: List[str] = []
     sw.tab_changed.connect(seen.append)
-    assert sw.tab == "sessions" and not sw.show_archived.isVisibleTo(sw) or True
+    assert sw.tab == "sessions"
     _key(sw, Qt.Key_2, Qt.ControlModifier)
     assert sw.tab == "automations" and seen == ["automations"]
     assert sw.hint_label.text().startswith("↑↓ move · ↵ open · ⌘1/⌘2") and "remove" not in sw.hint_label.text()
@@ -263,7 +263,7 @@ def test_the_header_needs_no_ellipsis_and_the_tabs_carry_the_counts(width, tab) 
     sw.resize(width, 600)
     sw.show()
     _app().processEvents()
-    header = [sw.title_label, sw.new_button] if tab == "sessions" else [sw.title_label, sw.show_archived, sw.new_automation_button]
+    header = [sw.title_label, sw.new_button] if tab == "sessions" else [sw.title_label, sw.new_automation_button]
     for widget in header:
         assert widget.isVisibleTo(sw)
         assert widget.width() >= widget.sizeHint().width(), (widget.text(), widget.width(), widget.sizeHint().width())
@@ -274,7 +274,7 @@ def test_the_header_needs_no_ellipsis_and_the_tabs_carry_the_counts(width, tab) 
     assert sw.tab_buttons["sessions"].text() == "Conversations · 146+"
     assert sw.tab_buttons["automations"].text().startswith("Automations · 5 · ")
     assert sw.tab_buttons["sessions"].toolTip() == "146+ sessions (⌘1)"
-    assert sw.tab_buttons["automations"].toolTip() == "5 automations · 1 archived (hidden) · 4 new (⌘2)"
+    assert sw.tab_buttons["automations"].toolTip() == "5 automations · 1 archived · 4 new (⌘2)"
     sw.deleteLater()
 
 
@@ -363,14 +363,18 @@ def test_a_workspace_folder_never_shows_its_name(tmp_path: Path) -> None:
 
 @pytest.mark.basic
 def test_archived_automations_are_hidden_until_asked_for() -> None:
+    """The archived listing (the gateway's `status=archived`) sits under "Archived · N",
+    folded until a click opens it, like the watch, the iPhone and Code."""
     summaries = _summaries()
     archived = dict(_by_id(NEWS), automation_id="00000000-0000-4000-8000-00000000a1c4", title="Old monitor",
                     status="archived", capabilities=["discuss"])
-    sw = _switcher(summaries + [archived])
+    sw = _switcher()
+    sw.set_automations(summaries, archived=[archived], available=True)
     sw.set_tab("automations")
     ids = lambda: [r.automation_id for r in sw.automation_tab_rows]  # noqa: E731
     assert archived["automation_id"] not in ids()
-    sw.show_archived.click()
+    assert sw.archived_toggle is not None and sw.archived_toggle.text() == "Archived · 1"
+    sw.archived_toggle.click()
     assert archived["automation_id"] in ids()
     row = next(r for r in sw.automation_tab_rows if r.automation_id == archived["automation_id"])
     assert not row.active_switch.is_actionable() and not row.active_switch.isChecked()
@@ -566,3 +570,47 @@ def test_the_active_switch_follows_the_gateway_status_only(status, checked, shor
         assert row.active_switch.isChecked() is checked and not row.active_switch.busy
         assert "Last attempt failed: refused" in row.active_switch.toolTip()
     row.deleteLater()
+
+
+@pytest.mark.basic
+def test_paused_automations_fold_under_their_own_section_in_the_served_order() -> None:
+    """ADR 0048: the rows are drawn in the gateway's order; the ones it serves in the "paused"
+    section fold under "Paused · N" (closed at first, opened by a click); a gateway that serves
+    no `section` gets today's list, paused ones included, in its order."""
+    served = []
+    for summary, section in zip(_summaries(), ("active", "paused", "active")):
+        served.append(dict(summary, section=section, status="paused" if section == "paused" else summary["status"]))
+    sw = _switcher(served)
+    sw.set_tab("automations")
+    ids = lambda: [r.automation_id for r in sw.automation_tab_rows]  # noqa: E731
+    active = [s["automation_id"] for s in served if s["section"] == "active"]
+    paused = [s["automation_id"] for s in served if s["section"] == "paused"]
+    assert ids() == active  # served order, the paused one folded
+    assert sw.paused_toggle is not None and sw.paused_toggle.text() == "Paused · 1"
+    assert not sw.paused_toggle.isChecked()
+    sw.paused_toggle.click()
+    assert ids() == active + paused  # opened: the same cards, after the active ones
+    assert sw.paused_toggle.isChecked()
+    sw.paused_toggle.click()
+    assert ids() == active
+
+    # The filter searches the folded section too: a match shows while the query is typed.
+    paused_title = next(s for s in served if s["section"] == "paused")["title"]
+    sw.search_edit.setText(paused_title)
+    assert ids() == paused, "a paused automation is found while its section is closed"
+    sw.search_edit.setText("")
+    assert ids() == active and not sw.paused_toggle.isChecked()
+    # The label carries the gateway's figure when it serves one (ADR 0048).
+    sw.set_automations(served, paused_count=7, available=True)
+    assert sw.paused_toggle.text() == "Paused · 7"
+    sw.deleteLater()
+
+    # An older gateway (no `section`): every row as served, no Paused section.
+    older = [dict(s) for s in served]
+    for s in older:
+        s.pop("section")
+    sw = _switcher(older)
+    sw.set_tab("automations")
+    assert [r.automation_id for r in sw.automation_tab_rows] == [s["automation_id"] for s in older]
+    assert sw.paused_toggle is None
+    sw.deleteLater()

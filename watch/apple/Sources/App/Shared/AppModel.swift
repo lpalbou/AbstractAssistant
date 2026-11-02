@@ -10,7 +10,7 @@ enum Route: Hashable {
         switch self {
         case .ask, .sessions, .session, .automations, .automation, .automationInfo, .automationSearch, .conversation, .settings, .voiceSettings,
              .orbStyle, .about, .tools, .toolGroup, .connection, .archivedSessions, .sessionSearch,
-             .archivedAutomations: true
+             .archivedAutomations, .pausedAutomations: true
         // `.answer`: a notification's answer (it would be read aloud again); `.waits`: refresh it on a new tap.
         case .approval, .askUser, .draft, .waits, .answer, .picker, .automationEdit, .newAutomation, .message,
              .read, .link, .orbStylePreview, .workflow, .media, .activity, .filePreview: false
@@ -20,7 +20,7 @@ enum Route: Hashable {
     case ask(AskView.Phase), picker, sessions, session(SessionSummary), automations, automation(AutomationSummary), automationEdit(AutomationSummary), newAutomation, message(title: String, Exchange), voiceSettings, settings
     case read(ReadItem), link(URL), answer(AnswerRef), orbStyle, orbStylePreview(String), about, conversation(String)
     case tools(AppModel.ToolScope), toolGroup(AppModel.ToolScope, String), connection
-    case workflow(AppModel.ToolScope), media(MediaItem), activity(String), archivedSessions, sessionSearch(String), archivedAutomations
+    case workflow(AppModel.ToolScope), media(MediaItem), activity(String), archivedSessions, sessionSearch(String), archivedAutomations, pausedAutomations
     case filePreview([SessionFile], Int)
     /// An automation's details (behind (i) on its orb page): when it runs, Edit, Run.
     case automationInfo(AutomationSummary)
@@ -233,6 +233,11 @@ final class AppModel: ObservableObject {
     @Published var needsSignIn = false
     /// Why the sign-in page is back, when it is not the first launch.
     @Published var signInNotice: String?
+    /// How many automations are paused (the gateway's count, ADR 0048); nil from a gateway that
+    /// serves no sections (the list is then drawn as it comes, with no Paused section).
+    @Published private(set) var automationsPausedCount: Int?
+    /// How many automations are archived (the gateway's count; nil when it serves none).
+    @Published private(set) var automationsArchivedCount: Int?
     /// The automations call failed while waits and runs were fine (shown on the Automations screen only).
     @Published var automationsError: String?
     /// The automations have been read once (they arrive after the conversations: their call is the
@@ -264,9 +269,12 @@ final class AppModel: ObservableObject {
         automationsLoading = true
         automationsTask = Task { [weak self] in
             do {
-                let list = try await client.automations()
+                let page = try await client.automationList()
+                let list = page.items
                 guard let self, !Task.isCancelled else { return }
-                automations = merged(list); automationsError = nil; automationsLoaded = true; automationsReadAt = Date()
+                automations = merged(list); automationsPausedCount = page.pausedAutomations
+                automationsArchivedCount = page.archivedAutomations
+                automationsError = nil; automationsLoaded = true; automationsReadAt = Date()
                 // An automation finished a run since the last look: its notification, shown as a banner
                 // with the app in front (Settings → Notifications), unless its own page is on screen.
                 let finished = AutomationNotices.finished(in: list)
@@ -621,7 +629,7 @@ final class AppModel: ObservableObject {
         recordingConnectionKey = KeptQuestion.connectionKey(gateway: signIn.gateway, user: signIn.user, tenant: signIn.tenant, credential: signIn.credential)
         client = LiveGatewayClient(baseURL: signIn.gateway, credential: signIn.credential)
         gatewayHost = signIn.gateway.host() ?? signIn.gateway.absoluteString
-        waits = []; waitsReadState = .checking; runs = []; automations = []; principal = nil; lastError = nil; failures = 0; failingSince = nil; unreachable = false; seenWaitIDs = []; entities = []; automationsLoaded = false; automationsError = nil; automationsTask?.cancel(); automationsTask = nil; automationsLoading = false; automationsReadAt = nil
+        waits = []; waitsReadState = .checking; runs = []; automations = []; principal = nil; lastError = nil; failures = 0; failingSince = nil; unreachable = false; seenWaitIDs = []; entities = []; automationsLoaded = false; automationsPausedCount = nil; automationsArchivedCount = nil; automationsError = nil; automationsTask?.cancel(); automationsTask = nil; automationsLoading = false; automationsReadAt = nil
         definitions = [:]; results = [:]; savedAt = [:]
         forgetTools()                                    // each account has its own tools (email, …)
         workflows = []; workflowsReadAt = nil; MediaStore.shared.clear()
@@ -660,7 +668,7 @@ final class AppModel: ObservableObject {
         if !SavedSignIn.clear() { notice = "The sign-in could not be removed from this watch's Keychain." }
         stopPolling()
         client = MockGatewayClient(world: .watch); gatewayHost = "—"; recordingConnectionKey = "signed-out"
-        waits = []; waitsReadState = .checking; runs = []; automations = []; principal = nil; lastError = nil; failures = 0; failingSince = nil; unreachable = false; seenWaitIDs = []; entities = []; automationsLoaded = false; automationsError = nil; automationsTask?.cancel(); automationsTask = nil; automationsLoading = false; automationsReadAt = nil
+        waits = []; waitsReadState = .checking; runs = []; automations = []; principal = nil; lastError = nil; failures = 0; failingSince = nil; unreachable = false; seenWaitIDs = []; entities = []; automationsLoaded = false; automationsPausedCount = nil; automationsArchivedCount = nil; automationsError = nil; automationsTask?.cancel(); automationsTask = nil; automationsLoading = false; automationsReadAt = nil
         definitions = [:]; results = [:]; savedAt = [:]
         forgetTools()
         workflows = []; workflowsReadAt = nil; MediaStore.shared.clear()
@@ -1432,14 +1440,16 @@ struct LaunchOptions {
             // `--flaky-automations`: the first call fails (it times out), the retry answers;
             // `--slow-start`: the first 3 polls fail (a radio coming up); `--offline`: every poll fails;
             // `--slow-definitions`: an automation's definition takes 3 s (Edit shows it at once once read);
-            // `--slow-run`: a Run now takes 4 s to be accepted (as a command over the watch's radio).
+            // `--slow-run`: a Run now takes 4 s to be accepted (as a command over the watch's radio);
+            // `--paused-automations`: two more automations, paused (the Paused section, ADR 0048).
             let args = ProcessInfo.processInfo.arguments
             model = AppModel(client: MockGatewayClient(world: .watch, automationsDelay: args.contains("--slow-automations") ? .seconds(3) : .zero,
                                                        automationsFailures: args.contains("--flaky-automations") ? 1 : 0,
                                                        pollFailures: args.contains("--offline") ? .max : args.contains("--slow-start") ? 3 : 0,
                                                        definitionDelay: args.contains("--slow-definitions") ? .seconds(3) : .zero,
                                                        runDelay: args.contains("--slow-run") ? .seconds(4) : .zero,
-                                                       publicHistoryFixture: args.contains("--test-public-history")), gatewayHost: "mbp")
+                                                       publicHistoryFixture: args.contains("--test-public-history"),
+                                                       pausedSamples: args.contains("--paused-automations")), gatewayHost: "mbp")
         }
         model.needsSignIn = showSignIn
         model.testIdentify = testIdentify; model.testSecret = testSecret
@@ -1557,6 +1567,7 @@ struct LaunchOptions {
             let s = SessionSummary.group(MockGatewayClient.World.watch.sampleRuns)[1]
             return [.sessions, .session(s)]
         case "automations": return [.automations]
+        case "paused-automations": return [.automations, .pausedAutomations]
         case "settings": return [.settings]
         case "connection": return [.settings, .connection]
         case "orblab", "orbstyle": return [.settings, .orbStyle]

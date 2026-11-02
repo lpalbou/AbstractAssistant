@@ -200,6 +200,9 @@ def _build_qss() -> str:
     QPushButton#switcherTab:checked, QPushButton#switcherScope:checked {{ color: {THEME.text_primary}; border-color: {THEME.accent}; }}
     QPushButton#switcherTab:focus, QPushButton#switcherLoadMore:focus {{ border-color: {THEME.accent}; }}
     QFrame#switcherFooter, QFrame#switcherHeader, QScrollArea#switcherScroll, QWidget#switcherList {{ background: transparent; border: none; }}
+    QPushButton#switcherSection {{ color: {THEME.text_muted}; background: transparent; border: none; border-radius: 8px; padding: 8px 6px; font-size: {METRICS.font_ui}px; font-weight: 400; text-align: left; }}
+    QPushButton#switcherSection:hover {{ color: {THEME.text_secondary}; background: {THEME.overlay_hover}; }}
+    QPushButton#switcherSection:focus {{ border: 1px solid {THEME.accent}; }}
     """
 
 
@@ -1038,6 +1041,12 @@ class SessionSwitcher(QDialog):
         self._selected_index = -1
         self._tab = "sessions"
         self._automations: List[Dict[str, Any]] = []
+        # ADR 0048: the Paused and Archived sections open on a click and start folded.
+        self._paused_open = False
+        self._archived_open = False
+        self._paused_count: Optional[int] = None
+        self.paused_toggle: Optional[QPushButton] = None
+        self.archived_toggle: Optional[QPushButton] = None
         self._automation_status = ""
         self._automations_available = False
         self._auto_rows: List[AutomationTabRow] = []
@@ -1068,13 +1077,6 @@ class SessionSwitcher(QDialog):
         # their tooltips: the header line holds only the title and its buttons.
         self._count_text = ""
         header.addStretch(1)
-        self.show_archived = QPushButton("Show archived")
-        self.show_archived.setObjectName("switcherScope")
-        self.show_archived.setCheckable(True)
-        self.show_archived.setCursor(Qt.PointingHandCursor)
-        self.show_archived.setToolTip("Also list archived automations (their history is kept)")
-        self.show_archived.toggled.connect(lambda _checked: self._rebuild_automations())
-        header.addWidget(self.show_archived, 0, Qt.AlignVCenter)
         self.new_automation_button = QPushButton("New automation")
         self.new_automation_button.setObjectName("switcherPrimary")
         self.new_automation_button.setCursor(Qt.PointingHandCursor)
@@ -1236,7 +1238,6 @@ class SessionSwitcher(QDialog):
         self.pages.setCurrentIndex(0 if sessions else 1)
         self.title_label.setText("Conversations" if sessions else "Automations")
         self.new_button.setVisible(sessions)
-        self.show_archived.setVisible(not sessions)
         self.new_automation_button.setVisible(not sessions)
         self.hint_label.setText(TAB_HINTS[self._tab])
         self.search_edit.setPlaceholderText(
@@ -1289,14 +1290,24 @@ class SessionSwitcher(QDialog):
         self._rebuild()
 
     def set_automations(
-        self, summaries: Sequence[Any], *, status: str = "", available: bool = True
+        self,
+        summaries: Sequence[Any],
+        *,
+        archived: Sequence[Any] = (),
+        paused_count: Optional[int] = None,
+        status: str = "",
+        available: bool = True,
     ) -> None:
         """Render the Automations tab: one row per ``automation_id``.
-        ``available`` = the gateway offers automations (else no tab at all)."""
-        grouped = [dict(s) for s in group_by_automation(summaries or [])]
+        ``archived`` = the gateway's archived listing (``status=archived``), drawn under
+        "Archived · N"; ``paused_count`` = the gateway's ``paused_automations_count`` (the
+        Paused · N figure; None: the rows are counted); ``available`` = the gateway offers
+        automations (else no tab at all)."""
+        grouped = [dict(s) for s in group_by_automation(list(summaries or []) + list(archived or []))]
         text = str(status or "").strip()
         if (
             grouped == self._automations
+            and paused_count == self._paused_count
             and text == self._automation_status
             and bool(available) == self._automations_available
         ):
@@ -1305,6 +1316,7 @@ class SessionSwitcher(QDialog):
                 row.refresh_times()
             return
         self._automations = grouped
+        self._paused_count = paused_count
         self._automation_status = text
         self._automations_available = bool(available)
         if not self._automations_available and self._tab == "automations":
@@ -1313,12 +1325,12 @@ class SessionSwitcher(QDialog):
 
     @property
     def automation_rows(self) -> List["AutomationTabRow"]:
-        """The rows of the Automations tab (archived ones only when shown)."""
-        return list(self._auto_rows)
+        """The rows of the Automations tab on screen (a folded section's rows are not)."""
+        return [row for row in self._auto_rows if not row.isHidden()]
 
     @property
     def automation_tab_rows(self) -> List[AutomationTabRow]:
-        return list(self._auto_rows)
+        return self.automation_rows
 
     def _clear(self, layout: QVBoxLayout) -> None:
         while layout.count():
@@ -1381,25 +1393,72 @@ class SessionSwitcher(QDialog):
             status.setObjectName("switcherStatus")
             status.setWordWrap(True)
             self.auto_layout.addWidget(status)
-        show_archived = self.show_archived.isChecked()
-        for summary in self._automations:
-            if summary.get("status") == "archived" and not show_archived:
-                continue
-            row = AutomationTabRow(summary, parent=self.auto_host)
-            row.open_requested.connect(self._on_automation_open)
-            row.control_requested.connect(self._on_row_control)
-            pending = self._pending.get(row.automation_id)
-            if pending is not None:
-                control, before, _token = pending
-                if command_confirmed(control, before, summary):
-                    del self._pending[row.automation_id]
-                else:
-                    row.set_pending(control)
-            row.focus_requested.connect(self._on_row_hovered)
-            self.auto_layout.addWidget(row)
-            self._auto_rows.append(row)
+        main, paused, archived = self._automation_sections()
+        for summary in main:
+            self._add_automation_row(summary, "main")
+        # The gateway's figure when it serves one (ADR 0048), else the rows read.
+        paused_n = self._paused_count if (paused and self._paused_count is not None) else len(paused)
+        self.paused_toggle = self._section_toggle("paused", "Paused", "pause", paused_n)
+        for summary in paused:
+            self._add_automation_row(summary, "paused")
+        self.archived_toggle = self._section_toggle("archived", "Archived", "archive", len(archived))
+        for summary in archived:
+            self._add_automation_row(summary, "archived")
         self.auto_layout.addStretch(1)
         self._after_rebuild()
+
+    def _automation_sections(self) -> "tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]":
+        """ADR 0048: the gateway's rows in its order, split by what it serves: the archived
+        listing (``status`` archived), then the ``section`` of the others ("paused" folds under
+        Paused). A gateway that serves no ``section`` gets every live row in the main list."""
+        archived = [s for s in self._automations if s.get("status") == "archived" or s.get("section") == "archived"]
+        archived_ids = {str(s.get("automation_id")) for s in archived}
+        live = [s for s in self._automations if str(s.get("automation_id")) not in archived_ids]
+        sectioned = any("section" in s for s in live)
+        paused = [s for s in live if sectioned and s.get("section") == "paused"]
+        paused_ids = {str(s.get("automation_id")) for s in paused}
+        main = [s for s in live if str(s.get("automation_id")) not in paused_ids]
+        return main, paused, archived
+
+    def _section_toggle(self, kind: str, label: str, icon: str, count: int) -> Optional[QPushButton]:
+        """``Paused · 2`` / ``Archived · 6``: a quiet row that opens its section (absent at 0)."""
+        if count <= 0:
+            return None
+        toggle = QPushButton(f"{label} · {count}", self.auto_host)
+        toggle.setObjectName("switcherSection")
+        toggle.setProperty("section", kind)
+        toggle.setIcon(symbol_icon(icon, color=THEME.text_muted, size=14))
+        toggle.setCheckable(True)
+        toggle.setChecked(self._paused_open if kind == "paused" else self._archived_open)
+        toggle.setCursor(Qt.PointingHandCursor)
+        toggle.toggled.connect(lambda checked, k=kind: self._on_section_toggled(k, checked))
+        self.auto_layout.addWidget(toggle)
+        return toggle
+
+    def _on_section_toggled(self, kind: str, checked: bool) -> None:
+        if kind == "paused":
+            self._paused_open = bool(checked)
+        else:
+            self._archived_open = bool(checked)
+        self._apply_filter()
+        self._fit_list()
+        self._grow_to_rows()
+
+    def _add_automation_row(self, summary: Dict[str, Any], section: str = "main") -> None:
+        row = AutomationTabRow(summary, parent=self.auto_host)
+        row.section_kind = section
+        row.open_requested.connect(self._on_automation_open)
+        row.control_requested.connect(self._on_row_control)
+        pending = self._pending.get(row.automation_id)
+        if pending is not None:
+            control, before, _token = pending
+            if command_confirmed(control, before, summary):
+                del self._pending[row.automation_id]
+            else:
+                row.set_pending(control)
+        row.focus_requested.connect(self._on_row_hovered)
+        self.auto_layout.addWidget(row)
+        self._auto_rows.append(row)
 
     def _after_rebuild(self) -> None:
         self.tab_bar.setVisible(self._automations_available)
@@ -1451,14 +1510,13 @@ class SessionSwitcher(QDialog):
         self.tab_buttons["sessions"].setText(f"Conversations · {total}{plus}")
         self.tab_buttons["sessions"].setToolTip(f"{self._sessions_detail} (⌘1)")
 
-        archived = sum(1 for s in self._automations if s.get("status") == "archived")
-        listed = len(self._automations) - (0 if self.show_archived.isChecked() else archived)
-        unread = attention_total(self._automations)
+        main, paused, archived_rows = self._automation_sections()
+        archived = len(archived_rows)
+        listed = len(main) + len(paused)
+        unread = attention_total(main + paused)
         detail = [f"{listed} automation{'s' if listed != 1 else ''}"]
         if archived:
-            detail.append(
-                f"{archived} archived" + (" (hidden)" if not self.show_archived.isChecked() else "")
-            )
+            detail.append(f"{archived} archived")
         if unread:
             detail.append(f"{unread} new")
         self._automations_detail = " · ".join(detail)
@@ -1492,10 +1550,19 @@ class SessionSwitcher(QDialog):
         for group, label in self._group_labels.items():
             label.setVisible(bool(visible_groups.get(group)))
         any_automation = False
+        # ADR 0048: a folded section's rows show when opened, or while a query matches them.
+        searching = bool(" ".join(str(query or "").split()))
+        opened = {"main": True, "paused": self._paused_open, "archived": self._archived_open}
         for row in self._auto_rows:
-            visible = row.matches(query)
+            kind = getattr(row, "section_kind", "main")
+            visible = row.matches(query) and (searching or opened.get(kind, True))
             row.setVisible(visible)
             any_automation = any_automation or visible
+        for toggle, kind in ((self.paused_toggle, "paused"), (self.archived_toggle, "archived")):
+            if toggle is not None and not sip.isdeleted(toggle):
+                toggle.setToolTip(
+                    f"Hide the {kind} automations" if opened[kind] else f"Show the {kind} automations"
+                )
         if self._tab == "sessions":
             if not self._rows:
                 self.empty_label.setText("No sessions yet. Start one with New session.")
