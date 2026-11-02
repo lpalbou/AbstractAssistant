@@ -141,7 +141,8 @@ struct HomeView: View {
 
     private var unseenCount: Int { model.automations.reduce(0) { $0 + ($1.attention?.unseenCount ?? 0) } }
 
-    /// The latest automation's name, "None yet", or nil until the list is in (the row says Loading…).
+    /// The name of the automation with the latest activity (the gateway's first row), "None yet", or nil
+    /// until the list is in (the row says Loading…).
     private var automationDetail: String? {
         guard model.automationsLoaded else { return nil }
         guard let a = model.automations.first else { return "None yet" }

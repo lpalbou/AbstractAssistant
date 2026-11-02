@@ -20,10 +20,14 @@ tray Apps menu); you can also run it yourself with `npx @abstractframework/assis
 - **Voice.** A Watch-style animated orb: tap to talk (or hold, in Voice settings), dictation into
   the draft for review or sent automatically, read aloud that follows your voice setting, and
   playback controls. The composer microphone and the orb share one recording.
-- **Avatar conversation view.** A second view over the same work: the avatar shows activity, short
-  subtitles carry discoveries, choices and questions, and **Conversation history** opens the full
-  exchanges. Permission requests use plain actions with the assistant's public explanation when the
-  gateway serves one.
+- **Avatar conversation view.** A second view over the same work: the avatar shows activity, and
+  realtime rolling captions under it list the current turn's public updates, questions and answer,
+  newest at the bottom, rendered like the conversation (Markdown, links, files). The captions and the
+  Conversation history, Talk and read-aloud buttons sit above the message box at every width;
+  **Conversation history** opens the full exchanges with plain labels (You, Update, Question,
+  Answer). Permission requests use plain actions with the assistant's public explanation when the
+  gateway serves one. The view holds no settings: they open from **Settings** in the conversations
+  sidebar (behind **Open Conversations** on a phone), as everywhere in the app.
 - **Approvals in the conversation.** Deny, Allow once, Allow for this chat or Decide later; a
   chat's tool policy is stored on the gateway when it offers one.
 - **Avatar designs.** The 44-design AbstractAvatar catalog with previews of every activity state;

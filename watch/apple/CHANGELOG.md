@@ -36,6 +36,9 @@ What testers get since build 39 (0.16.0), inside the iPhone app of the same vers
 
 ### Changed
 
+- **Automations open on what runs.** The list shows the active automations, most recent activity
+  first; the paused ones are one tap away under "Paused · N", next to Archived. With a gateway that
+  does not serve sections (0.19.0 and earlier) the list stays as before.
 - **The voice list is read compact.** Settings → Voice asks `GET /voice/voices?compact=true`: the
   same voices without the engines' duplicated source catalogs (1.4 MB → 250 KB on a gateway with the
   shared voice pack), so the list loads within the watch's read timeout over the iPhone's link.

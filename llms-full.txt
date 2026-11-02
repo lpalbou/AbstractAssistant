@@ -3286,6 +3286,18 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   (0.1.0), so AbstractGateway's **Apps → Assistant (web) → Install** works on any machine. It has
   its own release history: [web/CHANGELOG.md](web/CHANGELOG.md).
 
+### Changed
+
+- **Paused automations fold under "Paused · N" in the switcher.** The Automations tab draws the
+  gateway's order (active ones first, most recent activity first) and keeps the paused ones behind a
+  "Paused · N" row that opens them on a click. A gateway that does not serve sections (0.19.0 and
+  earlier) shows the list as before.
+- **Archived automations in the switcher: one "Archived · N" section.** The archived listing is read
+  from the gateway and drawn folded at the end of the Automations tab, like Paused; the "Show
+  archived" button is gone (it could show nothing: the gateway leaves archived automations out of
+  its default listing). The filter also finds paused and archived automations while their section
+  is closed.
+
 ## [0.17.0] - 2026-11-02
 
 The desktop palette gains an optional activity avatar, automations that open as the chat with a
@@ -5156,6 +5168,9 @@ What testers get since build 39 (0.16.0). The watch app inside it carries the sa
 
 ### Changed
 
+- Automations open on the active ones, most recent activity first; the paused ones are one tap away
+  under "Paused · N". With a gateway that does not serve sections (0.19.0 and earlier) the list stays
+  as before.
 - **Read-aloud plays without cuts.** The streamed sound plays back to back on one audio graph, with
   no gap between its short chunks.
 - **A conversation opens with one request** on a gateway that serves conversation history bundles
@@ -6767,6 +6782,9 @@ What testers get since build 39 (0.16.0), inside the iPhone app of the same vers
 
 ### Changed
 
+- **Automations open on what runs.** The list shows the active automations, most recent activity
+  first; the paused ones are one tap away under "Paused · N", next to Archived. With a gateway that
+  does not serve sections (0.19.0 and earlier) the list stays as before.
 - **The voice list is read compact.** Settings → Voice asks `GET /voice/voices?compact=true`: the
   same voices without the engines' duplicated source catalogs (1.4 MB → 250 KB on a gateway with the
   shared voice pack), so the list loads within the watch's read timeout over the iPhone's link.
@@ -8045,8 +8063,11 @@ with one filename, Download, and Close in the shared AbstractUIC dialog.
 ## Avatar conversation view
 
 Choose **Avatar** in the conversation header for a second view over the same work.
-The avatar shows activity and short subtitles communicate discoveries, choices and
-questions. **Conversation history** opens the full public exchanges and final answer;
+The avatar shows activity, and captions under it roll in realtime with what the
+assistant says publicly during the current turn: discoveries, choices, questions and
+then the answer, with the newest at the bottom (nothing cycles). Captions show Markdown,
+links and files like the conversation does; a long answer starts at its first line and
+scrolls in place. **Conversation history** opens the full public exchanges;
 **Conversation** restores the ordinary chat and technical details. Switching views
 preserves the current draft and attachments.
 
@@ -8097,10 +8118,14 @@ tray Apps menu); you can also run it yourself with `npx @abstractframework/assis
 - **Voice.** A Watch-style animated orb: tap to talk (or hold, in Voice settings), dictation into
   the draft for review or sent automatically, read aloud that follows your voice setting, and
   playback controls. The composer microphone and the orb share one recording.
-- **Avatar conversation view.** A second view over the same work: the avatar shows activity, short
-  subtitles carry discoveries, choices and questions, and **Conversation history** opens the full
-  exchanges. Permission requests use plain actions with the assistant's public explanation when the
-  gateway serves one.
+- **Avatar conversation view.** A second view over the same work: the avatar shows activity, and
+  realtime rolling captions under it list the current turn's public updates, questions and answer,
+  newest at the bottom, rendered like the conversation (Markdown, links, files). The captions and the
+  Conversation history, Talk and read-aloud buttons sit above the message box at every width;
+  **Conversation history** opens the full exchanges with plain labels (You, Update, Question,
+  Answer). Permission requests use plain actions with the assistant's public explanation when the
+  gateway serves one. The view holds no settings: they open from **Settings** in the conversations
+  sidebar (behind **Open Conversations** on a phone), as everywhere in the app.
 - **Approvals in the conversation.** Deny, Allow once, Allow for this chat or Decide later; a
   chat's tool policy is stored on the gateway when it offers one.
 - **Avatar designs.** The 44-design AbstractAvatar catalog with previews of every activity state;
@@ -21249,11 +21274,26 @@ class AutomationsClient:
 
     def list_all(self, *, status: Optional[str] = None, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Every summary, following ``next_cursor`` (v1 clients poll full pages)."""
+        return self.list_all_counted(status=status, limit=limit)[0]
+
+    def list_all_counted(
+        self, *, status: Optional[str] = None, limit: Optional[int] = None
+    ) -> "tuple[List[Dict[str, Any]], Dict[str, int]]":
+        """``list_all`` plus the first page's served counts (ADR 0048):
+        ``{"paused": n, "archived": n}`` with only the counts the gateway serves
+        (``paused_automations_count``; ``archived_automations_count``, else
+        ``archived_automations``)."""
         items: List[Dict[str, Any]] = []
+        counts: Dict[str, int] = {}
         cursor: Optional[str] = None
         seen: set = set()
         for _ in range(_MAX_PAGES):
             page = self.list(status=status, cursor=cursor, limit=limit)
+            if cursor is None:
+                for key, served in (("paused", ("paused_automations_count",)), ("archived", ("archived_automations_count", "archived_automations"))):
+                    value = next((page.get(k) for k in served if isinstance(page.get(k), int) and not isinstance(page.get(k), bool)), None)
+                    if value is not None:
+                        counts[key] = int(value)
             batch = page.get("items")
             if not isinstance(batch, list):
                 raise AutomationApiError(
@@ -21262,10 +21302,10 @@ class AutomationsClient:
             items.extend(item for item in batch if isinstance(item, dict))
             nxt = page.get("next_cursor")
             if not isinstance(nxt, str) or not nxt or nxt in seen:
-                return items
+                return items, counts
             seen.add(nxt)
             cursor = nxt
-        return items
+        return items, counts
 
     def get(self, automation_id: str) -> Dict[str, Any]:
         """``GET /automations/{id}`` → ``{definition, active_revision, summary}``."""

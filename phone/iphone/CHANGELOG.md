@@ -49,6 +49,9 @@ What testers get since build 39 (0.16.0). The watch app inside it carries the sa
 
 ### Changed
 
+- Automations open on the active ones, most recent activity first; the paused ones are one tap away
+  under "Paused · N". With a gateway that does not serve sections (0.19.0 and earlier) the list stays
+  as before.
 - **Read-aloud plays without cuts.** The streamed sound plays back to back on one audio graph, with
   no gap between its short chunks.
 - **A conversation opens with one request** on a gateway that serves conversation history bundles

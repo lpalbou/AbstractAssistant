@@ -7076,7 +7076,13 @@ class AssistantPalette(QMainWindow):
             # Not advertised (or not asked yet): no Automations tab at all.
             switcher.set_automations([], status="", available=False)
             return
-        switcher.set_automations(hub.summaries, status=self._automations_status_text(), available=True)
+        switcher.set_automations(
+            hub.summaries,
+            archived=hub.archived,
+            paused_count=hub.paused_count,
+            status=self._automations_status_text(),
+            available=True,
+        )
 
     def _on_automations_changed(self, _summaries: Any) -> None:
         hub = self._automations

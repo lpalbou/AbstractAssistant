@@ -26,22 +26,17 @@ struct AutomationsScreen: View {
                             }.buttonStyle(.plain).padding(.top, 12).accessibilityIdentifier("automations.create")
                         }.frame(maxWidth: .infinity).padding(.horizontal, 8).padding(.vertical, 32)
                     }
-                    NavigationLink { ArchivedAutomationsScreen() } label: {
-                        Label("Archived", systemImage: "archivebox").foregroundStyle(PhoneTheme.secondary)
-                    }.accessibilityIdentifier("automations.archived")
-                    ForEach(store.automations) { automation in
-                        PhoneCard {
-                            ZStack(alignment: .topTrailing) {
-                                NavigationLink { AutomationDetailScreen(automationID: automation.id) } label: { automationCard(automation) }
-                                    .buttonStyle(.plain).accessibilityIdentifier("automation.open." + automation.id)
-                                Button { archiving = automation } label: {
-                                    Image(systemName: "archivebox").foregroundStyle(PhoneTheme.lavender)
-                                        .frame(width: 44, height: 44).background(PhoneTheme.lavender.opacity(0.08), in: Circle())
-                                }.buttonStyle(.plain).disabled(store.automationBusy.contains(automation.id))
-                                    .accessibilityLabel("Archive automation").accessibilityIdentifier("automation.archive." + automation.id)
-                            }
-                        }
+                    // The gateway's order (ADR 0048): the active ones, then Paused · N, then Archived.
+                    let sections = store.automationSections
+                    ForEach(sections.main) { automation in AutomationListCard(automation: automation) { archiving = automation } }
+                    if let paused = sections.pausedCount, paused > 0 {
+                        NavigationLink { PausedAutomationsScreen() } label: {
+                            Label("Paused · \(paused)", systemImage: "pause.circle").foregroundStyle(PhoneTheme.secondary)
+                        }.accessibilityIdentifier("automations.paused")
                     }
+                    NavigationLink { ArchivedAutomationsScreen() } label: {
+                        Label(archivedLabel(store.automationsArchivedCount), systemImage: "archivebox").foregroundStyle(PhoneTheme.secondary)
+                    }.accessibilityIdentifier("automations.archived")
                 }.padding(22)
             }.background(PhoneTheme.ground).navigationTitle("Automations").navigationBarTitleDisplayMode(.inline).refreshable { await store.refresh() }
                 .toolbar { ToolbarItem(placement: .principal) { NavigationCaption(title: "Automations", demo: store.isDemo) }; ToolbarItem(placement: .topBarTrailing) { if !store.automations.isEmpty { Button("New automation", systemImage: "plus") { creating = true } } } }
@@ -53,6 +48,26 @@ struct AutomationsScreen: View {
                     Button("Cancel", role: .cancel) { archiving = nil }
                 } message: { Text("This stops future scheduled runs and hides the automation on all your devices. Its history is kept. You can restore it from Archived.") }
                 .navigationDestination(item: $createdID) { id in AutomationDetailScreen(automationID: id) }
+        }
+    }
+}
+
+/// One automation in a list (the automations, the paused ones): its card, opening it, with Archive.
+private struct AutomationListCard: View {
+    let automation: AutomationSummary
+    let archive: () -> Void
+    @Environment(AssistantStore.self) private var store
+    var body: some View {
+        PhoneCard {
+            ZStack(alignment: .topTrailing) {
+                NavigationLink { AutomationDetailScreen(automationID: automation.id) } label: { automationCard(automation) }
+                    .buttonStyle(.plain).accessibilityIdentifier("automation.open." + automation.id)
+                Button(action: archive) {
+                    Image(systemName: "archivebox").foregroundStyle(PhoneTheme.lavender)
+                        .frame(width: 44, height: 44).background(PhoneTheme.lavender.opacity(0.08), in: Circle())
+                }.buttonStyle(.plain).disabled(store.automationBusy.contains(automation.id))
+                    .accessibilityLabel("Archive automation").accessibilityIdentifier("automation.archive." + automation.id)
+            }
         }
     }
     private func automationCard(_ a: AutomationSummary) -> some View {
@@ -98,6 +113,41 @@ private struct AutomationMarkdownPreview: View {
             .multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
             .allowsHitTesting(false)
+    }
+}
+
+/// The paused automations (`GET /automations?status=paused&limit=200`, one page: a phone list), in
+/// the gateway's order, as the same cards (a tap opens one, where Resume is).
+private struct PausedAutomationsScreen: View {
+    @Environment(AssistantStore.self) private var store
+    @State private var rows: [AutomationSummary] = []
+    @State private var loading = true
+    @State private var error: String?
+    @State private var archiving: AutomationSummary?
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                if loading && rows.isEmpty { ProgressView("Loading paused automations…").frame(maxWidth: .infinity) }
+                if let error { ErrorBanner(message: error) }
+                if !loading && rows.isEmpty && error == nil { Text("Nothing paused").foregroundStyle(PhoneTheme.secondary) }
+                ForEach(rows) { automation in AutomationListCard(automation: automation) { archiving = automation } }
+            }.padding(22)
+        }
+        .background(PhoneTheme.ground).navigationTitle("Paused").navigationBarTitleDisplayMode(.inline)
+        .task { await load() }.refreshable { await load() }
+        .onChange(of: store.automations) { _, _ in Task { await load() } }   // resumed, paused or archived meanwhile
+        .confirmationDialog("Archive automation?", isPresented: Binding(get: { archiving != nil }, set: { if !$0 { archiving = nil } }), titleVisibility: .visible) {
+            if let automation = archiving {
+                Button("Archive") { archiving = nil; Task { if await store.setAutomationArchived(automation, true) { await load() } } }
+            }
+            Button("Cancel", role: .cancel) { archiving = nil }
+        } message: { Text("This stops future scheduled runs and hides the automation on all your devices. Its history is kept. You can restore it from Archived.") }
+    }
+    private func load() async {
+        guard let client = store.client else { return }
+        loading = true; defer { loading = false }
+        do { rows = try await client.pausedAutomations(); error = nil }
+        catch { self.error = "Couldn't load the paused automations." }
     }
 }
 

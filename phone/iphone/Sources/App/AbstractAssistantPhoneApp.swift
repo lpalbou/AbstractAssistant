@@ -157,7 +157,8 @@ struct PhoneRoot: View {
             categoryFixture: ProcessInfo.processInfo.arguments.contains("--category-fixture"),
             emailFixture: ProcessInfo.processInfo.arguments.contains("--email-fixture"),
             accessFixture: ProcessInfo.processInfo.arguments.contains("--access-fixture"),
-            mediaImage: MediaDesignFixture.enabled ? MediaDesignFixture.image : nil, mediaVoice: MediaDesignFixture.enabled ? SyntheticSpeech.wav(seconds: 12, seed: 2) : nil, speechPreparationDelay: speechPreparationDelay))
+            mediaImage: MediaDesignFixture.enabled ? MediaDesignFixture.image : nil, mediaVoice: MediaDesignFixture.enabled ? SyntheticSpeech.wav(seconds: 12, seed: 2) : nil, speechPreparationDelay: speechPreparationDelay,
+            pausedSamples: ProcessInfo.processInfo.arguments.contains("--paused-automations")))
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--reset-tool-defaults") { store.setAppTools(nil) }
         if ProcessInfo.processInfo.arguments.contains("--ui-test") { store.preferences.readAloud = false; store.preferences.autoSendVoice = false; store.preferences.showMessageStats = false; store.preferences.voice = nil; store.preferences.speed = 1; store.preferences.transcription = nil }
