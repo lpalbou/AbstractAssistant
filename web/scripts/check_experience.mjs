@@ -153,11 +153,16 @@ try {
     WebAssembly.instantiate = async function (...args) {
       const result = await instantiate.apply(this, args), instance = result.instance ?? result;
       if (!instance.exports.avatar_render) return result;
-      const exports = { ...instance.exports, avatar_render(...values) {
-        window.__avatarFrames.push({ style: values[1], pose: values[2], level: values[3], time: values[4] });
-        if (window.__avatarFrames.length > 1500) window.__avatarFrames.shift();
-        return instance.exports.avatar_render(...values);
-      } };
+      // Record the gaze each frame is drawn with, and the design it is drawn for.
+      const e = instance.exports, gazes = new Map();
+      const exports = { ...e,
+        avatar_set_gaze(handle, x, y) { gazes.set(handle, [x, y]); return e.avatar_set_gaze(handle, x, y); },
+        avatar_render(...values) {
+          const id = new TextDecoder().decode(new Uint8Array(e.memory.buffer, e.avatar_style_field_ptr(values[1], 0), e.avatar_style_field_len(values[1], 0)));
+          window.__avatarFrames.push({ style: values[1], design: id, gaze: gazes.get(values[0]) ?? [0, 0], pose: values[2], level: values[3], time: values[4] });
+          if (window.__avatarFrames.length > 1500) window.__avatarFrames.shift();
+          return e.avatar_render(...values);
+        } };
       return result.instance ? { module: result.module, instance: { exports } } : { exports };
     };
   });
@@ -218,6 +223,17 @@ try {
   await page.getByRole("heading", { name: "Ready when you are" }).waitFor();
   await page.waitForFunction(() => document.querySelector(".aa-orb")?.width > 0);
   if (shots) await page.screenshot({ path: `${shots}/home-desktop.png` });
+  // The orb (watch-halo, no eyes) never follows the pointer: not the element, not the drawing.
+  const orbPlacement = () => page.locator(".aa-orb").evaluate((c) => { const r = c.getBoundingClientRect(); return [r.x, r.y, r.width, r.height, getComputedStyle(c).transform, getComputedStyle(c.parentElement).transform].join(); });
+  const orbAt = await orbPlacement();
+  await page.evaluate(() => { window.__avatarFrames = []; });
+  for (const [x, y] of [[5, 5], [1430, 5], [720, 500], [5, 990], [1430, 990]]) { await page.mouse.move(x, y, { steps: 4 }); await page.waitForTimeout(80); }
+  await page.waitForTimeout(300);
+  assert.equal(await orbPlacement(), orbAt, "the orb is never translated, rotated or tilted toward the pointer");
+  const orbFrames = await page.evaluate(() => window.__avatarFrames);
+  assert.ok(orbFrames.some((f) => f.design === "watch-halo"), "the orb kept drawing while the pointer moved");
+  assert.deepEqual(orbFrames.filter((f) => f.gaze[0] || f.gaze[1]), [], "a design without eyes receives no gaze target");
+  report.orbIgnoresPointer = true;
   // Opening history remains silent, even with Read aloud on.
   await page.getByRole("button", { name: "Read new replies aloud" }).click();
   await page.locator(".aa-session").click();
@@ -306,6 +322,19 @@ try {
     }
   }
   report.avatarCatalogDesigns = designs.length;
+  // Only a design with eyes (catalog `gaze: "eyes"`) receives the pointer, as a gaze target.
+  for (const [design, eyes] of [["hover", true], ["watch-halo", false]]) {
+    await picker.selectOption(design);
+    await page.getByRole("group", { name: "Preview activity states" }).getByRole("button", { name: "Ready", exact: true }).click();
+    await page.waitForTimeout(2100);
+    const preview = await page.locator(".aa-avatar-preview canvas").boundingBox();
+    await page.evaluate(() => { window.__avatarFrames = []; });
+    for (const [dx, dy] of [[-200, -150], [preview.width + 200, -150], [-200, preview.height + 150]]) { await page.mouse.move(preview.x + dx, preview.y + dy, { steps: 3 }); await page.waitForTimeout(120); }
+    const gazed = await page.evaluate(() => window.__avatarFrames.filter((f) => f.gaze[0] || f.gaze[1]).map((f) => f.design));
+    if (eyes) assert.ok(gazed.length > 0 && gazed.every((d) => d === design), `${design} (eyes) receives the gaze target: ${gazed}`);
+    else assert.deepEqual(gazed, [], `${design} (no eyes) receives no gaze target`);
+  }
+  report.gazeOnlyForEyes = true;
   for (const design of ["watch-halo", "watch-vortex", "watch-nebula", "watch-rings", "watch-liquid", "watch-galaxy", "iphone-weave"]) {
     await picker.selectOption(design);
     for (const phase of ["Ready", "Listening", "Thinking", "Working", "Speaking", "Waiting", "Error"]) {

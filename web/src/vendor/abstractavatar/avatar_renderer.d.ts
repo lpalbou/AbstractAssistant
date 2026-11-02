@@ -20,6 +20,9 @@ export interface AvatarDesign {
     description: string;
     watchCode: string;
     family: string;
+    /** Catalog field 5: "eyes" when the design has eyes that may follow the pointer. A
+     * catalog without the field, or with any other value, means "none": nothing follows. */
+    gaze: "eyes" | "none";
 }
 /** Versioned frame request. Generation remains in AbstractAvatar, not a script interpreter. */
 export interface AvatarFrameDescriptor {
@@ -35,6 +38,20 @@ export interface AvatarFrameDescriptor {
  * Never pass untrusted uploaded/external Wasm; a frame descriptor contains data only. */
 export type AvatarSource = BufferSource;
 export declare function parseAvatarFrame(value: unknown): AvatarFrameDescriptor;
+/** The one pointer-to-gaze rule for every host: a normalized gaze target for a design whose
+ * catalog says it has eyes, from a mouse or pen position relative to the avatar's bounds.
+ * Any other design, touch input or empty bounds gets undefined: the renderer moves only
+ * eyes, and nothing at all for a design without them. */
+export declare function avatarGazeTarget(design: AvatarDesign | undefined, pointer: {
+    clientX: number;
+    clientY: number;
+    pointerType?: string;
+}, bounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}): readonly [number, number] | undefined;
 export declare function avatarDesigns(source?: AvatarSource): Promise<readonly AvatarDesign[]>;
 export declare class AvatarRenderer {
     private readonly core;

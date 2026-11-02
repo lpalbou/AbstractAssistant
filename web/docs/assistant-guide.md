@@ -70,6 +70,8 @@ Speaking, Waiting and Error silently. Watch particle forms, the iPhone woven orb
 and shaded characters remain separate choices. Preview sample loudness does not
 record or play audio. Your choice applies immediately. The animation switch and
 your system's reduced-motion preference control motion. Hidden pages stop animating.
+Avatars with eyes, such as the Hover robot and the Rover, look toward your mouse while
+Ready; the orb and every other avatar stay still.
 The top-bar appearance button changes the theme.
 
 Listening reacts to measured microphone loudness. Speaking reacts to the reply's

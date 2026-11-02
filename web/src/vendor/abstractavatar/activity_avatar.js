@@ -1,6 +1,6 @@
 import { jsx as _jsx } from "react/jsx-runtime";
 import { useEffect, useRef, useState } from "react";
-import { AvatarRenderer, avatarPaletteFromCss } from "./avatar_renderer.js";
+import { AvatarRenderer, avatarGazeTarget, avatarPaletteFromCss } from "./avatar_renderer.js";
 import { avatarFrameInterval, avatarResolution } from "./avatar_quality.js";
 /** Presentation only; a host can wrap this in its own accessible activation control. */
 export function ActivityAvatar({ design = "halo", pose = "ready", level = 0, bands, size = 128, quality = "balanced", animated = true, active = true, followCursor = false, palette, className, label, onError }) {
@@ -33,7 +33,10 @@ export function ActivityAvatar({ design = "halo", pose = "ready", level = 0, ban
         let disposed = false, renderer, visible = true, lost = false;
         let timer, idle;
         let animationFrame, deadline;
-        let gaze = [0, 0], tracking = false;
+        // Gaze exists only for the design that accepted it (catalog `gaze: "eyes"`): the drawn
+        // `gaze` eases toward the pointer `target` and, after two idle seconds, back to centre.
+        let gaze, target = [0, 0];
+        let gazeDesign, tracking = false, eased = 0;
         const motion = matchMedia("(prefers-reduced-motion: reduce)");
         const clock = animationClock.current;
         let renderedPose;
@@ -53,7 +56,9 @@ export function ActivityAvatar({ design = "halo", pose = "ready", level = 0, ban
                 idle = undefined;
             }
             tracking = false;
-            gaze = [0, 0];
+            gaze = undefined;
+            target = [0, 0];
+            gazeDesign = undefined;
         };
         const fail = (reason) => {
             if (disposed)
@@ -71,7 +76,7 @@ export function ActivityAvatar({ design = "halo", pose = "ready", level = 0, ban
                 deadline = undefined;
                 renderedPose = s.pose;
             }
-            if (!animated || motion.matches || !visible || lost || document.hidden || s.pose !== "ready")
+            if (!animated || motion.matches || !visible || lost || document.hidden || s.pose !== "ready" || gazeDesign !== s.design)
                 resetGaze();
             if (disposed || !renderer || !visible || lost || document.hidden) {
                 clock.previous = undefined;
@@ -83,9 +88,16 @@ export function ActivityAvatar({ design = "halo", pose = "ready", level = 0, ban
                 if (moving && clock.previous !== undefined)
                     clock.elapsed = (clock.elapsed + Math.min(1, (now - clock.previous) / 1000)) % 86400;
                 clock.previous = moving ? now : undefined;
+                if (gaze) {
+                    const k = 1 - Math.exp(-Math.min(250, now - eased) / 150);
+                    eased = now;
+                    gaze = [gaze[0] + (target[0] - gaze[0]) * k, gaze[1] + (target[1] - gaze[1]) * k];
+                    if (idle === undefined && Math.hypot(gaze[0], gaze[1]) < .01)
+                        resetGaze();
+                }
                 renderer.renderFrame({ schema_version: 1, style: s.design, state: s.pose, level: s.level,
                     time: moving ? clock.elapsed : 0,
-                    gaze, ...(s.bands === undefined ? {} : { bands: s.bands }) });
+                    ...(gaze === undefined ? {} : { gaze }), ...(s.bands === undefined ? {} : { bands: s.bands }) });
                 setError(false);
                 if (animated && !motion.matches && s.pose !== "error") {
                     const period = avatarFrameInterval(quality, s.pose, tracking);
@@ -107,18 +119,23 @@ export function ActivityAvatar({ design = "halo", pose = "ready", level = 0, ban
             }
         };
         const move = (event) => {
-            if (!renderer || !visible || lost || document.hidden || !animated || motion.matches || latest.current.pose !== "ready" || event.pointerType === "touch")
+            const design = latest.current.design;
+            if (!renderer || !visible || lost || document.hidden || !animated || motion.matches || latest.current.pose !== "ready")
                 return;
-            const bounds = el.getBoundingClientRect();
-            if (!bounds.width || !bounds.height)
+            const pointer = avatarGazeTarget(renderer.designs.find(d => d.id === design), event, el.getBoundingClientRect());
+            if (!pointer)
                 return;
-            const clamp = (v) => Math.max(-1, Math.min(1, v));
-            gaze = [clamp((event.clientX - bounds.x - bounds.width / 2) / (bounds.width / 2)), clamp((event.clientY - bounds.y - bounds.height / 2) / (bounds.height / 2))];
+            if (!gaze) {
+                gaze = [0, 0];
+                eased = performance.now();
+            }
+            target = pointer;
+            gazeDesign = design;
             const wasTracking = tracking;
             tracking = true;
             if (idle !== undefined)
                 clearTimeout(idle);
-            idle = setTimeout(() => { resetGaze(); draw(); }, 2000);
+            idle = setTimeout(() => { idle = undefined; target = [0, 0]; }, 2000);
             // Later movements only change the sampled target, never reset the draw clock.
             if (!wasTracking)
                 deadline = undefined;
