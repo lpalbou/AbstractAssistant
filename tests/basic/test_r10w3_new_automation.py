@@ -48,8 +48,8 @@ def test_switcher_automations_tab_new_automation_creates_with_the_gateway_defaul
 
     window._open_session_switcher()
     switcher = window._session_switcher
-    assert switcher.tab_bar.isVisibleTo(switcher), "Sessions | Automations tabs"
-    assert [switcher.tab_buttons[t].text().split(" · ")[0] for t in ("sessions", "automations")] == ["Sessions", "Automations"]
+    assert switcher.tab_bar.isVisibleTo(switcher), "Conversations | Automations tabs"
+    assert [switcher.tab_buttons[t].text().split(" · ")[0] for t in ("sessions", "automations")] == ["Conversations", "Automations"]
     switcher.tab_buttons["automations"].click()
     assert switcher.tab == "automations"
     assert switcher.new_automation_button.isVisibleTo(switcher)

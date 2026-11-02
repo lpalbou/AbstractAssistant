@@ -22,6 +22,8 @@ def _controller(items, *, saved=None) -> AssistantController:
     c.gateway = SimpleNamespace(discovery_tools=lambda: {"items": items, "tool_mode": "approval"})
     c.preferences = SimpleNamespace(tool_preferences=dict(saved or {}))
     c.session_tool_auto_approval_active = lambda **_: False  # type: ignore[method-assign]
+    # No open conversation: no session-scoped tool grant applies.
+    c.llm_manager = SimpleNamespace(active_session_id="")
     return c
 
 

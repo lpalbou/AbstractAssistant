@@ -507,12 +507,17 @@ class SessionRow(RowCard):
         self.column.addLayout(head)
         self.about_button = None
         if digest.session_kind == "discussion":
-            self.about_button = QPushButton(f"About {automation_title or 'an automation'}", self)
+            shown = f"About {automation_title or 'an automation'}"
+            # Elided: a long automation title never runs past the card.
+            self.about_button = QPushButton(
+                QFontMetrics(self.font()).elidedText(shown, Qt.ElideRight, 220), self
+            )
             self.about_button.full_text = (
                 f"about automation {automation_title}"
                 if automation_title
                 else "about an automation"
             )
+            self.about_button.setToolTip(shown)
             self.about_button.setObjectName("aboutAutomation")
             self.about_button.clicked.connect(
                 lambda: self.automation_requested.emit(digest.automation_id)

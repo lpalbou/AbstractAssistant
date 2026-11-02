@@ -124,10 +124,30 @@ try {
           return r.width > 0 && r.height > 0 && st.visibility !== "hidden" && st.display !== "none";
         };
         const coarse = matchMedia("(pointer: coarse)").matches;
+        // The part of an element left visible by its clipping ancestors (an
+        // ellipsised one-line preview clips a long link; that is not off screen).
+        const clipped = (e) => {
+          const r = e.getBoundingClientRect();
+          let left = r.left, right = r.right;
+          for (let p = e.parentElement; p; p = p.parentElement) {
+            const st = getComputedStyle(p);
+            // Only a hiding clip: a scrolling container is covered by the scrollWidth checks.
+            if (st.overflowX === "hidden" || st.overflowX === "clip") {
+              const pr = p.getBoundingClientRect();
+              left = Math.max(left, pr.left);
+              right = Math.min(right, pr.right);
+            }
+          }
+          return { width: Math.max(0, right - left), height: r.height, left, right };
+        };
+        // Links inside running text (Markdown prose and one-line previews) are
+        // exempt from the 44 px target size, as WCAG 2.5.8 exempts inline targets;
+        // every button and every standalone link is still measured.
+        const inline = (b) => b.matches("a.pc-md_link");
         const boxes = [...document.querySelectorAll("button, a[href]")].filter(visible).map((b) => {
-          const r = b.getBoundingClientRect();
+          const r = clipped(b);
           const own = Boolean(b.closest("[class*='aa-']")) && !b.closest("[class*='pc-'], [class*='af-']");
-          return { t: (b.getAttribute("aria-label") || b.textContent || "").trim().slice(0, 24), w: Math.round(r.width), h: Math.round(r.height), left: Math.round(r.left), right: Math.round(r.right), sized: coarse || own };
+          return { t: (b.getAttribute("aria-label") || b.textContent || "").trim().slice(0, 24), w: Math.round(r.width), h: Math.round(r.height), left: Math.round(r.left), right: Math.round(r.right), sized: (coarse || own) && !inline(b) };
         });
         // Blocks of the conversation must sit inside the viewport too: a
         // scrolling container (the thread) can hide an overflow from the page.

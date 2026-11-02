@@ -446,7 +446,8 @@ def test_the_absence_sentence_reads_loud_in_the_error_colour() -> None:
 
 @pytest.mark.basic
 def test_the_card_schedule_chip_shows_the_served_rule_whole() -> None:
-    """No truncation of served text: the schedule chip's label wraps (never elided)."""
+    """The card shows a compact cadence; the served rule, whole and verbatim, is the chip's tooltip
+    (docs/automations.md: full schedule wording remains in the tooltip)."""
     _qt()
     from PyQt5.QtWidgets import QLabel
     from abstractassistant.ui import session_switcher as switcher_module
@@ -458,7 +459,7 @@ def test_the_card_schedule_chip_shows_the_served_rule_whole() -> None:
     row.show()
     _qt().processEvents()
     label = next(w for w in row.schedule_chip.findChildren(QLabel) if w.objectName() == "rowMetric")
-    assert label.text() == long_rule, "verbatim, never cut"
-    assert label.wordWrap(), "wraps onto a second line instead of eliding"
-    assert label.height() > label.fontMetrics().height() * 1.5, "it actually took a second line at a narrow width"
+    assert row.schedule_chip.toolTip() == long_rule, "the served rule, verbatim, never cut"
+    assert label.text() and label.text() != long_rule and len(label.text()) <= 12, "a compact cadence on the card"
+    assert long_rule in row.toolTip() and long_rule in row.meta_text
     row.close()
