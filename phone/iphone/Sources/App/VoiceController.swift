@@ -310,7 +310,8 @@ private final class OutputLevels: @unchecked Sendable {
             if configureAudio {
                 do { try activatePlayback() } catch {
                     guard epoch == generation else { return }
-                    self.error = error.localizedDescription; end(epoch); return
+                    Self.log.error("the reading could not start: \(String(describing: error), privacy: .public)")
+                    self.error = "The reading could not start. Tap play to try again."; end(epoch); return
                 }
             }
             let failure = await readPieces(client: client, scope: scope, voice: voice, epoch: epoch)
@@ -595,7 +596,9 @@ private final class OutputLevels: @unchecked Sendable {
             if configureAudio { try activatePlayback() }
             if nodeFormat != nil { try startEngine() }
         } catch {
-            stop(); self.error = (error as? PlaybackFailure)?.why ?? error.localizedDescription; return
+            // Usually another app (a call) still holds the audio: plain words here, the cause in the log.
+            Self.log.error("the reading could not resume: \(String(describing: error), privacy: .public)")
+            stop(); self.error = "The reading could not resume. Tap play to try again."; return
         }
         paused = false; pausedByInterruption = false
         if engine.isRunning, !inFlight.isEmpty { node.play() }

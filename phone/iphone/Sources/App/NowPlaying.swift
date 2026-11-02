@@ -7,12 +7,14 @@ import MediaPlayer
     private var targets: [(MPRemoteCommand, Any)] = []
     private var info: [String: Any] = [:]
 
-    func begin(title: String, toggle: @escaping @MainActor () -> Void, play: @escaping @MainActor () -> Void, pause: @escaping @MainActor () -> Void) {
+    func begin(title: String, toggle: @escaping @MainActor @Sendable () -> Void, play: @escaping @MainActor @Sendable () -> Void,
+               pause: @escaping @MainActor @Sendable () -> Void) {
         end()
         let center = MPRemoteCommandCenter.shared()
         for (command, action) in [(center.togglePlayPauseCommand, toggle), (center.playCommand, play), (center.pauseCommand, pause)] {
             command.isEnabled = true
-            targets.append((command, command.addTarget { _ in MainActor.assumeIsolated { action() }; return .success }))
+            // The command center does not promise the thread it calls on: hop to the main actor.
+            targets.append((command, command.addTarget { _ in Task { @MainActor in action() }; return .success }))
         }
         info = [MPMediaItemPropertyTitle: title, MPMediaItemPropertyArtist: "AbstractAssistant",
                 MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,

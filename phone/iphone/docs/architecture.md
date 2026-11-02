@@ -248,6 +248,10 @@ session (`.playback`, `.spokenAudio`) is active only while a reading plays or wa
 pausing, stopping or finishing deactivates it and the app suspends as usual. A short background
 task covers the wait for a reading's first sound, before the engine runs. Voice capture still
 ends when the app leaves the front, and the orb's meter samples only while the app is in front.
+While the stream stalls mid-reading, the engine keeps running over silence so the app stays awake
+to receive the rest; that lasts until the sound comes back, or until the piece's requests give up
+(each fails after 90 s without data, three retries 2 s apart, about six minutes at most). The
+reading then ends with "The voice stopped early." and the app suspends.
 
 **Interruptions.** A call or Siri pauses the reading; the end of the interruption resumes it when
 the system allows. A reading you paused stays paused. Unplugged headphones pause it, and a reset
