@@ -27,6 +27,12 @@ import { GatewayClient } from "./gateway/client";
 import { themeGroup } from "./lib/theme";
 import type { AssistantHost } from "./host";
 import { SessionList } from "./ui/SessionList";
+import { AutomationList } from "./ui/AutomationList";
+import { AutomationPage } from "./ui/AutomationPage";
+import { AutomationEdit } from "./ui/AutomationEdit";
+import { NewAutomation } from "./ui/NewAutomation";
+import { useAutomations } from "./ui/useAutomations";
+import type { AutomationSummary } from "@abstractframework/ui-kit";
 import { CAPTURE_DEFAULTS, SettingsPanel } from "./ui/SettingsPanel";
 import { useConversations, type AttentionSeen } from "./ui/useConversations";
 import { Workspace } from "./ui/Workspace";
@@ -61,6 +67,20 @@ function Splash(props: { conn: GatewayConnection }) {
 
 const VOICE_KEY = "abstractassistant.voice";
 
+type NavTab = "conversations" | "automations";
+/** What the main area shows: the conversation, or an automation (its page, Edit) or New automation. */
+type MainView = { kind: "chat" } | { kind: "automation"; summary: AutomationSummary } | { kind: "edit"; summary: AutomationSummary } | { kind: "new" };
+
+/** Conversations | Automations: what the navigation lists (the desktop switcher's two tabs). */
+function NavChoice(props: { tab: NavTab; onChange: (tab: NavTab) => void }) {
+  return (
+    <div className="aa-nav-choice" role="group" aria-label="Show">
+      <button type="button" aria-pressed={props.tab === "conversations"} onClick={() => props.onChange("conversations")}>Conversations</button>
+      <button type="button" aria-pressed={props.tab === "automations"} onClick={() => props.onChange("automations")}>Automations</button>
+    </div>
+  );
+}
+
 function ConnectedApp(props: { client: GatewayClient; host: AssistantHost; conn: GatewayConnection; topBar: AfAppShellTopBar; drawers: Drawers;
   appearance: AssistantPreferences; onSettings: () => void }) {
   const [voicePrefs, setVoicePrefs] = useVoicePreferences(VOICE_KEY);
@@ -80,18 +100,42 @@ function ConnectedApp(props: { client: GatewayClient; host: AssistantHost; conn:
   const reads = useSessionReads(readScope, receipts, readClient);
   readRefresh.current = reads.refresh;
   const title = selected.sessionId ? conversations.titles[selected.sessionId] || "Conversation" : "New conversation";
+  const automations = useAutomations(client, readScope);
+  const [tab, setTab] = useState<NavTab>("conversations");
+  const [view, setView] = useState<MainView>({ kind: "chat" });
+  const heading = <NavChoice tab={tab} onChange={setTab} />;
+  // The automation shown, as the list has it now (its row moves with every read).
+  const listed = (id: string) => automations.state.page?.items.find((r) => r.automation_id === id);
+  const openConversation = (sessionId: string, runId: string) => {
+    setSelectionEpoch((n) => n + 1);
+    setNavOpen(false);
+    setTab("conversations");
+    setView({ kind: "chat" });
+    setSelected({ sessionId, runId });
+    void conversations.refresh();
+  };
   return (
     <AfAppShell
       className="aa-shell"
       topBar={props.topBar}
       drawers={props.drawers}
       nav={{
-        label: "Conversations",
+        label: tab === "automations" ? "Automations" : "Conversations",
         width: 264,
         open: navOpen,
         onOpenChange: setNavOpen,
-        content: (
+        content: tab === "automations" ? (
+          <AutomationList
+            automations={automations}
+            heading={heading}
+            activeId={view.kind === "automation" || view.kind === "edit" ? view.summary.automation_id : ""}
+            onOpen={(s) => { setNavOpen(false); setView({ kind: "automation", summary: s }); }}
+            onNew={() => { setNavOpen(false); setView({ kind: "new" }); }}
+            onSettings={props.onSettings}
+          />
+        ) : (
           <SessionList
+            heading={heading}
             rows={conversations.rows}
             activity={conversations.activity}
             isUnread={(row) => { const a = conversations.activity[row.session_id]; return Boolean(a && a.content.some(reads.isUnread)); }}
@@ -110,11 +154,13 @@ function ConnectedApp(props: { client: GatewayClient; host: AssistantHost; conn:
             onOpen={(r) => {
               setSelectionEpoch((n) => n + 1);
               setNavOpen(false);
+              setView({ kind: "chat" });
               setSelected({ sessionId: r.session_id, runId: r.latest_run_id });
             }}
             onNew={() => {
               setSelectionEpoch((n) => n + 1);
               setNavOpen(false);
+              setView({ kind: "chat" });
               setSelected({ sessionId: "", runId: "" });
             }}
             onRefresh={() => void conversations.refresh()}
@@ -123,6 +169,16 @@ function ConnectedApp(props: { client: GatewayClient; host: AssistantHost; conn:
         ),
       }}
     >
+      {view.kind === "automation" ? (
+        <AutomationPage key={view.summary.automation_id} client={client} automations={automations} summary={listed(view.summary.automation_id) ?? view.summary}
+          onEdit={() => setView({ kind: "edit", summary: listed(view.summary.automation_id) ?? view.summary })} onOpenConversation={openConversation} />
+      ) : view.kind === "edit" ? (
+        <AutomationEdit key={`edit:${view.summary.automation_id}`} automations={automations} summary={view.summary}
+          onDone={() => setView({ kind: "automation", summary: listed(view.summary.automation_id) ?? view.summary })} />
+      ) : view.kind === "new" ? (
+        <NewAutomation client={client} automations={automations} onCreated={(s) => setView({ kind: "automation", summary: s })}
+          onCancel={() => setView({ kind: "chat" })} />
+      ) : (
       <Workspace
         key={selectionEpoch}
         client={client}
@@ -150,6 +206,7 @@ function ConnectedApp(props: { client: GatewayClient; host: AssistantHost; conn:
         onTurnEnded={() => void conversations.refresh()}
         onSignedOut={onSignedOut}
       />
+      )}
     </AfAppShell>
   );
 }

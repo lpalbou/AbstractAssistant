@@ -15,6 +15,7 @@
 @import "@abstractframework/panel-chat/panel_chat.css";
 @import "../../design/tokens.css";
 @import "./experience.css";
+@import "./automations.css";
 
 :root.theme-dark,
 :root.theme-light {
