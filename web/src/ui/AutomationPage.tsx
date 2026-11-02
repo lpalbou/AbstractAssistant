@@ -98,6 +98,7 @@ export function AutomationPage(props: {
   useEffect(() => {
     if (!running && starting === null) return;
     const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       setNow(Date.now());
       void reread().then((fresh) => {
         if (!mounted.current) return;
