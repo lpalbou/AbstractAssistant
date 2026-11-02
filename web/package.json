@@ -1,14 +1,25 @@
 {
   "name": "@abstractframework/assistant",
-  "version": "0.0.1",
-  "private": true,
-  "description": "AbstractAssistant for the web: the Assistant's conversation surface in a browser, a thin client of AbstractGateway (served by the gateway at /apps/assistant-web/).",
+  "version": "0.1.0",
+  "description": "AbstractAssistant for the web: chat or talk with the Assistant in a browser, with live answers, approvals, dictation and read aloud. A thin client of AbstractGateway, served at /apps/assistant-web/.",
+  "keywords": [
+    "abstractframework",
+    "assistant",
+    "chat",
+    "voice",
+    "gateway",
+    "ui"
+  ],
+  "homepage": "https://github.com/lpalbou/AbstractAssistant/tree/main/web#readme",
+  "bugs": {
+    "url": "https://github.com/lpalbou/AbstractAssistant/issues"
+  },
   "type": "module",
   "author": "Laurent-Philippe Albou",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/lpalbou/abstractassistant.git",
+    "url": "git+https://github.com/lpalbou/AbstractAssistant.git",
     "directory": "web"
   },
   "engines": {
@@ -19,9 +30,15 @@
   },
   "files": [
     "dist",
+    "!dist/**/*.map",
     "bin",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "dev": "vite --port 3008",
     "build": "node scripts/sync_conversation.mjs --check && node scripts/sync_sessions.mjs --check && node scripts/sync_gateway_voice.mjs --check && node scripts/sync_apple_avatars.mjs --check && node scripts/sync_docs_assistant.mjs --check && tsc && vite build && node scripts/build_docs_corpus.mjs && node scripts/check_relative_urls.mjs --dist",
@@ -34,10 +51,12 @@
     "sync:docs": "node scripts/sync_docs_assistant.mjs",
     "sync:voice": "node scripts/sync_gateway_voice.mjs",
     "sync:sessions": "node scripts/sync_sessions.mjs",
-    "sync:conversation": "node scripts/sync_conversation.mjs"
+    "sync:conversation": "node scripts/sync_conversation.mjs",
+    "check:package": "node scripts/check_package.mjs",
+    "prepublishOnly": "npm run build && node scripts/check_package.mjs"
   },
   "dependencies": {
-    "@abstractframework/app-server": "0.1.13"
+    "@abstractframework/app-server": "^0.1.13"
   },
   "devDependencies": {
     "@abstractframework/panel-chat": "0.6.4",

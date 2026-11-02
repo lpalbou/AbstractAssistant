@@ -1,0 +1,157 @@
+name: Release web
+
+# The web Assistant (`web/`, npm `@abstractframework/assistant`) is versioned
+# independently of the Python package, so it owns its own tag family:
+#
+#   v<version>      the Python package (release.yml, PyPI)
+#   web-v<version>  the web app (this workflow, npm)
+#
+# `release.yml` triggers on `v*.*.*`, which a `web-v` tag never matches, and
+# this workflow triggers on `web-v*.*.*` only.
+#
+# Publishing uses npm trusted publishing (OIDC from this workflow file and the
+# `npm` environment, with provenance): no npm token is stored in the
+# repository. npm accepts it only for a package that already exists, so the
+# FIRST version (0.1.0) is published by the package owner by hand, with their
+# one-time password; every later version is published here from a tag.
+#
+# Release: bump web/package.json (and the lockfile), add the dated
+# `## [X.Y.Z]` section to web/CHANGELOG.md, merge, then
+#   git tag -a web-vX.Y.Z -m "AbstractAssistant web X.Y.Z" && git push origin web-vX.Y.Z
+
+on:
+  push:
+    tags:
+      - "web-v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-web-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Test, build and pack the web app
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tarball: ${{ steps.pack.outputs.tarball }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Tag matches web/package.json
+        id: meta
+        run: |
+          set -euo pipefail
+          TAG_VERSION="${GITHUB_REF_NAME#web-v}"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match web/package.json version $PKG_VERSION." >&2
+            exit 1
+          fi
+          echo "version=$PKG_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Install
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build (tsc, vite, relative-URL check)
+        run: npm run build
+
+      - name: Pack
+        id: pack
+        run: |
+          set -euo pipefail
+          TARBALL="$(npm pack --ignore-scripts --silent | tail -n 1)"
+          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+
+      # The allow-list, no source maps or local paths, the CHANGELOG section
+      # for this version: the exact bytes the publish job uploads.
+      - name: Check the packed tarball
+        run: node scripts/check_package.mjs "${{ steps.pack.outputs.tarball }}" --version "${{ steps.meta.outputs.version }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-package
+          path: web/${{ steps.pack.outputs.tarball }}
+          if-no-files-found: error
+
+  publish-npm:
+    name: Publish to npm
+    needs: [build]
+    runs-on: ubuntu-latest
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/@abstractframework/assistant
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-package
+          path: package
+
+      # An npm version is permanent: a re-run, or a version the owner already
+      # published by hand, is skipped instead of failing the release.
+      - name: Publish
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          TARBALL: package/${{ needs.build.outputs.tarball }}
+        run: |
+          set -euo pipefail
+          if [ "$(npm view "@abstractframework/assistant@${VERSION}" version 2>/dev/null || true)" = "$VERSION" ]; then
+            echo "@abstractframework/assistant@${VERSION} is already on npm; skipping."
+          else
+            npm publish "$TARBALL" --provenance --access public
+          fi
+
+  github-release:
+    name: GitHub release page
+    needs: [build, publish-npm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create the release from web/CHANGELOG.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          awk -v v="$VERSION" '
+            index($0, "## [" v "]") == 1 { f = 1; next }
+            f && /^## \[/ { exit }
+            f { print }
+          ' web/CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "web/CHANGELOG.md has no [$VERSION] section" >&2
+            exit 1
+          fi
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $GITHUB_REF_NAME already exists"
+          else
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --title "AbstractAssistant web $VERSION" --notes-file notes.md --verify-tag \
+              --latest=false
+          fi

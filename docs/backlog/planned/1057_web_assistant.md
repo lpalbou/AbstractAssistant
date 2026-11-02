@@ -41,7 +41,9 @@
 - Catalog integration completed 2026-10-31: Gateway and its tray list **Assistant (web)**
   (`assistant-web`, port 3008), separate from the desktop Assistant. A local build can
   use Gateway's existing app manager and signed-in handover at `/apps/assistant-web/`.
-  The npm package remains private; registry installation still requires publication.
+  npm publication prepared 2026-11-02 (operator decision "publish it as AbstractAssistant on
+  NPM"): `@abstractframework/assistant` 0.1.0, tag family `web-vX.Y.Z`,
+  `.github/workflows/release-web.yml` (trusted publishing after the owner's first manual publish).
   Validation and local activation: [2026-10-31 access evidence](../evidence/1057/2026-10-31_gateway_apps.md).
 - Nothing was sent to a live gateway (no run started, no wait answered): sending, approving,
   answering, read aloud and dictation are unproven end to end.
@@ -65,7 +67,7 @@ token in the browser, no copy of a conversation in the browser, no workflow inst
 |---|---|---|---|
 | 0 | ADR 0007 accepted (or amended) by the operator; the catalog id, port and display name decided | operator + assistant | S |
 | 1 | **Live v1 proof on a local gateway, by the operator or with their go-ahead (runs cost tokens):** send, streamed answer, stop, a tool approval on a child run, an `ask_user`, an answer from another device closing the card, attachments, read aloud, dictation on `http://127.0.0.1`; fix what breaks. Decide here whether panel-chat's `WorkflowSessionController` passes `src/lib/run_events.test.ts` (adopt it and delete the reducer) or not | assistant (+ uic for the controller) | M |
-| 2 | **Gateway catalog row completed 2026-10-31** (G1): console and tray entries, managed launch and one-time signed-in handover. Remaining: publish npm package `@abstractframework/assistant` (drop `private`) for registry installation | gateway + assistant | M |
+| 2 | **Gateway catalog row completed 2026-10-31** (G1): console and tray entries, managed launch and one-time signed-in handover. npm package `@abstractframework/assistant` made public at 0.1.0 (2026-11-02); the first publish is the owner's manual run, later versions publish from a `web-v*` tag | gateway + assistant | M |
 | 2b | **Watch-inspired conversation redesign completed 2026-10-31**, superseding the original mockup at the operator's request: shared procedural orb and voice controls, sidebar grouping/search, quiet message cards with optional Details, light/dark and phone/tablet/desktop layouts. Inbox and Automations remain phase 5 | assistant | M |
 | 3 | **Orb and tap/hold voice integration completed 2026-10-31.** Remaining: hands-free silence-to-send, generated media and attachment previews (`runs/{id}/artifacts/{id}/content`), "load more" conversations, rename and archive | assistant | L |
 | 4 | Browser tests: a Playwright flow test against a fake gateway (send, approve, answer, stop; the layout check already runs in CI), the compact palette layout if ADR 0008's gate opens | assistant | M |

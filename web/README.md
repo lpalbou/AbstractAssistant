@@ -44,12 +44,33 @@ offers `session_tool_policy`), the run's tool plan, and voice (Settings → Voic
 Tap/Hold to talk). What stays here: the gateway calls (`src/gateway/`), the conversation list and
 its titles, the workflow choice and the run input (desktop parity ports).
 
-Status: **private preview** (backlog [1057](../docs/backlog/planned/1057_web_assistant.md),
-[ADR 0007](../docs/adr/0007_web_assistant.md)). Gateway's catalog and tray list it as
-**Assistant (web)**, separate from the desktop Assistant. Once installed locally,
-open **Apps → Assistant (web)** in the Gateway tray or console: the existing one-time
-handover signs you in at `<gateway>/apps/assistant-web/`. The package has not been
-published to npm yet; registry installation awaits that release.
+Published on npm as [`@abstractframework/assistant`](https://www.npmjs.com/package/@abstractframework/assistant)
+(release history: [CHANGELOG.md](CHANGELOG.md); design: [ADR 0007](../docs/adr/0007_web_assistant.md)).
+Gateway's catalog and tray list it as **Assistant (web)**, next to the desktop Assistant.
+
+## Install
+
+Through AbstractGateway (recommended): open **Apps → Assistant (web) → Install** in the gateway
+console or tray, or run
+
+```bash
+abstractgateway apps install assistant-web --launch
+```
+
+The gateway downloads the package from npm, checks it against the registry's integrity hash,
+installs its one runtime dependency and starts it. Open it from **Apps → Assistant (web)**: the
+one-time handover signs you in at `<gateway>/apps/assistant-web/`.
+
+On its own, with Node.js 18 or newer:
+
+```bash
+npx @abstractframework/assistant --gateway-url http://127.0.0.1:8080
+# or: npm install -g @abstractframework/assistant && abstractassistant-web
+```
+
+It serves on `http://127.0.0.1:3008/`; sign in with a gateway user id and token in the dialog.
+Without `--gateway-url` it follows the local gateway pointer (`~/.abstractframework/gateway.json`),
+then `http://127.0.0.1:8080`.
 
 ## Run it against a gateway (development)
 
@@ -122,8 +143,9 @@ PYTHONPATH=. python -P web/scripts/gen_tool_policy_parity.py   # needs the packa
 | `src/styles/index.css` | App styles on the design tokens of `web/design/tokens.css` |
 | `design/` | Design tokens and mockups (owned separately) |
 
-The npm package (`@abstractframework/assistant`) remains `private` pending its first release.
-The Python wheel and sdist do not include `web/`.
+The npm package (`@abstractframework/assistant`) ships `dist/`, `bin/`, this README, the
+CHANGELOG and the LICENSE; `npm run check:package` lists what a publish would ship and fails on
+anything else. The Python wheel and sdist do not include `web/`.
 
 To adopt a built shared-library update from a workspace checkout, run `npm run sync:avatars`
 and `npm run sync:docs`. Both snapshots come from canonical AbstractUIC implementations. The

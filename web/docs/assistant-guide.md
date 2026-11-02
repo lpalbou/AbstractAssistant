@@ -79,7 +79,7 @@ This browser keeps appearance, voice and panel preferences locally. Selecting an
 avatar does not change an entity's shared identity or voice on other devices.
 Use the same Gateway account across clients to access the same conversations.
 
-The web app is a private preview. The desktop, iPhone and Watch apps have their
+The desktop, iPhone and Watch apps have their
 own interfaces; a native-only feature is not automatically available here.
 An unavailable workflow, voice route or connection must be configured on Gateway.
 If disconnected, check Gateway connectivity and sign-in before retrying.
