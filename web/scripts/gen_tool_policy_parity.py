@@ -15,6 +15,7 @@ dependencies (the controller imports them):
 """
 
 import json
+from types import SimpleNamespace
 import pathlib
 
 from abstractassistant.controller import AssistantController
@@ -51,6 +52,8 @@ def desktop_lists(payload):
     inventory = c._compute_tool_inventory()
     c.tool_inventory = lambda: inventory
     c.session_trust_rank = lambda: 0
+    # No open conversation: no session-scoped tool grant applies.
+    c.llm_manager = SimpleNamespace(active_session_id="")
     return {"allowed_tools": c.allowed_tools_for_run(), "tool_policy": c.tool_policy_for_run()}
 
 

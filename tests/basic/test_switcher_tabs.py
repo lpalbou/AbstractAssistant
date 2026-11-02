@@ -110,16 +110,32 @@ def test_workspace_folders_open_locally_and_say_when_they_are_on_the_gateway(tmp
             SessionDigest(session_id="sess_remote", title="Remote", updated_at="2026-09-27T05:00:00Z", detailed=True, messages=2, turns=1, workspace_root="/srv/gateway/ws/abc"),
         ]
     )
-    buttons = {r.session_id: r.findChildren(type(sw.new_button), "rowFolder") for r in sw._rows}
-    local, remote = buttons["sess_local"][0], buttons["sess_remote"][0]
-    assert local.isEnabled() and local.toolTip() == f"Open workspace folder\n{here}"
-    local.click()
+    # Conversation cards carry no folder glyph: the folder is in the card's context menu
+    # ("Rename and folder access are in the card's context menu", docs/getting-started.md)
+    # and its path in the card's tooltip.
+    rows = {r.session_id: r for r in sw._rows}
+    assert not any(r.findChildren(type(sw.new_button), "rowFolder") for r in rows.values())
+    menus: Dict[str, List[str]] = {}
+
+    def _exec(menu, *_a, **_k):
+        sid = menu.parent().session_id
+        menus[sid] = [a.text() for a in menu.actions()]
+        if sid == "sess_local":
+            next(a for a in menu.actions() if a.text() == "Open folder").trigger()
+        return None
+
+    monkeypatch.setattr(switcher_module.QMenu, "exec_", _exec)
+    for sid in ("sess_local", "sess_remote"):
+        rows[sid]._menu(rows[sid].rect().center())
+    assert menus["sess_local"] == ["Rename conversation", "Open folder", "Archive conversation…"]
     assert opened == [str(here)]
-    assert not remote.isEnabled() and remote.toolTip() == "Workspace folder on the gateway host:\n/srv/gateway/ws/abc"
-    # A gateway session whose /runs row does not carry the folder: said, not guessed.
+    assert f"Files: {here}" in rows["sess_local"].toolTip()
+    assert "Files: /srv/gateway/ws/abc" in rows["sess_remote"].toolTip()
+    # A gateway session whose /runs row does not carry the folder: no folder entry, nothing guessed.
     sw.set_digests([SessionDigest(session_id="sess_g", title="G", updated_at="2026-09-27T06:00:00Z", state="done", turns=1)])
-    missing = sw._rows[0].findChildren(type(sw.new_button), "rowFolder")[0]
-    assert not missing.isEnabled() and missing.toolTip() == "The gateway does not report this folder (/runs row workspace_root)."
+    sw._rows[0]._menu(sw._rows[0].rect().center())
+    assert menus["sess_g"] == ["Rename conversation", "Archive conversation…"]
+    assert "Files:" not in sw._rows[0].toolTip()
     # Automations: the folder from the summary; a summary without it says which field is missing.
     with_root = dict(_by_id(NEWS), workspace_root=str(here))
     legacy = {k: v for k, v in _by_id(JOURNAL).items() if k != "workspace_root"}  # a gateway without the field
@@ -201,10 +217,13 @@ def test_status_pills_per_state() -> None:
     sw = _switcher()
     sw.set_tab("automations")
     rows = {r.automation_id: r for r in sw.automation_tab_rows}
-    # A state chip only when waiting for you (or failed); none otherwise.
+    # A state chip only when a question or approval waits; none otherwise.
+    from PyQt5.QtWidgets import QLabel
+
     assert rows[NEWS].state_chip is None and rows[JOURNAL].state_chip is None
-    chip = [w.text() for w in rows[TRIAGE].state_chip.findChildren(type(rows[TRIAGE].title_label)) if w.text()]
-    assert chip == ["waiting for you"]
+    chip = [w.text() for w in rows[TRIAGE].state_chip.findChildren(QLabel) if w.text()]
+    assert chip == ["Needs you"]
+    assert rows[TRIAGE].spine.toolTip() == "Needs you" and rows[TRIAGE].spine.isVisibleTo(rows[TRIAGE])
     sw.deleteLater()
 
 
@@ -249,10 +268,10 @@ def test_the_header_needs_no_ellipsis_and_the_tabs_carry_the_counts(width, tab) 
         assert widget.isVisibleTo(sw)
         assert widget.width() >= widget.sizeHint().width(), (widget.text(), widget.width(), widget.sizeHint().width())
         assert "…" not in widget.text()
-    assert sw.title_label.text() == ("Sessions" if tab == "sessions" else "Automations")
+    assert sw.title_label.text() == ("Conversations" if tab == "sessions" else "Automations")
     for button in sw.tab_buttons.values():
         assert button.width() >= QFontMetrics(button.font()).horizontalAdvance(button.text())
-    assert sw.tab_buttons["sessions"].text() == "Sessions · 146+"
+    assert sw.tab_buttons["sessions"].text() == "Conversations · 146+"
     assert sw.tab_buttons["automations"].text().startswith("Automations · 5 · ")
     assert sw.tab_buttons["sessions"].toolTip() == "146+ sessions (⌘1)"
     assert sw.tab_buttons["automations"].toolTip() == "5 automations · 1 archived (hidden) · 4 new (⌘2)"
@@ -310,9 +329,11 @@ def test_a_session_row_and_an_automation_row_are_the_same_card() -> None:
     assert isinstance(session, RowCard) and isinstance(automation, RowCard)
     assert issubclass(SessionRow, RowCard) and issubclass(AutomationTabRow, RowCard)
     assert session.objectName() == automation.objectName() == "sessionRow"
-    assert session.spine.objectName() == automation.spine.objectName() == "rowSpine"
-    assert automation.title_label.objectName() == "rowTitle" and automation.time_label.objectName() == "rowTime"
-    assert automation.result_label.objectName() == "rowPreview"
+    assert session.spine.objectName() == automation.spine.objectName() == "rowStateMarker"
+    assert session.title_label.objectName() == automation.title_label.objectName() == "rowTitle"
+    assert type(session.title_label) is type(automation.title_label)
+    # Compact facts on both: the last result lives in the tooltip, never on the card.
+    assert not automation.result_label.isVisibleTo(automation) and not session.preview_label.isVisibleTo(session)
     qss = sw.styleSheet()
     assert qss.count("QFrame#sessionRow {") == 1 and "autoTabRow" not in qss
     sw.deleteLater()
@@ -332,9 +353,10 @@ def test_a_workspace_folder_never_shows_its_name(tmp_path: Path) -> None:
     for card in (row, sw.automation_tab_rows[0]):
         texts = _visible_texts(card)
         assert not any("session-" in t or "/" in t for t in texts), texts
-        folder_buttons = card.findChildren(type(sw.new_button), "rowFolder")
-        assert folder_buttons and folder_buttons[0].text() == ""
-        assert folder_buttons[0].toolTip() == f"Open workspace folder\n{folder}"
+        assert not any(b.isVisibleTo(card) for b in card.findChildren(type(sw.new_button), "rowFolder"))
+    assert f"Files: {folder}" in row.toolTip()
+    automation_folder = sw.automation_tab_rows[0].folder
+    assert automation_folder.text() == "" and automation_folder.toolTip() == f"Open workspace folder\n{folder}"
     sw.deleteLater()
 
 
@@ -357,22 +379,28 @@ def test_archived_automations_are_hidden_until_asked_for() -> None:
 
 
 @pytest.mark.basic
-def test_the_card_has_exactly_one_control_the_active_switch() -> None:
-    """Operator: the same card as a session; its ONLY control is the "Active"
-    switch (on = pause on click, off = resume on click). Clicking the card
-    opens the automation; no Open / Last / Run now / Modify / Archive, and no
-    Pause/Resume button."""
-    from PyQt5.QtWidgets import QAbstractButton, QPushButton
+def test_the_card_has_one_control_the_archive_icon_on_hover() -> None:
+    """The same compact card as a conversation. Its only control is the small
+    archive icon, shown on hover or keyboard focus; Active, Run now, Stop, Edit
+    and Discuss live in the automation's view (docs/automations.md). Clicking
+    the card opens the automation. The row keeps a hidden Active switch for the
+    gateway command callbacks."""
+    from PyQt5.QtWidgets import QAbstractButton
 
     sw = _switcher()
     sw.set_tab("automations")
+    sw.show()
+    _app().processEvents()
     rows = {r.automation_id: r for r in sw.automation_tab_rows}
     for row in rows.values():
-        buttons = [b for b in row.findChildren(QAbstractButton) if b.objectName() != "rowFolder"]
-        assert buttons == [row.active_switch], [b.toolTip() for b in buttons]
-        tips = " ".join(b.toolTip() for b in row.findChildren(QPushButton)).lower()
-        for gone in ("open", "last run", "run now", "modify", "archive"):
-            assert gone not in tips.replace("open workspace", ""), (gone, tips)
+        shown = [b for b in row.findChildren(QAbstractButton) if b.isVisibleTo(row)]
+        assert shown == [], [b.toolTip() for b in shown]
+        assert not row.active_switch.isVisibleTo(row) and not row.folder.isVisibleTo(row)
+    news = rows[NEWS]
+    news.setFocus()
+    news._reveal_actions()
+    assert [b for b in news.findChildren(QAbstractButton) if b.isVisibleTo(news)] == [news.archive_button]
+    assert news.archive_button.toolTip() == "Archive automation" and news.archive_button.isEnabled()
     assert (rows[NEWS].active_switch.state_control, rows[NEWS].active_switch.isChecked()) == ("pause", True)
     assert (rows[JOURNAL].active_switch.state_control, rows[JOURNAL].active_switch.isChecked()) == ("resume", False)
     assert (rows[TRIAGE].active_switch.state_control, rows[TRIAGE].active_switch.isChecked()) == ("pause", True)
@@ -396,10 +424,15 @@ def test_the_card_lines_last_time_result_and_metrics() -> None:
     row.refresh_times(now=now)
     assert row.time_label.text() == "40 min ago"
     assert row.result_label.toolTip() == "No major announcements since the last check."
+    # Compact facts: served run count, cadence, time until the next run.
     chips = [w.text() for w in row.metrics_host.findChildren(QLabel) if w.objectName() == "rowMetric"]
-    assert chips == [news["schedule_rule_text"], "next in 7 h 17 min", "#6"], "the served rule, verbatim"
+    assert chips == [str(news["occurrence_count"]), "8h", "7 h 17m"]
+    # The served rule, verbatim, and the last result stay in the tooltips.
+    assert row.schedule_chip.toolTip() == news["schedule_rule_text"]
+    assert row.meta_text == f"{news['schedule_rule_text']} · last 40 min ago · next in 7 h 17 min"
+    assert "No major announcements since the last check." in row.toolTip()
     paused = switcher_module.AutomationTabRow(_by_id(JOURNAL))
-    assert [w.text() for w in paused.metrics_host.findChildren(QLabel) if w.objectName() == "rowMetric"][1] == "next —"
+    assert [w.text() for w in paused.metrics_host.findChildren(QLabel) if w.objectName() == "rowMetric"][-1] == "Paused"
     row.deleteLater()
     paused.deleteLater()
 

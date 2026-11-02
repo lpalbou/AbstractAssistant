@@ -79,6 +79,9 @@ class SessionReads:
                     return
                 current = {revision(r) for r in self.runs}
                 self.seen = (self.seen | seen) & current
+                # A receipt for a revision the listing no longer has (the run moved on or is
+                # gone) can never be confirmed; keeping it would block every later write.
+                self.pending &= current
                 self.loaded = True
                 self.error = ""
             self.flush(client)
@@ -116,9 +119,17 @@ class SessionReads:
                 value = revision(run)
                 if not value or value[0] != sid:
                     continue
-                role = "user" if value[2] == "request" else "assistant"
+                # A request is shown by its prompt, a completed turn by its answer. A failed or
+                # cancelled turn often has no answer: its shown prompt is the whole turn.
+                roles = (
+                    {"user"}
+                    if value[2] == "request"
+                    else {"user", "assistant"}
+                    if value[2] in {"failed", "cancelled"}
+                    else {"assistant"}
+                )
                 if any(
-                    m.get("role") == role
+                    m.get("role") in roles
                     and str(m.get("run_id") or (m.get("metadata") or {}).get("run_id") or "")
                     == value[1]
                     for m in messages

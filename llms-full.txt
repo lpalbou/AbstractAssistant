@@ -83,7 +83,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 ## Topic Deep Dives
 - [docs/settings.md](docs/settings.md): every setting (the Workflow page with Open in AbstractFlow and the account Time zone, Stream replies, MTP depth, the account and chat workspaces, tool categories sorted and collapsed, the global shortcut's Accessibility state and Configure, appearance, About), its source (gateway default vs. this app) and its storage in preferences.json
 - [docs/voice.md](docs/voice.md): spoken replies, dictation, the hands-free conversation loop and its failure handling
-- [docs/automations.md](docs/automations.md): configurable growing-context budgets and result email; scheduled tasks on the gateway as the Assistant shows them: the Sessions | Automations tabs, New automation and Schedule this conversation (Gateway default first; When = Repeat / Daily / Weekly / Monthly / Once at / email, the gateway's schedule-preview sentence and the account time-zone line; stop after / stop at), served schedule and next run, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications from your event stream (the attention line, the menu-bar badge, one notification per item on a Mac), the capability gate, limits
+- [docs/automations.md](docs/automations.md): configurable growing-context budgets and result email; scheduled tasks on the gateway as the Assistant shows them: the Conversations | Automations tabs, New automation and Schedule this conversation (Gateway default first; When = Repeat / Daily / Weekly / Monthly / Once at / email, the gateway's schedule-preview sentence and the account time-zone line; stop after / stop at), served schedule and next run, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications from your event stream (the attention badge, the menu-bar badge, one notification per item on a Mac), the capability gate, limits
 
 - [phone/iphone/README.md](phone/iphone/README.md): AbstractAssistant for iPhone (0.16.0), the container of the watch app (one product, two independent devices: each signs in on its own, the sign-in a Keychain item shared with that device's notification extension; Apple push with notification service extensions, [phone/iphone/BUILD.md](phone/iphone/BUILD.md) lists the five targets and bundle ids), native iPhone assistant, scoped tools and automations, notifications and tab badges from your event stream, generated images and voice attached to restored messages; [phone/iphone/CHANGELOG.md](phone/iphone/CHANGELOG.md) records native release history; [phone/iphone/docs/architecture.md](phone/iphone/docs/architecture.md) covers authenticated artifact previews and session restoration; [phone/iphone/BUILD.md](phone/iphone/BUILD.md) covers isolated builds; [phone/iphone/docs/distribution.md](phone/iphone/docs/distribution.md) explains combined iPhone + independent Watch delivery in one Store listing, credential-free CI, human-approved uploads and TestFlight-to-Store promotion
 
@@ -137,9 +137,10 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   as a chat, switch it off or on (**Active**), run it now, edit or archive it, answer the runs that wait for you, discuss a
   result, and get a tray notification only when a result is notable, a run fails or a run waits for
   you. See [docs/automations.md](docs/automations.md).
-- What waits for you, everywhere: the app follows your event stream on the gateway, so a line above
-  the transcript and the menu-bar badge show the approvals, questions and new automation results
-  across every conversation, within seconds. **Open** takes you to the conversation that waits. On
+- What waits for you, everywhere: the app follows your event stream on the gateway, so the attention
+  badge beside the session control and the menu-bar badge show the approvals, questions and new
+  automation results across every conversation, within seconds. A click on the badge opens exactly
+  what it counts. On
   one Mac you get one notification per item: the gateway's tray icon notifies first and the
   Assistant stays silent for what it already showed.
 - Live run activity in the transcript: the current step, elapsed time, recent tool calls with
@@ -174,11 +175,20 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   your automations, and your avatar on the watch face shows what needs you
   ([watch/apple/README.md](watch/apple/README.md)).
 
+## What's new
+
+0.17.0 adds the optional desktop activity avatar (the `avatar` extra), automations that open as
+the chat with a sectioned editor, tool approvals in words, Off / Ask / Auto tool settings, and the
+web Assistant's Avatar conversation view. See the [0.17.0 release notes](CHANGELOG.md#0170---2026-11-02).
+
 ## Install
 
 ```bash
 pip install "abstractassistant[voice]"
 ```
+
+Add the `avatar` extra (`pip install "abstractassistant[voice,avatar]"`) for the optional activity
+avatar in the palette.
 
 The `voice` extra adds local microphone capture (dictation and voice conversations). The base
 install covers text chat, spoken replies and gateway-backed media; STT and TTS run on the gateway
@@ -186,7 +196,8 @@ either way.
 
 Requirements: Python 3.10+, an AbstractGateway you can reach (0.16.0 or later for the voice
 library and the chat-wide tool policy; an older gateway keeps the labeled local grant and refuses
-the voice library's requests). AbstractCore is installed as a
+the voice library's requests; 0.19.0 or later for read marks shared across your devices, without
+which conversation cards show no unread marks). AbstractCore is installed as a
 dependency (its minimum version is set in `pyproject.toml`). macOS is the primary tray target;
 Linux and Windows may work but are not packaged to the same standard.
 
@@ -302,14 +313,14 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 
 - [settings.md](settings.md) — every setting, where its value comes from (gateway default vs. this app) and where it is stored, including the workflow choice, Stream replies, appearance and About
 - [voice.md](voice.md) — speaking replies, dictation, and the hands-free voice conversation loop
-- [automations.md](automations.md) — scheduled tasks on the gateway: the Sessions | Automations tabs, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and your event stream (the attention line, the menu-bar badge, one notification per item on a Mac), the capability gate, offline behavior, limits
+- [automations.md](automations.md) — scheduled tasks on the gateway: the Conversations | Automations tabs, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and your event stream (the attention badge, the menu-bar badge, one notification per item on a Mac), the capability gate, offline behavior, limits
 - [macos-signing.md](macos-signing.md) — signing and notarizing the macOS app bundle (`build-macos-app --sign`, `--notarize`, `--dmg`, `--local-test`): one-time Apple setup, credentials, verification and the failures you can meet
 
 ## iPhone, Apple Watch and the web
 
 - [../phone/iphone/README.md](../phone/iphone/README.md) — AbstractAssistant for iPhone (0.16.0, carries the watch app; each device signs in on its own, the sign-in a Keychain item shared with that device's notification extension; Apple push): conversations, scoped tools, automations, notifications and tab badges from your event stream, restorable image previews and voice playback; [architecture](../phone/iphone/docs/architecture.md), [release history](../phone/iphone/CHANGELOG.md), [troubleshooting, notifications and app updates](../phone/iphone/docs/troubleshooting.md), [testing/distribution](../phone/iphone/docs/distribution.md) and [build guide](../phone/iphone/BUILD.md) (the five targets, `scripts/deploy-phone.sh`)
 - [../watch/apple/README.md](../watch/apple/README.md) — AbstractAssistant for Apple Watch (0.16.0, the iPhone app's independent companion, pre-release through TestFlight): voice around the orb with the work shown live, tools and workflow per conversation, images and recordings in answers, approvals, sessions with search and archive, automations, notifications from your event stream and Apple push, your avatar on the watch face; [build guide](../watch/apple/BUILD.md) (with the `--dump-notify` readout); its pages are indexed in [../watch/apple/docs/README.md](../watch/apple/docs/README.md)
-- [../web/README.md](../web/README.md) — Assistant (web), a private preview available through Gateway's console and tray Apps menu after a local build/install; npm publication remains pending
+- [../web/README.md](../web/README.md) — Assistant (web), a private preview available through Gateway's console and tray Apps menu after a local build/install; npm publication remains pending; the in-app [browser guide](../web/docs/assistant-guide.md)
 
 ## Design records
 
@@ -363,6 +374,7 @@ Other extras:
 | Extra | Adds |
 |---|---|
 | `voice` (alias `all`) | local speech-to-text on top of the default audio I/O (`abstractvoice[audio-io,stt]`) |
+| `avatar` | the optional activity avatar in the palette (`abstractavatar`) |
 | `apple` | the Apple Silicon local stack (`abstractcore[all-apple]`, `abstractvoice[all-apple]`) |
 | `gpu` | the NVIDIA/CUDA local stack (`abstractcore[all-gpu]`, `abstractvoice[all-gpu]`) |
 | `macos-app` | PyInstaller, to build the macOS app bundle |
@@ -1634,8 +1646,9 @@ the stream. Whether the gateway offers live replies is read from
   the gateway lists `session_kind` among `runs.list.filters` in its capabilities); titles come from a session's first run's
   `input_data` and transcripts from its latest run's `history_bundle`
   ([architecture.md](architecture.md#sessions))
-- Conversation reads: `GET/POST /api/gateway/me/session-reads` (immutable account-scoped
-  run revisions; filtered GETs and POST batches contain at most 100 turns). The native client
+- Conversation reads: `GET/POST /api/gateway/me/session-reads` (AbstractGateway 0.19.0 or later;
+  immutable account-scoped run revisions; filtered GETs and POST batches contain at most 100
+  turns; on an older gateway the cards show no unread marks). The native client
   exposes `session_reads` and `mark_session_reads`. `archive_session` calls
   `POST /api/gateway/sessions/{session_id}/archive`; the response must confirm that same session.
 - Runs: `/api/gateway/runs/start`, `/api/gateway/runs/{run_id}`,
@@ -1877,12 +1890,12 @@ automation itself. The user guide is [automations.md](automations.md).
 ```mermaid
 flowchart LR
   subgraph Desktop["AbstractAssistant (this Mac)"]
-    Switcher["Session switcher\nSessions | Automations tabs · discussion badge"]
+    Switcher["Session switcher\nConversations | Automations tabs · discussion badge"]
     View["Automation view (ui/automations)\nruns as chat exchanges · chip header · waits · the chat's composer"]
     Sheet["Schedule this conversation…\nwhat · when (UTC) · context · tools"]
     Hub["AutomationsHub\ncalls off the GUI thread\nrefetch on stream events · 5 min reconcile"]
     Follower["gateway/me_events\nEventFollower: catch-up then SSE\nLast-Event-ID reconnect"]
-    Model["core/attention\nAttentionModel: raised minus seen\nbanner · tray badge"]
+    Model["core/attention\nAttentionModel: raised minus seen\nattention badge · tray badge"]
     Rules["core/automations\nlabels · controls · create body\nnotification ledger"]
     Client["gateway/automations\nAutomationsClient (ten calls)"]
     Tray["Tray: Automations… (count)\nnotifications"]
@@ -1932,7 +1945,7 @@ flowchart LR
   `attention.seen` `seq` of their automation; needs you = `attention.raised` approvals/questions
   (`wait_key`) not closed by an `attention.seen` (same `record_key` or run + wait key) or the run's
   `run.finished`. Waits read from history are confirmed against `GET /runs/{id}` once caught up and
-  again before **Open** acts on one (the run is the live fact). The palette shows the banner and
+  again before opening one (the run is the live fact). The palette shows the attention badge and
   the tray badge from the model; a LIVE approval/question in another conversation notifies once
   (key `wait:<run>:<wait_key>:<step>` in the notification ledger). With the stream live, every
   notification (automation items and waits) waits `_attention_notify_grace_ms` (3 s) and is dropped
@@ -1940,7 +1953,7 @@ flowchart LR
   on the same device (`device_id()` = sha256 of the lower-cased host name, 16 hex, as the gateway
   tray) less than 60 s old — the gateway's `events_stream.already_notified` rule; a shown one is
   reported with `channel: "assistant"` and the device. A resolution on another client withdraws
-  only the matching prompt, banner and pending activity marker. A selected conversation still
+  only the matching prompt, badge count and pending activity marker. A selected conversation still
   contributes to attention when its approval is not represented locally. Opening its attention
   item validates the run's session and root ancestry, then follows that root through the existing
   ledger path, including when the same conversation and cached root are already selected.
@@ -2053,7 +2066,7 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
   notifications), and the switcher rows, automation view, Schedule window and polling hub.
 - `gateway/me_events.py`, `core/attention.py` — the person's event stream (catch-up pages, the SSE
   follower with `Last-Event-ID` reconnect, the notification report) and its Qt-free fold (what
-  needs you, new results, which device already notified); the palette's attention banner, tray badge
+  needs you, new results, which device already notified); the palette's attention badge, tray badge
   and notifier sit on top of them.
 - `ui/styles.py`, `theme.py`, `icons.py` — one token set, one stylesheet builder, the Lucide glyphs.
 
@@ -2548,11 +2561,12 @@ icon notifies first and the Assistant stays silent for what it showed. On a gate
 event stream (`/api/gateway/me/events` answers 404), the Assistant checks every 5 minutes while the
 palette is hidden, so a notification can arrive up to 5 minutes after the event.
 
-## The attention line or the badge stays after I answered elsewhere
+## The attention badge stays after I answered elsewhere
 
-The line above the transcript and the menu-bar badge follow your event stream. A wait answered on
-another device disappears as soon as the gateway records it; **Open** checks with the gateway that
-the run still waits and says so when it no longer does. If the line stays, check the connection orb:
+The attention badge beside the session control and the menu-bar badge follow your event stream. A
+wait answered on another device disappears as soon as the gateway records it; opening an item checks
+with the gateway that the run still waits and says so when it no longer does. If the badge stays,
+check the connection orb:
 while the gateway is unreachable, the stream resumes where it stopped once it is back.
 
 ## A tool is "Not offered by the gateway"
@@ -3266,34 +3280,50 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
-### Fixed
+## [0.17.0] - 2026-11-02
 
-- Native tool approval stays above the floating palette on macOS, including after the palette
-  is raised. Its Allow menu offers session approval for a named tool or all currently enabled
-  tools; grants use exact Gateway tool selectors without changing saved defaults.
-
-- Tray conversation/automation picker aligns with its header control, stays within that
-  control's monitor after delayed updates, and limits its height so long lists scroll.
-
-- Web conversation read receipts wait for earlier history to finish restoring before acknowledging the opening snapshot.
-
-
-- Conversation consumption persists through the Gateway for shared web, Watch and iPhone unread state. Web cards have clearer spacing and attachment previews use one fitted header.
-
-
-- Paused streamed speech no longer expires or trusts a stale completion callback. Output
-  stalls get one attempt to reopen and continue pending speech with the matching AbstractVoice
-  player. Stop remains responsive while an output opens; late completions cannot reset a replayed
-  message or a newer voice conversation.
+The desktop palette gains an optional activity avatar, automations that open as the chat with a
+sectioned editor, tool approvals in words and Off / Ask / Auto tool settings; the web Assistant is
+redesigned around the Watch-style voice orb and gains the Avatar conversation view; conversations
+and read marks stay synchronized across desktop, web, iPhone and Watch. The iPhone and Apple Watch
+apps have their own release histories: [iPhone](phone/iphone/CHANGELOG.md) and
+[Apple Watch](watch/apple/CHANGELOG.md).
 
 ### Added
+
+- **Avatar conversation view (web Assistant).** Choose **Avatar** in the conversation header for a
+  second view over the same work: the avatar shows activity, short subtitles carry discoveries,
+  choices and questions, and **Conversation history** opens the full exchanges. Permission requests
+  use plain actions and decision icons with the assistant's public explanation ("Why I'm asking")
+  when the gateway serves one; **Review details** opens the ordinary view. You can guide a running
+  task by typing or speaking, pin a public update with **Reply to this**, and choose visual and audio
+  **Conversation cues** separately (audio off by default). See [web/README.md](web/README.md#avatar-conversation-view).
+- **Session tool grants by name (desktop).** The tool approval's Allow menu approves one named tool,
+  or every tool currently enabled, for the rest of the conversation, through the gateway's session
+  tool policy; saved defaults are unchanged.
 
 - **Desktop activity avatar:** an optional, locally generated AbstractAvatar portrait beneath the
   palette header, with design and motion controls in Appearance. It follows listening, speech,
   tools, thinking, waits and errors; it releases its native renderer while hidden. Install the
   `avatar` extra to enable support. The menu-bar icon and its controls are unchanged.
 
+- **Choosing a voice plays it** (backlog 1076). Settings → Models → Voice output: picking a voice plays a short
+  sample through the desktop's own speech path with the voice just chosen; a play/stop button beside the list
+  replays or stops it; a newer choice stops the older sample; "Synthesizing a sample…", "Playing a sample…" and
+  "The sample did not play: <reason>." say what happens. Nothing plays when Settings opens, and a reply being read
+  aloud is never cut by a sample (the kit's voice picker, AbstractUIC `AfVoiceSection`).
+
 ### Changed
+
+- **AbstractVoice 0.19.5 or later** (was 0.19.3) for the base install and every voice extra
+  (`voice`, `apple`, `gpu`, `all`): the desktop's stalled-speech recovery and its non-blocking Stop
+  use the player's playback status, stream recovery and non-blocking stop, which 0.19.5 provides.
+- The new `avatar` extra (`pip install "abstractassistant[avatar]"`) installs AbstractAvatar 0.1.0 or
+  later for the desktop activity avatar.
+
+- The web chat composer is the shared rounded multiline composer (AbstractUIC panel-chat 0.7.0),
+  styled once by the shared component, in the chat and in the Docs drawer. It carries a microphone in
+  the Conversation and Avatar views; it feeds the same recording as the orb, and either one stops it.
 
 - Tray conversation and automation cards use regular two-line titles, compact facts, darker
   surfaces, clear unread/attention markers and small hover/focus archive actions. Conversation
@@ -3386,6 +3416,28 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Fixed
 
+- The tray's discussion card names its automation on one elided line ("About <title>", the full
+  title on hover); a long automation title no longer runs past the card.
+- The web conversation's **Conversation | Avatar** view choice is a 44 px target on touch screens.
+- Opening a conversation whose last turn failed or was cancelled marks it read: its shown prompt
+  is the whole turn when there is no answer.
+- A read receipt for a turn that has since moved on no longer blocks the receipts that follow it.
+
+- Native tool approval stays above the floating palette on macOS, including after the palette
+  is raised.
+
+- Tray conversation/automation picker aligns with its header control, stays within that
+  control's monitor after delayed updates, and limits its height so long lists scroll.
+
+- Web conversation read receipts wait for earlier history to finish restoring before acknowledging the opening snapshot.
+
+- Conversation consumption persists through the Gateway for shared web, Watch and iPhone unread state. Web cards have clearer spacing and attachment previews use one fitted header.
+
+- Paused streamed speech no longer expires or trusts a stale completion callback. Output
+  stalls get one attempt to reopen and continue pending speech with the matching AbstractVoice
+  player. Stop remains responsive while an output opens; late completions cannot reset a replayed
+  message or a newer voice conversation.
+
 - Cross-device approval updates clear the matching desktop prompt and tray state. Attention
   clicks reopen the pending gate in an already-selected conversation. The active watch follows
   subsequent requests after a single approval without granting permission to the next request.
@@ -3437,14 +3489,6 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   - "Oct 21, 2025 · 10:52 PM" for another year;
   - a bare date as its day alone;
   - no stamp at all for a malformed timestamp, never the raw text.
-
-### Added
-
-- **Choosing a voice plays it** (backlog 1076). Settings → Models → Voice output: picking a voice plays a short
-  sample through the desktop's own speech path with the voice just chosen; a play/stop button beside the list
-  replays or stops it; a newer choice stops the older sample; "Synthesizing a sample…", "Playing a sample…" and
-  "The sample did not play: <reason>." say what happens. Nothing plays when Settings opens, and a reply being read
-  aloud is never cut by a sample (the kit's voice picker, AbstractUIC `AfVoiceSection`).
 
 ## [0.16.5] - 2026-10-28
 
@@ -7649,7 +7693,11 @@ Debug builds also accept test hooks that answer, ask or navigate without a tap: 
 / `--test-secret` (sign-in), `--reset-signins` (forgets the sign-in, the known gateways and the kept
 sign-ins), `--test-known <url,url>` (gateways signed into, oldest first), `--test-kept <user,user>`, `--test-last-user <name>` (the user signed in last, what the field starts with)
 (sign-ins kept on the default gateway), `--test-approve once|all`, `--test-action allow-first|deny-first`,
-`--test-ask "<prompt>"`, `--test-read "<markdown>"`, `--test-open <url>`, `--test-listen`,
+`--test-ask "<prompt>"`, `--test-read "<markdown>"` or `--test-read <run id>` (that run's answer read
+aloud, its course — pieces, chunks, retries, how it ended — on the console: `xcrun devicectl device
+process launch --console`), `--piece-chars <n>` (speech requested in pieces of about n characters
+instead of 600), `--stalled-voice` / `--stalled-voice-fatal` (the sample voice's second piece times
+out twice, or four times until a tap), `--test-open <url>`, `--test-listen`,
 `--test-pause`, `--test-rewind` (with `--rewind-1`), `--open-automation <n>`, `--run-now`,
 `--run-first`, `--scroll-bottom`, `--scroll-end-now`, `--home-bottom`, `--render-icon`,
 `--render-orb-work` (the orb at work, frame by frame, into Documents), `--render-orb-scenes` (the scene styles, robots included, at rest, speaking, listening, thinking and working, into Documents), `--reset-tools` (tool and
@@ -7928,15 +7976,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.16.5"
-description = "A sleek (macOS) system tray application providing instant access to LLMs"
+version = "0.17.0"
+description = "A gateway-native macOS menu-bar assistant for AbstractFramework: a compact palette, hands-free voice conversations, automations and a small CLI over AbstractGateway"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [
     {name = "Laurent-Philippe Albou", email = "contact@abstractcore.ai"}
 ]
-keywords = ["ai", "llm", "macos", "system-tray", "assistant"]
+keywords = ["ai", "llm", "macos", "system-tray", "assistant", "voice", "abstractgateway", "abstractframework"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: End Users/Desktop",
@@ -7960,11 +8008,12 @@ dependencies = [
     # 0.15.0: `abstractruntime.replay.apply_delta` keeps the client copy of the gateway's
     # replay view (one reducer, the runtime's; backlog 1063).
     "abstractruntime>=0.15.0",
-    # 0.19.3: the in-process audio player reports the start of every playback (before it, a
-    # stop left its "started" flag set and later replies never reported a start; backlog 1068).
+    # 0.19.5: the player's playback_status / recover_stream / try_stop_stream, used by the
+    # stalled-speech recovery and the non-blocking Stop (0.19.3: the start of every playback
+    # is reported; backlog 1068).
     # (0.11.4 was the first whose voice extras install `webrtcvad-wheels`; the macOS bundle's
     # PyInstaller hook, packaging/macos/hooks/hook-webrtcvad.py, copies its metadata.)
-    "abstractvoice[audio-io]>=0.19.3",
+    "abstractvoice[audio-io]>=0.19.5",
     # Used for an optional local config read (STT language hint) and the shared
     # About/identity helpers (abstractcore.utils.identity, new in 2.16.0); all
     # provider execution happens on the gateway, so no provider extras.
@@ -7994,18 +8043,18 @@ dependencies = [
 avatar = ["abstractavatar>=0.1.0"]
 lite = []  # Back-compat alias for the base install.
 voice = [
-    "abstractvoice[audio-io,stt]>=0.19.3",
+    "abstractvoice[audio-io,stt]>=0.19.5",
 ]
 apple = [
     "abstractcore[all-apple]>=2.16.0",
-    "abstractvoice[all-apple]>=0.19.3",
+    "abstractvoice[all-apple]>=0.19.5",
 ]
 gpu = [
     "abstractcore[all-gpu]>=2.16.0",
-    "abstractvoice[all-gpu]>=0.19.3",
+    "abstractvoice[all-gpu]>=0.19.5",
 ]
 all = [
-    "abstractvoice[audio-io,stt]>=0.19.3",
+    "abstractvoice[audio-io,stt]>=0.19.5",
 ]  # Back-compat alias for full voice I/O.
 dev = [
     "pytest>=7.0.0",
@@ -8027,6 +8076,7 @@ build-macos-app = "abstractassistant.build_macos_app:main"
 Homepage = "https://github.com/lpalbou/abstractassistant"
 Repository = "https://github.com/lpalbou/abstractassistant"
 Issues = "https://github.com/lpalbou/abstractassistant/issues"
+Changelog = "https://github.com/lpalbou/abstractassistant/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["."]

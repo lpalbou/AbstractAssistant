@@ -133,11 +133,12 @@ icon notifies first and the Assistant stays silent for what it showed. On a gate
 event stream (`/api/gateway/me/events` answers 404), the Assistant checks every 5 minutes while the
 palette is hidden, so a notification can arrive up to 5 minutes after the event.
 
-## The attention line or the badge stays after I answered elsewhere
+## The attention badge stays after I answered elsewhere
 
-The line above the transcript and the menu-bar badge follow your event stream. A wait answered on
-another device disappears as soon as the gateway records it; **Open** checks with the gateway that
-the run still waits and says so when it no longer does. If the line stays, check the connection orb:
+The attention badge beside the session control and the menu-bar badge follow your event stream. A
+wait answered on another device disappears as soon as the gateway records it; opening an item checks
+with the gateway that the run still waits and says so when it no longer does. If the badge stays,
+check the connection orb:
 while the gateway is unreachable, the stream resumes where it stopped once it is back.
 
 ## A tool is "Not offered by the gateway"

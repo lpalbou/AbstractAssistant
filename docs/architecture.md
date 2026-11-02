@@ -159,12 +159,12 @@ automation itself. The user guide is [automations.md](automations.md).
 ```mermaid
 flowchart LR
   subgraph Desktop["AbstractAssistant (this Mac)"]
-    Switcher["Session switcher\nSessions | Automations tabs · discussion badge"]
+    Switcher["Session switcher\nConversations | Automations tabs · discussion badge"]
     View["Automation view (ui/automations)\nruns as chat exchanges · chip header · waits · the chat's composer"]
     Sheet["Schedule this conversation…\nwhat · when (UTC) · context · tools"]
     Hub["AutomationsHub\ncalls off the GUI thread\nrefetch on stream events · 5 min reconcile"]
     Follower["gateway/me_events\nEventFollower: catch-up then SSE\nLast-Event-ID reconnect"]
-    Model["core/attention\nAttentionModel: raised minus seen\nbanner · tray badge"]
+    Model["core/attention\nAttentionModel: raised minus seen\nattention badge · tray badge"]
     Rules["core/automations\nlabels · controls · create body\nnotification ledger"]
     Client["gateway/automations\nAutomationsClient (ten calls)"]
     Tray["Tray: Automations… (count)\nnotifications"]
@@ -214,7 +214,7 @@ flowchart LR
   `attention.seen` `seq` of their automation; needs you = `attention.raised` approvals/questions
   (`wait_key`) not closed by an `attention.seen` (same `record_key` or run + wait key) or the run's
   `run.finished`. Waits read from history are confirmed against `GET /runs/{id}` once caught up and
-  again before **Open** acts on one (the run is the live fact). The palette shows the banner and
+  again before opening one (the run is the live fact). The palette shows the attention badge and
   the tray badge from the model; a LIVE approval/question in another conversation notifies once
   (key `wait:<run>:<wait_key>:<step>` in the notification ledger). With the stream live, every
   notification (automation items and waits) waits `_attention_notify_grace_ms` (3 s) and is dropped
@@ -222,7 +222,7 @@ flowchart LR
   on the same device (`device_id()` = sha256 of the lower-cased host name, 16 hex, as the gateway
   tray) less than 60 s old — the gateway's `events_stream.already_notified` rule; a shown one is
   reported with `channel: "assistant"` and the device. A resolution on another client withdraws
-  only the matching prompt, banner and pending activity marker. A selected conversation still
+  only the matching prompt, badge count and pending activity marker. A selected conversation still
   contributes to attention when its approval is not represented locally. Opening its attention
   item validates the run's session and root ancestry, then follows that root through the existing
   ledger path, including when the same conversation and cached root are already selected.
@@ -335,7 +335,7 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
   notifications), and the switcher rows, automation view, Schedule window and polling hub.
 - `gateway/me_events.py`, `core/attention.py` — the person's event stream (catch-up pages, the SSE
   follower with `Last-Event-ID` reconnect, the notification report) and its Qt-free fold (what
-  needs you, new results, which device already notified); the palette's attention banner, tray badge
+  needs you, new results, which device already notified); the palette's attention badge, tray badge
   and notifier sit on top of them.
 - `ui/styles.py`, `theme.py`, `icons.py` — one token set, one stylesheet builder, the Lucide glyphs.
 
