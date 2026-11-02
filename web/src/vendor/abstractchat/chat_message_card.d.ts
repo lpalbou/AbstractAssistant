@@ -143,7 +143,7 @@ export type ChatMessageCardProps = {
      * line (no avatar, header or copy): a system note such as "Rejoined the
      * open visit". `"caption"` renders the message's content only (Markdown, media, files and
      * attachments; no header, speaker, copy, reasoning, stats or footer) for subtitle-like
-     * surfaces such as the Avatar view's rolling captions. `undefined` keeps the full card.
+     * surfaces such as the Avatar view's live line and findings. `undefined` keeps the full card.
      */
     variant?: (message: ChatMessage) => "hint" | "caption" | undefined;
     /** Host opener for `media` items of kind `"file"` (e.g. a side drawer).

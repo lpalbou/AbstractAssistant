@@ -195,11 +195,13 @@ with one filename, Download, and Close in the shared AbstractUIC dialog.
 ## Avatar conversation view
 
 Choose **Avatar** in the conversation header for a second view over the same work.
-The avatar shows activity, and captions under it roll in realtime with what the
-assistant says publicly during the current turn: discoveries, choices, questions and
-then the answer, with the newest at the bottom (nothing cycles). Captions show Markdown,
-links and files like the conversation does; a long answer starts at its first line and
-scrolls in place. **Conversation history** opens the full public exchanges;
+The avatar shows activity and, under it, one live line: the latest thing the assistant
+reports while it works, replaced as soon as something new arrives (nothing cycles). Click
+it to read it in full, then **Reply to this** to answer it or **Latest** to follow again.
+The findings it reports (facts or evidence it established) accumulate in a
+**Findings** panel beside the avatar, or a sheet you open with **Findings** on a phone; open
+one to see the results it came from. The answer appears once, as a message, with Markdown,
+links and files like the conversation.
 **Conversation** restores the ordinary chat and technical details. Switching views
 preserves the current draft and attachments.
 
@@ -208,7 +210,7 @@ icons. “Why I’m asking” shows the assistant’s public explanation when it
 that exact request. “Review details” opens Conversation mode for technical arguments
 and standing permissions. A missing explanation is stated explicitly.
 
-While work continues, type or speak naturally to guide it. **Reply to this** pins a
+While work continues, type or speak naturally to guide it. **Reply to this** on the live line pins a
 specific public update as context. Sending a correction makes it available to the
 assistant; the assistant's later response shows whether it adopted the correction.
 Questions use their displayed answer controls. Permission requests require an explicit
