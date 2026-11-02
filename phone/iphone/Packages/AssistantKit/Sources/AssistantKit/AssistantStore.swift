@@ -1168,5 +1168,10 @@ public final class AssistantStore {
         guard error as? GatewayError == .unauthorized else { return }
         disconnect(); self.error = "Your sign-in has expired. Connect again to continue."; onUnauthorized?()
     }
-    private func say(_ error: Error) -> String { error.localizedDescription }
+    private func say(_ error: Error) -> String { Self.say(error) }
+    /// An error as the sentence people read. A failure to reach the gateway's computer at all also
+    /// says "Your Mac may be asleep." (GatewayReach: decided on the error's type, as on the watch).
+    public nonisolated static func say(_ error: Error) -> String {
+        GatewayReach.mayBeAsleep(error) ? error.localizedDescription + " " + GatewayReach.asleepHint : error.localizedDescription
+    }
 }

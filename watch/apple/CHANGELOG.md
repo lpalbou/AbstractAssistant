@@ -9,6 +9,14 @@ iPhone app); the Python package's history is in
 
 ### Added
 
+- **"Your Mac may be asleep."** When the watch cannot reach the gateway at all (no answer, not a
+  refusal), Home and Settings → Connection add this line under "Can't reach your assistant." The
+  gateway keeps its Mac awake while remote access is on (AbstractGateway `keep_awake`), but a Mac
+  put to sleep on purpose stays asleep until someone wakes it. The rule is shared with the iPhone
+  (`GatewayReach` in AbstractGatewayClient) and decided on the error's type, never on its text.
+
+### Added
+
 - Restore questions, actual answers, timeout fallbacks and late replies in canonical chronological order; late words remain attached to their original question. Label omitted history and restore without speech or stale question prompts.
 - Preserve original human corrections separately from the context quoted to the assistant.
 - Restore accepted corrections from screened task replay and entity visit state; reconcile by server acceptance ID across polling, reconnects and view recreation. Identical words sent twice remain separate messages.

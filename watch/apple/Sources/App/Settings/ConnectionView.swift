@@ -17,6 +17,7 @@ struct ConnectionView: View {
                 section("Gateway") {
                     line(model.gatewayHost, strong: true)
                     line(status, color: model.unreachable ? Theme.red : model.connecting ? Theme.amber : Theme.green)
+                    if model.mayBeAsleep { line(GatewayReach.asleepHint) }
                 }
                 section("Account") {
                     line(model.principal?.userId ?? (model.connecting ? "Checking…" : "Unknown"), strong: true)

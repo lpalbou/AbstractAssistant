@@ -38,6 +38,20 @@ A failed run and an unavailable connection are different problems:
 Read the error before retrying a task that can make changes. Earlier tools might have completed
 before a later step failed. Refreshing details only reads existing records.
 
+## The app cannot reach your assistant
+
+When the iPhone or the watch gets no answer at all from the gateway, the message ends with
+**Your Mac may be asleep.** (on the watch: Home and Settings → Connection). A Mac that sleeps cannot
+answer.
+
+- While remote access is on (Tailscale Funnel or Serve, or the gateway's Internet exposure), the
+  gateway keeps its Mac from going to sleep on its own. On the Mac, the gateway console's
+  Resources page shows **Staying awake for remote access** in the Gateway card.
+- A Mac put to sleep on purpose (Apple menu → Sleep, closing the lid, the power button) stays asleep
+  until someone wakes it.
+- When the message says this device is offline (on the watch: "No connection."), the iPhone or
+  the watch has no network: the Mac is not the cause.
+
 ## Notifications do not appear
 
 Notifications come from your gateway's event stream while the app runs and when it next opens or

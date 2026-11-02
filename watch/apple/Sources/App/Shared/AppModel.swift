@@ -499,6 +499,10 @@ final class AppModel: ObservableObject {
     static let pollInterval: Duration = .seconds(15)
     /// After a failed poll, until the gateway is said unreachable.
     static let retryInterval: Duration = .seconds(3)
+    /// The last poll failed because the gateway's computer did not answer at all (GatewayReach).
+    @Published private(set) var lastFailureMayBeAsleep = false
+    /// Unreachable because nothing answered: Home and Connection add "Your Mac may be asleep."
+    var mayBeAsleep: Bool { unreachable && lastFailureMayBeAsleep }
 
     init(client: any GatewayClient, gatewayHost: String, recordingConnectionKey: String = "mock") {
         self.client = client; self.gatewayHost = gatewayHost
@@ -773,6 +777,7 @@ final class AppModel: ObservableObject {
             guard connection == connectionRevision, !Task.isCancelled else { return false }
             if !waitsReadFinished, waitsRead == waitsReadRevision { waitsReadState = .failed(Self.say(error)) }
             lastError = Self.say(error)
+            lastFailureMayBeAsleep = GatewayReach.mayBeAsleep(error)
             failures += 1
             let since = failingSince ?? Date()
             failingSince = since

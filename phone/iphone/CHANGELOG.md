@@ -5,6 +5,13 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
 
+### Added
+
+- **"Your Mac may be asleep."** When the iPhone cannot reach the gateway at all (no answer, not a
+  refusal), its error message ends with this line. The gateway keeps its Mac awake while remote
+  access is on (AbstractGateway `keep_awake`), but a Mac put to sleep on purpose stays asleep until
+  someone wakes it. Same rule as the watch (`GatewayReach` in AbstractGatewayClient).
+
 ### Fixed
 
 - Reconnecting reconciles unread attention before posting local alerts. Approvals and results
