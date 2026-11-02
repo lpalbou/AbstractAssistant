@@ -3287,6 +3287,18 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   (0.1.0), so AbstractGateway's **Apps → Assistant (web) → Install** works on any machine. It has
   its own release history: [web/CHANGELOG.md](web/CHANGELOG.md).
 
+### Changed
+
+- **Paused automations fold under "Paused · N" in the switcher.** The Automations tab draws the
+  gateway's order (active ones first, most recent activity first) and keeps the paused ones behind a
+  "Paused · N" row that opens them on a click. A gateway that does not serve sections (0.19.0 and
+  earlier) shows the list as before.
+- **Archived automations in the switcher: one "Archived · N" section.** The archived listing is read
+  from the gateway and drawn folded at the end of the Automations tab, like Paused; the "Show
+  archived" button is gone (it could show nothing: the gateway leaves archived automations out of
+  its default listing). The filter also finds paused and archived automations while their section
+  is closed.
+
 ## [0.17.0] - 2026-11-02
 
 The desktop palette gains an optional activity avatar, automations that open as the chat with a
@@ -5105,6 +5117,12 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
 
+### Changed
+
+- Automations open on the active ones, most recent activity first; the paused ones are one tap away
+  under "Paused · N". With a gateway that does not serve sections (0.19.0 and earlier) the list stays
+  as before.
+
 ### Fixed
 
 - Reconnecting reconciles unread attention before posting local alerts. Approvals and results
@@ -6676,6 +6694,12 @@ iPhone app); the Python package's history is in
   **Shared voices** (the gateway's built-in voices and the ones its administrator shares), each with
   its language, and **Voices that speak** keeps one language's voices when the gateway offers
   several. Voices are created on the iPhone or the desktop; the watch says so.
+
+### Changed
+
+- **Automations open on what runs.** The list shows the active automations, most recent activity
+  first; the paused ones are one tap away under "Paused · N", next to Archived. With a gateway that
+  does not serve sections (0.19.0 and earlier) the list stays as before.
 
 ### Fixed
 
@@ -21180,11 +21204,26 @@ class AutomationsClient:
 
     def list_all(self, *, status: Optional[str] = None, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Every summary, following ``next_cursor`` (v1 clients poll full pages)."""
+        return self.list_all_counted(status=status, limit=limit)[0]
+
+    def list_all_counted(
+        self, *, status: Optional[str] = None, limit: Optional[int] = None
+    ) -> "tuple[List[Dict[str, Any]], Dict[str, int]]":
+        """``list_all`` plus the first page's served counts (ADR 0048):
+        ``{"paused": n, "archived": n}`` with only the counts the gateway serves
+        (``paused_automations_count``; ``archived_automations_count``, else
+        ``archived_automations``)."""
         items: List[Dict[str, Any]] = []
+        counts: Dict[str, int] = {}
         cursor: Optional[str] = None
         seen: set = set()
         for _ in range(_MAX_PAGES):
             page = self.list(status=status, cursor=cursor, limit=limit)
+            if cursor is None:
+                for key, served in (("paused", ("paused_automations_count",)), ("archived", ("archived_automations_count", "archived_automations"))):
+                    value = next((page.get(k) for k in served if isinstance(page.get(k), int) and not isinstance(page.get(k), bool)), None)
+                    if value is not None:
+                        counts[key] = int(value)
             batch = page.get("items")
             if not isinstance(batch, list):
                 raise AutomationApiError(
@@ -21193,10 +21232,10 @@ class AutomationsClient:
             items.extend(item for item in batch if isinstance(item, dict))
             nxt = page.get("next_cursor")
             if not isinstance(nxt, str) or not nxt or nxt in seen:
-                return items
+                return items, counts
             seen.add(nxt)
             cursor = nxt
-        return items
+        return items, counts
 
     def get(self, automation_id: str) -> Dict[str, Any]:
         """``GET /automations/{id}`` → ``{definition, active_revision, summary}``."""
