@@ -3,6 +3,22 @@
 The iPhone app and its Apple Watch companion share one version and build number (since 0.16.0). Desktop package releases are
 listed in the repository’s [Changelog](../../CHANGELOG.md).
 
+## [Unreleased]
+
+### Added
+
+- **Read an automation run aloud.** The run's sheet has the conversation's speaker beside its
+  answer: it reads the answer aloud, pauses and resumes it, and Stop ends it. The reading goes on
+  with the iPhone locked.
+
+### Fixed
+
+- **Automation run cards show their answer formatted.** Bold, italics, links and headings appear
+  as they do in a conversation, never as `**` or `#` markers, in the same three lines as before.
+- **An automation's page keeps Run now and Pause clear of the back button.** The navigation bar
+  is opaque on that page, so what scrolls up goes under it instead of showing behind the back
+  button.
+
 ## [0.17.0] — 2026-11-02
 
 What testers get since build 39 (0.16.0). The watch app inside it carries the same version.

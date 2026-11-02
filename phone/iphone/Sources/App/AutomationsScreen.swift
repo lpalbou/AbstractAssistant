@@ -84,11 +84,19 @@ private struct AutomationListCard: View {
     }
 }
 
-/// One compact text flow lets the preview wrap and truncate at a complete line.
-/// Full report typography belongs in the run sheet, not inside a height-clipped card.
-private struct AutomationMarkdownPreview: View {
+/// One compact text flow lets the preview wrap and truncate at a complete line: an automation's
+/// card and its run cards show the answer's Markdown rendered (bold, links, headings as bold lines),
+/// never its markers. Full report typography belongs in the run sheet, not inside a clamped card.
+struct AutomationMarkdownPreview: View {
     let text: String
-    private var formatted: AttributedString {
+    var lines = 5
+    var font: Font = .footnote
+    var headingFont: Font = .subheadline.weight(.semibold)
+    var color: Color = PhoneTheme.secondary
+    var spacing: CGFloat = 3
+
+    /// The preview's text: each Markdown block on its own line, inline styles kept, markers gone.
+    static func formatted(_ text: String, font: Font, headingFont: Font) -> AttributedString {
         var result = AttributedString()
         for block in MarkdownBlock.parse(text) {
             let source: String
@@ -102,14 +110,14 @@ private struct AutomationMarkdownPreview: View {
             }
             if !result.characters.isEmpty { result.append(AttributedString("\n")) }
             var line = (try? AttributedString(markdown: source, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(source)
-            line.font = heading ? .subheadline.weight(.semibold) : .footnote
+            line.font = heading ? headingFont : font
             result.append(line)
         }
         return result
     }
     var body: some View {
-        Text(formatted).foregroundStyle(PhoneTheme.secondary)
-            .lineSpacing(3).lineLimit(5).truncationMode(.tail)
+        Text(Self.formatted(text, font: font, headingFont: headingFont)).foregroundStyle(color)
+            .lineSpacing(spacing).lineLimit(lines).truncationMode(.tail)
             .multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
             .allowsHitTesting(false)
@@ -235,7 +243,11 @@ struct AutomationDetailScreen: View {
                     Text("Latest 20 runs · Newest first · Times on this iPhone").font(.caption).foregroundStyle(PhoneTheme.secondary)
                 } else if !loading && error == nil { Text("No runs yet. Run this automation now or wait for its next scheduled time.").font(.subheadline).foregroundStyle(PhoneTheme.secondary) }
             }.frame(maxWidth: .infinity, alignment: .leading).padding(24)
-        }.frame(maxWidth: .infinity, maxHeight: .infinity).background(PhoneTheme.ground).navigationBarTitleDisplayMode(.inline)
+        }
+        // An opaque bar: what scrolls up goes under it, never visible behind the back button.
+        .toolbarBackground(PhoneTheme.ground, for: .navigationBar)
+        .toolbarBackgroundVisibility(.visible, for: .navigationBar)
+        .frame(maxWidth: .infinity, maxHeight: .infinity).background(PhoneTheme.ground).navigationBarTitleDisplayMode(.inline)
         .task(id: store.contextID) {
             freshRow = nil; occurrences = []; definition = nil; requestedRun = false; error = nil
             await load()
@@ -268,8 +280,11 @@ struct AutomationDetailScreen: View {
                         }
                         if let attempts = occurrence.attemptCount { Text("\(attempts) " + (attempts == 1 ? "attempt" : "attempts")) }
                     }.font(.caption).foregroundStyle(PhoneTheme.secondary)
-                    Text(occurrence.status == "failed" || occurrence.isActive ? explanation.message : occurrence.displayAnswer ?? explanation.message)
-                        .font(.subheadline).foregroundStyle(PhoneTheme.ink).lineLimit(3).multilineTextAlignment(.leading)
+                    if occurrence.status != "failed", !occurrence.isActive, let answer = occurrence.displayAnswer {
+                        AutomationMarkdownPreview(text: answer, lines: 3, font: .subheadline, headingFont: .subheadline.weight(.semibold), color: PhoneTheme.ink, spacing: 0)
+                    } else {
+                        Text(explanation.message).font(.subheadline).foregroundStyle(PhoneTheme.ink).lineLimit(3).multilineTextAlignment(.leading)
+                    }
                     Text("View details & activity").font(.caption).foregroundStyle(PhoneTheme.lavender)
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }

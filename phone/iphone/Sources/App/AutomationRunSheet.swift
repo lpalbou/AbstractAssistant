@@ -7,6 +7,10 @@ struct AutomationRunSheet: View {
     @State var occurrence: LastOccurrence
     @Environment(AssistantStore.self) private var store
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+    /// The run's answer read aloud, as in a conversation: in pieces, paused and resumed here or on
+    /// the lock screen, going on with the iPhone locked; it stops when the sheet closes.
+    @State private var voice = VoiceController.forApp()
     @State private var runError: String?
     @State private var problem: String?
     @State private var loading = false
@@ -35,7 +39,15 @@ struct AutomationRunSheet: View {
                         DisclosureGroup("Recorded error") { Text(detail).font(.footnote.monospaced()).textSelection(.enabled).padding(.top, 8) }
                             .tint(PhoneTheme.amber).accessibilityIdentifier("automation.run.error")
                     }
-                    if let answer = occurrence.displayAnswer { QuietLabel(text: "Answer"); PhoneMarkdown(text: answer) }
+                    if let answer = occurrence.displayAnswer {
+                        HStack(spacing: 18) {
+                            QuietLabel(text: "Answer")
+                            Spacer()
+                            if let runID = occurrence.runId { readControls(answer, runID: runID) }
+                        }.foregroundStyle(PhoneTheme.secondary).buttonStyle(.plain)
+                        if let problem = voice.error { Text(problem).font(.footnote).foregroundStyle(PhoneTheme.amber) }
+                        PhoneMarkdown(text: answer)
+                    }
                     if let task = AutomationRunExplanation.nonempty(occurrence.userTurn) {
                         DisclosureGroup("Task & trigger") { Text(task).font(.footnote).textSelection(.enabled).padding(.top, 8) }
                     }
@@ -59,6 +71,24 @@ struct AutomationRunSheet: View {
             }.background(PhoneTheme.ground).navigationTitle("Automation run").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
                 .task(id: store.contextID) { await load() }
+                .onChange(of: scenePhase) { _, phase in voice.scene(visible: phase != .background) }
+                .onDisappear { voice.stop() }
+        }
+    }
+    /// Read aloud, pause / resume, and Stop while it reads: the conversation's controls.
+    @ViewBuilder private func readControls(_ answer: String, runID: String) -> some View {
+        Button {
+            if voice.speaking { voice.togglePause() }
+            else if let client = store.client {
+                voice.read(answer, client: client, scope: .run(runID), choice: store.preferences.voice, speed: store.preferences.speed,
+                           messageID: occurrence.stableID, title: store.automations.first { $0.id == automationID }?.name ?? "Automation run")
+            }
+        } label: { Image(systemName: voice.speaking ? (voice.paused ? "speaker.wave.2.fill" : "pause.fill") : "speaker.wave.2").frame(width: 44, height: 44).contentShape(Rectangle()) }
+            .accessibilityLabel(voice.speaking ? "Pause or resume reading" : "Read answer aloud")
+            .accessibilityIdentifier("automation.run.read")
+        if voice.speaking {
+            Button { voice.stop() } label: { Image(systemName: "stop.fill").frame(width: 44, height: 44).contentShape(Rectangle()) }
+                .accessibilityLabel("Stop reading").accessibilityIdentifier("automation.run.stop")
         }
     }
     @ViewBuilder private func dateRow(_ label: String, _ value: String?) -> some View {
