@@ -60,6 +60,9 @@ final class PhoneUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Automation run"].waitForExistence(timeout: 5))
         let read = app.buttons["automation.run.read"], stop = app.buttons["automation.run.stop"]
         XCTAssertTrue(read.waitForExistence(timeout: 8)); XCTAssertEqual(read.label, "Read answer aloud")
+        // The sheet reads its details once open (the content moves): tap once they are in.
+        XCTAssertTrue(app.staticTexts["Checking run details…"].waitForNonExistence(timeout: 15))
+        Thread.sleep(forTimeInterval: 1)
         XCTAssertFalse(stop.exists)
         read.tap()
         XCTAssertTrue(stop.waitForExistence(timeout: 5), "no Stop while it reads")
