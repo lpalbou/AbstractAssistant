@@ -34,7 +34,8 @@ final class StalledVoiceUITests: XCTestCase {
             let now = seconds()
             XCTAssertGreaterThanOrEqual(now, floor - 0.3, "the reading started over instead of going on")
             top = max(top, now)
-            if voice.label == "Read aloud", now >= floor { break }
+            // The reading may end between the two reads: its final position is the one to keep.
+            if voice.label == "Read aloud", now >= floor { top = max(top, seconds()); break }
             usleep(250_000)
         }
         return top
