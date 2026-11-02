@@ -1447,12 +1447,21 @@ public struct VoiceCatalog: Sendable, Equatable {
     }
 }
 
+/// One line of `POST /runs/{id}/voice/tts/stream`. `segment`, `textStart` and `textEnd` name the text
+/// segment an `audio` line belongs to and its span of the request text (`[start, end)` in Unicode
+/// scalars); a `segment_end` line carries them after the segment's last audio. All three are absent
+/// on gateways and engines that do not report segments (AbstractVoice ADR 0009).
 struct SpeechEvent: Decodable {
     let type: String
     let audioB64: String?
     let error: String?
     let ok: Bool?
-    enum CodingKeys: String, CodingKey { case type, audioB64 = "audio_b64", error, ok }
+    let segment: Int?
+    let textStart: Int?
+    let textEnd: Int?
+    enum CodingKeys: String, CodingKey {
+        case type, audioB64 = "audio_b64", error, ok, segment, textStart = "text_start", textEnd = "text_end"
+    }
 }
 
 /// A 16-bit mono WAV of a voiced tone with a syllable-rate envelope (mock speech).
