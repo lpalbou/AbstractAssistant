@@ -53,7 +53,7 @@ export { applyDelta, parseCursorToken, SseParser, ReplayViewFold, createReplayVi
 export { TextLinks, textLinks } from "./text_links.js";
 export { messageArtifactRefs, submittedArtifacts, outputArtifacts, type MessageArtifact } from "./message_artifacts.js";
 export { AvatarConversation, type AvatarConversationOptions, type AvatarConversationProps } from "./avatar_conversation.js";
-export { DEFAULT_CONVERSATION_CUES, conversationMessages, conversationPages, conversationSnapshot, conversationState, conversationCueStep, publicUpdate, type AvatarConversationState, type ConversationAttention, type ConversationCue, type ConversationCuePreferences, type ConversationCueCursor, type PublicUpdate } from "./conversation_model.js";
+export { DEFAULT_CONVERSATION_CUES, conversationCaptions, conversationLabel, conversationMessages, conversationSnapshot, conversationState, conversationCueStep, publicUpdate, type AvatarConversationState, type ConversationCaption, type ConversationAttention, type ConversationCue, type ConversationCuePreferences, type ConversationCueCursor, type PublicUpdate } from "./conversation_model.js";
 export { useAvatarConversationPreferences, playConversationCue } from "./conversation_preferences.js";
 export { conversationReply } from "./conversation_model.js";
 export { conversationNarrationStep } from "./conversation_model.js";
