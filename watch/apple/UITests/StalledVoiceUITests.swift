@@ -5,7 +5,8 @@ import XCTest
 /// speaker to continue." — the tap goes on from that piece, never from the start. Sample data on
 /// the Read page: `--piece-chars 80` cuts the sample answer's two sentences into two pieces of 2 s
 /// each; `--stalled-voice` makes the second piece's first two requests time out,
-/// `--stalled-voice-fatal` its first four.
+/// `--stalled-voice-fatal` its first four, `--stalled-voice-midpiece` the second piece's first
+/// request send half its sound, stay quiet until that half has partly played, and break.
 final class StalledVoiceUITests: XCTestCase {
     private var app: XCUIApplication!
     private var voice: XCUIElement { app.buttons["voice.button"].firstMatch }
@@ -33,7 +34,8 @@ final class StalledVoiceUITests: XCTestCase {
             let now = seconds()
             XCTAssertGreaterThanOrEqual(now, floor - 0.3, "the reading started over instead of going on")
             top = max(top, now)
-            if voice.label == "Read aloud", now >= floor { break }
+            // The reading may end between the two reads: its final position is the one to keep.
+            if voice.label == "Read aloud", now >= floor { top = max(top, seconds()); break }
             usleep(250_000)
         }
         return top
@@ -44,6 +46,17 @@ final class StalledVoiceUITests: XCTestCase {
         let top = waitForEnd(floor: 0.5, timeout: 30)
         // Two pieces of 2 s: the second arrived on its third request (two timed out, 2 s apart).
         XCTAssertGreaterThanOrEqual(top, 3.8, "the second piece never played:\n\(app.debugDescription)")
+        XCTAssertFalse(stopped.exists, "a piece requested again was reported as lost")
+        XCTAssertEqual(voice.label, "Read aloud")
+    }
+
+    /// Council 2026-11-02 A3: the half of the second piece that arrived plays out, and the retry
+    /// skips it: the reading is its two pieces' 4 s, heard once (a replay of the half made it 5 s).
+    func testAPieceBrokenMidwayIsHeardOnce() throws {
+        reading("--stalled-voice-midpiece")
+        let top = waitForEnd(floor: 0.5, timeout: 40)
+        XCTAssertGreaterThanOrEqual(top, 3.8, "the second piece's sound was lost:\n\(app.debugDescription)")
+        XCTAssertLessThan(top, 4.4, "the second piece's first half was heard twice (\(top) s)")
         XCTAssertFalse(stopped.exists, "a piece requested again was reported as lost")
         XCTAssertEqual(voice.label, "Read aloud")
     }

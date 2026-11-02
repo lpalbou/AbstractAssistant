@@ -630,6 +630,27 @@ final class PhoneUITests: XCTestCase {
         app.buttons["Stop reading"].firstMatch.tap()
     }
 
+    /// Operator 2026-11-02: the reading must not stop because the iPhone goes into a pocket. The app
+    /// leaves the screen mid-reading (between its two chunks, so the second one arrives while it is
+    /// away): it keeps running in the background (the `audio` mode), the reading is still under way
+    /// when it comes back, and it ends by itself.
+    @MainActor func testAReadingGoesOnWhileTheAppIsInTheBackground() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--history-fixture", "--speech-delay-fixture", "--screen", "history"]; app.launch()
+        let reader = app.buttons["Read answer aloud"].firstMatch
+        XCTAssertTrue(reader.waitForExistence(timeout: 15)); reader.tap()
+        let speaking = app.buttons.matching(NSPredicate(format: "identifier == 'voice.orb' AND label == 'Reading aloud. Tap to speak'")).firstMatch
+        XCTAssertTrue(speaking.waitForExistence(timeout: 10))
+        XCUIDevice.shared.press(.home)
+        XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5))
+        sleep(4)                                             // the second chunk arrives while the app is away
+        XCTAssertEqual(app.state, .runningBackground, "the app was suspended mid-reading")
+        app.activate()
+        XCTAssertTrue(app.buttons["Stop reading"].firstMatch.waitForExistence(timeout: 5), "the reading stopped when the app left the screen")
+        let ended = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.buttons["Stop reading"].firstMatch)
+        XCTAssertEqual(XCTWaiter.wait(for: [ended], timeout: 20), .completed, "the reading did not end by itself")
+        XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'interrupted'")).firstMatch.exists)
+    }
+
     @MainActor func testFailedRunAndLostConnectionHaveDistinctFeedback() throws {
         let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--activity=failure", "--screen", "conversation"]; app.launch()
         XCTAssertTrue(app.staticTexts["Couldn’t finish"].waitForExistence(timeout: 15))

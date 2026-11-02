@@ -37,6 +37,10 @@
 	<string>Connect to your AbstractGateway on your local network.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Record a voice message for your assistant. Audio goes to your gateway for transcription.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

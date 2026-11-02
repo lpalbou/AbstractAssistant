@@ -117,7 +117,7 @@ or live-result identity, and historical messages do not replay completion cues.
 | `Orb`, `OrbScenes`, `OrbConcepts`, `OrbCosmos`, `OrbNature`, `OrbAvatars`, `OrbLines`, `OrbRobots`, `OrbMachines` | The orb (every style drawn from `OrbPhases`, the five phases' weights and the voice): a planet of points whose style answers the voice (Halo, Vortex, Nebula, Liquid, Galaxy), and scenes of their own: Rings, the five state shapes (Lotus, Crystal, Eclipse, Synapse, Drop), Face, Imprint, Contour, Membrane, Eye (one relief of the face, computed once on a grid for the line styles), the eleven machines (six robots, a floating robot, a robot on tracks, a car, an android and a chrome sentinel, drawn as lit metal under a fine texture of points), the Cosmos scenes (Well, Black hole, Accretion) and the Nature scenes (Ocean, Aurora, Murmuration); every motion at a fixed pace, the phases blending how much of each shows, so a change of state is always a smooth morph; all frame-rate independent and drawn in one `Canvas`, with the light of its work. |
 | `Listener` | Records 16 kHz mono WAV with metering; detects speech against the room's noise floor; sends after 3 s of silence. |
 | `KeptQuestion` | Keeps one failed voice recording per connection, conversation and responder in local files until Retry or Discard. Metadata is updated on the main actor; replacement and deletion check the captured file so older requests cannot remove newer questions. |
-| `Speaker` | Streams the gateway's voice in WAV chunks, with a current player and one prepared successor scheduled on the audio device's clock; optional metering follows playback without blocking the next chunk; pause, resume, rewind 10 s. |
+| `Speaker` | Reads a text in pieces (one speech stream at a time, a broken piece requested again from where its sound stopped), playing the WAV chunks with a current player and one prepared successor scheduled on the audio device's clock; optional metering follows playback without blocking the next chunk; pause, resume, rewind 10 s; the answer's recordings after its text. |
 | `AskView`, `Conversation`, `AutomationFeed` | The one orb page, for a conversation and for an automation: `Conversation` says which, `AutomationFeed` gives an automation's runs as messages (`/occurrences`, its trigger's `user_turn`), its run in progress, Stop, Seen and the conversation about it (`/discuss`); the page follows a run the same way for both (`RunActivity`). |
 | Browser navigation | `AppModel.path` is the history: a swipe to the right (`goBack`) closes the top page, a swipe to the left (`goForward`) opens again the pages closed by going back (`forward`, kept until something else is opened; only the app's own pages are kept, `Route.revisitable`: a message, its steps, media, a link, a form or a question opens with a tap only); rows and links fire on a tap only (`TapButtonStyle`: a finger that moves is not a tap), and the stack's binding (`stackPath`) also refuses a page opened under a sideways-moving finger, so a swipe across a row never opens it; with nothing ahead, and only from there, the orb page of a conversation with a message opens `ConversationInfoView` (its numbers, and its files from `GET /sessions/{id}/artifacts` and the conversation's folder through `GET /runs/{id}/workspace/files`, each shared as a file downloaded only when shared). |
 | `RunActivity` | Follows a question's run down to the run doing the work and reads its new step records (thinking, tool calls, media, waits) into the steps under the orb and the orb's pulses and satellites. |
@@ -212,14 +212,25 @@ or live-result identity, and historical messages do not replay completion cues.
   player is dropped; never past the turn. A session about to expire while still held is renewed
   while the app is in front; one that could not start (wrist down) is taken when the app comes
   back in front.
+- **Reading in pieces**: `Speaker` cuts the text into sentence-bounded pieces of about 600
+  characters (`SpeechText.pieces`, AbstractGatewayClient) and requests one speech stream at a time,
+  the next only while less than 45 s of audio waits. That look-ahead waits on a continuation
+  resumed when a chunk finishes playing (no timer), so a paused or suspended reading wakes nothing.
+  A piece whose stream breaks is requested again up to three times, 2 s apart, while the audio
+  already received plays on; `SpeechPieceRetry` skips the seconds of that piece already here
+  (whole chunks dropped, the boundary chunk cut to the sample by `SpeechWAV`). The seam is exact
+  for a voice rendered the same way on every request; with a sampled voice (Qwen3-TTS, cloned
+  voices) it lands within a few words of the true one, at worst about a sentence, and the piece
+  is never replayed from its start. A piece that still fails ends the reading with "The
+  voice stopped early. Tap the speaker to continue."; the tap, or the app coming back after a link
+  error, continues from that piece. An answer's recordings play after its text: when the text
+  stops early they wait for its continuation, and when the voice never starts they play alone.
 - **Streamed playback**: `Speaker` prepares one successor while the current WAV plays, scheduling
   its start on the same audio device clock. This removes player setup from the chunk boundary;
   it does not remove pauses when the connection or speech engine delivers audio too slowly.
-  Buffering and scheduling happen on the watch, within the same gateway speech request; the
-  watch does not start inference for individual pieces. The client requires the stream's terminal
-  `done` event and rejects failed completion, cancelled speech, malformed audio and premature EOF.
-  Audio already received can finish playing before the failure is shown. A decode or playback
-  failure also ends with an error instead of silently dropping a piece.
+  The client requires the stream's terminal `done` event and rejects failed completion,
+  cancelled speech, malformed audio and premature EOF. A decode or playback failure ends with an
+  error instead of silently dropping a piece.
 - **Audio interruptions** pause the reading and resume it when the system allows; the app coming
   back in front continues a player the system stopped underneath. Only the voice playing turns
   the audio session off when it ends (an idle player leaving the screen does not).

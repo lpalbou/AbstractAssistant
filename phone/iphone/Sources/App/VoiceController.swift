@@ -30,21 +30,39 @@ import AbstractGatewayClient
     }
 }
 
-/// Deliberate cancellation for calls/Siri, lost headphones or a reset audio service.
+/// What the audio session tells the app: a call or Siri took the audio (and gave it back), the
+/// headphones went away, or the audio service was reset.
+enum AudioSessionEvent: Sendable, Equatable {
+    case interrupted
+    case interruptionEnded(shouldResume: Bool)
+    case routeLost
+    case reset
+}
+
 final class AudioSessionEvents: @unchecked Sendable {
     private var tokens: [NSObjectProtocol] = []
-    init(action: @escaping @MainActor @Sendable () -> Void) {
+    /// `action` sees every event; the one-argument form only the ones that end playback (every one
+    /// but the end of an interruption).
+    convenience init(action: @escaping @MainActor @Sendable () -> Void) {
+        self.init(events: { event in
+            if case .interruptionEnded = event { return }
+            action()
+        })
+    }
+    init(events action: @escaping @MainActor @Sendable (AudioSessionEvent) -> Void) {
         let center = NotificationCenter.default
         tokens.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { note in
-            guard (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.began.rawValue else { return }
-            Task { @MainActor in action() }
+            let type = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            let options = AVAudioSession.InterruptionOptions(rawValue: note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0)
+            if type == AVAudioSession.InterruptionType.began.rawValue { Task { @MainActor in action(.interrupted) } }
+            else if type == AVAudioSession.InterruptionType.ended.rawValue { Task { @MainActor in action(.interruptionEnded(shouldResume: options.contains(.shouldResume))) } }
         })
         tokens.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { note in
             let reason = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
             guard reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue || reason == AVAudioSession.RouteChangeReason.noSuitableRouteForCategory.rawValue else { return }
-            Task { @MainActor in action() }
+            Task { @MainActor in action(.routeLost) }
         })
-        tokens.append(center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { _ in Task { @MainActor in action() } })
+        tokens.append(center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { _ in Task { @MainActor in action(.reset) } })
     }
     deinit { for token in tokens { NotificationCenter.default.removeObserver(token) } }
 }
@@ -69,12 +87,19 @@ private final class OutputLevels: @unchecked Sendable {
 
 /// Speaking a reply: the text is requested in pieces (`SpeechText.pieces`, about 600 characters,
 /// one stream at a time, the next while under `aheadSeconds` of sound waits), so a piece whose
-/// stream breaks is requested again while what arrived plays, and a reading that still fails ends
-/// with "The voice stopped early" and goes on from that piece when the same message is read again
-/// (2026-11-01: one request for ten minutes of audio was lost whole when the link went quiet for
-/// 90 s). The sound plays through one AVAudioEngine graph (player node → time pitch → mixer): every
-/// streamed chunk is scheduled on the node as it arrives, back to back, sample-contiguous — no gap
-/// between the engine's short chunks (an AVAudioPlayer per chunk had an audible cut at each).
+/// stream breaks is requested again while what arrived plays — the retry skipping the seconds of sound
+/// already here (`SpeechPieceRetry`) — and a reading that still fails ends with "The voice stopped
+/// early" and goes on from that piece when the same message is read again (2026-11-01: one request
+/// for ten minutes of audio was lost whole when the link went quiet for 90 s). The sound plays
+/// through one AVAudioEngine graph (player node → time pitch → mixer): every streamed chunk is
+/// scheduled on the node as it arrives, back to back, sample-contiguous — no gap between the
+/// engine's short chunks (an AVAudioPlayer per chunk had an audible cut at each).
+///
+/// A reading goes on with the iPhone locked or in a pocket (the app's `audio` background mode): the
+/// audio session is active only while a reading plays or waits for its sound, so a paused, stopped
+/// or finished reading lets the app suspend. A call or Siri pauses it and, when the system says so,
+/// it resumes; unplugged headphones pause it. A reading started with a title is the lock screen's
+/// Now Playing item, with play/pause.
 @MainActor @Observable final class VoiceController {
     let meter = AudioMeter()
     private(set) var inputPhase: VoiceTurn.Phase = .idle
@@ -110,6 +135,12 @@ private final class OutputLevels: @unchecked Sendable {
     @ObservationIgnored private let isActive: () -> Bool
     @ObservationIgnored private var file: URL?
     @ObservationIgnored private let storage = PhoneTemporaryStorage()
+    @ObservationIgnored private let nowPlaying = NowPlaying()
+    /// Paused by a call or Siri (not by the person): the end of the interruption resumes it.
+    @ObservationIgnored private var pausedByInterruption = false
+    /// The app may finish the wait for a reading's first sound in the background (locked right after
+    /// a tap): the engine is not running yet, so nothing else keeps the app awake for it.
+    @ObservationIgnored private var firstSoundTask: UIBackgroundTaskIdentifier = .invalid
 
     // The engine graph and what is scheduled on it.
     @ObservationIgnored private let engine = AVAudioEngine()
@@ -118,14 +149,19 @@ private final class OutputLevels: @unchecked Sendable {
     @ObservationIgnored private let levels = OutputLevels()
     @ObservationIgnored private var nodeFormat: AVAudioFormat?
     @ObservationIgnored private var tapInstalled = false
-    private struct Scheduled { let id: Int; let piece: Int; let buffer: AVAudioPCMBuffer; let seconds: Double }
+    /// `start`: the frame of the node's timeline where the buffer begins.
+    private struct Scheduled { let id: Int; let buffer: AVAudioPCMBuffer; let seconds: Double; let start: AVAudioFramePosition }
     /// Scheduled on the node and not yet played back, in order (the first is the one playing).
     @ObservationIgnored private var inFlight: [Scheduled] = []
     @ObservationIgnored private var nextID = 0
     /// Bumped when the node is reset: completions of buffers scheduled before are ignored.
     @ObservationIgnored private var scheduleEpoch = 0
-    /// Frames of buffers fully played back since the node last started from a reset.
-    @ObservationIgnored private var playedFramesSinceStart: AVAudioFramePosition = 0
+    /// Where the last scheduled buffer ends on the node's timeline.
+    @ObservationIgnored private var scheduledEnd: AVAudioFramePosition = 0
+    /// The node's playhead when the reading was paused (a paused engine may report no render time).
+    @ObservationIgnored private var pausedAt: AVAudioFramePosition?
+    /// The look-ahead waits here, with no timer, until a buffer has played (or the reading stops).
+    @ObservationIgnored private var consumed: CheckedContinuation<Void, Never>?
     @ObservationIgnored private var pieces: [String] = []
     @ObservationIgnored private var nextPiece = 0
     @ObservationIgnored private var streamDone = false
@@ -150,10 +186,7 @@ private final class OutputLevels: @unchecked Sendable {
         self.isActive = isActive; self.pieceTarget = max(1, pieceTarget)
         engine.attach(node); engine.attach(pitch)
         pitch.pitch = 0
-        events = AudioSessionEvents { [weak self] in
-            guard let self, self.inputPending || self.speaking else { return }
-            self.stop(); self.error = "Audio was interrupted. Tap the orb to try again."
-        }
+        events = AudioSessionEvents(events: { [weak self] event in self?.audioSession(event) })
     }
 
     /// A deliberate tap activates capture; subsequent touches cancel synchronously.
@@ -237,9 +270,28 @@ private final class OutputLevels: @unchecked Sendable {
         }
     }
 
+    /// Capture never survives an audio event. A reading pauses for a call, Siri or lost headphones
+    /// and resumes when an interruption ends with the system's go-ahead; a reset audio service ends it.
+    private func audioSession(_ event: AudioSessionEvent) {
+        if inputPending {
+            if case .interruptionEnded = event { return }
+            stop(); error = "Audio was interrupted. Tap the orb to try again."; return
+        }
+        guard speaking else { return }
+        switch event {
+        case .interrupted: PhoneTrace.note("voice: interruption began"); if !paused { pause(); pausedByInterruption = true }
+        case .interruptionEnded(let shouldResume):
+            PhoneTrace.note("voice: interruption ended (resume: \(shouldResume))")
+            if shouldResume, paused, pausedByInterruption { resume() }
+        case .routeLost: if !paused { pause() }
+        case .reset: stop(); error = "Audio was interrupted. Tap play to try again."
+        }
+    }
+
     /// Reads `text` aloud. The same message (or text) read again after "The voice stopped early"
-    /// goes on from the piece that was lost, not from the start.
-    func read(_ text: String, client: any GatewayClient, scope: SpeechScope, choice: VoiceChoice? = nil, speed: Double = 1, messageID: String? = nil) {
+    /// goes on from the piece that was lost, not from the start. `title` (the conversation's) makes
+    /// the reading the lock screen's Now Playing item.
+    func read(_ text: String, client: any GatewayClient, scope: SpeechScope, choice: VoiceChoice? = nil, speed: Double = 1, messageID: String? = nil, title: String? = nil) {
         let plain = SpeechText.plain(text).trimmingCharacters(in: .whitespacesAndNewlines)
         let resume = resumable.flatMap { r in r.text == plain && (messageID == nil || r.messageID == messageID) ? r : nil }
         stop(); error = nil; resumable = nil
@@ -250,16 +302,19 @@ private final class OutputLevels: @unchecked Sendable {
         pitch.rate = Float(PhonePreferences.validSpeed(speed))
         speaking = true; preparing = true; readingID = messageID; startSampling()
         Self.log.info("reading \(plain.count, privacy: .public) chars in \(self.pieces.count, privacy: .public) pieces from piece \(self.nextPiece + 1, privacy: .public)")
+        PhoneTrace.note("voice: reading \(plain.count) chars in \(pieces.count) pieces from piece \(nextPiece + 1)")
         let epoch = generation
         let voice: VoiceChoice? = { if case .run = scope { choice } else { nil } }()
+        if configureAudio {
+            firstSoundTask = UIApplication.shared.beginBackgroundTask(withName: "first sound") { [weak self] in MainActor.assumeIsolated { self?.endFirstSoundTask() } }
+            if let title { nowPlaying.begin(title: title, toggle: { [weak self] in self?.togglePause() }, play: { [weak self] in self?.resume() }, pause: { [weak self] in self?.pause() }) }
+        }
         playback = Task {
             if configureAudio {
-                do {
-                    let audio = AVAudioSession.sharedInstance()
-                    try audio.setCategory(.playback, mode: .spokenAudio); try audio.setActive(true)
-                } catch {
+                do { try activatePlayback() } catch {
                     guard epoch == generation else { return }
-                    self.error = error.localizedDescription; end(epoch); return
+                    Self.log.error("the reading could not start: \(String(describing: error), privacy: .public)")
+                    self.error = "The reading could not start. Tap play to try again."; end(epoch); return
                 }
             }
             let failure = await readPieces(client: client, scope: scope, voice: voice, epoch: epoch)
@@ -271,31 +326,36 @@ private final class OutputLevels: @unchecked Sendable {
 
     /// Requests the pieces from `nextPiece` on, one stream at a time, the next once less than
     /// `aheadSeconds` of sound waits. A piece whose stream breaks (the link, the gateway) is
-    /// requested again up to `retries` times, 2 s apart, while the sound already here plays; its
-    /// chunks not yet played are dropped first, so nothing is heard twice.
+    /// requested again up to `retries` times, 2 s apart, while the sound already here plays on; the
+    /// retry's stream skips the seconds of that piece already here (`SpeechPieceRetry`: exact for a
+    /// voice rendered the same way each time, within a few words for a sampled or cloned voice).
     /// Returns the error that ended the reading, nil once every piece has arrived.
     private func readPieces(client: any GatewayClient, scope: SpeechScope, voice: VoiceChoice?, epoch: Int) async -> Error? {
         while nextPiece < pieces.count {
             while aheadSeconds() >= Self.aheadSeconds {
-                try? await Task.sleep(for: .milliseconds(500))
+                await withCheckedContinuation { consumed = $0 }
                 if Task.isCancelled || epoch != generation { return nil }
             }
             let i = nextPiece
             var attempt = 0
+            var retry = SpeechPieceRetry()
             while true {
                 attempt += 1
                 Self.log.info("piece \(i + 1, privacy: .public)/\(self.pieces.count, privacy: .public) started: \(self.pieces[i].count, privacy: .public) chars, try \(attempt, privacy: .public)")
+                PhoneTrace.note("voice: piece \(i + 1)/\(pieces.count) try \(attempt), app \(isActive() ? "in front" : "in the background"), \(String(format: "%.1f", playedSeconds)) s played")
                 do {
-                    for try await wav in client.speech(text: pieces[i], scope: scope, voice: voice) {
+                    for try await raw in client.speech(text: pieces[i], scope: scope, voice: voice) {
                         try Task.checkCancellation(); guard epoch == generation else { return nil }
-                        try enqueue(wav, piece: i, epoch: epoch)
+                        guard let wav = try retry.admit(wav: raw) else { continue }    // sound already here
+                        try enqueue(wav)
                     }
                     break
                 } catch {
                     if Task.isCancelled || error is CancellationError || epoch != generation { return nil }
-                    if error is PlaybackFailure { return error }
-                    dropUnplayed(piece: i)
-                    Self.log.error("piece \(i + 1, privacy: .public) failed on try \(attempt, privacy: .public): \(String(describing: error), privacy: .public)")
+                    if error is PlaybackFailure || error is SpeechWAV.Unreadable { return error }
+                    retry.requestAgain()
+                    Self.log.error("piece \(i + 1, privacy: .public) failed on try \(attempt, privacy: .public) after \(retry.kept, format: .fixed(precision: 2), privacy: .public) s of it: \(String(describing: error), privacy: .public)")
+                    PhoneTrace.note("voice: piece \(i + 1) failed on try \(attempt) after \(String(format: "%.2f", retry.kept)) s of it: \(error.localizedDescription)")
                     guard attempt <= Self.retries, LiveGatewayClient.isTransient(error) else { return error }
                     try? await Task.sleep(for: .seconds(2))
                     if Task.isCancelled || epoch != generation { return nil }
@@ -313,18 +373,19 @@ private final class OutputLevels: @unchecked Sendable {
     }
 
     /// A streamed chunk, decoded and scheduled on the node right behind what is already there.
-    private func enqueue(_ wav: Data, piece: Int, epoch: Int) throws {
+    private func enqueue(_ wav: Data) throws {
         guard let decoded = Self.pcmBuffer(wav: wav) else { throw PlaybackFailure(why: "This speech could not be played.") }
         if nodeFormat == nil { try startEngine(with: decoded.format) }
         guard let nodeFormat else { return }
         let buffer = try decoded.format == nodeFormat ? decoded : Self.convert(decoded, to: nodeFormat)
-        schedule(Scheduled(id: nextID, piece: piece, buffer: buffer, seconds: Double(buffer.frameLength) / nodeFormat.sampleRate))
+        schedule(id: nextID, buffer: buffer)
         nextID += 1
         if !paused, !node.isPlaying { node.play() }
-        if preparing { preparing = false }
+        if preparing { preparing = false; updateNowPlaying() }
     }
 
     /// The graph for this reading, in the first chunk's format; later chunks are converted to it.
+    /// A reading paused before its first sound builds the graph and starts it on `resume()`.
     private func startEngine(with format: AVAudioFormat) throws {
         engine.connect(node, to: pitch, format: format)
         engine.connect(pitch, to: engine.mainMixerNode, format: format)
@@ -333,73 +394,80 @@ private final class OutputLevels: @unchecked Sendable {
         pitch.installTap(onBus: 0, bufferSize: 1024, format: nil) { @Sendable buffer, _ in levels.update(buffer) }
         tapInstalled = true
         engine.prepare()
+        nodeFormat = format
+        scheduledEnd = 0
+        if !paused { try startEngine() }
+        endFirstSoundTask()                          // from here the running engine keeps the app awake
+    }
+
+    private func startEngine() throws {
+        guard !engine.isRunning else { return }
         do { try engine.start() } catch {
             Self.log.error("audio engine did not start: \(String(describing: error), privacy: .public)")
             throw PlaybackFailure(why: "This speech could not be played.")
         }
-        nodeFormat = format
-        playedFramesSinceStart = 0
     }
 
-    private func schedule(_ s: Scheduled) {
-        inFlight.append(s)
-        let epoch = scheduleEpoch, id = s.id, frames = AVAudioFramePosition(s.buffer.frameLength)
-        node.scheduleBuffer(s.buffer, completionCallbackType: .dataPlayedBack) { @Sendable [weak self] _ in   // the engine's queue
-            Task { @MainActor [weak self] in self?.playedBack(id: id, frames: frames, epoch: epoch) }
+    /// The buffer goes right behind the last one scheduled, or — the node starved (a stall: its
+    /// timeline ran on over silence) — where the node is now: it starts at the node's next render, so
+    /// its place on the timeline is known to one render cycle (about 10 ms).
+    private func schedule(id: Int, buffer: AVAudioPCMBuffer) {
+        guard let nodeFormat else { return }
+        let start = max(scheduledEnd, nodeSampleTime() ?? scheduledEnd)
+        let frames = AVAudioFramePosition(buffer.frameLength)
+        scheduledEnd = start + frames
+        inFlight.append(Scheduled(id: id, buffer: buffer, seconds: Double(frames) / nodeFormat.sampleRate, start: start))
+        let epoch = scheduleEpoch
+        node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { @Sendable [weak self] _ in   // the engine's queue
+            Task { @MainActor [weak self] in self?.playedBack(id: id, epoch: epoch) }
         }
     }
 
-    private func playedBack(id: Int, frames: AVAudioFramePosition, epoch: Int) {
+    private func playedBack(id: Int, epoch: Int) {
         guard epoch == scheduleEpoch, let i = inFlight.firstIndex(where: { $0.id == id }) else { return }
         let s = inFlight.remove(at: i)
         playedSeconds += s.seconds
-        playedFramesSinceStart += frames
         settle(generation)
+        wakeLookAhead()
     }
+
+    private func wakeLookAhead() { consumed?.resume(); consumed = nil }
 
     /// Nothing scheduled: the reading waits for the stream, or ends once the stream is over.
     private func settle(_ epoch: Int) {
         guard epoch == generation, speaking else { return }
         let waiting = inFlight.isEmpty && !streamDone
-        if preparing != waiting { preparing = waiting }
+        if preparing != waiting { preparing = waiting; updateNowPlaying() }
         if inFlight.isEmpty, streamDone { end(epoch) }
     }
 
-    /// Frames of the playing buffer already rendered (the node's time since it last started).
-    private func playheadFrames() -> AVAudioFramePosition {
-        guard let nodeTime = node.lastRenderTime, let time = node.playerTime(forNodeTime: nodeTime) else { return 0 }
-        return max(0, time.sampleTime - playedFramesSinceStart)
+    /// The node's playhead on its timeline (it stops while paused and runs on while starved); nil
+    /// before the node first plays.
+    private func nodeSampleTime() -> AVAudioFramePosition? {
+        guard let nodeTime = node.lastRenderTime, let time = node.playerTime(forNodeTime: nodeTime) else { return pausedAt }
+        return time.sampleTime
     }
 
-    /// Seconds of sound scheduled and not yet played.
-    private func aheadSeconds() -> Double {
+    /// Frames of the playing buffer (the first in flight) already rendered.
+    private func playheadFrames() -> AVAudioFramePosition {
+        guard let first = inFlight.first, let now = nodeSampleTime() else { return 0 }
+        return min(AVAudioFramePosition(first.buffer.frameLength), max(0, now - first.start))
+    }
+
+    /// Seconds of sound scheduled and not yet played, at the reading's speed.
+    func aheadSeconds() -> Double {
         guard let nodeFormat else { return 0 }
         let total = inFlight.reduce(0) { $0 + $1.seconds }
         return max(0, total - Double(playheadFrames()) / nodeFormat.sampleRate) / Double(pitch.rate)
     }
 
-    /// A piece's chunks not yet played (the request is made again: they would be heard twice). The
-    /// node is reset and what is kept is scheduled again: the rest of the chunk under way, then the
-    /// other pieces' chunks, in order.
-    private func dropUnplayed(piece i: Int) {
-        guard inFlight.contains(where: { $0.piece == i }) else { return }
-        let offset = playheadFrames()
-        var keep: [Scheduled] = []
-        for (n, s) in inFlight.enumerated() where s.piece != i {
-            if n == 0, offset > 0 {
-                guard let rest = Self.remainder(of: s.buffer, from: offset), let nodeFormat else { continue }
-                keep.append(Scheduled(id: s.id, piece: s.piece, buffer: rest, seconds: Double(rest.frameLength) / nodeFormat.sampleRate))
-            } else { keep.append(s) }
-        }
-        let dropped = inFlight.count - keep.count
-        if let first = inFlight.first, first.piece != i, let nodeFormat { playedSeconds += Double(offset) / nodeFormat.sampleRate }   // the part heard
-        scheduleEpoch += 1
-        node.stop(); node.reset()
-        inFlight.removeAll(); playedFramesSinceStart = 0
-        for s in keep { schedule(s) }
-        if !paused, !keep.isEmpty { node.play() }
-        Self.log.info("dropped \(dropped, privacy: .public) unplayed chunks of piece \(i + 1, privacy: .public), \(keep.count, privacy: .public) kept")
+    /// Seconds of the reading played so far, inside the buffer under way too (the lock screen's time).
+    private var elapsedSeconds: Double {
+        guard let nodeFormat else { return playedSeconds }
+        return playedSeconds + Double(playheadFrames()) / nodeFormat.sampleRate
     }
+
+    private func updateNowPlaying() { nowPlaying.update(playing: speaking && !paused && !preparing, elapsed: elapsedSeconds, rate: pitch.rate) }
 
     /// The reading is over: what it ended with, in the person's words (the reason is in the log).
     private func end(_ epoch: Int) {
@@ -416,8 +484,9 @@ private final class OutputLevels: @unchecked Sendable {
                 if failure as? GatewayError == .unauthorized { onUnauthorized?() }
             }
         }
+        PhoneTrace.note("voice: reading ended after \(String(format: "%.1f", playedSeconds)) s played, app \(isActive() ? "in front" : "in the background")\(error.map { ": " + $0 } ?? "")")
         speaking = false; preparing = false; paused = false; readingID = nil; stopSampling()
-        stopEngine(); deactivateAudio()
+        stopEngine(); deactivateAudio(); endReadingTasks()
     }
 
     private func stopEngine() {
@@ -425,7 +494,21 @@ private final class OutputLevels: @unchecked Sendable {
         node.stop(); node.reset()
         if tapInstalled { pitch.removeTap(onBus: 0); tapInstalled = false }
         if engine.isRunning { engine.stop() }
-        inFlight.removeAll(); nodeFormat = nil; playedFramesSinceStart = 0; levels.reset()
+        inFlight.removeAll(); nodeFormat = nil; scheduledEnd = 0; pausedAt = nil; levels.reset()
+        wakeLookAhead()
+    }
+
+    /// What only a reading under way holds: the lock screen's item, the first-sound grace.
+    private func endReadingTasks() { nowPlaying.end(); endFirstSoundTask(); pausedByInterruption = false }
+
+    private func endFirstSoundTask() {
+        guard firstSoundTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(firstSoundTask); firstSoundTask = .invalid
+    }
+
+    private func activatePlayback() throws {
+        let audio = AVAudioSession.sharedInstance()
+        try audio.setCategory(.playback, mode: .spokenAudio); try audio.setActive(true)
     }
 
     // MARK: WAV → PCM buffers
@@ -480,17 +563,6 @@ private final class OutputLevels: @unchecked Sendable {
         return out
     }
 
-    /// The part of a buffer from `frame` on (the chunk under way, scheduled again after a reset).
-    private static func remainder(of buffer: AVAudioPCMBuffer, from frame: AVAudioFramePosition) -> AVAudioPCMBuffer? {
-        let start = Int(min(max(0, frame), AVAudioFramePosition(buffer.frameLength)))
-        let frames = Int(buffer.frameLength) - start
-        guard frames > 0, let out = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: AVAudioFrameCount(frames)),
-              let src = buffer.floatChannelData, let dst = out.floatChannelData else { return nil }
-        for c in 0..<Int(buffer.format.channelCount) { dst[c].update(from: src[c] + start, count: frames) }
-        out.frameLength = AVAudioFrameCount(frames)
-        return out
-    }
-
     private func startSampling() {
         stopSampling(); let epoch = generation
         // Task sleep is independent of run-loop modes: dragging/holding cannot stall the meter.
@@ -503,21 +575,52 @@ private final class OutputLevels: @unchecked Sendable {
     }
     private func stopSampling() { sampler?.cancel(); sampler = nil; envelope.reset(); microphoneEnvelope.reset(); meter.level = 0; meter.graceProgress = 0 }
     private func deactivateAudio() { if configureAudio { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) } }
-    func togglePause() {
-        if paused {
-            paused = false
-            if engine.isRunning, !inFlight.isEmpty { node.play() }
-        } else {
-            paused = true
-            if node.isPlaying { node.pause() }
-        }
+    /// The scene left the screen (`false`) or came back: the orb's meter samples only while seen
+    /// (a reading goes on in the background without it).
+    func scene(visible: Bool) {
+        if speaking { PhoneTrace.note("voice: app \(visible ? "back in front" : "in the background") while reading, \(String(format: "%.1f", playedSeconds)) s played") }
+        if !visible, !inputPending { stopSampling() }
+        else if visible, speaking, sampler == nil { startSampling() }
     }
+
+    func togglePause() { paused ? resume() : pause() }
+
+    /// Holds the reading where it is and gives the audio back: the app may suspend while paused.
+    func pause() {
+        guard speaking, !paused else { return }
+        paused = true; pausedByInterruption = false
+        PhoneTrace.note("voice: paused at \(String(format: "%.1f", elapsedSeconds)) s")
+        pausedAt = nodeSampleTime()
+        if node.isPlaying { node.pause() }
+        if engine.isRunning { engine.pause() }
+        deactivateAudio()
+        updateNowPlaying()
+    }
+
+    /// Goes on from the exact sample where `pause()` stopped.
+    func resume() {
+        guard speaking, paused else { return }
+        do {
+            if configureAudio { try activatePlayback() }
+            if nodeFormat != nil { try startEngine() }
+        } catch {
+            // Usually another app (a call) still holds the audio: plain words here, the cause in the log.
+            Self.log.error("the reading could not resume: \(String(describing: error), privacy: .public)")
+            stop(); self.error = "The reading could not resume. Tap play to try again."; return
+        }
+        paused = false; pausedByInterruption = false
+        PhoneTrace.note("voice: resumed at \(String(format: "%.1f", elapsedSeconds)) s")
+        if engine.isRunning, !inFlight.isEmpty { node.play() }
+        pausedAt = nil
+        updateNowPlaying()
+    }
+
     func stop() {
         generation += 1; stopSampling(); turn.cancel(); activity = SpeechActivity(); publishTurn(); readingID = nil
         captureTask?.cancel(); captureTask = nil; playback?.cancel(); playback = nil
         recorder?.stop(); recorder = nil
         stopEngine(); pieces.removeAll(); nextPiece = 0
         speaking = false; preparing = false; paused = false
-        if let file { try? storage.discard(file) }; file = nil; deactivateAudio()
+        if let file { try? storage.discard(file) }; file = nil; deactivateAudio(); endReadingTasks()
     }
 }

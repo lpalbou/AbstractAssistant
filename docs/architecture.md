@@ -442,7 +442,7 @@ flowchart LR
   subgraph Mac["macOS, Linux, Windows"]
     Desk["Desktop app (Python, PyQt5)\nabstractassistant/ · ai.abstractframework.assistant.mac"]
   end
-  subgraph Phone["iPhone: AbstractAssistant 0.16.0"]
+  subgraph Phone["iPhone: AbstractAssistant 0.17.0"]
     PApp["iPhone app (container)\nai.abstractframework.assistant"]
     PNSE["Notification service extension\n….assistant.notifications"]
   end

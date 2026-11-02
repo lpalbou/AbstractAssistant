@@ -5,22 +5,29 @@ Since 0.16.0 the watch app shares the iPhone app's version (`MARKETING_VERSION` 
 iPhone app); the Python package's history is in
 [../../CHANGELOG.md](../../CHANGELOG.md).
 
-## [Unreleased]
+## [0.17.0] - 2026-11-02
+
+What testers get since build 39 (0.16.0), inside the iPhone app of the same version.
 
 ### Added
 
-- Restore questions, actual answers, timeout fallbacks and late replies in canonical chronological order; late words remain attached to their original question. Label omitted history and restore without speech or stale question prompts.
-- Preserve original human corrections separately from the context quoted to the assistant.
-- Restore accepted corrections from screened task replay and entity visit state; reconcile by server acceptance ID across polling, reconnects and view recreation. Identical words sent twice remain separate messages.
-- Restore visible task turns on opening, load older corrections with Show older, and retain the canonical entity visit reference per account, conversation and responder. Acceptance continues to mean sent, not considered.
-
+- **Long answers are read in pieces, and a dropped connection no longer loses the reading.** The
+  answer is requested a few sentences at a time while the previous ones play. A piece interrupted
+  by the connection is requested again while what already arrived keeps playing, and the reading
+  continues from where the sound stopped instead of starting the piece over (with a cloned voice,
+  a few words at that point may repeat or be skipped). If the connection stays lost,
+  the watch says "The voice stopped early. Tap the speaker to continue." and the tap continues from
+  there; the app coming back after a lost connection continues by itself.
 - Optional **Avatar conversation** view with public subtitles, pinned replies, Talk/Type during
   work and accessible update history. Agent corrections use live guidance; entity conversations
   use the canonical visit routes and preserve entity approval and privacy policy.
 - Server-owned clarification deadlines and declared fallback display, plus separate foreground
   visual, spoken and haptic preferences for questions, approvals and completion. Task stopping in
   this view remains pending until the Gateway reports the outcome.
-
+- Restore questions, actual answers, timeout fallbacks and late replies in canonical chronological order; late words remain attached to their original question. Label omitted history and restore without speech or stale question prompts.
+- Preserve original human corrections separately from the context quoted to the assistant.
+- Restore accepted corrections from screened task replay and entity visit state; reconcile by server acceptance ID across polling, reconnects and view recreation. Identical words sent twice remain separate messages.
+- Restore visible task turns on opening, load older corrections with Show older, and retain the canonical entity visit reference per account, conversation and responder. Acceptance continues to mean sent, not considered.
 - **Voices in groups, with their language (AbstractGateway 0.16.0 voice library).** Settings → Voice
   lists **Your voices** (cloned or designed on the iPhone or the desktop), **Engine voices** and
   **Shared voices** (the gateway's built-in voices and the ones its administrator shares), each with
@@ -32,34 +39,68 @@ iPhone app); the Python package's history is in
 - **Automations open on what runs.** The list shows the active automations, most recent activity
   first; the paused ones are one tap away under "Paused · N", next to Archived. With a gateway that
   does not serve sections (0.19.0 and earlier) the list stays as before.
+- **The voice list is read compact.** Settings → Voice asks `GET /voice/voices?compact=true`: the
+  same voices without the engines' duplicated source catalogs (1.4 MB → 250 KB on a gateway with the
+  shared voice pack), so the list loads within the watch's read timeout over the iPhone's link.
+- **Finer schedule choices.** Every 30 seconds, minute, 5, 15 and 30 minutes, then every hour, 2,
+  4, 6, 8 and 12 hours, day, 2 days and week, when editing an automation and when creating one. An
+  interval written in seconds reads as minutes ("Every 60s" is "Every minute"). The gateway still
+  refuses less than a minute for an automation that reads a mailbox or a feed, and says so.
+- **A question that could not be sent keeps its recording.** When the upload or the transcription
+  fails, the orb says "Not sent." with Retry and Discard under it; the recording
+  waits in its own file through leaving the page and relaunching, and nothing sends it on its own.
+  Retry sends the same recording; Discard deletes it. (Backlog 1054, slice 0.)
+- **A haptic when listening starts**, as there was one when the microphone closes and when an
+  answer arrives.
+- **The sign-in lives in the Keychain, shared through the app group.** A Keychain item of the
+  app's service, readable after the first unlock (the notification extension reads it while the
+  watch is locked), bound to this device, never in a backup, never synced; the app group doubles
+  as the access group so the extension and the complication read the same item. A sign-in kept by
+  0.5.0 or an interim build is moved into the Keychain at its first read, so nobody signs in again.
+  The sign-ins kept with "Keep my sign-in" are a second Keychain item (backlog 1053).
+- **The top row's icons are the time's size.** Back, Share, the voice button, Stop, the shield and
+  the pencil are 28 pt circles (20 % smaller), centred on the time; the band under the row is 45 pt.
+  The keyboard, tools and info icons beside the orb keep their size.
+- **The hold on the orb is shorter and its ring smaller.** A hold toggles in about a second
+  (1.05 s, 30 % less than before) and its ring closes well inside the screen instead of reaching
+  past its edge.
+- **The read-aloud button is a speaker, not a play button.** Beside Back on the orb page and
+  on an automation's page, the voice button shows a speaker at rest (pause while it speaks, as
+  before); its spoken label is "Read aloud".
+- **One gateway client for the watch and the iPhone (backlog 1053 step 3).** The iPhone's copy of
+  this client (`PhoneGatewayClient`) is folded back into `Packages/AbstractGatewayClient`, which now
+  holds every route and wire model either app uses; the iPhone's `AssistantKit` depends on it. For
+  the watch: an error the gateway explains shows its words (`detail`) instead of the generic line;
+  a recording is uploaded under `voice/dictation/`, so the iPhone's file list tells it apart from a
+  file; the archived conversations are read page after page instead of one page of 200; a
+  workflow the gateway marks archived, deprecated or not runnable is not offered; an entity row's
+  `slug` is its name when the gateway sends one; a discovery that reports an error fails the read;
+  speech that meets a 401 stops the client as every other call does. The sample client takes a
+  world (`MockGatewayClient(world: .watch)`); its data, launch hooks and timings are the watch's.
 
 ### Fixed
 
+- **An answer's recordings play after its text.** When the voice stops early, the recordings wait
+  for the rest of the text (the tap that continues it); when the voice never starts, they play
+  on their own.
 - **Needs you** shows loading, retryable errors and a confirmed empty state when
   opened from a notification. Older waits reads cannot restore a resolved request,
   and background refreshes preserve the confirmed state while checking again.
-
 - Approving one request keeps later requests pending and visible while the app is active.
   Approval monitoring resumes after sleep/wake, and late reads cannot replace a newer request
   with an older gate. Resolutions from another client clear the matching request.
-
 - Event-stream notifications follow explicit gateway attention records. Quiet automation
   completions no longer add a separate "finished" alert, and attention resolved later in the
   same replay page stays silent.
-
 - Voice previews use a longer sample shared with the iPhone. A failed cloned-voice match shows
   readable retry guidance across multiple lines.
-
 - Settings shows the selected voice's friendly name instead of its internal identifier. An empty
   saved label, or one that repeats an opaque identifier, reads "Selected voice".
 - Spoken answers prepare and schedule the next audio piece while the current one plays, reducing
   gaps between short streamed pieces. Incomplete speech streams and playback failures report an
   error; slow delivery can still cause a buffering pause.
-
 - Pending voice recordings stay with their conversation, responder and Gateway account. Switching discussions does not show another question's Retry/Discard controls; late requests cannot replace or discard a newer recording. Verified sign-ins preserve tenant identity.
-
 - Failed voice uploads and transcriptions show their error while preserving the recording and Retry/Discard actions. Device logs include the error domain and code without recording credentials, audio or transcripts.
-
 - **Run on an automation's details answers the tap.** The tap is felt (a click, then the start
   haptic once the gateway accepts the run), the Run button shows a spinner and a "Starting… 0:01"
   line becomes "Running… 0:03" once the gateway has the command; the details stay until the gateway
@@ -79,47 +120,23 @@ iPhone app); the Python package's history is in
   be kept says so. Kept sign-ins and gateways from earlier builds carry over.
 - **The Digital Crown scrolls Home right after Settings closes**, with no need to touch the screen
   first.
+- **Every voice you choose plays its sample, or says why it cannot** (operator 2026-10-29, backlog 1083). Choosing a
+  voice in Settings → Voice sometimes played nothing, silently.
+  - The watch's audio session now stays active from one sample to the next. It was deactivated between two taps,
+    which could leave the next one silent.
+  - A sample that ends with no sound and no error is a failure: "The gateway sent no sound for this voice."
+  - The tapped voice's row says "Playing the sample", or "The sample did not play: <reason>" in one line.
+  - Every tap plays, the same voice again included, and a newer tap replaces the older sample.
 
-### Changed
+### Known issues
 
-- **The voice list is read compact.** Settings → Voice asks `GET /voice/voices?compact=true`: the
-  same voices without the engines' duplicated source catalogs (1.4 MB → 250 KB on a gateway with the
-  shared voice pack), so the list loads within the watch's read timeout over the iPhone's link.
+- On a development build, a push can keep its generic words ("Approval needed", "Tap to read it")
+  when the notification service extension does not replace them. The extension records why in the
+  app group; `--dump-notify` prints it under "push extension".
 
-- **Finer schedule choices.** Every 30 seconds, minute, 5, 15 and 30 minutes, then every hour, 2,
-  4, 6, 8 and 12 hours, day, 2 days and week, when editing an automation and when creating one. An
-  interval written in seconds reads as minutes ("Every 60s" is "Every minute"). The gateway still
-  refuses less than a minute for an automation that reads a mailbox or a feed, and says so.
-- **A question that could not be sent keeps its recording.** When the upload or the transcription
-  fails, the orb says "Not sent." with Retry and Discard under it; the recording
-  waits in its own file through leaving the page and relaunching, and nothing sends it on its own.
-  Retry sends the same recording; Discard deletes it. (Backlog 1054, slice 0.)
-- **A haptic when listening starts**, as there was one when the microphone closes and when an
-  answer arrives.
-- **The sign-in lives in the Keychain, shared through the app group.** A Keychain item of the
-  app's service, readable after the first unlock (the notification extension reads it while the
-  device is locked), bound to this device, never in a backup, never synced; the app group doubles
-  as the access group so the extension (and, on the watch, the complication) read the same item.
-  A sign-in kept by an earlier build (a file in the app group) moves into the Keychain at its
-  first read, so nobody signs in again. The watch's kept sign-ins moved from UserDefaults into a
-  second Keychain item (backlog 1053).
-- **The hold on the orb is shorter and its ring smaller.** A hold toggles in about a second
-  (1.05 s, 30 % less than before) and its ring closes well inside the screen instead of reaching
-  past its edge.
-- **The read-aloud button is a speaker, not a play button.** Beside Back on the orb page and
-  on an automation's page, the voice button shows a speaker at rest (pause while it speaks, as
-  before); its spoken label is "Read aloud".
+## [0.16.0] - 2026-10-25
 
-- **One gateway client for the watch and the iPhone (backlog 1053 step 3).** The iPhone's copy of
-  this client (`PhoneGatewayClient`) is folded back into `Packages/AbstractGatewayClient`, which now
-  holds every route and wire model either app uses; the iPhone's `AssistantKit` depends on it. For
-  the watch: an error the gateway explains shows its words (`detail`) instead of the generic line;
-  a recording is uploaded under `voice/dictation/`, so the iPhone's file list tells it apart from a
-  file; the archived conversations are read page after page instead of one page of 200; a
-  workflow the gateway marks archived, deprecated or not runnable is not offered; an entity row's
-  `slug` is its name when the gateway sends one; a discovery that reports an error fails the read;
-  speech that meets a 401 stops the client as every other call does. The sample client takes a
-  world (`MockGatewayClient(world: .watch)`); its data, launch hooks and timings are the watch's.
+Build 39, the first build of the watch app inside AbstractAssistant for iPhone.
 
 ### Added
 
@@ -153,12 +170,6 @@ iPhone app); the Python package's history is in
 
 ### Changed
 
-- **The sign-in lives in the Keychain, shared through the app group.** A Keychain item of the
-  app's service, readable after the first unlock (the notification extension reads it while the
-  watch is locked), bound to this device, never in a backup, never synced; the app group doubles
-  as the access group so the extension and the complication read the same item. A sign-in kept by
-  0.5.0 or an interim build is moved into the Keychain at its first read, so nobody signs in again.
-  The sign-ins kept with "Keep my sign-in" are a second Keychain item (backlog 1053).
 - The project moved: one XcodeGen spec for the iPhone and the watch, `phone/iphone/project.yml`
   (`AbstractAssistant.xcodeproj`); `scripts/build.sh`, `test-watch.sh`, `deploy-watch.sh`,
   `run-live.sh` and `testflight.sh` use it. The empty iOS container target is gone.
@@ -166,21 +177,6 @@ iPhone app); the Python package's history is in
   title and the icons beside Back (Share, Stop, the shield, the voice button) are centred on the
   system time, 10 pt higher than before: every page starts higher. The title leaves the time its room at the right. The orb page's tools, which
   mirror the keyboard's distance from the top, follow the band.
-- **The top row's icons are the time's size.** Back, Share, the voice button, Stop, the shield and
-  the pencil are 28 pt circles (20 % smaller), centred on the time; the band under the row is 45 pt.
-  The keyboard, tools and info icons beside the orb keep their size.
-- **The hold on the orb is shorter and its ring smaller.** A hold toggles in about a second
-  (1.05 s, 30 % less than before) and its ring closes well inside the screen instead of reaching
-  past its edge.
-- **The read-aloud button is a speaker, not a play button.** Beside Back on the orb page and
-  on an automation's page, the voice button shows a speaker at rest (pause while it speaks, as
-  before); its spoken label is "Read aloud".
-- **A question that could not be sent keeps its recording.** When the upload or the transcription
-  fails, the orb says "Not sent." with Retry and Discard under it; the recording
-  waits in its own file through leaving the page and relaunching, and nothing sends it on its own.
-  Retry sends the same recording; Discard deletes it. (Backlog 1054, slice 0.)
-- **A haptic when listening starts**, as there was one when the microphone closes and when an
-  answer arrives.
 - **Settings → Connection's "Sign in as someone else" is "Sign out"**, a red button, and asks
   whether to keep the sign-in, as Sign out at the bottom of Settings (red too) now does.
 
@@ -202,22 +198,6 @@ iPhone app); the Python package's history is in
   allows, starting right under it, not centred in the area below the row, which left it low.
   Zoom (the crown), drag and double tap keep the picture within the screen from wherever it
   rests. The UI test checks the picture's own frame against the rule.
-
-### Known issues
-
-- On a development build, a push can keep its generic words ("Approval needed", "Tap to read it")
-  when the notification service extension does not replace them. The extension records why in the
-  app group; `--dump-notify` prints it under "push extension".
-
-### Fixed
-
-- **Every voice you choose plays its sample, or says why it cannot** (operator 2026-10-29, backlog 1083). Choosing a
-  voice in Settings → Voice sometimes played nothing, silently.
-  - The watch's audio session now stays active from one sample to the next. It was deactivated between two taps,
-    which could leave the next one silent.
-  - A sample that ends with no sound and no error is a failure: "The gateway sent no sound for this voice."
-  - The tapped voice's row says "Playing the sample", or "The sample did not play: <reason>" in one line.
-  - Every tap plays, the same voice again included, and a newer tap replaces the older sample.
 
 ## [0.5.0] - 2026-10-25
 

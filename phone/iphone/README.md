@@ -3,7 +3,7 @@
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**iPhone · 0.16.0 · iOS 26+** · with the [Apple Watch app](../../watch/apple/README.md) inside
+**iPhone · 0.17.0 · iOS 26+** · with the [Apple Watch app](../../watch/apple/README.md) inside
 
 AbstractAssistant is one product for iPhone and Apple Watch: install it on the iPhone and the
 watch app comes with it. The iPhone and the watch are independent: each signs in on its own, and
@@ -120,6 +120,14 @@ is. On a gateway with one shared voice store only an administrator creates voice
 gateway's refusal is shown as it says it. Speed choices
 **1×, 1.15×, 1.3× and 1.5×** also play a sample and apply to all read-aloud playback.
 Restored history is never read automatically.
+
+Long answers are read in pieces. A piece interrupted by the connection is requested again while
+what already arrived keeps playing, and it continues from where the sound stopped (with a cloned
+voice, a few words at that point may repeat or be skipped). If the
+connection does not come back, the reading ends with **The voice stopped early. Tap play to
+continue.**, and play continues from there. Reading continues with the iPhone locked or in your
+pocket. The lock screen and Control Center show the conversation with play and pause. A call
+pauses the reading and it resumes afterwards; unplugging headphones pauses it.
 
 **Tap → speak → three seconds of silence → review → Send.** By default, the transcription
 opens in the keyboard composer for corrections; no Assistant request starts until you tap Send.

@@ -167,18 +167,26 @@ public actor MockGatewayClient: GatewayClient {
     /// A reading in pieces over a link that drops: the speech requests (counted from 1) whose
     /// streams time out. `--stalled-voice`: the second piece's first two requests (2...3), the
     /// third plays; `--stalled-voice-fatal`: its first four (2...5), the fifth, after the person's
-    /// tap, plays. A test sets the range itself and resets the count. Every piece that plays is
-    /// 2 s of sound. (On the watch, pair with `--piece-chars 30`.)
+    /// tap, plays; `--stalled-voice-midpiece`: the second piece's first request (2...2) sends half
+    /// its sound, stalls until that half has partly played, then breaks, and the second request
+    /// plays (the retry must skip the half already here). A test sets these itself and resets the
+    /// count. Every piece that plays is 2 s of sound, in `stalledVoiceChunks` equal chunks.
+    /// (On the watch, pair with `--piece-chars 80`.)
     nonisolated(unsafe) public static var stalledVoiceFailures: ClosedRange<Int>? = {
         let args = ProcessInfo.processInfo.arguments
         if args.contains("--stalled-voice-fatal") { return 2...5 }
         if args.contains("--stalled-voice") { return 2...3 }
+        if args.contains("--stalled-voice-midpiece") { return 2...2 }
         return nil
     }()
     /// Speech requests so far while `stalledVoiceFailures` is set.
     nonisolated(unsafe) public static var stalledVoiceCalls = 0
-    /// A failing request first sends its 2 s of sound, then breaks (a stream cut mid-piece).
-    nonisolated(unsafe) public static var stalledVoiceYieldsBeforeFailing = false
+    /// The chunks a piece's 2 s of sound come in.
+    nonisolated(unsafe) public static var stalledVoiceChunks = ProcessInfo.processInfo.arguments.contains("--stalled-voice-midpiece") ? 4 : 1
+    /// The chunks a failing request sends before it breaks (0: it times out at once).
+    nonisolated(unsafe) public static var stalledVoiceYieldsBeforeFailing = ProcessInfo.processInfo.arguments.contains("--stalled-voice-midpiece") ? 2 : 0
+    /// How long a failing request that sent sound stays quiet before it breaks (a link going silent).
+    nonisolated(unsafe) public static var stalledVoiceStall: Duration = ProcessInfo.processInfo.arguments.contains("--stalled-voice-midpiece") ? .milliseconds(2500) : .zero
     private static let stalledVoiceLock = NSLock()
     #endif
     private let mediaImage: Data?
@@ -1026,18 +1034,25 @@ public actor MockGatewayClient: GatewayClient {
     public nonisolated func speech(text: String, scope: SpeechScope) -> AsyncThrowingStream<Data, Error> { speech(text: text, scope: scope, voice: nil) }
     public nonisolated func speech(text: String, scope: SpeechScope, voice: VoiceChoice?) -> AsyncThrowingStream<Data, Error> {
         #if DEBUG
-        if let (fails, call, yieldsFirst) = Self.stalledVoiceLock.withLock({ () -> (ClosedRange<Int>, Int, Bool)? in
+        if let (fails, call, chunks, yields, stall) = Self.stalledVoiceLock.withLock({ () -> (ClosedRange<Int>, Int, Int, Int, Duration)? in
             guard let fails = Self.stalledVoiceFailures else { return nil }
             Self.stalledVoiceCalls += 1
-            return (fails, Self.stalledVoiceCalls, Self.stalledVoiceYieldsBeforeFailing)
+            return (fails, Self.stalledVoiceCalls, max(1, Self.stalledVoiceChunks), Self.stalledVoiceYieldsBeforeFailing, Self.stalledVoiceStall)
         }) {
+            // A piece's sound is the same on every request (the gateway voices one text the same way).
+            let sound = Array(SyntheticSpeech.wav(seconds: 2.0, seed: text.count % 7).dropFirst(44))
+            let size = sound.count / chunks / 2 * 2
             return AsyncThrowingStream { continuation in
                 let task = Task {
                     do {
                         try await Task.sleep(for: .milliseconds(300))
-                        if fails.contains(call), !yieldsFirst { throw URLError(.timedOut) }
-                        continuation.yield(SyntheticSpeech.wav(seconds: 2.0, seed: call))
-                        if fails.contains(call) { throw URLError(.networkConnectionLost) }
+                        let failing = fails.contains(call)
+                        if failing, yields == 0 { throw URLError(.timedOut) }
+                        for k in 0..<(failing ? min(yields, chunks) : chunks) {
+                            let end = k == chunks - 1 ? sound.count : (k + 1) * size
+                            continuation.yield(SyntheticSpeech.wav(pcm: sound[(k * size)..<end]))
+                        }
+                        if failing { try await Task.sleep(for: stall); throw URLError(.networkConnectionLost) }
                         continuation.finish()
                     } catch { continuation.finish(throwing: error) }
                 }
