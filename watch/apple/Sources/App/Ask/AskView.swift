@@ -934,7 +934,7 @@ struct AskView: View {
             switch speaker.state {
             case .preparing, .speaking: return ""
             case .paused: return "Paused"
-            case .failed: return "Voice unavailable"
+            case .failed: return speaker.failureLine
             default: return "Tap to talk"                    // at rest the orb listens again
             }
         }

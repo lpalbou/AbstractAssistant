@@ -1605,12 +1605,18 @@ public struct SessionTurn: Decodable, Sendable, Hashable {
     public var prompt: String?
     public var answer: String?
     public var status: String?
+    /// The question's files (the turn's `attachments`) and the answer's generated media (its
+    /// `artifacts`), as the phone shows them; a row without an owner belongs to this turn.
+    public var attachments: [PhoneArtifact] = []
+    public var artifacts: [PhoneArtifact] = []
 
-    public init(runId: String, createdAt: String?, prompt: String?, answer: String?, status: String?) {
+    public init(runId: String, createdAt: String?, prompt: String?, answer: String?, status: String?,
+                attachments: [PhoneArtifact] = [], artifacts: [PhoneArtifact] = []) {
         self.runId = runId; self.createdAt = createdAt; self.prompt = prompt; self.answer = answer; self.status = status
+        self.attachments = attachments; self.artifacts = artifacts
     }
 
-    enum CodingKeys: String, CodingKey { case runId = "run_id", createdAt = "created_at", prompt, answer, status }
+    enum CodingKeys: String, CodingKey { case runId = "run_id", createdAt = "created_at", prompt, answer, status, attachments, artifacts }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -1619,6 +1625,40 @@ public struct SessionTurn: Decodable, Sendable, Hashable {
         prompt = try? c.decode(String.self, forKey: .prompt)
         answer = try? c.decode(String.self, forKey: .answer)
         status = try? c.decode(String.self, forKey: .status)
+        let owner = runId
+        func parse(_ key: CodingKeys) -> [PhoneArtifact] {
+            guard let rows = try? c.decode([JSONValue].self, forKey: key) else { return [] }
+            var out: [PhoneArtifact] = []
+            for row in rows {
+                guard case .object(var o) = row else { continue }
+                // A turn's `artifacts` are everything its runs wrote (traces, prompts, read-aloud
+                // sound); the answer shows only the media it generated — the session listing's rule.
+                if key == .artifacts, o["tags"]?["kind"]?.stringValue != "generated_media" { continue }
+                // Voice transport — a spoken question's recording, an answer read aloud — is never
+                // an attachment or media of the conversation (ADR 0047), whatever the gateway sent.
+                if SessionTurn.isVoiceTransport(o) { continue }
+                if o["run_id"] == nil || o["run_id"] == .null { o["run_id"] = .string(owner) }
+                if let a = PhoneArtifact.parse(.object(o)), !out.contains(where: { $0.artifactId == a.artifactId }) { out.append(a) }
+            }
+            return out
+        }
+        attachments = parse(.attachments)
+        artifacts = parse(.artifacts)
+    }
+}
+
+public extension SessionTurn {
+    /// ADR 0047: the recording of a spoken question (`purpose` voice_dictation, uploaded under
+    /// `voice/dictation/`) and an answer's read-aloud sound (`purpose` voice_playback, the `voice/`
+    /// space) are transport, never shown as attachments or media. Decided by tags, never by name.
+    static func isVoiceTransport(_ row: [String: JSONValue]) -> Bool {
+        let tags = row["tags"]
+        if let purpose = tags?["purpose"]?.stringValue, ["voice_playback", "voice_dictation"].contains(purpose) { return true }
+        if tags?["artifact_space"]?.stringValue == "voice" { return true }
+        for path in [tags?["path"]?.stringValue, tags?["source_path"]?.stringValue, row["source_path"]?.stringValue, row["path"]?.stringValue].compactMap({ $0 }) {
+            if path.hasPrefix("voice/") || path.hasPrefix("client:voice/") { return true }
+        }
+        return false
     }
 }
 

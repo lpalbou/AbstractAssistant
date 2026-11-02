@@ -32,7 +32,7 @@ struct ReadView: View {
                             .accessibilityLabel(speaker.isActive ? "Pause" : speaker.isPaused ? "Resume" : "Read aloud")
                     } bottom: {
                         Text(status).font(.rounded(.footnote)).foregroundStyle(statusColor)
-                            .lineLimit(1).shadow(color: .black, radius: 3)
+                            .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.85).shadow(color: .black, radius: 3)
                             .padding(.bottom, 8)
                     }
                     MarkdownText(item.text, font: .rounded(.body)).padding(.horizontal, 10)
@@ -106,7 +106,7 @@ struct ReadView: View {
     private var status: String {
         switch speaker.state {
         case .paused: "Paused"
-        case .failed: "Voice unavailable"
+        case .failed: speaker.failureLine
         default: ""
         }
     }

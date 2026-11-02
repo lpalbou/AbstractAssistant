@@ -837,39 +837,29 @@ public final class AssistantStore {
         isOpening = true
         defer { if epoch == generation { isOpening = false } }
         do {
-            let turns = try await client.turns(ofSession: session.id)
-            // Listings are summaries and can omit output. Hydrate every turn, with
-            // bounded concurrency, before replacing visible history atomically.
-            let listedIDs = Set(turns.map(\.runId))
-            let roots = turns.filter { $0.parentRunId.map { !listedIDs.contains($0) } ?? true }
-            let ordered = Array(roots.reversed())
-            struct RestoredTurn: Sendable { var index: Int; var run: RunSummary; var input: ConversationInput }
-            let hydrated = try await withThrowingTaskGroup(of: RestoredTurn.self) { group in
-                func add(_ index: Int) {
-                    let row = ordered[index]
-                    group.addTask {
-                        let detail = try await client.run(id: row.runId)
-                        let input = try await client.input(ofRun: row.runId)
-                        return RestoredTurn(index: index, run: detail, input: input)
-                    }
-                }
-                var next = min(4, ordered.count), result: [RestoredTurn] = []
-                for index in 0..<next { add(index) }
-                while let row = try await group.next() {
-                    guard epoch == generation else { group.cancelAll(); return [] as [RestoredTurn] }
-                    result.append(row)
-                    if next < ordered.count { add(next); next += 1 }
-                }
-                return result.sorted { $0.index < $1.index }
+            // One request — the gateway's replayable history bundle, the read the watch makes —
+            // instead of a listing plus two reads per turn: a long conversation opens in a
+            // second, not a minute (2026-11-02).
+            let turns: [SessionTurn]
+            do { turns = try await client.sessionHistory(latestRun: session.latest.runId, limit: 1000) }
+            catch GatewayError.http(let status, _) where status == 404 {
+                guard epoch == generation else { return }
+                turns = try await client.sessionHistoryByTurns(session: session.id)   // a gateway without the bundle read
             }
+            guard epoch == generation else { return }
             var restored: [ConversationMessage] = []
-            for turn in hydrated {
-                let id = turn.run.runId
-                if turn.input.prompt != nil || !turn.input.attachments.isEmpty { restored.append(.init(id: "prompt-" + id, role: .user, text: turn.input.prompt ?? "", runID: id, artifacts: turn.input.attachments, requestText: turn.input.prompt ?? "", wasStopped: turn.run.status == "cancelled")) }
-                if !(turn.run.conversationText ?? "").isEmpty || !turn.run.mediaArtifacts.isEmpty {
-                    restored.append(.init(id: "answer-" + id, role: .assistant, text: turn.run.conversationText ?? "", runID: id, artifacts: turn.run.mediaArtifacts))
+            for turn in turns {
+                let id = turn.runId, status = turn.status ?? ""
+                if turn.prompt != nil || !turn.attachments.isEmpty { restored.append(.init(id: "prompt-" + id, role: .user, text: turn.prompt ?? "", runID: id, artifacts: turn.attachments, requestText: turn.prompt ?? "", wasStopped: status == "cancelled")) }
+                if !(turn.answer ?? "").isEmpty || !turn.artifacts.isEmpty {
+                    restored.append(.init(id: "answer-" + id, role: .assistant, text: turn.answer ?? "", runID: id, artifacts: turn.artifacts))
                 }
-                else if turn.run.status == "failed" { restored.append(.init(id: "failed-" + id, role: .notice, text: turn.run.error ?? "This reply could not be completed.", runID: id)) }
+                else if status == "failed" { restored.append(.init(id: "failed-" + id, role: .notice, text: "This reply could not be completed.", runID: id)) }
+            }
+            // The newest turn's live state comes from the run itself when the listing is behind.
+            var newest = session.latest
+            if let last = turns.last, last.runId != newest.runId || (last.status ?? newest.status) != newest.status {
+                newest = try await client.run(id: last.runId)
             }
             guard epoch == generation else { return }
             if let entity = selectedEntity, let id = entityVisitIDs[entity + ":" + sessionID] {
@@ -883,10 +873,9 @@ public final class AssistantStore {
             activeEntityRunID = nil; quietEntityRestoreID = nil; completedReply = nil
             stopRequested = false; isStopping = false; unknownStart = false; cancelledRunID = nil
             conversationGeneration += 1; measuredMessages = []; messages = restored; selectedEntity = nil; sessionID = session.id
-            displayedReadRevisions = Dictionary(hydrated.compactMap { turn in
-                SessionReadReceipt(run: turn.run).map { (turn.run.runId, $0) }
+            displayedReadRevisions = Dictionary(turns.compactMap { turn in
+                SessionReadReceipt(run: RunSummary(runId: turn.runId, workflowId: nil, status: turn.status ?? "", sessionId: session.id)).map { (turn.runId, $0) }
             }, uniquingKeysWith: { _, latest in latest })
-            let newest = hydrated.last?.run ?? session.latest
             activeRunID = newest.isTerminal ? nil : newest.runId
             phase = activeRunID == nil ? .ready : .working; error = nil; persistSession()
             if let id = activeRunID { beginActivity(id) }

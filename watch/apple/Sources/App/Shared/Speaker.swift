@@ -1,5 +1,6 @@
 @preconcurrency import AVFoundation
 import AbstractGatewayClient
+import OSLog
 import SwiftUI
 
 /// Reads a text aloud with the gateway's voice: the speech stream's WAV chunks play back to back
@@ -7,10 +8,17 @@ import SwiftUI
 /// optional background analysis lets the orb
 /// follow the voice without delaying playback. An answer's recordings (the Assistant's workflow makes
 /// them) play after its text, at their own speed.
+///
+/// The text is requested in pieces (`SpeechText.pieces`, about 600 characters each), one stream at
+/// a time, the next while under `aheadSeconds` of audio wait: a piece whose stream breaks is
+/// requested again while what arrived plays, and a reading that still fails goes on from that
+/// piece with a tap (2026-11-01: one request for ten minutes of audio was lost whole when the link
+/// went quiet for 90 s).
 @MainActor
 final class Speaker: NSObject, ObservableObject {
-    /// `rate`: the speed chosen in Settings → Voice for speech; 1 for a recording.
-    typealias Chunk = (data: Data, duration: Double, frames: [VoiceFrame], rate: Float)
+    /// `rate`: the speed chosen in Settings → Voice for speech; 1 for a recording. `piece`: the
+    /// text piece this sound belongs to (−1 for a recording).
+    typealias Chunk = (data: Data, duration: Double, frames: [VoiceFrame], rate: Float, piece: Int)
 
     enum State: Equatable { case idle, preparing, speaking, paused, finished, failed(String) }
 
@@ -29,8 +37,12 @@ final class Speaker: NSObject, ObservableObject {
     private var refilling = false
     /// Chunks already spoken, in order (rewind reaches back into them), and the one playing now.
     private var history: [Chunk] = []
+    /// Seconds of spoken audio kept for rewinds; older chunks are let go (a ten-minute reading
+    /// would otherwise hold its every sound).
+    private static let historySeconds = 120.0
     private var currentData: Data?
     private var currentRate: Float = 1
+    private var currentPiece = -1
     /// The chunk playing, analysed (60 frames per second of audio) for the orb.
     private var frames: [VoiceFrame] = []
     private let normalizer = VoiceNormalizer()
@@ -50,6 +62,27 @@ final class Speaker: NSObject, ObservableObject {
     /// This speaker's keep-awake hold (one per speaker: two screens never release each other's).
     private let holder = "speak-" + UUID().uuidString
 
+    /// The text's pieces, the next one to request, and where their voice comes from (kept after a
+    /// failure, so the reading can go on from the piece that was lost).
+    private var pieces: [String] = []
+    private var nextPiece = 0
+    private var scope: SpeechScope?
+    private var client: (any GatewayClient)?
+    /// The error that ended the reading early (a link error: the app coming back resumes by itself).
+    private var lastError: Error?
+    /// Audio waiting to play beyond which the next piece is not requested yet.
+    private static let aheadSeconds = 45.0
+    /// Requests of one piece after its first failed, 2 s apart.
+    private static let retries = 3
+    /// `--piece-chars <n>` (debug builds): smaller pieces, so a short sample answer has several.
+    private static let pieceTarget: Int = {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "--piece-chars"), i + 1 < args.count, let n = Int(args[i + 1]), n > 0 { return n }
+        #endif
+        return 600
+    }()
+
     /// A player dropped with its view (a page replaced under it) lets go of the watch too: a hold
     /// left behind kept every later keep-awake session running its full ten minutes.
     deinit {
@@ -63,7 +96,12 @@ final class Speaker: NSObject, ObservableObject {
     /// The stream broke after some audio: once what arrived has played, the reading says so.
     private var streamError: String?
 
+    private static let log = Logger(subsystem: "ai.abstractframework.assistant.watchkitapp", category: "speaker")
+
+    /// Every build logs the reading's course (pieces, chunks, retries, how it ended); a debug build
+    /// prints it too, so a device launched with its console shows it.
     private func trace(_ s: String) {
+        Self.log.info("\(s, privacy: .public)")
         #if DEBUG
         print("speaker \(Date().formatted(date: .omitted, time: .standard)) \(s)")
         #endif
@@ -99,9 +137,11 @@ final class Speaker: NSObject, ObservableObject {
     }
 
     /// The invariant of a reading: while it is speaking, something plays. A player the system
-    /// stopped underneath plays on from where it stopped; no player, the next chunk starts.
+    /// stopped underneath plays on from where it stopped; no player, the next chunk starts. A
+    /// reading the link broke while the app was away (its retries spent in the background) goes on.
     private func ensurePlaying() {
         synchronizePlayback()
+        if canResume, lastError is URLError { trace("active again: the reading goes on from piece \(nextPiece + 1)"); resumeReading(); return }
         guard state == .speaking else { return }
         guard let p = player else { advanceIfIdle(); return }
         guard !p.isPlaying else { return }
@@ -155,35 +195,23 @@ final class Speaker: NSObject, ObservableObject {
         stop(keepSession: true)
         if let other = Self.current, other !== self { other.stop(keepSession: true) }
         Self.current = self
-        // One request for the whole text; the selected backend determines the streamed audio pieces.
+        // One request per piece of the text; the selected backend determines the streamed audio pieces.
         let spoken = scope == nil ? "" : SpeechText.plain(markdown)
         let clips = clips.filter { $0.kind == .audio }
         guard !spoken.isEmpty || !clips.isEmpty else { state = .failed("Nothing to read in this text."); return }
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .spokenAudio, policy: .default, options: [])
-            try session.setActive(true)
-        } catch {
-            state = .failed("The watch refused audio playback: \(error.localizedDescription)")
-            trace("session error \(error)")
-            return
-        }
+        pieces = spoken.isEmpty ? [] : SpeechText.pieces(spoken, target: Self.pieceTarget, cap: Self.pieceTarget * 4 / 3)
+        nextPiece = 0; self.scope = scope; self.client = client; lastError = nil
+        guard activateSession() else { return }
         state = .preparing; streamDone = false; streamError = nil; receivedSeconds = 0; playedSeconds = 0
         buffering = true; refilling = false
         RuntimeKeeper.shared.hold(holder)
+        trace("reading \(spoken.count) chars in \(pieces.count) pieces, \(clips.count) recordings")
         task = Task { [weak self] in
             // The recordings download while the text is spoken; they play after it, even when the
             // voice fails, and one that cannot be fetched does not keep the others from playing.
             async let recordings = Self.download(clips, client: client)
             var voiceError: Error?
-            if let scope, !spoken.isEmpty {
-                do {
-                    for try await wav in client.speech(text: spoken, scope: scope, voice: VoicePrefs.voice(for: scope)) {
-                        guard let self, !Task.isCancelled else { return }
-                        self.enqueue(wav)
-                    }
-                } catch { voiceError = error }
-            }
+            if scope != nil, let self, !self.pieces.isEmpty { voiceError = await self.readPieces() }
             guard let self, !Task.isCancelled else { return }
             let spokenSeconds = self.receivedSeconds
             if !clips.isEmpty { self.awaitingClips = true; self.advanceIfIdle() }
@@ -192,16 +220,126 @@ final class Speaker: NSObject, ObservableObject {
             self.awaitingClips = false
             for data in fetched.compactMap({ $0 }) {
                 guard !Task.isCancelled else { return }
-                self.enqueue(data, rate: 1)
+                self.enqueue(data, rate: 1, piece: -1)
             }
             self.streamDone = true
             if let error = voiceError {
                 self.streamError = spokenSeconds > 0 ? "The voice stopped early. \(Self.describe(error))" : Self.describe(error)
+                self.lastError = error
+                Self.log.error("voice failed after \(spokenSeconds, format: .fixed(precision: 1), privacy: .public) s at piece \(self.nextPiece + 1, privacy: .public)/\(self.pieces.count, privacy: .public): \(String(describing: error), privacy: .public)")
                 self.trace("voice failed after \(String(format: "%.1f", spokenSeconds)) s: \(error)")
             } else if fetched.contains(where: { $0 == nil }) {
                 self.streamError = "A recording could not be played."
             }
             self.advanceIfIdle()                          // what arrived plays, even under the buffer
+        }
+    }
+
+    private func activateSession() -> Bool {
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .spokenAudio, policy: .default, options: [])
+            try session.setActive(true)
+            return true
+        } catch {
+            state = .failed("The watch refused audio playback: \(error.localizedDescription)")
+            trace("session error \(error)")
+            return false
+        }
+    }
+
+    /// Requests the pieces from `nextPiece` on, one stream at a time, the next once less than
+    /// `aheadSeconds` of audio waits. A piece whose stream breaks (the link, the gateway) is
+    /// requested again up to `retries` times, 2 s apart, while the audio already here plays; its
+    /// sounds not yet played are dropped first, so nothing is heard twice but the sentence under
+    /// way. Returns the error that ended the reading, nil once every piece has arrived.
+    private func readPieces() async -> Error? {
+        guard let scope, let client else { return nil }
+        let voice = VoicePrefs.voice(for: scope)
+        while nextPiece < pieces.count {
+            while aheadSeconds() >= Self.aheadSeconds {
+                try? await Task.sleep(for: .milliseconds(500))
+                if Task.isCancelled { return nil }
+            }
+            let i = nextPiece
+            var attempt = 0
+            while true {
+                attempt += 1
+                trace("piece \(i + 1)/\(pieces.count) started: \(pieces[i].count) chars, try \(attempt)")
+                do {
+                    for try await wav in client.speech(text: pieces[i], scope: scope, voice: voice) {
+                        if Task.isCancelled { return nil }
+                        enqueue(wav, piece: i)
+                    }
+                    break
+                } catch {
+                    if Task.isCancelled || error is CancellationError { return nil }
+                    dropUnplayed(piece: i)
+                    trace("piece \(i + 1) failed on try \(attempt): \(error)")
+                    guard attempt <= Self.retries, LiveGatewayClient.isTransient(error) else { return error }
+                    try? await Task.sleep(for: .seconds(2))
+                    if Task.isCancelled { return nil }
+                }
+            }
+            nextPiece = i + 1
+        }
+        trace("every piece arrived, \(String(format: "%.1f", receivedSeconds)) s received")
+        return nil
+    }
+
+    /// Seconds of sound here and not yet played: the queue, the scheduled piece, the rest of the one playing.
+    private func aheadSeconds() -> Double {
+        var s = queue.reduce(0) { $0 + $1.duration / Double($1.rate) }
+        if let next = successor { s += next.chunk.duration / Double(next.chunk.rate) }
+        if let p = player { s += max(0, p.duration - p.currentTime) / Double(max(0.1, currentRate)) }
+        return s
+    }
+
+    /// A piece's sounds not yet started (the request is made again: they would be heard twice).
+    private func dropUnplayed(piece i: Int) {
+        if let next = successor, next.chunk.piece == i { unscheduleSuccessor() }
+        let dropped = queue.filter { $0.piece == i }
+        guard !dropped.isEmpty else { return }
+        queue.removeAll { $0.piece == i }
+        receivedSeconds -= dropped.reduce(0) { $0 + $1.duration }
+        trace("dropped \(dropped.count) unplayed sounds of piece \(i + 1)")
+    }
+
+    /// A reading that stopped early can go on from the piece that was lost.
+    var canResume: Bool {
+        if case .failed = state { return nextPiece < pieces.count && scope != nil }
+        return false
+    }
+
+    /// The line under the orb for a reading that failed, in the person's words (the reason is in the log).
+    var failureLine: String {
+        guard playedSeconds > 0 else { return "Voice unavailable" }
+        return canResume ? "The voice stopped early. Tap the speaker to continue." : "The voice stopped early."
+    }
+
+    /// Goes on from the piece whose stream was lost (the voice button's tap on a reading that
+    /// stopped early; the app coming back after a link error).
+    func resumeReading() {
+        guard canResume else { return }
+        if let other = Self.current, other !== self { other.stop(keepSession: true) }
+        Self.current = self
+        guard activateSession() else { return }
+        state = .preparing; streamDone = false; streamError = nil; lastError = nil
+        buffering = true; refilling = false
+        RuntimeKeeper.shared.hold(holder)
+        trace("resuming the reading from piece \(nextPiece + 1)/\(pieces.count)")
+        task = Task { [weak self] in
+            guard let self else { return }
+            let error = await self.readPieces()
+            guard !Task.isCancelled else { return }
+            self.streamDone = true
+            if let error {
+                self.streamError = "The voice stopped early. \(Self.describe(error))"
+                self.lastError = error
+                Self.log.error("voice failed again at piece \(self.nextPiece + 1, privacy: .public)/\(self.pieces.count, privacy: .public): \(String(describing: error), privacy: .public)")
+                self.trace("voice failed again: \(error)")
+            }
+            self.advanceIfIdle()
         }
     }
 
@@ -228,6 +366,7 @@ final class Speaker: NSObject, ObservableObject {
         player?.stop(); player = nil
         scheduledEnd = 0
         queue.removeAll(); history.removeAll(); currentData = nil; startAt = 0
+        pieces.removeAll(); nextPiece = 0; lastError = nil
         if isActive || state == .paused { state = .idle }
         if keepSession { RuntimeKeeper.shared.release(holder) } else { release() }
     }
@@ -252,7 +391,7 @@ final class Speaker: NSObject, ObservableObject {
             }
             back -= p.currentTime
             p.stop(); player = nil
-            if let d = currentData { queue.insert((d, p.duration, frames, currentRate), at: 0) }
+            if let d = currentData { queue.insert((d, p.duration, frames, currentRate, currentPiece), at: 0) }
         }
         currentData = nil
         var offset: Double = 0
@@ -296,11 +435,11 @@ final class Speaker: NSObject, ObservableObject {
         return normalizer.push(frames[i], at: t)
     }
 
-    private func enqueue(_ wav: Data, rate: Float = Float(VoicePrefs.speed)) {
+    private func enqueue(_ wav: Data, rate: Float = Float(VoicePrefs.speed), piece: Int) {
         let duration = (try? AVAudioPlayer(data: wav))?.duration ?? 0
-        queue.append((wav, duration, [], rate))
+        queue.append((wav, duration, [], rate, piece))
         receivedSeconds += duration
-        trace("chunk \(wav.count) bytes, received \(String(format: "%.1f", receivedSeconds)) s")
+        trace("chunk \(wav.count) bytes (\(String(format: "%.1f", duration)) s, piece \(piece + 1)), received \(String(format: "%.1f", receivedSeconds)) s, played \(String(format: "%.1f", playedSeconds)) s")
         advanceIfIdle()
         scheduleSuccessor()
     }
@@ -314,7 +453,7 @@ final class Speaker: NSObject, ObservableObject {
                 // Silence never passes for a reading: no sound and no error is a failure with a reason.
                 if let why = SpeechSample.failure(receivedSeconds: receivedSeconds, clipsPlayed: playedSeconds > 0, streamError: streamError) {
                     state = .failed(why); trace("ended without playing: \(why)")
-                } else { state = .finished; trace("done") }
+                } else { state = .finished; trace("done, played \(String(format: "%.1f", playedSeconds)) s") }
                 release()
             }
             return
@@ -339,6 +478,7 @@ final class Speaker: NSObject, ObservableObject {
             if startAt > 0 { p.currentTime = min(startAt, max(0, p.duration - 0.05)); startAt = 0 }
             currentData = next
             currentRate = chunk.rate
+            currentPiece = chunk.piece
             frames = chunk.frames
             player = p
             if play, !start(p) { throw GatewayError.invalidResponse }
@@ -446,7 +586,8 @@ final class Speaker: NSObject, ObservableObject {
         }
         cancelAnalysis()
         playedSeconds += p.duration
-        if let d = currentData { history.append((d, p.duration, frames, currentRate)) }
+        if let d = currentData { history.append((d, p.duration, frames, currentRate, currentPiece)) }
+        while history.count > 1, history.reduce(0, { $0 + $1.duration }) > Self.historySeconds { history.removeFirst() }
         currentData = nil
         trace("finished chunk, played \(String(format: "%.1f", playedSeconds)) s")
         player = nil
@@ -455,6 +596,7 @@ final class Speaker: NSObject, ObservableObject {
             player = next.player
             currentData = next.chunk.data
             currentRate = next.chunk.rate
+            currentPiece = next.chunk.piece
             frames = next.chunk.frames
             scheduledEnd = next.startTime + next.player.duration / Double(next.chunk.rate)
             analyzeIfNeeded(next.chunk.data, player: next.player)

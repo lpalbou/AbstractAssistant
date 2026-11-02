@@ -7,8 +7,33 @@ struct ConversationsSheet: View {
     var body: some View {
         NavigationStack {
             ConversationHistoryList(archived: false, onOpen: onOpen)
-                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done", action: onOpen) } }
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done", action: onOpen).disabled(store.isOpening) } }
         }
+        .overlay { if store.isOpening { OpeningOverlay() } }
+        .animation(.easeInOut(duration: 0.2), value: store.isOpening)
+        .interactiveDismissDisabled(store.isOpening)
+    }
+    @Environment(AssistantStore.self) private var store
+}
+
+/// While a chosen conversation loads (its turns are fetched one by one, seconds on a long one), the
+/// sheet says so and takes no tap: nothing looked like it was happening before.
+private struct OpeningOverlay: View {
+    var body: some View {
+        ZStack {
+            PhoneTheme.ground.opacity(0.92).ignoresSafeArea()
+            VStack(spacing: 14) {
+                ProgressView().controlSize(.large).tint(PhoneTheme.mint)
+                Text("Opening your conversation…").font(.subheadline.weight(.medium)).foregroundStyle(PhoneTheme.ink)
+            }
+            .padding(.horizontal, 28).padding(.vertical, 24)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22))
+        }
+        .transition(.opacity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Opening your conversation")
+        .accessibilityAddTraits(.isModal)
+        .accessibilityIdentifier("conversations.opening")
     }
 }
 

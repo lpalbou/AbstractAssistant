@@ -78,6 +78,7 @@ struct VoiceButton: View {
         else if speaker.state == .preparing { }           // the voice is on its way: a second tap waits too
         else if speaker.isActive { speaker.pause() }
         else if speaker.isPaused { speaker.resume() }
+        else if speaker.canResume { speaker.resumeReading() }   // stopped early: on from the piece that was lost
         else { play() }
         WKInterfaceDevice.current().play(.click)
     }

@@ -206,6 +206,22 @@ public extension GatewayClient {
     func markSessionReads(_ receipts: [SessionReadReceipt]) async throws -> [SessionReadReceipt] { throw GatewayError.http(status: 404, body: "") }
     func turns(ofSession id: String, limit: Int) async throws -> [RunSummary] { throw GatewayError.http(status: 404, body: "") }
     func sessionHistory(latestRun runId: String, limit: Int) async throws -> [SessionTurn] { throw GatewayError.http(status: 404, body: "") }
+    /// The session's turns composed from its listing and two reads per turn — what every client
+    /// did before the bundle read, kept for a gateway without `history_bundle` (404) and for test
+    /// doubles. Oldest first, like `sessionHistory`.
+    func sessionHistoryByTurns(session id: String) async throws -> [SessionTurn] {
+        let rows = try await turns(ofSession: id)
+        let listed = Set(rows.map(\.runId))
+        let roots = rows.filter { $0.parentRunId.map { !listed.contains($0) } ?? true }.reversed()
+        var out: [SessionTurn] = []
+        for row in roots {
+            let detail = try await run(id: row.runId)
+            let input = try await input(ofRun: row.runId)
+            out.append(SessionTurn(runId: row.runId, createdAt: detail.createdAt, prompt: input.prompt, answer: detail.conversationText,
+                                   status: detail.status, attachments: input.attachments, artifacts: detail.mediaArtifacts))
+        }
+        return out
+    }
     func setArchived(sessionId: String, _ archived: Bool) async throws { throw GatewayError.invalidResponse }
     func archivedRuns(limit: Int) async throws -> [RunSummary] { throw GatewayError.invalidResponse }
     func searchSessions(_ query: String, limit: Int) async throws -> SessionSearchPage { throw GatewayError.http(status: 404, body: "") }

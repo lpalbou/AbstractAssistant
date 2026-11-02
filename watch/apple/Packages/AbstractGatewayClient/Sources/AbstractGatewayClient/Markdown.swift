@@ -108,6 +108,46 @@ public enum SpeechText {
 
     public static func plain(_ markdown: String) -> String { plain(blocks: MarkdownBlock.parse(markdown)) }
 
+    /// The plain text in pieces, one speech request each (2026-11-01: one request for ten minutes
+    /// of audio was lost whole when the watch's link went quiet for 90 s; a piece lost is requested
+    /// again and the reading goes on exactly where it stopped). A piece gathers whole sentences
+    /// (ending in `.`, `!` or `?` before a space) up to about `target` characters; a sentence longer
+    /// than `cap` is cut at a space before `cap`. No piece is empty; the words round-trip unchanged.
+    public static func pieces(_ plain: String, target: Int = 600, cap: Int = 800) -> [String] {
+        let cap = max(1, cap), target = max(1, min(target, cap))
+        var sentences: [String] = []
+        var start = plain.startIndex
+        var i = start
+        while i < plain.endIndex {
+            let next = plain.index(after: i)
+            if ".!?".contains(plain[i]), next == plain.endIndex || plain[next].isWhitespace {
+                sentences.append(String(plain[start..<next])); start = next
+            }
+            i = next
+        }
+        if start < plain.endIndex { sentences.append(String(plain[start...])) }
+        var parts: [String] = []
+        for s in sentences {
+            var rest = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            while rest.count > cap {
+                let limit = rest.index(rest.startIndex, offsetBy: cap)
+                let cut = rest[..<limit].lastIndex(where: { $0.isWhitespace }) ?? limit
+                let head = rest[..<cut].trimmingCharacters(in: .whitespacesAndNewlines)
+                if !head.isEmpty { parts.append(head) }
+                rest = rest[cut...].trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if !rest.isEmpty { parts.append(rest) }
+        }
+        var pieces: [String] = []
+        var current = ""
+        for part in parts {
+            if !current.isEmpty, current.count + 1 + part.count > target { pieces.append(current); current = "" }
+            current = current.isEmpty ? part : current + " " + part
+        }
+        if !current.isEmpty { pieces.append(current) }
+        return pieces
+    }
+
     static func plain(blocks: [MarkdownBlock]) -> String {
         var sentences: [String] = []
         for block in blocks {

@@ -732,9 +732,18 @@ final class AppModel: ObservableObject {
             // (~7 s measured) and its own failure never marks the gateway offline.
             lastError = nil; failures = 0; failingSince = nil; unreachable = false
             lastRefresh = Date()
-            if let text = testRead, let run = runs.first {
+            if let value = testRead, let first = runs.first {
                 testRead = nil
-                path = [.read(ReadItem(title: "Read", text: text, scope: .run(run.runId)))]
+                // `--test-read <run id>`: that run's answer, read aloud (a device check of a long
+                // reading, its course on the console); any other text is read as it is.
+                var item = ReadItem(title: "Read", text: value, scope: .run(first.runId))
+                // The list row carries no answer: an id-shaped value is fetched whole.
+                var run: RunSummary?
+                if !value.contains(where: \.isWhitespace), value.count >= 8 { run = try? await client.run(id: value) }
+                if let run, let text = run.conversationText, !text.isEmpty {
+                    item = ReadItem(title: "Read", text: text, scope: .run(run.runId))
+                }
+                path = [.read(item)]
             }
             // The automations (the slow call) load on their own, so the titles below never wait for them,
             // and at most once a minute.

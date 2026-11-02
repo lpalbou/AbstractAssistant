@@ -62,6 +62,15 @@ private final class SpeechWire: URLProtocol, @unchecked Sendable {
         #expect(requests.first?.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-key")
     }
 
+    /// The gateway keeps the line alive while its engine is quiet (a keep-alive line every few
+    /// seconds, or a bare newline): neither ends or interrupts the audio, and the idle timeout stays 90 s.
+    @Test func keepAliveAndBlankLinesNeverInterruptTheAudio() async throws {
+        let api = client(audio + "{\"type\":\"keepalive\"}\n\n{\"type\":\"keepalive\",\"elapsed\":12.5}\n   \n"
+                         + "{\"type\":\"progress\",\"segment\":3,\"of\":9}\n" + audio + "{\"type\":\"keepalive\"}\n" + done)
+        #expect(try await collect(api.speech(text: "Hello", scope: .run("r1"))) == [wav, wav])
+        #expect(SpeechWire.requests.first?.timeoutInterval == 90)
+    }
+
     @Test func aCleanSocketEOFStillMeansTruncatedSpeech() async throws {
         let api = client(audio)
         var received: [Data] = []

@@ -162,6 +162,24 @@ public actor MockGatewayClient: GatewayClient {
     // The iPhone's fixtures (its screenshots and tests).
     private let emptyAutomations: Bool
     private nonisolated let speechPreparationDelay: TimeInterval
+    #if DEBUG
+    /// A reading in pieces over a link that drops: the speech requests (counted from 1) whose
+    /// streams time out. `--stalled-voice`: the second piece's first two requests (2...3), the
+    /// third plays; `--stalled-voice-fatal`: its first four (2...5), the fifth, after the person's
+    /// tap, plays. A test sets the range itself and resets the count. Every piece that plays is
+    /// 2 s of sound. (On the watch, pair with `--piece-chars 30`.)
+    nonisolated(unsafe) public static var stalledVoiceFailures: ClosedRange<Int>? = {
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("--stalled-voice-fatal") { return 2...5 }
+        if args.contains("--stalled-voice") { return 2...3 }
+        return nil
+    }()
+    /// Speech requests so far while `stalledVoiceFailures` is set.
+    nonisolated(unsafe) public static var stalledVoiceCalls = 0
+    /// A failing request first sends its 2 s of sound, then breaks (a stream cut mid-piece).
+    nonisolated(unsafe) public static var stalledVoiceYieldsBeforeFailing = false
+    private static let stalledVoiceLock = NSLock()
+    #endif
     private let mediaImage: Data?
     private let mediaVoice: Data?
     private let historyFixture: Bool
@@ -986,6 +1004,26 @@ public actor MockGatewayClient: GatewayClient {
     /// the orb can be exercised without a gateway.
     public nonisolated func speech(text: String, scope: SpeechScope) -> AsyncThrowingStream<Data, Error> { speech(text: text, scope: scope, voice: nil) }
     public nonisolated func speech(text: String, scope: SpeechScope, voice: VoiceChoice?) -> AsyncThrowingStream<Data, Error> {
+        #if DEBUG
+        if let (fails, call, yieldsFirst) = Self.stalledVoiceLock.withLock({ () -> (ClosedRange<Int>, Int, Bool)? in
+            guard let fails = Self.stalledVoiceFailures else { return nil }
+            Self.stalledVoiceCalls += 1
+            return (fails, Self.stalledVoiceCalls, Self.stalledVoiceYieldsBeforeFailing)
+        }) {
+            return AsyncThrowingStream { continuation in
+                let task = Task {
+                    do {
+                        try await Task.sleep(for: .milliseconds(300))
+                        if fails.contains(call), !yieldsFirst { throw URLError(.timedOut) }
+                        continuation.yield(SyntheticSpeech.wav(seconds: 2.0, seed: call))
+                        if fails.contains(call) { throw URLError(.networkConnectionLost) }
+                        continuation.finish()
+                    } catch { continuation.finish(throwing: error) }
+                }
+                continuation.onTermination = { _ in task.cancel() }
+            }
+        }
+        #endif
         guard world == .watch else {
             let delay = speechPreparationDelay
             return AsyncThrowingStream { continuation in

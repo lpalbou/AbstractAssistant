@@ -95,7 +95,11 @@ Debug builds also accept test hooks that answer, ask or navigate without a tap: 
 / `--test-secret` (sign-in), `--reset-signins` (forgets the sign-in, the known gateways and the kept
 sign-ins), `--test-known <url,url>` (gateways signed into, oldest first), `--test-kept <user,user>`, `--test-last-user <name>` (the user signed in last, what the field starts with)
 (sign-ins kept on the default gateway), `--test-approve once|all`, `--test-action allow-first|deny-first`,
-`--test-ask "<prompt>"`, `--test-read "<markdown>"`, `--test-open <url>`, `--test-listen`,
+`--test-ask "<prompt>"`, `--test-read "<markdown>"` or `--test-read <run id>` (that run's answer read
+aloud, its course — pieces, chunks, retries, how it ended — on the console: `xcrun devicectl device
+process launch --console`), `--piece-chars <n>` (speech requested in pieces of about n characters
+instead of 600), `--stalled-voice` / `--stalled-voice-fatal` (the sample voice's second piece times
+out twice, or four times until a tap), `--test-open <url>`, `--test-listen`,
 `--test-pause`, `--test-rewind` (with `--rewind-1`), `--open-automation <n>`, `--run-now`,
 `--run-first`, `--scroll-bottom`, `--scroll-end-now`, `--home-bottom`, `--render-icon`,
 `--render-orb-work` (the orb at work, frame by frame, into Documents), `--render-orb-scenes` (the scene styles, robots included, at rest, speaking, listening, thinking and working, into Documents), `--reset-tools` (tool and
