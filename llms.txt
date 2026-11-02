@@ -23,7 +23,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 
 - [phone/iphone/docs/troubleshooting.md](phone/iphone/docs/troubleshooting.md): dated automation runs, failure explanations, provider versus phone authentication, notifications and Apple push (the push forwarder, generic words on development builds), installed version/build and Apple-managed updates
 - [docs/macos-signing.md](docs/macos-signing.md): signing and notarizing the macOS app bundle (`build-macos-app --sign`, `--notarize`, `--dmg`, `--local-test`)
-- [web/README.md](web/README.md): Assistant (web), the npm package `@abstractframework/assistant` registered as `assistant-web` in Gateway's console and tray Apps menu (install with `abstractgateway apps install assistant-web`, or `npx @abstractframework/assistant`); renders conversations from the gateway's replay view, folding the ledger itself on a gateway before 0.17.0; [web/CHANGELOG.md](web/CHANGELOG.md) records its npm release history
+- [web/README.md](web/README.md): Assistant (web), the npm package `@abstractframework/assistant` registered as `assistant-web` in Gateway's console and tray Apps menu (install with `abstractgateway apps install assistant-web`, or `npx @abstractframework/assistant`); renders conversations from the gateway's replay view, folding the ledger itself on a gateway before 0.17.0, and automations as on the Apple Watch (list, page, Run/Stop, Edit, New); [web/CHANGELOG.md](web/CHANGELOG.md) records its npm release history
 
 ## Design Records
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records

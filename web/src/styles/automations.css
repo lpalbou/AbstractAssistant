@@ -1,0 +1,55 @@
+/* Automations (the watch's, in the web Assistant): the nav choice, the folded Paused / Archived
+ * sections, an automation's header, and the Edit / New forms. Tokens only (tokens.css); the cards
+ * and the chat are the kit's. */
+/* The choice takes the list's first row; New sits on the next one, at the right. */
+.aa-sidebar__top:has(> .aa-nav-choice) { flex-wrap: wrap; }
+.aa-sidebar__top > .aa-nav-choice { flex: 1 0 100%; }
+.aa-sidebar__top > .aa-nav-choice + .aa-button { margin-left: auto; }
+.aa-nav-choice { display: flex; gap: 4px; min-width: 0; }
+.aa-nav-choice button { flex: 1 1 0; }
+.aa-nav-choice button { min-height: 44px; padding: 0 10px; border: 1px solid var(--aa-border); border-radius: 12px; background: transparent; color: var(--aa-text-muted); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.aa-nav-choice button[aria-pressed="true"] { color: var(--aa-accent); background: var(--aa-accent-bg); border-color: var(--aa-accent-border); }
+
+.aa-fold { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.aa-fold__toggle { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; min-height: 44px; padding: 0 8px; border: 0; border-radius: 10px; background: transparent; color: var(--aa-text-muted); font-size: 13px; }
+.aa-fold__toggle:hover { color: var(--aa-text); background: var(--aa-overlay-hover); }
+.aa-archived { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.aa-archived__row { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 8px; border-radius: 10px; }
+.aa-archived__title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--aa-text-muted); }
+.aa-archived__row button { flex: 0 0 auto; min-height: 44px; padding: 0 12px; border: 1px solid var(--aa-border); border-radius: 12px; background: var(--aa-surface); color: var(--aa-text); font-size: 13px; }
+
+.aa-automation-page { height: 100%; min-height: 0; display: flex; flex-direction: column; max-width: 1440px; margin: auto; width: 100%; }
+.aa-automation-page > .aa-chat { flex: 1 1 auto; }
+.aa-automation-head { display: flex; flex-direction: column; gap: 8px; min-width: 0; width: 100%; }
+.aa-automation-head__line { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.aa-automation-head__line .aa-chat__title { flex: 1 1 auto; min-width: 0; }
+.aa-automation-head__actions { display: flex; flex: 0 0 auto; gap: 8px; }
+.aa-automation-head__actions .aa-button { gap: 6px; padding: 0 14px; }
+.aa-button--stop { color: var(--aa-danger); border-color: var(--aa-danger); }
+.aa-automation-head__facts { display: flex; flex-wrap: wrap; gap: 14px; margin: 0; font-size: 13px; color: var(--aa-text-muted); }
+.aa-automation-head__facts span { display: inline-flex; align-items: center; gap: 5px; }
+.aa-automation-head__starting { margin: 0; font-size: 12px; font-weight: 600; color: var(--aa-accent); font-variant-numeric: tabular-nums; }
+.aa-automation-head__task { margin: 0; font-size: 13px; line-height: 1.55; color: var(--aa-text); overflow-wrap: anywhere; white-space: pre-wrap; }
+.aa-automation-head__task span { display: block; font-size: 11px; color: var(--aa-text-muted); }
+.aa-automation-head__note { display: inline-flex; align-items: center; gap: 5px; margin: 0; font-size: 12px; color: var(--aa-text-muted); }
+
+.aa-form-page { height: 100%; overflow: auto; border-left: 1px solid var(--aa-border); }
+.aa-form { display: flex; flex-direction: column; gap: 16px; max-width: var(--aa-reading-max); margin: 0 auto; padding: 24px; }
+.aa-form h1 { margin: 0; font-family: var(--aa-font-rounded); font-size: 20px; font-weight: 600; letter-spacing: -.03em; }
+.aa-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 13px; color: var(--aa-text-muted); }
+.aa-field input, .aa-field select, .aa-field textarea { min-height: 44px; width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid var(--aa-border); border-radius: 12px; background: var(--aa-ground); color: var(--aa-text); font-size: 14px; }
+.aa-field textarea { resize: vertical; line-height: 1.5; font: inherit; font-size: 14px; }
+.aa-field__problem { color: var(--aa-danger); }
+.aa-fieldset { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 12px 14px; border: 1px solid var(--aa-border); border-radius: 14px; min-width: 0; }
+.aa-fieldset legend { padding: 0 6px; font-size: 12px; color: var(--aa-text-muted); }
+.aa-form .af-auto__field { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 13px; color: var(--aa-text-muted); }
+.aa-form__actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.aa-form__actions > span { margin-right: auto; font-size: 13px; }
+
+@media (max-width: 767.98px) {
+  .aa-form-page { border: 0; }
+  .aa-form { padding: 16px; }
+  .aa-field input, .aa-field select, .aa-field textarea { font-size: 16px; }
+  .aa-automation-head__line { flex-wrap: wrap; }
+  .aa-automation-head__line .aa-chat__title { flex-basis: 100%; }
+}

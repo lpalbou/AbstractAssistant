@@ -19,6 +19,26 @@ applies to that request. **Allow for this chat**, when available, uses Gateway's
 session policy. **Decide later** postpones the choice and grants no permission.
 Use Review to return to the pending request. Stop ends the current request or playback.
 
+## Automations
+
+**Automations** in the sidebar (behind the menu button on a phone) lists the tasks that run on
+their own: the active ones first, the most recently active at the top, then **Paused** and
+**Archived**, each opening on a click. Each card shows how many times it ran, how often it runs
+and when it runs next; a number marks results you have not seen, and **Needs you** a run that
+waits for you. The archive button asks first; **Restore** under Archived brings one back.
+
+Open an automation to see its latest ten runs as a conversation: what it was asked, then the
+answer. Opening it marks its new results seen. **Run** starts a run now; while one runs, **Stop**
+ends it (the automation keeps its schedule). **Edit** changes its title, its task, whether it is
+active, how often it runs and whether each run builds on its earlier runs (and how much of them
+it reads); a change made elsewhere meanwhile is refused, so open it again. Type in the message
+field to talk about its latest run: this opens a new conversation about it and never changes
+the automation. When a run waits for you, **Answer** opens it where you can review the request.
+
+**New** creates one: what it should do, the flow that runs it (the gateway's default unless you
+choose another), how often it runs or every day at a time, and whether each run builds on the
+earlier ones. Its runs use the same tools as your conversations.
+
 ## Speak and listen
 
 Tap the orb to begin recording, then tap again to finish. With Hold selected in

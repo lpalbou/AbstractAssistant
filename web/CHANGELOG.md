@@ -6,6 +6,21 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 
 ## [Unreleased]
 
+### Added
+
+- **Automations, as on the Apple Watch.** **Automations** beside Conversations lists them in the
+  gateway's order: the active ones first, the most recently active at the top, then **Paused · N** and
+  **Archived · N**, folded until opened (with an older gateway every automation is in one list).
+  Search finds them by name. An automation's page shows how many times it ran, how often and when
+  next, its task and its latest ten runs as a conversation; opening it marks its new results seen.
+  **Run** starts a run now and **Stop** ends the run in progress. **Edit** changes its title, task,
+  whether it is active, how often it runs and whether each run builds on the earlier ones (and how
+  much of them it reads). Talking on its page opens a conversation about its latest run; a run
+  waiting for you opens where you answer it. The archive button asks first and **Restore** brings an
+  archived one back. **New** creates one: its task, the flow that runs it, every interval from 30
+  seconds to a week or every day at a time, and whether its runs build on each other; its runs use
+  the same tools as your conversations.
+
 ## [0.1.0] - 2026-11-02
 
 First public release on npm. AbstractGateway lists it as **Assistant (web)** and installs it from
