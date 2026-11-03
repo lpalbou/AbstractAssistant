@@ -13,6 +13,12 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ### Fixed
 
+- **A reading interrupted by the connection picks up at the right words.** When the connection drops
+  in the middle of an answer, the part that was fully read is never read again: the rest is requested
+  from the end of the last finished sentence group. Inside a sentence group that was cut, the seconds
+  already heard are skipped (with a cloned voice, a few words at that point may still repeat or be
+  skipped). Needs a gateway whose voice reports its text segments (AbstractVoice 0.20.0); with an
+  older one the reading resumes as before.
 - **Automation cards show their answer as clean plain text.** The Markdown markers (`**`, `#`)
   are gone and nothing is bold: one font, one weight, in the same three lines as before. The full
   formatting is in the run's sheet.

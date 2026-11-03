@@ -1,26 +1,51 @@
 import Foundation
 
-/// Where the retry of a speech piece picks up (council 2026-11-02, A3: a retry replayed up to ~40 s
-/// the person had already heard). When a piece's stream breaks, the sound of that piece that already
-/// arrived stays queued and plays on: nothing is cut or dropped. The piece is requested again, and
-/// the new stream's first `kept` seconds — the sound already here — are skipped: whole chunks are
-/// dropped, the chunk across the boundary is trimmed to the sample. The seam is exact when the
-/// gateway voices the same text to the same sound on the retry. A sampling engine (Qwen3-TTS, and
-/// cloned voices above all: no seed, and the speaker check may regenerate a segment) voices it with
-/// a different length, so the seam lands within a few words of the true one, at worst about a
-/// sentence; it never replays the piece. An exact seam needs segment-aware stream offsets from the
-/// gateway, which will replace this skip. Pure, so it is tested in this package and shared by the
-/// watch and the iPhone.
+/// Where the retry of a speech piece picks up (AbstractVoice ADR 0009). When a piece's stream
+/// breaks, the sound of that piece that already arrived stays queued and plays on: nothing is cut or
+/// dropped. The retry asks only for the text after the last segment the gateway ended
+/// (`segment_end`'s `text_end`), so a finished segment is never voiced again and the seam there is
+/// exact for every engine. When the break fell inside a segment, the new stream's first seconds —
+/// as many as already arrived of that unfinished segment — are skipped: whole chunks are dropped,
+/// the chunk across the boundary is trimmed to the sample. That seam is exact for a voice rendered
+/// the same way each time, within a few words for a sampling engine (Qwen3-TTS, cloned voices); if
+/// the retried segment ends before the skip is used up, the skip stops there, so the next segment
+/// plays whole. A gateway that reports no segments ends none: the retry asks for the whole piece and
+/// skips every second already here (the rule before segments). Pure, so it is tested in this package
+/// and shared by the watch and the iPhone.
 public struct SpeechPieceRetry: Sendable, Equatable {
     /// Seconds of this piece's sound kept so far (queued to play, playing or played).
     public private(set) var kept: Double = 0
     /// Seconds of the current request's sound still to skip.
     public private(set) var skipping: Double = 0
+    /// Unicode scalars of the piece's text whose segments have ended: the next request starts here.
+    public private(set) var resumeAt: Int = 0
+    /// Where the current request's text starts in the piece (its stream's offsets count from here).
+    private var requestedFrom: Int = 0
+    /// Seconds kept of the segment not yet ended.
+    private var unfinished: Double = 0
 
     public init() {}
 
-    /// The piece's stream broke: the next request's first `kept` seconds are the sound already here.
-    public mutating func requestAgain() { skipping = kept }
+    /// The text to request for this piece: what follows the ended segments. Nil when every segment
+    /// of it has ended (the stream broke after its last sound): nothing is left to ask for.
+    public func text(of piece: String) -> String? {
+        guard resumeAt > 0 else { return piece }
+        let scalars = piece.unicodeScalars
+        guard resumeAt < scalars.count else { return nil }
+        return String(scalars[scalars.index(scalars.startIndex, offsetBy: resumeAt)...])
+    }
+
+    /// The piece's stream broke: the next request starts after the ended segments and skips the
+    /// seconds already here of the segment that did not end.
+    public mutating func requestAgain() { requestedFrom = resumeAt; skipping = unfinished }
+
+    /// A `segment_end` of the current request: its text up to `textEnd` (an offset into the
+    /// requested text) has all its sound here.
+    public mutating func segmentEnded(textEnd: Int) {
+        resumeAt = max(resumeAt, requestedFrom + max(0, textEnd))
+        unfinished = 0
+        skipping = 0
+    }
 
     public enum Decision: Equatable, Sendable {
         /// The chunk lies inside the sound already kept.
@@ -32,12 +57,14 @@ public struct SpeechPieceRetry: Sendable, Equatable {
     /// A chunk of `seconds` from the current request.
     public mutating func admit(seconds: Double) -> Decision {
         let seconds = max(0, seconds)
-        if skipping <= Self.tolerance { skipping = 0; kept += seconds; return .keep(trimming: 0) }
+        if skipping <= Self.tolerance { skipping = 0; keep(seconds); return .keep(trimming: 0) }
         if seconds <= skipping + Self.tolerance { skipping = max(0, skipping - seconds); return .drop }
         let trim = skipping
-        skipping = 0; kept += seconds - trim
+        skipping = 0; keep(seconds - trim)
         return .keep(trimming: trim)
     }
+
+    private mutating func keep(_ seconds: Double) { kept += seconds; unfinished += seconds }
 
     /// A streamed WAV chunk from the current request: nil when it is dropped, else the chunk to play
     /// (trimmed at the boundary). Throws for a chunk that is not a PCM WAV (it cannot be measured, so
