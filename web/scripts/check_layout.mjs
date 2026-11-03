@@ -37,6 +37,30 @@ const bundle = {
   },
 };
 const json = (body, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(body) });
+/** An automation summary as the gateway serves it (AbstractGateway 0.20: `section`, `last_activity_at`). */
+function automation(id, title, status, section, extra = {}) {
+  return {
+    automation_id: id, title, status, section, last_activity_at: "2026-11-02T08:00:00Z", updated_at: "2026-11-02T08:00:00Z",
+    trigger: { binding_id: `b-${id}`, source_id: "schedule", source_version: 2, config: { kind: "every", every: "24h" } },
+    trigger_text: "Every 24 hours (UTC)", schedule_rule_text: "Every 24 hours (UTC)", next_run_at: "2026-11-03T08:00:00Z",
+    context_mode: "growing", growing_max_tokens: 50000, occurrence_count: 41, current_occurrence: null,
+    attention: { pending_waits: 0, unread: false, unseen_count: 0, cursor: "att1:0", items: [], waits: [] },
+    legacy: false, revision: 2, capabilities: ["revise", "pause", "run_now", "archive", "discuss"], session_kind: "automation", ...extra,
+  };
+}
+const automationRows = [
+  automation("auto-morning", "Morning digest", "active", "active", { attention: { pending_waits: 1, unread: true, unseen_count: 1, cursor: "att1:41", items: [],
+    waits: [{ run_id: "occ-4", wait_key: "tool_approval:occ-4", kind: "tool_approval", reason: "user", index: 4,
+      details: [{ name: "fetch_url", arguments: { url: "https://example.org/a/very/long/path/that/does/not/break/anywhere/at/all/because/it/is/one/word" } }] }] } }),
+  automation("auto-long", LONG, "active", "active"),
+  automation("auto-notes", "Consolidate my notes", "paused", "paused", { occurrence_count: 0, next_run_at: undefined }),
+];
+const occurrences = [3, 2, 1].map((i) => ({
+  run_id: `occ-${i}`, index: i, attempts: 1, fired_at: `2026-11-0${i}T08:00:00Z`, finished_at: `2026-11-0${i}T08:01:00Z`,
+  status: i === 2 ? "failed" : "completed", trigger: { source_id: "schedule", summary: "" }, user_turn: i === 3 ? LONG : "Three things today",
+  answer: i === 2 ? "" : "Here is the digest:\n\n```\n" + "y".repeat(300) + "\n```", failure: i === 2 ? { reason_code: "provider_error", message: "The provider could not be reached.", attempts: 1 } : undefined,
+  notify: null, artifacts: [], waits: [], ledger_url: "",
+}));
 /** A small replay_view_v1 of a finished turn (AbstractGateway >= 0.17.0 serves it). */
 function viewFor(runId) {
   const order = (ts, seq) => [ts, runId, seq];
@@ -76,7 +100,24 @@ function answer(path, mode) {
   if (/^api\/gateway\/runs\/[^/?]+\/ledger/.test(path)) return json({ items: [], next_after: 0 });
   m = /^api\/gateway\/runs\/([^/?]+)$/.exec(path);
   if (m) return json({ run_id: m[1], status: "completed", session_id: "s1" });
-  if (path.startsWith("api/gateway/discovery/tools")) return json({ items: [] });
+  // Automations (W10): the list as the gateway serves it (ADR 0048), one automation, its runs.
+  if (path === "api/gateway/automations/defaults") return json({ growing_max_tokens: 50000 });
+  if (path.startsWith("api/gateway/automations?status=archived")) return json({ items: [automation("auto-old", "Old monitor", "archived", "archived")], next_cursor: null });
+  if (path.startsWith("api/gateway/automations?")) return json({ items: automationRows, next_cursor: null, paused_automations_count: 1, archived_automations_count: 1, archived_automations: 1 });
+  m = /^api\/gateway\/automations\/([^/?]+)\/occurrences/.exec(path);
+  if (m) return json({ items: occurrences, next_cursor: null });
+  m = /^api\/gateway\/automations\/([^/?]+)$/.exec(path);
+  if (m) {
+    const s = automationRows.find((r) => r.automation_id === m[1]) || automationRows[0];
+    return json({ summary: s, active_revision: 2, definition: { revision: 2, title: s.title, target: { flow_id: "@default", interface: "abstractcode.agent.v1", input_data: { prompt: LONG } }, context: { mode: "growing" }, policy: { tool_approval: "auto" }, trigger: s.trigger } });
+  }
+  if (path.startsWith("api/gateway/bundles?")) return json({ executable_for: "abstractcode.agent.v1", items: [
+    { bundle_id: "digest", bundle_version: "1.0.0", owner: { kind: "gateway" }, shipped: true, entrypoints: [{ flow_id: "main", name: "Daily digest", interfaces: ["abstractcode.agent.v1"] }] }] });
+  if (path.startsWith("api/gateway/discovery/tools")) return json({ items: [
+    { name: "web_search", toolset: "web", enabled: true, approval_default: "ask", risk_rank: 1, description: "Search the web." },
+    { name: "fetch_url", toolset: "web", enabled: true, approval_default: "ask", risk_rank: 1, description: "Read a web page." },
+    { name: "write_file", toolset: "files", enabled: true, approval_default: "ask", risk_rank: 2, description: "Write a file in the workspace." },
+  ] });
   if (path.startsWith("api/gateway/discovery/capabilities")) return json({ capabilities: {} });
   if (path.startsWith("api/gateway/voice/defaults")) return json({ tts: { configured: true, provider: "piper", model: "en_US-amy" }, stt: { configured: true, provider: "faster-whisper", model: "large-v3" }, source: "gateway" });
   if (path.startsWith("api/gateway/voice/voices")) return json({ items: [] });
@@ -203,9 +244,90 @@ try {
     }
   }
   }
+  // Automations (W10): the list (Paused and Archived opened), an automation's page, Edit and New, at
+  // every width including a 400 px phone, light and dark: nothing scrolls sideways, nothing is off
+  // screen, every control reaches 44 px on touch and the app's own everywhere.
+  for (const [w, h] of [[400, 860], [760, 900], [1024, 768], [1440, 900]]) {
+    for (const scheme of ["light", "dark"]) {
+      const touch = w < 1024;
+      const ctx = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: scheme, hasTouch: touch, isMobile: touch });
+      await ctx.route("**/api/**", (route) => {
+        const u = new URL(route.request().url());
+        return route.fulfill(answer(u.pathname.slice(1) + u.search, "replay_view"));
+      });
+      const page = await ctx.newPage();
+      const errors = [];
+      page.on("pageerror", (e) => errors.push(String(e)));
+      await page.goto(base);
+      const tag = `automations-${w}x${h}-${scheme}`;
+      const openNav = async () => { if (w < 1024) await page.getByRole("button", { name: /^Open (Conversations|Automations)$/ }).click(); };
+      await openNav();
+      await page.getByRole("button", { name: "Automations", exact: true }).click();
+      await page.getByText("Morning digest").first().waitFor();
+      const paused = page.getByRole("button", { name: /Paused · 1/ });
+      const archived = page.getByRole("button", { name: /Archived · 1/ });
+      if (!(await paused.count())) failures.push(`${tag}: no "Paused · 1" section`);
+      if (await page.getByText("Consolidate my notes").count()) failures.push(`${tag}: a paused automation shows among the active ones`);
+      await paused.click();
+      await archived.click();
+      await page.getByText("Old monitor").waitFor();
+      await page.waitForTimeout(150);
+      await measureView(page, `${tag}-list`, errors);
+      if (shots) await page.screenshot({ path: join(shots, `${tag}-list.png`) });
+      await page.getByRole("button", { name: /Morning digest/ }).first().click();
+      await page.locator(".aa-automation-head").waitFor();
+      await page.getByText("It failed: The provider could not be reached.").waitFor();
+      await page.getByRole("group", { name: "A run asks for approval" }).waitFor();
+      await page.getByRole("button", { name: "Approve all" }).waitFor();
+      await page.waitForTimeout(150);
+      await measureView(page, `${tag}-page`, errors);
+      if (shots) await page.screenshot({ path: join(shots, `${tag}-page.png`) });
+      await page.getByRole("button", { name: "Edit", exact: true }).click();
+      await page.getByRole("heading", { name: "Edit" }).waitFor();
+      await page.getByLabel("Task").waitFor();
+      await measureView(page, `${tag}-edit`, errors);
+      if (shots) await page.screenshot({ path: join(shots, `${tag}-edit.png`) });
+      await page.getByRole("button", { name: "Cancel" }).click();
+      await openNav();
+      await page.getByRole("button", { name: "New", exact: true }).click();
+      await page.getByRole("heading", { name: "New automation" }).waitFor();
+      // Its tools, opened (the watch's Tools page for "This automation").
+      await page.getByRole("button", { name: /^Change/ }).first().click();
+      await page.getByText("It runs on its own: a tool on Ask waits for you.").waitFor();
+      await page.waitForTimeout(150);
+      await measureView(page, `${tag}-new`, errors);
+      if (shots) await page.screenshot({ path: join(shots, `${tag}-new.png`) });
+      for (const e of errors) failures.push(`${tag}: page error ${e}`);
+      console.log(`${tag}: list, page, edit and new checked`);
+      await ctx.close();
+    }
+  }
 } finally {
   await browser.close();
   server.close();
+}
+
+/** No sideways scroll, nothing off screen, 44 px targets (touch: all; mouse: the app's own). */
+async function measureView(page, tag, errors) {
+  const m = await page.evaluate(() => {
+    const vw = window.innerWidth;
+    const coarse = matchMedia("(pointer: coarse)").matches;
+    const visible = (e) => { const r = e.getBoundingClientRect(); const st = getComputedStyle(e); return r.width > 0 && r.height > 0 && st.visibility !== "hidden" && st.display !== "none"; };
+    // A search input's target is its 44 px label (.aa-search), as in the conversation list.
+    const targets = [...document.querySelectorAll("button, a[href], input, select, textarea, .aa-search")].filter((e) => !e.matches(".aa-search input"));
+    const boxes = targets.filter(visible).map((b) => {
+      const r = b.getBoundingClientRect();
+      const own = Boolean(b.closest("[class*='aa-']")) && !b.closest("[class*='pc-'], [class*='af-']");
+      const inline = b.matches("a.pc-md_link") || b.matches("input[type=checkbox], input[type=radio]");
+      return { t: (b.getAttribute("aria-label") || b.textContent || b.getAttribute("placeholder") || b.tagName).trim().slice(0, 24), w: Math.round(r.width), h: Math.round(r.height), left: Math.round(r.left), right: Math.round(r.right), sized: (coarse || own) && !inline };
+    });
+    return { scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth,
+      offscreen: boxes.filter((b) => b.right > vw + 0.5 || b.left < -0.5), small: boxes.filter((b) => b.sized && (b.w < 44 || b.h < 44)) };
+  });
+  if (m.scrollWidth > m.clientWidth) failures.push(`${tag}: the page scrolls sideways (${m.scrollWidth} > ${m.clientWidth})`);
+  for (const b of m.offscreen) failures.push(`${tag}: "${b.t}" is off screen (${b.left}..${b.right})`);
+  for (const b of m.small) failures.push(`${tag}: "${b.t}" is ${b.w}x${b.h}, under 44 px`);
+  void errors;
 }
 if (failures.length) {
   for (const f of failures) console.error(`  FAIL ${f}`);

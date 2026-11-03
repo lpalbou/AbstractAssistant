@@ -2375,24 +2375,26 @@ function ChatMessageCard(props) {
   const has_text = Boolean(String(m.content || "").trim());
   if (m.toolActivity)
     return _jsx13(ToolActivity, { tool: m.toolActivity, showCopy: props.showCopy });
-  const footer2 = props.renderFooter ? props.renderFooter(m) : null;
-  if (props.variant?.(m) === "hint" || m.kind === "tool_policy_decision") {
+  const variant = props.variant?.(m);
+  const caption = variant === "caption";
+  const footer2 = props.renderFooter && !caption ? props.renderFooter(m) : null;
+  if (variant === "hint" || m.kind === "tool_policy_decision") {
     const level = String(m.level || "").trim().toLowerCase();
     return _jsxs10("div", { className: ["pc-chat-hint", level === "warn" || level === "error" ? `pc-chat-hint--${level}` : "", props.className].filter(Boolean).join(" "), role: "note", "data-variant": "hint", children: [_jsx13("span", { className: "pc-chat-hint__text", children: String(m.content || "") }), footer2 != null && footer2 !== false ? _jsx13("div", { className: "pc-chat-footer", children: footer2 }) : null] });
   }
-  return _jsxs10("div", { className: ["pc-chat-item", `pc-chat-item--${role_ui.variant}`, live ? "pc-chat-item--live" : "", props.className].filter(Boolean).join(" "), ...live ? { "aria-busy": true } : {}, children: [_jsxs10("div", { className: "pc-chat-header", children: [_jsx13("div", { className: "pc-chat-avatar", "aria-hidden": "true", children: _jsx13(Icon6, { name: role_ui.icon, size: 14 }) }), _jsx13("span", { className: "pc-chat-role", children: role_ui.label }), live ? _jsxs10("span", { className: "pc-chat-live-indicator", title: live.label ? `Pending: ${live.label}` : "The reply is still being written", children: [_jsx13("span", { className: "pc-chat-live-dot", "aria-hidden": "true" }), live.label || "streaming"] }) : null, live?.caption ? _jsx13("span", { className: "pc-chat-live-caption", children: live.caption }) : null, _jsx13("span", { className: "pc-chat-header-spacer" }), time_label ? _jsx13("time", { className: "pc-chat-time", dateTime: time_iso || void 0, title: time_title || void 0, children: time_label }) : null, _jsxs10("div", { className: "pc-chat-header-actions", children: [show_speaker ? _jsx13("button", { className: "pc-chat-icon-btn", type: "button", "aria-label": speak_blocked || speak.title, title: speak_blocked || speak.title, "data-speak-state": speak_blocked ? "unavailable" : speak_state, ...speak_blocked ? { "aria-disabled": true } : {}, onClick: can_speak ? () => props.onSpeakToggle?.(m) : void 0, children: _jsx13(Icon6, { name: speak.icon, size: 22, className: speak.spinning ? "pc-chat-speak-spinner" : void 0 }, speak.icon) }) : null, show_copy ? _jsx13("button", { className: `pc-chat-icon-btn ${copy_state !== "idle" ? `pc-chat-icon-btn--${copy_state}` : ""}`.trim(), type: "button", "aria-label": "Copy message", title: copy_state === "idle" ? "Copy" : copy_state === "copied" ? "Copied" : "Copy failed", onClick: async () => {
+  return _jsxs10("div", { className: ["pc-chat-item", `pc-chat-item--${role_ui.variant}`, caption ? "pc-chat-item--caption" : "", live ? "pc-chat-item--live" : "", props.className].filter(Boolean).join(" "), ...live ? { "aria-busy": true } : {}, ...caption ? { "data-variant": "caption" } : {}, children: [caption ? null : _jsxs10("div", { className: "pc-chat-header", children: [_jsx13("div", { className: "pc-chat-avatar", "aria-hidden": "true", children: _jsx13(Icon6, { name: role_ui.icon, size: 14 }) }), _jsx13("span", { className: "pc-chat-role", children: role_ui.label }), live ? _jsxs10("span", { className: "pc-chat-live-indicator", title: live.label ? `Pending: ${live.label}` : "The reply is still being written", children: [_jsx13("span", { className: "pc-chat-live-dot", "aria-hidden": "true" }), live.label || "streaming"] }) : null, live?.caption ? _jsx13("span", { className: "pc-chat-live-caption", children: live.caption }) : null, _jsx13("span", { className: "pc-chat-header-spacer" }), time_label ? _jsx13("time", { className: "pc-chat-time", dateTime: time_iso || void 0, title: time_title || void 0, children: time_label }) : null, _jsxs10("div", { className: "pc-chat-header-actions", children: [show_speaker ? _jsx13("button", { className: "pc-chat-icon-btn", type: "button", "aria-label": speak_blocked || speak.title, title: speak_blocked || speak.title, "data-speak-state": speak_blocked ? "unavailable" : speak_state, ...speak_blocked ? { "aria-disabled": true } : {}, onClick: can_speak ? () => props.onSpeakToggle?.(m) : void 0, children: _jsx13(Icon6, { name: speak.icon, size: 22, className: speak.spinning ? "pc-chat-speak-spinner" : void 0 }, speak.icon) }) : null, show_copy ? _jsx13("button", { className: `pc-chat-icon-btn ${copy_state !== "idle" ? `pc-chat-icon-btn--${copy_state}` : ""}`.trim(), type: "button", "aria-label": "Copy message", title: copy_state === "idle" ? "Copy" : copy_state === "copied" ? "Copied" : "Copy failed", onClick: async () => {
     const ok = await copyText(String(m.content || ""));
     set_copy_state(ok ? "copied" : "failed");
     if (copy_timer.current !== null)
       window.clearTimeout(copy_timer.current);
     copy_timer.current = window.setTimeout(() => set_copy_state("idle"), 900);
-  }, children: _jsx13(Icon6, { name: "copy", size: 22 }) }) : null] })] }), reasoning.trim() ? _jsxs10("details", { className: "pc-chat-thinking", children: [_jsx13("summary", { children: "Thinking" }), _jsx13("div", { className: "pc-chat-thinking-body", children: reasoning })] }) : null, has_text || !live && !media.length ? _jsx13("div", { className: "pc-chat-body", children: _jsx13(ChatMessageContent, { text: String(m.content || ""), renderMarkdown: props.renderMarkdown, jsonCollapseAfterDepth: props.jsonCollapseAfterDepth, images: props.images || (role_ui.variant === "user" ? "inline" : "link"), inlineImage: props.inlineImage }) }) : null, media.length ? _jsx13("div", { className: "pc-chat-media", children: media.map((item, idx) => _jsx13(ChatMediaItem, { item, onOpenFile: props.onOpenMedia, markdown: { renderMarkdown: props.renderMarkdown, images: props.images, inlineImage: props.inlineImage } }, item.id || `${item.kind}:${item.src}:${idx}`)) }) : null, m.artifactRefs?.length ? _jsx13("div", { className: "pc-chat-attachments", "aria-label": "Attached files", children: m.artifactRefs.map((a) => _jsx13(MessageArtifactChip, { artifact: a }, `${a.runId}:${a.id}`)) }) : null, attachments.length ? _jsx13("div", { className: "pc-chat-attachments", "aria-label": "Attachments", children: attachments.map((a, idx) => {
+  }, children: _jsx13(Icon6, { name: "copy", size: 22 }) }) : null] })] }), reasoning.trim() && !caption ? _jsxs10("details", { className: "pc-chat-thinking", children: [_jsx13("summary", { children: "Thinking" }), _jsx13("div", { className: "pc-chat-thinking-body", children: reasoning })] }) : null, has_text || !live && !media.length ? _jsx13("div", { className: "pc-chat-body", children: _jsx13(ChatMessageContent, { text: String(m.content || ""), renderMarkdown: props.renderMarkdown, jsonCollapseAfterDepth: props.jsonCollapseAfterDepth, images: props.images || (role_ui.variant === "user" ? "inline" : "link"), inlineImage: props.inlineImage }) }) : null, media.length ? _jsx13("div", { className: "pc-chat-media", children: media.map((item, idx) => _jsx13(ChatMediaItem, { item, onOpenFile: props.onOpenMedia, markdown: { renderMarkdown: props.renderMarkdown, images: props.images, inlineImage: props.inlineImage } }, item.id || `${item.kind}:${item.src}:${idx}`)) }) : null, m.artifactRefs?.length ? _jsx13("div", { className: "pc-chat-attachments", "aria-label": "Attached files", children: m.artifactRefs.map((a) => _jsx13(MessageArtifactChip, { artifact: a }, `${a.runId}:${a.id}`)) }) : null, attachments.length ? _jsx13("div", { className: "pc-chat-attachments", "aria-label": "Attachments", children: attachments.map((a, idx) => {
     const label = String(a.label || "").trim() || "attachment";
     const target2 = String(a.target || "").trim();
     const title = String(a.title || "").trim();
     const disabled = Boolean(a.disabled) || typeof a.onClick !== "function";
     return _jsxs10("button", { type: "button", className: "pc-chat-attachment-chip", title: title || label, onClick: disabled ? void 0 : a.onClick, disabled, children: [_jsx13(Icon6, { name: "paperclip", size: 14 }), target2 ? _jsx13("span", { className: `pc-chat-attachment-target pc-chat-attachment-target--${target2}`, children: target2 }) : null, _jsx13("span", { className: "pc-chat-attachment-name", children: label })] }, a.id || `${label}:${idx}`);
-  }) }) : null, stats.length ? _jsx13("div", { className: "pc-chat-stats", "aria-label": "Stats", children: stats.slice(0, 12).map((s, idx) => {
+  }) }) : null, stats.length && !caption ? _jsx13("div", { className: "pc-chat-stats", "aria-label": "Stats", children: stats.slice(0, 12).map((s, idx) => {
     const label = String(s.label || "").trim();
     if (!label)
       return null;
@@ -2846,8 +2848,8 @@ function WorkflowInteractionPanel(props) {
 }
 
 // dist/avatar_conversation.js
-import { jsx as _jsx17, Fragment as _Fragment7, jsxs as _jsxs14 } from "react/jsx-runtime";
-import { useEffect as useEffect14, useMemo as useMemo7, useRef as useRef10, useState as useState14 } from "react";
+import { jsx as _jsx17, jsxs as _jsxs14, Fragment as _Fragment7 } from "react/jsx-runtime";
+import React6, { useCallback as useCallback4, useEffect as useEffect14, useId as useId2, useMemo as useMemo7, useRef as useRef10, useState as useState14 } from "react";
 
 // dist/conversation_model.js
 var DEFAULT_CONVERSATION_CUES = {
@@ -2864,8 +2866,9 @@ function publicUpdate(value, runId) {
     return null;
   if (!Array.isArray(p.source_call_ids) || p.source_call_ids.some((id) => typeof id !== "string" || !id.trim()))
     return null;
-  return { id: p.id, text: p.text, runId, sourceCallIds: [...new Set(p.source_call_ids)], ...typeof p.session_id === "string" ? { sessionId: p.session_id } : {}, ...typeof p.iteration === "number" ? { iteration: p.iteration } : {} };
+  return { id: p.id, text: p.text, runId, sourceCallIds: [...new Set(p.source_call_ids)], kind: p.kind === "finding" ? "finding" : "progress", ...typeof p.session_id === "string" ? { sessionId: p.session_id } : {}, ...typeof p.iteration === "number" ? { iteration: p.iteration } : {} };
 }
+var publicKey = (m) => `${m.runId || ""}:${m.publicUpdate?.id || m.id || `${m.kind}:${m.content}`}`;
 function conversationMessages(messages) {
   const seen = /* @__PURE__ */ new Set();
   return messages.filter((m) => {
@@ -2875,7 +2878,7 @@ function conversationMessages(messages) {
     const allowed = m.role === "user" || m.role === "assistant" && ["public_update", "answer", "final", "question", "attachments"].includes(m.kind || "") || m.role === "system" && m.kind === "question_outcome" && m.source === "emit_event";
     if (!allowed || m.kind === "public_update" && !m.publicUpdate)
       return false;
-    const key = `${m.runId || ""}:${m.publicUpdate?.id || m.id || `${m.kind}:${m.content}`}`;
+    const key = publicKey(m);
     if (seen.has(key))
       return false;
     seen.add(key);
@@ -2888,27 +2891,65 @@ function conversationReply(text5, context, currentRunId, allowedSourceRunIds = [
   if (context.kind !== "public_update" || !context.publicUpdate)
     return text5;
   if (!currentRunId || context.publicUpdate.runId !== context.runId || context.runId !== currentRunId && !allowedSourceRunIds.includes(context.publicUpdate.runId))
-    throw new Error("The selected public update belongs to another run. Return to the latest exchange before guiding this run.");
+    throw new Error("The update you chose to reply to is from an earlier exchange. Choose Latest, then send your message again.");
   return `The person is replying to this quoted public update (context only):
 ${JSON.stringify({ message_id: context.id || context.publicUpdate.id, run_id: context.publicUpdate.runId, root_run_id: currentRunId, text: context.content })}
 
 The person's message:
 ${text5}`;
 }
-function conversationPages(text5, max = 180) {
-  const words = text5.trim().split(/\s+/);
-  const pages = [];
-  let page = "";
-  for (const word of words) {
-    if (page && page.length + word.length + 1 > max) {
-      pages.push(page);
-      page = "";
+var presented = /* @__PURE__ */ new WeakMap();
+function present(m) {
+  let out = presented.get(m);
+  if (!out)
+    presented.set(m, out = { ...m, reasoning: void 0, live: void 0, toolActivity: void 0, statistics: void 0, stats: void 0 });
+  return out;
+}
+function conversationLive(messages, options = {}) {
+  const visible = conversationMessages(messages);
+  let start = 0;
+  let personKey = "";
+  for (let i = visible.length - 1; i >= 0; i--) {
+    if (visible[i].role !== "user")
+      continue;
+    if (!personKey)
+      personKey = publicKey(visible[i]);
+    if (visible[i].kind !== "guidance") {
+      start = i + 1;
+      break;
     }
-    page += `${page ? " " : ""}${word}`;
   }
-  if (page)
-    pages.push(page);
-  return pages;
+  let line = -1;
+  let answered = -1;
+  const answers = [];
+  for (let i = start; i < visible.length; i++) {
+    const m = visible[i];
+    if (m.role === "user")
+      continue;
+    if (m.kind === "public_update" || m.kind === "question_outcome" || m.kind === "question" && !options.pinnedRequest)
+      line = i;
+    else if (m.kind !== "question") {
+      answered = i;
+      answers.push(present(m));
+    }
+  }
+  return { line: line > answered ? present(visible[line]) : null, answers, personKey };
+}
+function conversationFindings(messages) {
+  const calls = /* @__PURE__ */ new Map();
+  for (const m of messages) {
+    const tool = m.toolActivity;
+    if (tool?.callId)
+      calls.set(`${tool.runId}:${tool.callId}`, tool);
+  }
+  return conversationMessages(messages).filter((m) => m.publicUpdate?.kind === "finding").map((m) => {
+    const update = m.publicUpdate;
+    return {
+      key: publicKey(m),
+      message: present(m),
+      sources: update.sourceCallIds.map((id) => calls.get(`${update.runId}:${id}`)).filter((tool) => Boolean(tool))
+    };
+  });
 }
 function conversationState(input) {
   if (input.status === "completed" || input.status === "failed")
@@ -2986,24 +3027,70 @@ var labels = {
 function AvatarConversation(props) {
   return _jsx17(AvatarConversationSession, { ...props }, props.sessionKey);
 }
+var contentOnly = () => "caption";
+var ContentCard = React6.memo(function ContentCard2(props) {
+  return _jsx17(ChatMessageCard, { ...props, showCopy: false, variant: contentOnly });
+});
+var cardProps = (shared) => ({ renderMarkdown: shared?.renderMarkdown, images: shared?.images, inlineImage: shared?.inlineImage, onOpenMedia: shared?.onOpenMedia, jsonCollapseAfterDepth: shared?.jsonCollapseAfterDepth });
+var ownClick = (event) => !event.target.closest?.("a, button, input, textarea, select, summary, video, audio");
+var SOURCE_FIELDS = ["url", "file_path", "path", "query"];
+function sourceText(tool) {
+  const args = tool.arguments && typeof tool.arguments === "object" && !Array.isArray(tool.arguments) ? tool.arguments : {};
+  const value = SOURCE_FIELDS.map((field) => args[field]).find((v) => typeof v === "string" && v.trim());
+  return typeof value === "string" ? value.trim() : "";
+}
+function Expandable(props) {
+  const { className, open, onOpen, openerRef, children, ...rest } = props;
+  const id = useId2();
+  return _jsxs14("div", { ...rest, className: `${className} pc-avatar-conversation__expandable`, "data-open": open || void 0, children: [_jsx17("div", { id, children }), open ? null : _jsx17("button", { ref: openerRef, type: "button", className: "pc-avatar-conversation__opener", "aria-expanded": false, "aria-labelledby": id, onClick: onOpen })] });
+}
+var FindingCard = React6.memo(function FindingCard2(props) {
+  const [open, setOpen] = useState14(false);
+  const opener = useRef10(null);
+  const body = useRef10(null);
+  const reopen = useRef10(false);
+  const { finding, onOpen, ...card } = props;
+  useEffect14(() => {
+    if (open)
+      body.current?.focus();
+    else if (reopen.current) {
+      reopen.current = false;
+      opener.current?.focus();
+    }
+  }, [open]);
+  const close = () => {
+    reopen.current = true;
+    setOpen(false);
+  };
+  const sources = finding.sources.map((tool) => ({ id: tool.id, text: sourceText(tool) })).filter((source) => source.text);
+  return _jsxs14("div", { ref: body, className: "pc-avatar-conversation__finding", "data-open": open || void 0, tabIndex: open ? -1 : void 0, onClick: (event) => {
+    if (open && ownClick(event))
+      close();
+  }, onKeyDown: (event) => {
+    if (open && event.key === "Escape") {
+      event.stopPropagation();
+      close();
+    }
+  }, children: [_jsx17(Expandable, { className: "pc-avatar-conversation__finding-text", open, openerRef: opener, onOpen: () => {
+    onOpen();
+    setOpen(true);
+  }, children: _jsx17(ContentCard, { ...card, message: finding.message }) }), open && sources.length ? _jsx17("ul", { className: "pc-avatar-conversation__sources", "aria-label": "Sources", children: sources.map((source) => _jsx17("li", { children: _jsx17(TextLinks, { text: source.text }) }, source.id)) }) : null] });
+}, (a, b) => a.finding.message === b.finding.message && a.finding.sources.length === b.finding.sources.length && a.finding.sources.every((tool, i) => tool === b.finding.sources[i]) && a.onOpen === b.onOpen && a.renderMarkdown === b.renderMarkdown && a.images === b.images && a.inlineImage === b.inlineImage && a.onOpenMedia === b.onOpenMedia && a.jsonCollapseAfterDepth === b.jsonCollapseAfterDepth);
+var FLOATING_FINDINGS_WIDTH = 720;
 function AvatarConversationSession(props) {
-  const [history, setHistory] = useState14(false);
-  const [paused, setPaused] = useState14(false);
-  const [hovered, setHovered] = useState14(false);
-  const [focused, setFocused] = useState14(false);
-  const [selected, setSelected] = useState14(null);
+  const [held, setHeld] = useState14(null);
+  const [replying, setReplying] = useState14(false);
+  const [findingsOpen, setFindingsOpen] = useState14(false);
   const preferences = props.preferences || DEFAULT_CONVERSATION_CUES;
   const messages = useMemo7(() => conversationMessages(props.messages), [props.messages]);
-  const latest = [...messages].reverse().find((m) => m.role === "assistant" || m.kind === "question_outcome") || null;
-  const attended = Boolean(props.attended || history || paused || hovered || focused || selected);
+  const hasRequest = Boolean(props.interaction) && (props.interactionId === void 0 || Boolean(props.interactionId));
+  const live = useMemo7(() => conversationLive(props.messages, { pinnedRequest: hasRequest }), [props.messages, hasRequest]);
+  const findings = useMemo7(() => conversationFindings(props.messages), [props.messages]);
+  const attended = Boolean(props.attended || held || findingsOpen && findings.length);
   useEffect14(() => {
     props.onAttendedChange?.(attended);
     return () => props.onAttendedChange?.(false);
   }, [attended, props.onAttendedChange]);
-  const [shown, setShown] = useState14(latest);
-  const [page, setPage] = useState14(0);
-  const shownText = shown?.content || (shown?.attachments?.length || shown?.artifactRefs?.length || shown?.media?.length ? "A result file is ready. Open conversation history to view it." : "");
-  const pages = useMemo7(() => conversationPages(shownText), [shownText]);
   const state = conversationState(props);
   const cursor = useRef10(null);
   const narrationCursor = useRef10(null);
@@ -3019,18 +3106,18 @@ function AvatarConversationSession(props) {
     if (props.listening)
       callbacks.current.onInterruptSpeech?.();
   }, [props.listening]);
+  const personKey = useRef10(live.personKey);
   useEffect14(() => {
-    if (!attended) {
-      setShown(latest);
-      setPage(0);
-    }
-  }, [latest, attended]);
-  useEffect14(() => {
-    if (attended || page >= pages.length - 1)
+    if (personKey.current === live.personKey)
       return;
-    const timer = setTimeout(() => setPage((p) => p + 1), Math.max(6500, (pages[page]?.length || 0) * 55));
-    return () => clearTimeout(timer);
-  }, [attended, page, pages]);
+    personKey.current = live.personKey;
+    setHeld(null);
+    setReplying((was) => {
+      if (was)
+        callbacks.current.onReplyContext?.(null);
+      return false;
+    });
+  }, [live.personKey]);
   useEffect14(() => {
     const connected = !props.replaying && (!props.connection || props.connection === "connected" || props.status === "completed" || props.status === "failed") && (typeof document === "undefined" || document.visibilityState !== "hidden");
     const next = conversationCueStep(cursor.current, { sessionKey: props.sessionKey, connected, attended, attention: props.attention, preferences });
@@ -3047,49 +3134,75 @@ function AvatarConversationSession(props) {
       props.onNarrate?.(next.message);
     }
   }, [messages, props.sessionKey, props.connection, props.replaying, props.status, props.narrate, props.listening, props.onNarrate, props.onInterruptSpeech, attended]);
-  const interrupt = () => props.onInterruptSpeech?.();
-  const follow = () => {
-    setHistory(false);
-    setPaused(false);
-    setSelected(null);
-    setShown(latest);
-    setPage(0);
-    props.onReplyContext?.(null);
+  const interrupt = useCallback4(() => callbacks.current.onInterruptSpeech?.(), []);
+  const line = held || live.line;
+  const section = useRef10(null);
+  const liveArea = useRef10(null);
+  const lineActions = useRef10(null);
+  const toggle = useRef10(null);
+  const closeButton = useRef10(null);
+  const focusLine = useRef10(false);
+  useEffect14(() => {
+    if (held)
+      lineActions.current?.querySelector("button")?.focus();
+    else if (focusLine.current)
+      (liveArea.current?.querySelector(".pc-avatar-conversation__opener") || liveArea.current)?.focus();
+    focusLine.current = false;
+  }, [held]);
+  const hold = () => {
+    if (!line)
+      return;
+    interrupt();
+    setHeld(line);
   };
-  const visibleAttention = props.attention && preferences[props.attention.kind].visual;
-  const hasRequest = Boolean(props.interaction) && (props.interactionId === void 0 || Boolean(props.interactionId));
-  return _jsxs14("section", { className: "pc-avatar-conversation", "aria-label": "Avatar conversation", "data-state": state, "data-has-request": hasRequest || void 0, children: [_jsx17("div", { className: "pc-avatar-conversation__scene", children: props.avatar }), _jsx17("p", { className: "pc-avatar-conversation__status", role: "status", children: labels[state] }), visibleAttention && !hasRequest ? _jsxs14("p", { className: "pc-avatar-conversation__attention", "data-kind": props.attention.kind, children: [props.attention.kind === "approval" ? "An explicit decision is required. Waiting never grants permission." : props.attention.kind === "completion" ? "The result is ready in conversation history." : props.attention.importance === "essential" ? "Your answer is required. I will keep waiting." : "Your input is welcome.", props.attention.kind === "question" && props.attention.importance === "clarification" ? _jsxs14(_Fragment7, { children: [" ", props.attention.deadline && Number.isFinite(Date.parse(props.attention.deadline)) ? _jsxs14(_Fragment7, { children: ["Answer by ", _jsx17("time", { dateTime: props.attention.deadline, children: new Date(props.attention.deadline).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) }), ". "] }) : null, props.attention.fallback ? `Without an answer: ${props.attention.fallback}` : ""] }) : null] }) : null, hasRequest ? _jsx17("div", { className: "pc-avatar-conversation__request", children: props.interaction }) : null, !hasRequest || shown ? _jsxs14("div", { className: "pc-avatar-conversation__captions", tabIndex: 0, "aria-label": "Public subtitles", "aria-live": attended ? "off" : "polite", onPointerDown: (event) => {
-    if (event.pointerType === "touch") {
-      interrupt();
-      setPaused(true);
+  const reply = () => {
+    if (!held)
+      return;
+    interrupt();
+    setReplying(true);
+    props.onReplyContext?.(held);
+  };
+  const latest = () => {
+    focusLine.current = true;
+    setHeld(null);
+    if (replying) {
+      setReplying(false);
+      props.onReplyContext?.(null);
     }
-  }, onMouseEnter: () => setHovered(true), onMouseLeave: () => setHovered(false), onFocus: () => setFocused(true), onBlur: (event) => {
-    if (!event.currentTarget.contains(event.relatedTarget))
-      setFocused(false);
-  }, children: [_jsx17("p", { children: pages[page] || "Public updates and replies will appear here." }), pages.length > 1 ? _jsxs14("div", { className: "pc-avatar-conversation__pages", children: [_jsx17("button", { type: "button", disabled: page === 0, onClick: () => {
+  };
+  useEffect14(() => {
+    if (findingsOpen)
+      closeButton.current?.focus();
+  }, [findingsOpen]);
+  const openFindings = () => {
     interrupt();
-    setPaused(true);
-    setPage((p) => Math.max(0, p - 1));
-  }, children: "Previous subtitle" }), _jsxs14("span", { children: [page + 1, " / ", pages.length] }), _jsx17("button", { type: "button", disabled: page === pages.length - 1, onClick: () => {
-    interrupt();
-    setPaused(true);
-    setPage((p) => Math.min(pages.length - 1, p + 1));
-  }, children: "Next subtitle" })] }) : null] }) : null, _jsxs14("div", { className: "pc-avatar-conversation__actions", children: [_jsx17("button", { type: "button", "aria-pressed": paused, onClick: () => {
-    interrupt();
-    setPaused((v) => !v);
-  }, children: paused ? "Resume subtitles" : "Pause subtitles" }), _jsx17("button", { type: "button", "aria-expanded": history, onClick: () => {
-    interrupt();
-    setHistory((v) => !v);
-  }, children: "Conversation history" }), attended ? _jsx17("button", { type: "button", onClick: follow, children: "Return to latest" }) : null, props.voiceControl ? _jsx17("span", { onPointerDownCapture: interrupt, onKeyDownCapture: (event) => {
+    setFindingsOpen(true);
+  };
+  const closeFindings = () => {
+    setFindingsOpen(false);
+    toggle.current?.focus();
+  };
+  useEffect14(() => {
+    const el = section.current;
+    if (!findingsOpen || !el || typeof ResizeObserver === "undefined")
+      return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry.contentRect.width >= FLOATING_FINDINGS_WIDTH)
+        setFindingsOpen(false);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [findingsOpen]);
+  const attention = props.attention && preferences[props.attention.kind].visual ? props.attention : null;
+  const card = cardProps(props.messageProps);
+  const { renderFooter: _footer, ...answerProps } = props.messageProps || {};
+  return _jsxs14("section", { ref: section, className: "pc-avatar-conversation", "aria-label": "Avatar conversation", "data-state": state, "data-has-request": hasRequest || void 0, "data-compact": hasRequest || void 0, "data-has-findings": findings.length ? "" : void 0, "data-findings-open": findings.length && findingsOpen ? "" : void 0, onKeyDown: (event) => {
+    if (event.key === "Escape" && findingsOpen && findings.length)
+      closeFindings();
+  }, children: [_jsxs14("div", { className: "pc-avatar-conversation__presence", children: [_jsx17("div", { className: "pc-avatar-conversation__scene", children: props.avatar }), _jsx17("p", { className: "pc-avatar-conversation__status", role: "status", children: labels[state] })] }), findings.length ? _jsxs14("aside", { className: "pc-avatar-conversation__findings", "aria-label": "Findings", children: [_jsxs14("div", { className: "pc-avatar-conversation__findings-head", children: [_jsx17("h2", { children: "Findings" }), _jsx17("button", { ref: closeButton, type: "button", className: "pc-avatar-conversation__findings-close", onClick: closeFindings, children: "Close" })] }), _jsx17("ol", { children: findings.map((finding) => _jsx17("li", { children: _jsx17(FindingCard, { ...card, finding, onOpen: interrupt }) }, finding.key)) })] }) : null, attention && attention.kind !== "completion" && !hasRequest ? _jsxs14("p", { className: "pc-avatar-conversation__attention", "data-kind": attention.kind, children: [attention.kind === "approval" ? "An explicit decision is required. Waiting never grants permission." : attention.importance === "essential" ? "Your answer is required. I will keep waiting." : "Your input is welcome.", attention.kind === "question" && attention.importance === "clarification" ? _jsxs14(_Fragment7, { children: [" ", attention.deadline && Number.isFinite(Date.parse(attention.deadline)) ? _jsxs14(_Fragment7, { children: ["Answer by ", _jsx17("time", { dateTime: attention.deadline, children: new Date(attention.deadline).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) }), ". "] }) : null, attention.fallback ? `Without an answer: ${attention.fallback}` : ""] }) : null] }) : null, hasRequest ? _jsx17("div", { className: "pc-avatar-conversation__request", children: props.interaction }) : null, _jsxs14("div", { ref: liveArea, className: "pc-avatar-conversation__live", "aria-live": attended ? "off" : "polite", tabIndex: -1, children: [line ? _jsx17(Expandable, { className: "pc-avatar-conversation__line", open: Boolean(held), onOpen: hold, children: _jsx17(ContentCard, { ...card, message: line }) }, line.id || line.content) : null, held ? _jsxs14("div", { ref: lineActions, className: "pc-avatar-conversation__line-actions", children: [held.kind === "public_update" ? _jsx17("button", { type: "button", "aria-pressed": replying, onClick: reply, children: "Reply to this" }) : null, _jsx17("button", { type: "button", onClick: latest, children: "Latest" })] }) : null] }), live.answers.length ? _jsx17("div", { className: "pc-avatar-conversation__answer", "aria-live": attended ? "off" : "polite", "data-attention": attention?.kind === "completion" ? "completion" : void 0, children: live.answers.map((answer) => _jsx17(ChatMessageCard, { ...answerProps, message: answer }, answer.id || answer.content)) }) : null, !hasRequest ? props.interaction : null, _jsxs14("div", { className: "pc-avatar-conversation__actions", children: [findings.length ? _jsx17("button", { ref: toggle, type: "button", className: "pc-avatar-conversation__findings-toggle", "aria-expanded": findingsOpen, onClick: () => findingsOpen ? closeFindings() : openFindings(), children: "Findings" }) : null, props.voiceControl ? _jsx17("span", { onPointerDownCapture: interrupt, onKeyDownCapture: (event) => {
     if (event.key === "Enter" || event.key === " ")
       interrupt();
-  }, children: props.voiceControl }) : null, props.playbackControl] }), history ? _jsx17("ol", { className: "pc-avatar-conversation__history", "aria-label": "Public conversation history", children: messages.map((m, i) => _jsxs14("li", { children: [_jsx17("strong", { children: m.role === "user" ? "You" : m.kind === "question_outcome" ? "Question status" : m.kind === "public_update" ? "Public update" : "Reply" }), _jsx17(ChatMessageCard, { ...props.messageProps, message: { ...m, reasoning: void 0, live: void 0, toolActivity: void 0 } }), m.publicUpdate?.sourceCallIds.length ? _jsxs14("details", { children: [_jsx17("summary", { children: "Sources" }), _jsx17("ul", { children: m.publicUpdate.sourceCallIds.map((id) => _jsx17("li", { children: id }, id)) })] }) : null, m.publicUpdate ? _jsx17("button", { type: "button", "aria-pressed": selected === m, onClick: () => {
-    interrupt();
-    setSelected(m);
-    setShown(m);
-    setPage(0);
-    props.onReplyContext?.(m);
-  }, children: "Reply to this" }) : null] }, `${m.runId || ""}:${m.id || i}`)) }) : null, selected ? _jsxs14("p", { className: "pc-avatar-conversation__reply-context", children: ["Replying to the selected exchange. ", _jsx17("button", { type: "button", onClick: follow, children: "Clear reply context" })] }) : null, !hasRequest ? props.interaction : null] });
+  }, children: props.voiceControl }) : null, props.playbackControl] })] });
 }
 
 // dist/workflow_chat.js
@@ -4285,7 +4398,7 @@ function replayToolActivities(activity) {
       // A person decided (the view sets `outcome` only once every call of the batch is decided,
       // AbstractRuntime replay/view.py:1050-1051); a wait cut short by the run's end has none.
       ...activity.wait?.kind === "tool_approval" && activity.wait.outcome ? { approvalWait: true } : {},
-      ...str3(call.id) ? { callId: str3(call.id) } : {},
+      ...str3(call.call_id) || str3(call.id) ? { callId: str3(call.call_id) || str3(call.id) } : {},
       ...policy ? { policy } : {}
     };
   });
@@ -4387,7 +4500,7 @@ function messageOf(m, statistics, artifacts) {
     content: m.text,
     runId: m.run_id,
     ...m.source ? { source: m.source } : {},
-    ...m.kind === "public_update" ? { publicUpdate: publicUpdate({ id: m.public_update_id || m.id, text: m.text, run_id: m.run_id, session_id: m.session_id, iteration: m.iteration, source_call_ids: m.source_call_ids }, m.run_id) || void 0 } : {},
+    ...m.kind === "public_update" ? { publicUpdate: publicUpdate({ id: m.public_update_id || m.id, text: m.text, run_id: m.run_id, session_id: m.session_id, iteration: m.iteration, source_call_ids: m.source_call_ids, kind: m.update_kind }, m.run_id) || void 0 } : {},
     ...ts ? { ts } : {},
     ...m.role === "system" ? {
       title: "Workflow",
@@ -6868,9 +6981,10 @@ export {
   WorkflowChat,
   WorkflowInteractionPanel,
   conversationCueStep,
+  conversationFindings,
+  conversationLive,
   conversationMessages,
   conversationNarrationStep,
-  conversationPages,
   conversationReply,
   conversationSnapshot,
   conversationState,

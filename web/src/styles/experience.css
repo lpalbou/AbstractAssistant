@@ -162,5 +162,5 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
 .aa-archive-confirm { padding: 8px 10px; font-size: 12px; }
 .aa-archive-confirm button { min-height: 44px; margin-right: 8px; padding: 6px 10px; }
 
-.aa-view-choice{display:flex;gap:4px}.aa-view-choice button{font:inherit;font-size:12px;border:1px solid var(--af-border,#434858);background:transparent;color:inherit;border-radius:8px;padding:5px 9px;cursor:pointer}.aa-view-choice button[aria-pressed="true"]{background:var(--af-surface-2,#282c39)}
+.aa-view-choice{display:flex;gap:4px}.aa-view-choice button{font:inherit;font-size:12px;border:1px solid var(--af-border,#434858);background:transparent;color:inherit;border-radius:8px;padding:5px 9px;cursor:pointer}.aa-view-choice button[aria-pressed="true"]{background:var(--aa-accent-bg);color:var(--aa-accent);border-color:var(--aa-accent-border)}
 @media (pointer: coarse) { .aa-view-choice button { min-height: 44px; min-width: 44px; } }

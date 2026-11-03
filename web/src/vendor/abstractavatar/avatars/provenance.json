@@ -2,8 +2,8 @@
   "abi": 1,
   "source": "abstractavatar",
   "crate_version": "0.1.0",
-  "source_sha256": "13e81e09b65e28b84b4dfa4ce58313bf0d5ee4bc5f8478baa582d084b5e8d059",
-  "wasm_sha256": "d576a6a584f09c6b9a124c93476c7a73a69ae9e147014e2d26dda5974273c067",
+  "source_sha256": "8a6c1ee1add6e4a18dbb3f65c9dee76726d8e2ac6738fac03b0044f1d3fc159e",
+  "wasm_sha256": "8501b200d95e68dfa6cb25d3f6112b7da990f6a86fe7d294a198268a83de07f3",
   "build": "python3 abstractavatar/scripts/build_artifacts.py",
-  "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)"
+  "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
 }

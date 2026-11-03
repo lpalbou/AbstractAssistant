@@ -77,10 +77,19 @@ scripts/deploy-phone.sh --device <iphone-id> --gateway https://<your-gateway> --
 `--env FILE` reads `GW_URL`, `GW_TOKEN` and optionally `GW_USER` from a private file instead,
 `--no-build` reinstalls the last build, `--forget` clears the sign-in, `--screen NAME` opens a
 screen, `--console` stays attached and prints the app's `phone-trace` lines (sign-in, push
-registration), and `--shoot FILE.png [--wait S]` takes a screenshot. The device comes
+registration, and the course of a reading aloud: pieces, retries, background and front, pauses,
+interruptions, how it ended), and `--shoot FILE.png [--wait S]` takes a screenshot. The device comes
 from `--device` or `PHONE_DEVICE` (`xcrun devicectl list devices`). Launched with `--dump-trace`, a
-Debug build also prints the last 40 trace lines it kept. Release builds compile these launch
-arguments out.
+Debug build also prints the last 40 trace lines it kept. Launched with `--test-read-last`, it reads
+the open conversation's newest answer aloud, for checks on the device such as locking the iPhone
+mid-reading:
+
+```sh
+xcrun devicectl device process launch --device <iphone-id> --terminate-existing --console \
+  ai.abstractframework.assistant --test-read-last
+```
+
+Release builds compile these launch arguments out.
 
 On the watch, a Debug build launched with `--dump-notify` prints the notifier's readout, including
 what each notification service extension did with the last pushes (see the

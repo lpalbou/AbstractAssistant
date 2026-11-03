@@ -219,7 +219,9 @@ class StubGateway:
             if "changed_since" in query:
                 return self._error("unsupported_feature")
             if method == "GET":
-                return 200, {"items": copy.deepcopy(self.summaries), "next_cursor": None}
+                wanted = [v for v in ",".join(query.get("status") or []).split(",") if v]
+                items = [s for s in self.summaries if not wanted or s["status"] in wanted]
+                return 200, {"items": copy.deepcopy(items), "next_cursor": None}
             if method == "POST":
                 return self._create(body)
         prefix = AUTOMATIONS_PATH + "/"
@@ -1518,6 +1520,31 @@ def test_schedule_sheet_states_the_tool_consent_and_can_ask_each_time(palette, s
     assert sheet.tools_consent.text() == "Each tool call waits for your approval in the automation's timeline."
     sheet.submit_button.click()
     assert stub.calls("POST", AUTOMATIONS_PATH)[-1]["body"]["policy"] == {"tool_approval": "ask"}
+
+
+@pytest.mark.basic
+def test_the_switcher_reads_the_archived_listing_under_archived_n(palette, stub) -> None:
+    """The default listing leaves archived automations out: the hub reads `status=archived`
+    and the switcher draws them under "Archived · N" (folded), never among the live rows."""
+    window, _controller = palette
+    stub.summary(JOURNAL)["status"] = "archived"
+    window._poll_automations()
+    hub = window._automations
+    assert [s["automation_id"] for s in hub.archived] == [JOURNAL]
+    assert stub.calls("GET", AUTOMATIONS_PATH) and any(
+        (c.get("query") or {}).get("status") == ["archived"] for c in stub.calls("GET", AUTOMATIONS_PATH)
+    ), "the archived listing was never asked"
+    from abstractassistant.ui.session_switcher import SessionSwitcher
+
+    switcher = SessionSwitcher()
+    window._session_switcher = switcher
+    window._apply_automations_to_switcher(switcher)
+    switcher.set_tab("automations")
+    assert JOURNAL not in [r.automation_id for r in switcher.automation_rows]
+    assert switcher.archived_toggle is not None and switcher.archived_toggle.text() == "Archived · 1"
+    switcher.archived_toggle.click()
+    assert JOURNAL in [r.automation_id for r in switcher.automation_rows]
+    switcher.deleteLater()
 
 
 @pytest.mark.basic

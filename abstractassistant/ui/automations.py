@@ -2876,6 +2876,12 @@ class AutomationsHub(QObject):
         self.ledger = ledger
         self.synchronous = False
         self.summaries: List[Dict[str, Any]] = []
+        # The archived ones (`GET /automations?status=archived`): the default listing leaves
+        # them out; the switcher draws them under its own "Archived · N" section.
+        self.archived: List[Dict[str, Any]] = []
+        # The gateway's count of paused automations (`paused_automations_count`); None when it
+        # serves none (an older gateway: the switcher draws today's list).
+        self.paused_count: Optional[int] = None
         # None = not asked yet; False = the gateway has no Automations API.
         self.available: Optional[bool] = None
         self.error = ""
@@ -2947,14 +2953,21 @@ class AutomationsHub(QObject):
             if not self._available():
                 return None  # not advertised: no Automations surface at all
             client = self._client_factory()
-            summaries = group_by_automation(client.list_all())
+            listed, counts = client.list_all_counted()
+            summaries = group_by_automation(listed)
+            try:
+                archived: Optional[List[Mapping[str, Any]]] = [
+                    s for s in group_by_automation(client.list_all(status="archived")) if s.get("status") == "archived"
+                ]
+            except Exception:  # noqa: BLE001 - the Archived section keeps its last rows; the list still lands
+                archived = None
             self._read_trigger_names(client, summaries)
             pages: Dict[str, List[Dict[str, Any]]] = {}
             for summary in summaries:
                 attention = summary.get("attention") if isinstance(summary.get("attention"), Mapping) else {}
                 if int(attention.get("unseen_count") or 0) > 0:
                     pages[str(summary["automation_id"])] = self._attention_all(client, str(summary["automation_id"]))
-            return summaries, pages
+            return summaries, pages, archived, counts.get("paused")
 
         def done(ok: bool, value: Any) -> None:
             self._polling = False
@@ -2962,11 +2975,15 @@ class AutomationsHub(QObject):
                 self.available = False
                 self.error = ""
                 self.summaries = []
+                self.archived = []
+                self.paused_count = None
             elif ok:
-                summaries, pages = value
+                summaries, pages, archived, self.paused_count = value
                 self.available = True
                 self.error = ""
                 self.summaries = [dict(s) for s in summaries]
+                if archived is not None:
+                    self.archived = [dict(s) for s in archived]
                 notices = new_attention_notices(self.summaries, pages, self.ledger)
                 for notice in notices:
                     if self._notify_notice is not None:

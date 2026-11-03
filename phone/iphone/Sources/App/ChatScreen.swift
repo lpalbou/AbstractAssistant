@@ -208,6 +208,17 @@ struct ChatScreen: View {
                 }
                 voice.scene(visible: phase != .background)
             }
+            #if DEBUG
+            // `--test-read-last` (device checks): the open conversation's newest answer read aloud.
+            .task {
+                guard ProcessInfo.processInfo.arguments.contains("--test-read-last") else { return }
+                for _ in 0..<120 {
+                    if let answer = store.messages.last(where: { $0.role == .assistant && !$0.text.isEmpty }) { read(answer); return }
+                    try? await Task.sleep(for: .seconds(1))
+                }
+                PhoneTrace.note("voice: --test-read-last found no answer to read")
+            }
+            #endif
             .onDisappear { readMarkerVisible = false; composing = false; cancelVoice(); if media.preview == nil { media.reset() } else { media.stop() }; attachments.cancel(); cancelMedia() }
             .onChange(of: voice.inputPhase) { _, phase in if phase == .ready { finishVoice() } }
             .onChange(of: typing) { _, focused in

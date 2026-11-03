@@ -90,7 +90,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 
 - [phone/iphone/docs/troubleshooting.md](phone/iphone/docs/troubleshooting.md): dated automation runs, failure explanations, provider versus phone authentication, notifications and Apple push (the push forwarder, generic words on development builds), installed version/build and Apple-managed updates
 - [docs/macos-signing.md](docs/macos-signing.md): signing and notarizing the macOS app bundle (`build-macos-app --sign`, `--notarize`, `--dmg`, `--local-test`)
-- [web/README.md](web/README.md): Assistant (web), the npm package `@abstractframework/assistant` registered as `assistant-web` in Gateway's console and tray Apps menu (install with `abstractgateway apps install assistant-web`, or `npx @abstractframework/assistant`); renders conversations from the gateway's replay view, folding the ledger itself on a gateway before 0.17.0; [web/CHANGELOG.md](web/CHANGELOG.md) records its npm release history
+- [web/README.md](web/README.md): Assistant (web), the npm package `@abstractframework/assistant` registered as `assistant-web` in Gateway's console and tray Apps menu (install with `abstractgateway apps install assistant-web`, or `npx @abstractframework/assistant`); renders conversations from the gateway's replay view, folding the ledger itself on a gateway before 0.17.0, and automations as on the Apple Watch (list, page, Run/Stop, Edit, New); [web/CHANGELOG.md](web/CHANGELOG.md) records its npm release history
 
 ## Design Records
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records
@@ -3286,6 +3286,18 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   (0.1.0), so AbstractGateway's **Apps → Assistant (web) → Install** works on any machine. It has
   its own release history: [web/CHANGELOG.md](web/CHANGELOG.md).
 
+### Changed
+
+- **Paused automations fold under "Paused · N" in the switcher.** The Automations tab draws the
+  gateway's order (active ones first, most recent activity first) and keeps the paused ones behind a
+  "Paused · N" row that opens them on a click. A gateway that does not serve sections (0.19.0 and
+  earlier) shows the list as before.
+- **Archived automations in the switcher: one "Archived · N" section.** The archived listing is read
+  from the gateway and drawn folded at the end of the Automations tab, like Paused; the "Show
+  archived" button is gone (it could show nothing: the gateway leaves archived automations out of
+  its default listing). The filter also finds paused and archived automations while their section
+  is closed.
+
 ## [0.17.0] - 2026-11-02
 
 The desktop palette gains an optional activity avatar, automations that open as the chat with a
@@ -4759,7 +4771,10 @@ either works without the other's app.
   Questions still require an answer. Decisions already made on another device cannot resume
   a different wait.
 - **Automations.** See your routines, what starts each one in words ("When Python news has a new
-  item", "When mail arrives in you@example.org", the schedule), and the latest 20 runs. Tap a dated run card for its explanation, attempts, recorded error and expandable activity; results refresh while the detail screen is open. Run an
+  item", "When mail arrives in you@example.org", the schedule), and the latest 20 runs, each card
+  with the start of its answer as plain text (no Markdown markers, no bold). Tap a dated run card for its explanation, attempts, recorded error and expandable activity; results refresh while the detail screen is open. Its answer reads aloud
+  with the speaker beside **Answer**, which pauses and resumes it, with **Stop** while it reads (it goes on with the
+  iPhone locked, like a conversation's). Run an
   active or paused routine now, pause it, or resume it. Tap **New automation** (or **+** above an existing list) to create a routine: enter a short title, choose a workflow and its inputs, and select an
   interval or daily time, choose its tools, and decide whether it builds on earlier runs.
   Assistant workflows keep the separate task-instructions field.
@@ -5110,6 +5125,23 @@ category controls apply in Settings, a session, and an automation.
 The iPhone app and its Apple Watch companion share one version and build number (since 0.16.0). Desktop package releases are
 listed in the repository’s [Changelog](../../CHANGELOG.md).
 
+## [Unreleased]
+
+### Added
+
+- **Read an automation run aloud.** The run's sheet has the conversation's speaker beside its
+  answer: it reads the answer aloud, pauses and resumes it, and Stop ends it. The reading goes on
+  with the iPhone locked.
+
+### Fixed
+
+- **Automation cards show their answer as clean plain text.** The Markdown markers (`**`, `#`)
+  are gone and nothing is bold: one font, one weight, in the same three lines as before. The full
+  formatting is in the run's sheet.
+- **An automation's page keeps Run now and Pause clear of the back button.** The navigation bar
+  is opaque on that page, so what scrolls up goes under it instead of showing behind the back
+  button.
+
 ## [0.17.0] — 2026-11-02
 
 What testers get since build 39 (0.16.0). The watch app inside it carries the same version.
@@ -5156,6 +5188,9 @@ What testers get since build 39 (0.16.0). The watch app inside it carries the sa
 
 ### Changed
 
+- Automations open on the active ones, most recent activity first; the paused ones are one tap away
+  under "Paused · N". With a gateway that does not serve sections (0.19.0 and earlier) the list stays
+  as before.
 - **Read-aloud plays without cuts.** The streamed sound plays back to back on one audio graph, with
   no gap between its short chunks.
 - **A conversation opens with one request** on a gateway that serves conversation history bundles
@@ -5588,6 +5623,10 @@ session (`.playback`, `.spokenAudio`) is active only while a reading plays or wa
 pausing, stopping or finishing deactivates it and the app suspends as usual. A short background
 task covers the wait for a reading's first sound, before the engine runs. Voice capture still
 ends when the app leaves the front, and the orb's meter samples only while the app is in front.
+While the stream stalls mid-reading, the engine keeps running over silence so the app stays awake
+to receive the rest; that lasts until the sound comes back, or until the piece's requests give up
+(each fails after 90 s without data, three retries 2 s apart, about six minutes at most). The
+reading then ends with "The voice stopped early." and the app suspends.
 
 **Interruptions.** A call or Siri pauses the reading; the end of the interruption resumes it when
 the system allows. A reading you paused stays paused. Unplugged headphones pause it, and a reset
@@ -5595,7 +5634,9 @@ audio service ends it.
 
 **Lock screen.** A reading started from a conversation is the Now Playing item: the conversation's
 title (or who answers) with play and pause on the lock screen, in Control Center and on the
-headphones' button. It is cleared when the reading ends.
+headphones' button. It is cleared when the reading ends. An automation run's sheet reads its
+answer with the same controller and controls (the automation's name on the lock screen); closing
+the sheet stops it.
 
 ## Voice settings and responder selection
 
@@ -6408,10 +6449,19 @@ scripts/deploy-phone.sh --device <iphone-id> --gateway https://<your-gateway> --
 `--env FILE` reads `GW_URL`, `GW_TOKEN` and optionally `GW_USER` from a private file instead,
 `--no-build` reinstalls the last build, `--forget` clears the sign-in, `--screen NAME` opens a
 screen, `--console` stays attached and prints the app's `phone-trace` lines (sign-in, push
-registration), and `--shoot FILE.png [--wait S]` takes a screenshot. The device comes
+registration, and the course of a reading aloud: pieces, retries, background and front, pauses,
+interruptions, how it ended), and `--shoot FILE.png [--wait S]` takes a screenshot. The device comes
 from `--device` or `PHONE_DEVICE` (`xcrun devicectl list devices`). Launched with `--dump-trace`, a
-Debug build also prints the last 40 trace lines it kept. Release builds compile these launch
-arguments out.
+Debug build also prints the last 40 trace lines it kept. Launched with `--test-read-last`, it reads
+the open conversation's newest answer aloud, for checks on the device such as locking the iPhone
+mid-reading:
+
+```sh
+xcrun devicectl device process launch --device <iphone-id> --terminate-existing --console \
+  ai.abstractframework.assistant --test-read-last
+```
+
+Release builds compile these launch arguments out.
 
 On the watch, a Debug build launched with `--dump-notify` prints the notifier's readout, including
 what each notification service extension did with the last pushes (see the
@@ -6754,6 +6804,9 @@ What testers get since build 39 (0.16.0), inside the iPhone app of the same vers
 
 ### Changed
 
+- **Automations open on what runs.** The list shows the active automations, most recent activity
+  first; the paused ones are one tap away under "Paused · N", next to Archived. With a gateway that
+  does not serve sections (0.19.0 and earlier) the list stays as before.
 - **The voice list is read compact.** Settings → Voice asks `GET /voice/voices?compact=true`: the
   same voices without the engines' duplicated source catalogs (1.4 MB → 250 KB on a gateway with the
   shared voice pack), so the list loads within the watch's read timeout over the iPhone's link.
@@ -7878,6 +7931,21 @@ The phone layout keeps the orb above the conversation; wider screens give voice
 and the readable conversation their own space. Conversations are searchable and
 grouped by recency, with requests that need you first.
 
+**Automations**, beside Conversations in the sidebar, does what the Apple Watch assistant does:
+the active automations first and the most recently active at the top, then **Paused · N** and
+**Archived · N** folded until opened (framework ADR 0048; the gateway serves the order and the
+counts, and an older gateway gets every automation in one list), an automation's latest runs as a
+conversation (opening it marks its new results seen), Run and Stop, Edit (title, task, active, how
+often, memory; sent with the revision it was read at), archive and restore, talking about its
+latest run (a new conversation, the automation unchanged), a run's tool request answered on its
+page with **Approve all** filling **Allowed for its runs** (kept in this browser, per account;
+this browser then approves those tools for the automation's runs when it reads the list), and New
+automation with its **Tools** (Off, Ask or Auto per tool; the split rides the definition's
+`policy.tool_policy`). The cards are AbstractUIC's Watch-style `AutomationCard`; the gateway
+calls, the flow picker, the tool editor and the edit and Approve all rules are the kit's
+(`createAutomationsClient`, `AutomationWorkflowPicker`, `ToolModeEditor`, `reviseChanges`,
+`trustAfterApproveAll`). Run-finished notifications stay on the native apps.
+
 The Docs drawer keeps its question field at the bottom and scrolls the conversation
 above it. Its questions use Assistant documentation and stay separate from your
 main conversation. The [browser guide](docs/assistant-guide.md) is bundled as
@@ -7958,7 +8026,7 @@ computer over plain `http://` the microphone button says why it is off.
 ## Tests
 
 ```bash
-npm test                     # vitest: fold, titles, run input and tool-plan parity, workflow choice, the kit transport, hosts
+npm test                     # vitest: fold, titles, run input and tool-plan parity, workflow choice, the kit transport, hosts, automations
 npm run check:urls           # no root-absolute same-origin URL in the browser code
 npm run build && npm run test:layout   # headless Chromium at 420/760/1024/1280 px, fake gateway
 npm run test:experience      # real UI: virtual mic, draft review, speech ownership, avatar preview, keyboard, reduced motion
@@ -7968,7 +8036,8 @@ npm run test:experience      # real UI: virtual mic, draft review, speech owners
 `-- --shots <dir>` to `node scripts/check_layout.mjs` to save the screenshots. Below 1024 px it
 emulates a touch device and every target must reach 44 px; from 1024 px (a mouse) the rule covers
 the app's own controls and the kit sizes its own for a fine pointer. It also opens Settings →
-Voice and checks that it names the gateway default and fits.
+Voice and checks that it names the gateway default and fits, then the automations at
+400/760/1024/1440 px: the list with Paused and Archived opened, an automation's page, Edit and New.
 
 `test:experience` uses a virtual Chromium microphone, silent generated WAV data
 and a fake Gateway. It performs no inference and never opens a physical microphone.
@@ -7990,8 +8059,8 @@ PYTHONPATH=. python -P web/scripts/gen_tool_policy_parity.py   # needs the packa
 | `bin/server.js`, `bin/cli.js` | The app server: built files, mount under `/apps/assistant-web/`, gateway session proxy |
 | `src/host/` | What the page needs from its host (gateway URLs, authentication, native capabilities); the browser host |
 | `src/gateway/` | Gateway calls (SSE over fetch, framed by the kit's `sseFrames`) and the kit's `WorkflowTransport` over them, with `replayView` (panel-chat 0.6.2: the conversation, every turn of it, is rendered from the gateway's replay view on AbstractGateway >= 0.17.0, the ledger fold otherwise) |
-| `src/lib/` | Pure logic with tests: session fold, titles, workflow choice, run input, theme group |
-| `src/ui/` | The Assistant space on the kit: the conversation (`WorkflowChat`), the conversation list (the shell's navigation), Settings → Voice |
+| `src/lib/` | Pure logic with tests: session fold, titles, workflow choice, run input, theme group, automations (the list's sections, a new automation's body, runs as messages, its tools and "Allowed for its runs") |
+| `src/ui/` | The Assistant space on the kit: the conversation (`WorkflowChat`), the conversation and automation lists (the shell's navigation), an automation's page, Edit and New, Settings → Voice |
 | `src/vendor/abstractavatar/`, `src/vendor/abstractdocs/` | Generated, hash-checked shared rendering and Docs artifacts; standalone builds use these pinned snapshots |
 | `src/styles/index.css` | App styles on the design tokens of `web/design/tokens.css` |
 | `design/` | Design tokens and mockups (owned separately) |
@@ -8032,8 +8101,13 @@ with one filename, Download, and Close in the shared AbstractUIC dialog.
 ## Avatar conversation view
 
 Choose **Avatar** in the conversation header for a second view over the same work.
-The avatar shows activity and short subtitles communicate discoveries, choices and
-questions. **Conversation history** opens the full public exchanges and final answer;
+The avatar shows activity and, under it, one live line: the latest thing the assistant
+reports while it works, replaced as soon as something new arrives (nothing cycles). Click
+it to read it in full, then **Reply to this** to answer it or **Latest** to follow again.
+The findings it reports (facts or evidence it established) accumulate in a
+**Findings** panel beside the avatar, or a sheet you open with **Findings** on a phone; open
+one to see the results it came from. The answer appears once, as a message, with Markdown,
+links and files like the conversation.
 **Conversation** restores the ordinary chat and technical details. Switching views
 preserves the current draft and attachments.
 
@@ -8042,7 +8116,7 @@ icons. “Why I’m asking” shows the assistant’s public explanation when it
 that exact request. “Review details” opens Conversation mode for technical arguments
 and standing permissions. A missing explanation is stated explicitly.
 
-While work continues, type or speak naturally to guide it. **Reply to this** pins a
+While work continues, type or speak naturally to guide it. **Reply to this** on the live line pins a
 specific public update as context. Sending a correction makes it available to the
 assistant; the assistant's later response shows whether it adopted the correction.
 Questions use their displayed answer controls. Permission requests require an explicit
@@ -8052,7 +8126,7 @@ Essential questions keep waiting. A clarification may state a two-to-five minute
 answer deadline and what will happen without an answer. **Conversation cues** controls
 visual and audio alerts independently for questions, permission requests and completion.
 Audio alerts default off. Voice narration uses the existing voice preference;
-reading history or editing a reply silences automatic narration. Playback can be paused
+holding the live line, reading the findings sheet or editing a reply silences automatic narration. Playback can be paused
 or silenced without stopping the task.
 
 Public updates require a run started in Avatar mode and a backend supporting the public
@@ -8070,6 +8144,42 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 
 ## [Unreleased]
 
+### Changed
+
+- **Avatar view: one live line and a Findings panel.** Under the avatar, one line shows the latest
+  thing the assistant reports while it works, replaced as soon as something new arrives; click it to
+  read it in full, then **Reply to this** or **Latest** (back to following). The findings it reports
+  (facts or evidence it established) accumulate in a **Findings** panel beside the avatar, a sheet
+  opened with **Findings** on a phone; each opens to the results it came from. The answer appears
+  once, as a message. The rolling captions and the in-view Conversation history are gone. Needs the producer-typed public
+  updates of AbstractAgent (`kind`) and AbstractRuntime (`update_kind`); older updates are shown as
+  progress. Shared conversation bundle re-synced from AbstractUIC panel-chat.
+
+### Added
+
+- **Automations, as on the Apple Watch.** **Automations** beside Conversations lists them in the
+  gateway's order: the active ones first, the most recently active at the top, then **Paused · N** and
+  **Archived · N**, folded until opened (with an older gateway every automation is in one list).
+  Search finds them by name. An automation's page shows how many times it ran, how often and when
+  next, its task and its latest ten runs as a conversation; opening it marks its new results seen.
+  **Run** starts a run now and **Stop** ends the run in progress. **Edit** changes its title, task,
+  whether it is active, how often it runs and whether each run builds on the earlier ones (and how
+  much of them it reads). Talking on its page opens a conversation about its latest run; a run
+  waiting for you opens where you answer it; a tool request is answered on its page (**Deny**,
+  **Approve all**, **Approve**), and **Approve all** lists the tools under **Allowed for its runs**,
+  which this browser then approves when it sees them until **Ask again**. The archive button asks
+  first and **Restore** brings an archived one back. **New** creates one: its task, the flow that
+  runs it, its **Tools** (each Off, Ask or Auto, from the gateway's defaults), every interval from
+  30 seconds to a week or every day at a time, and whether its runs build on each other.
+
+### Changed
+
+- **The orb no longer follows the mouse.** Only avatars with eyes (such as the Hover robot,
+  the Eye, the Rover and the Watch faces and robots) look toward the pointer while Ready, and
+  only their eyes move, easing back to centre after two idle seconds. The orb and every other
+  avatar stay still. Uses the shared AbstractUIC avatar rule and the refreshed AbstractAvatar
+  renderer.
+
 ## [0.1.0] - 2026-11-02
 
 First public release on npm. AbstractGateway lists it as **Assistant (web)** and installs it from
@@ -8084,10 +8194,14 @@ tray Apps menu); you can also run it yourself with `npx @abstractframework/assis
 - **Voice.** A Watch-style animated orb: tap to talk (or hold, in Voice settings), dictation into
   the draft for review or sent automatically, read aloud that follows your voice setting, and
   playback controls. The composer microphone and the orb share one recording.
-- **Avatar conversation view.** A second view over the same work: the avatar shows activity, short
-  subtitles carry discoveries, choices and questions, and **Conversation history** opens the full
-  exchanges. Permission requests use plain actions with the assistant's public explanation when the
-  gateway serves one.
+- **Avatar conversation view.** A second view over the same work: the avatar shows activity, and
+  realtime rolling captions under it list the current turn's public updates, questions and answer,
+  newest at the bottom, rendered like the conversation (Markdown, links, files). The captions and the
+  Conversation history, Talk and read-aloud buttons sit above the message box at every width;
+  **Conversation history** opens the full exchanges with plain labels (You, Update, Question,
+  Answer). Permission requests use plain actions with the assistant's public explanation when the
+  gateway serves one. The view holds no settings: they open from **Settings** in the conversations
+  sidebar (behind **Open Conversations** on a phone), as everywhere in the app.
 - **Approvals in the conversation.** Deny, Allow once, Allow for this chat or Decide later; a
   chat's tool policy is stored on the gateway when it offers one.
 - **Avatar designs.** The 44-design AbstractAvatar catalog with previews of every activity state;
@@ -21236,11 +21350,26 @@ class AutomationsClient:
 
     def list_all(self, *, status: Optional[str] = None, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Every summary, following ``next_cursor`` (v1 clients poll full pages)."""
+        return self.list_all_counted(status=status, limit=limit)[0]
+
+    def list_all_counted(
+        self, *, status: Optional[str] = None, limit: Optional[int] = None
+    ) -> "tuple[List[Dict[str, Any]], Dict[str, int]]":
+        """``list_all`` plus the first page's served counts (ADR 0048):
+        ``{"paused": n, "archived": n}`` with only the counts the gateway serves
+        (``paused_automations_count``; ``archived_automations_count``, else
+        ``archived_automations``)."""
         items: List[Dict[str, Any]] = []
+        counts: Dict[str, int] = {}
         cursor: Optional[str] = None
         seen: set = set()
         for _ in range(_MAX_PAGES):
             page = self.list(status=status, cursor=cursor, limit=limit)
+            if cursor is None:
+                for key, served in (("paused", ("paused_automations_count",)), ("archived", ("archived_automations_count", "archived_automations"))):
+                    value = next((page.get(k) for k in served if isinstance(page.get(k), int) and not isinstance(page.get(k), bool)), None)
+                    if value is not None:
+                        counts[key] = int(value)
             batch = page.get("items")
             if not isinstance(batch, list):
                 raise AutomationApiError(
@@ -21249,10 +21378,10 @@ class AutomationsClient:
             items.extend(item for item in batch if isinstance(item, dict))
             nxt = page.get("next_cursor")
             if not isinstance(nxt, str) or not nxt or nxt in seen:
-                return items
+                return items, counts
             seen.add(nxt)
             cursor = nxt
-        return items
+        return items, counts
 
     def get(self, automation_id: str) -> Dict[str, Any]:
         """``GET /automations/{id}`` → ``{definition, active_revision, summary}``."""

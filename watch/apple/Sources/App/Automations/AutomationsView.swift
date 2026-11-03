@@ -41,9 +41,17 @@ struct AutomationsView: View {
                     Text("No automations yet").font(.rounded(.footnote)).foregroundStyle(Theme.muted)
                 }
             }
-            ForEach(model.automations) { a in AutomationListRow(automation: a) { archiving = a } }
+            // The gateway's order (ADR 0048): the active ones, then the paused ones folded under Paused.
+            let sections = AutomationSections(model.automations, pausedCount: model.automationsPausedCount)
+            ForEach(sections.main) { a in AutomationListRow(automation: a) { archiving = a } }
+            if let paused = sections.pausedCount, paused > 0 {
+                NavigationLink(value: Route.pausedAutomations) {
+                    Label("Paused · \(paused)", systemImage: "pause.circle").font(.rounded(.footnote)).foregroundStyle(Theme.muted)
+                }
+                .accessibilityIdentifier("automations.paused")
+            }
             NavigationLink(value: Route.archivedAutomations) {
-                Label("Archived", systemImage: "archivebox").font(.rounded(.footnote)).foregroundStyle(Theme.muted)
+                Label(archivedLabel(model.automationsArchivedCount), systemImage: "archivebox").font(.rounded(.footnote)).foregroundStyle(Theme.muted)
             }
             .accessibilityIdentifier("automations.archived")
         }
@@ -184,6 +192,36 @@ private struct ArchivingAutomation: ViewModifier {
             .alert("That didn't work", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: { Text(problem ?? "") }
+    }
+}
+
+/// Paused automations (`GET /automations?status=paused&limit=200`, one page: a watch list), in the
+/// gateway's order: the same rows as the list (a tap opens one, where Resume is).
+struct PausedAutomationsView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var items: [AutomationSummary] = []
+    @State private var loading = true
+    @State private var failed = false
+    @State private var archiving: AutomationSummary?
+
+    var body: some View {
+        List {
+            if loading && items.isEmpty { ProgressView().frame(maxWidth: .infinity) }
+            else if failed && items.isEmpty { Text("Couldn't load the paused automations").font(.rounded(.footnote)).foregroundStyle(Theme.muted) }
+            else if items.isEmpty { Text("Nothing paused").font(.rounded(.footnote)).foregroundStyle(Theme.muted) }
+            ForEach(items) { a in AutomationListRow(automation: a) { archiving = a } }
+        }
+        .screen("Paused")
+        .archivingAutomation($archiving)
+        .containerBackground(Theme.ground, for: .navigation)
+        .refreshable { await load() }
+        .task { await load() }
+        .onChange(of: model.automations) { _, _ in Task { await load() } }   // paused, resumed or archived elsewhere
+    }
+
+    private func load() async {
+        defer { loading = false }
+        do { items = try await model.client.pausedAutomations(); failed = false } catch { failed = true }
     }
 }
 

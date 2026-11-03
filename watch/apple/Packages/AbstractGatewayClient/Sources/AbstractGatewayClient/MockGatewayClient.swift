@@ -161,6 +161,7 @@ public actor MockGatewayClient: GatewayClient {
     private var pollFailures: Int
     // The iPhone's fixtures (its screenshots and tests).
     private let emptyAutomations: Bool
+    private let pausedSamples: Bool
     private nonisolated let speechPreparationDelay: TimeInterval
     #if DEBUG
     /// A reading in pieces over a link that drops: the speech requests (counted from 1) whose
@@ -203,13 +204,13 @@ public actor MockGatewayClient: GatewayClient {
                 automationsFailures: Int = 0, pollFailures: Int = 0, definitionDelay: Duration = .zero, runDelay: Duration = .zero,
                 emptyAutomations: Bool = false, activityScenario: String? = nil, historyFixture: Bool = false, conversationListFixture: Bool = false,
                 categoryFixture: Bool = false, emailFixture: Bool = false, accessFixture: Bool = false, mediaImage: Data? = nil, mediaVoice: Data? = nil,
-                speechPreparationDelay: TimeInterval = 0, publicHistoryFixture: Bool = false) {
+                speechPreparationDelay: TimeInterval = 0, publicHistoryFixture: Bool = false, pausedSamples: Bool = false) {
         self.world = world
         self.publicHistoryFixture = publicHistoryFixture
         self.pending = (waits ?? world.sampleWaits).filter { !publicHistoryFixture || $0.runId != "3e9a10c4" }; self.wordInterval = wordInterval; self.automationsDelay = automationsDelay
         self.automationsFailures = automationsFailures; self.pollFailures = pollFailures; self.definitionDelay = definitionDelay
         self.runDelay = runDelay
-        self.emptyAutomations = emptyAutomations; self.activityScenario = activityScenario
+        self.emptyAutomations = emptyAutomations; self.activityScenario = activityScenario; self.pausedSamples = pausedSamples
         self.historyFixture = historyFixture; self.conversationListFixture = conversationListFixture; self.categoryFixture = categoryFixture
         self.emailFixture = emailFixture; self.accessFixture = accessFixture
         self.mediaImage = mediaImage; self.mediaVoice = mediaVoice; self.speechPreparationDelay = speechPreparationDelay
@@ -401,15 +402,34 @@ public actor MockGatewayClient: GatewayClient {
     /// Pause / resume / archive, as the gateway applies them (the sample automations' state).
     private var statuses: [String: String] = [:]
     private var archivedAutomationIds: Set<String> = []
-    public func automations() async throws -> [AutomationSummary] {
+    public func automations() async throws -> [AutomationSummary] { try await automationList().items }
+    /// As the gateway serves it (ADR 0048): the active ones first, then the paused ones, each row
+    /// with its section, and the page's paused count.
+    public func automationList() async throws -> AutomationsPage {
         if automationsDelay > .zero { try await Task.sleep(for: automationsDelay) }
         if automationsFailures > 0 { automationsFailures -= 1; throw URLError(.timedOut) }
         var out: [AutomationSummary] = []
-        for a in (emptyAutomations ? [] : world.sampleAutomations) + createdAutomations where !archivedAutomationIds.contains(a.id) {
+        for a in listedAutomations where !archivedAutomationIds.contains(a.id) {
             out.append(try await automation(id: a.id))
         }
-        return out.filter { $0.status != "archived" }
+        out = out.filter { $0.status != "archived" }
+        let ordered = out.filter { $0.section != "paused" } + out.filter { $0.section == "paused" }
+        let archived = listedAutomations.filter { archivedAutomationIds.contains($0.id) || statuses[$0.id] == "archived" }.count
+        return AutomationsPage(items: ordered, pausedAutomations: ordered.filter { $0.section == "paused" }.count, archivedAutomations: archived)
     }
+    public func pausedAutomations() async throws -> [AutomationSummary] {
+        try await automationList().items.filter { $0.section == "paused" }
+    }
+    /// The sample automations (with `--paused-automations`: two paused ones that never ran).
+    private var listedAutomations: [AutomationSummary] {
+        (emptyAutomations ? [] : world.sampleAutomations + (pausedSamples ? Self.pausedSamples : [])) + createdAutomations
+    }
+    public static let pausedSamples: [AutomationSummary] = [
+        AutomationSummary(id: "auto-consolidate", name: "Consolidate my notes", status: "paused", scheduleText: "Every day at 03:00",
+                          lastOccurrence: nil, occurrenceCount: 0, triggerSource: "schedule", triggerConfig: ["kind": .string("daily")], revision: 1),
+        AutomationSummary(id: "auto-reflect", name: "Reflect on my notes", status: "paused", scheduleText: "Every day at 04:00",
+                          lastOccurrence: nil, occurrenceCount: 0, triggerSource: "schedule", triggerConfig: ["kind": .string("daily")], revision: 1),
+    ]
     /// Run now: the automation runs for 14 s (`current_occurrence` set, a ledger that moves on).
     private var automationRunStarted: [String: Date] = [:]
     public func runAutomationNow(id: String) async throws {
@@ -432,13 +452,14 @@ public actor MockGatewayClient: GatewayClient {
         return Discussion(sessionId: "discussion-session:" + run, runId: run)
     }
     public func automation(id: String) async throws -> AutomationSummary {
-        guard var a = (world.sampleAutomations + createdAutomations).first(where: { $0.id == id }) else { throw GatewayError.http(status: 404, body: "") }
+        guard var a = (world.sampleAutomations + Self.pausedSamples + createdAutomations).first(where: { $0.id == id }) else { throw GatewayError.http(status: 404, body: "") }
         if let t = revisedTitle[id] { a.name = t }
         if let n = revisions[id] { a.revision = (a.revision ?? 1) + n }
         if let t = automationRunStarted[id], Date().timeIntervalSince(t) < 14 {
             a.currentOccurrence = CurrentOccurrence(index: (a.lastOccurrence?.index ?? 0) + 1, runId: "occ-live", attempt: 1, status: "running")
         } else { automationRunStarted[id] = nil }
         if let status = statuses[id] { a.status = status }
+        a.section = a.status == "paused" ? "paused" : a.status == "archived" ? "archived" : "active"
         return a
     }
     /// The live occurrence's agent steps, by seconds since Run now.
@@ -469,7 +490,7 @@ public actor MockGatewayClient: GatewayClient {
     public func automationDefaults() async throws -> AutomationDefaults { AutomationDefaults(growingMaxTokens: 50_000) }
     public func archivedAutomations() async throws -> [AutomationSummary] {
         var out: [AutomationSummary] = []
-        for a in world.sampleAutomations + createdAutomations where archivedAutomationIds.contains(a.id) || statuses[a.id] == "archived" {
+        for a in listedAutomations where archivedAutomationIds.contains(a.id) || statuses[a.id] == "archived" {
             out.append(try await automation(id: a.id))
         }
         return out
@@ -565,7 +586,7 @@ public actor MockGatewayClient: GatewayClient {
             if world == .phone {
                 return LastOccurrence(status: failed ? "failed" : "completed", excerpt: nil, runId: "occ-\(i)", index: i,
                                       firedAt: ISO8601DateFormatter().string(from: day), finishedAt: ISO8601DateFormatter().string(from: day.addingTimeInterval(90)),
-                                      answer: failed ? "" : "Digest \(i): the assay QC run passed; nothing new to pin.",
+                                      answer: failed ? "" : "**Digest \(i)**: the assay QC run passed; *nothing new* to pin.",
                                       failure: failed ? .init(reasonCode: "occurrence_failed", message: "OpenAI-compatible server API error (401): Missing or invalid AIRelays bearer token.", attempts: 3) : nil,
                                       attempts: failed ? 3 : 1, userTurn: "Check my emails for important updates.")
             }

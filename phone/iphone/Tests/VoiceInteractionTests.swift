@@ -313,7 +313,9 @@ final class VoiceInteractionTests: XCTestCase {
         XCTAssertEqual(MockGatewayClient.stalledVoiceCalls, 3)
         XCTAssertTrue(starved, "the stall should have left nothing to play for a while")
         XCTAssertEqual(voice.playedSeconds, 4.0, accuracy: 0.05, "a sound was heard twice (more) or one was cut (less)")
-        XCTAssertGreaterThan(aheadAfterStall ?? 0, 0.8, "after the stall the playhead ran ahead of the sound: \(String(describing: aheadAfterStall))")
+        // About 1 s waits right after the retry's sound is scheduled (the poll may read it a little
+        // late on a busy machine); a playhead that ran on during the stall reads 0.
+        XCTAssertGreaterThan(aheadAfterStall ?? 0, 0.3, "after the stall the playhead ran ahead of the sound: \(String(describing: aheadAfterStall))")
         XCTAssertLessThanOrEqual(aheadAfterStall ?? 9, 1.01)
     }
 

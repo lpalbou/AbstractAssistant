@@ -1,5 +1,5 @@
 import { Icon } from "@abstractframework/ui-kit";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { SessionCard, type SessionActivity } from "../vendor/abstractsessions/session_cards.js";
 import "../vendor/abstractsessions/session_cards.css";
 
@@ -7,6 +7,8 @@ import { type SessionRow } from "../lib/session_fold";
 
 /** Host navigation, search and grouping; AbstractUIC owns card presentation. */
 export function SessionList(props: {
+  /** The list's heading (the app's Conversations | Automations choice). */
+  heading?: ReactNode;
   rows: SessionRow[];
   activity: Record<string, SessionActivity>;
   isUnread: (row: SessionRow) => boolean;
@@ -36,7 +38,7 @@ export function SessionList(props: {
   return (
     <div className="aa-sidebar">
       <div className="aa-sidebar__top">
-        <span className="aa-sidebar__heading">Conversations</span>
+        {props.heading ?? <span className="aa-sidebar__heading">Conversations</span>}
         <button type="button" className="aa-button aa-button--primary" onClick={props.onNew}>
           <Icon name="plus" size={16} /> New
         </button>

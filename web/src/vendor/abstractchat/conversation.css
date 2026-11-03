@@ -2692,54 +2692,54 @@ button.pc-ws__name:hover {
   .pc-artifact-preview .af-modal__title { padding-right: 56px; }
   .pc-artifact-preview .af-file-viewer__head > button { right: 70px; width: 44px; height: 44px; }
 }
+/* Avatar view (AvatarConversation). One column that fits its container without scrolling: the
+   avatar takes whatever height is left, then one live line, the answer, and the actions last,
+   directly above the host's composer. Findings float beside the avatar on a wide view and open
+   as a bottom sheet on a narrow one. Nothing auto-cycles. */
 .pc-avatar-conversation {
+  --pc-avatar-findings-width: min(22rem, 34%);
+  container: pc-avatar / inline-size;
+  position: relative;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: .75rem;
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
   padding: clamp(.75rem, 3vw, 1.5rem);
   color: var(--text-primary, inherit);
 }
-.pc-workflow-chat__transcript > .pc-avatar-conversation { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
-.pc-avatar-conversation > * { flex-shrink: 0; }
+.pc-workflow-chat__transcript > .pc-avatar-conversation { flex: 1 1 0; min-height: 0; overflow-y: auto; }
+.pc-avatar-conversation > * { flex: 0 0 auto; min-width: 0; }
+.pc-avatar-conversation__presence {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: .5rem;
+  min-height: 6rem;
+}
 .pc-avatar-conversation__scene {
+  container-type: size;
   display: grid;
-  place-items: center;
-  min-height: clamp(180px, 32vh, 380px);
-  flex: 1 0 auto;
-}
-.pc-avatar-conversation__scene > * { max-width: 100%; }
-.pc-avatar-conversation[data-has-request] {
-  display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
-  grid-auto-rows: max-content;
-  align-content: start;
-}
-.pc-avatar-conversation[data-has-request] > * { grid-column: 1 / -1; }
-.pc-avatar-conversation[data-has-request] .pc-avatar-conversation__scene {
-  grid-column: 1;
-  grid-row: 1;
-  flex: 0 0 auto;
+  flex: 1 1 0;
   min-height: 0;
-  height: 48px;
+  place-items: center;
 }
-.pc-avatar-conversation[data-has-request] .pc-avatar-conversation__scene > * {
-  width: 48px !important;
-  height: 48px !important;
-}
-.pc-avatar-conversation[data-has-request] .pc-avatar-conversation__status {
-  grid-column: 2;
-  grid-row: 1;
-  align-self: center;
-  text-align: start;
-}
+/* The host's avatar (a canvas or image) scales down with the space left, never distorted. */
+.pc-avatar-conversation__scene > * { max-width: 100cqw; max-height: 100cqh; object-fit: contain; }
+/* While a request is open, the avatar yields the space: a small scene beside
+   its status, so the question or approval and its controls stay visible at every height. */
+.pc-avatar-conversation[data-compact] .pc-avatar-conversation__presence { flex: 0 0 auto; flex-direction: row; align-items: center; min-height: 0; gap: .75rem; }
+.pc-avatar-conversation[data-compact] .pc-avatar-conversation__scene { flex: 0 0 48px; height: 48px; }
+.pc-avatar-conversation[data-compact] .pc-avatar-conversation__scene > * { width: 48px !important; height: 48px !important; }
+.pc-avatar-conversation[data-compact] .pc-avatar-conversation__status { text-align: start; }
 .pc-avatar-conversation__request {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  min-width: 0;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--ui-surface-0, var(--bg-primary, #191a25));
 }
 .pc-avatar-conversation__request .pc-workflow-interaction__detail {
@@ -2770,39 +2770,84 @@ button.pc-ws__name:hover {
 .pc-public-approval__buttons > [data-decision="approve"] { border: 1px solid var(--accent-border, #7189c0); background: var(--accent-subtle, #7189c033); font-weight: 600; }
 .pc-public-approval__review { margin-inline-start: auto; }
 .pc-workflow-interaction--conversation .pc-workflow-interaction__body { margin-top: 6px; gap: 8px; }
-/* While a request is open the avatar yields the space: a small scene beside its status so the
-   question or approval and its controls stay visible at every viewport height. */
 .pc-avatar-conversation[data-has-request] { padding-block: 8px; gap: 8px; }
-.pc-avatar-conversation[data-has-request] .pc-avatar-conversation__scene { height: 40px; }
+.pc-avatar-conversation[data-has-request] .pc-avatar-conversation__scene { flex-basis: 40px; height: 40px; }
 .pc-avatar-conversation[data-has-request] .pc-avatar-conversation__scene > * { width: 40px !important; height: 40px !important; }
 .pc-avatar-conversation__status { text-align: center; margin: 0; font-weight: 600; }
 .pc-avatar-conversation__attention { border-inline-start: 3px solid currentColor; padding: .5rem .75rem; margin: 0; }
 .pc-avatar-conversation__attention[data-kind="approval"] { color: var(--warning, #d6a648); }
-.pc-avatar-conversation__captions { width: min(100%, 46rem); margin-inline: auto; }
-.pc-avatar-conversation__captions > p {
-  font-size: clamp(1.1rem, 2.5vw, 1.45rem);
-  line-height: 1.5;
-  height: 4.5em;
-  margin: 0;
-  overflow-y: auto;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
+/* The live line: the latest public update in the shared renderer, at subtitle size, three lines
+   until the person opens it; each new update replaces it with a short entrance. */
+.pc-avatar-conversation__live { display: grid; justify-items: center; gap: .5rem; width: min(100%, 46rem); margin: 0 auto; }
+.pc-avatar-conversation__line { width: 100%; font-size: clamp(1rem, 1.6vw, 1.2rem); line-height: 1.5; text-align: center; animation: pc-avatar-line-enter .35s ease-out; }
+.pc-avatar-conversation__expandable { position: relative; border-radius: .4rem; }
+.pc-avatar-conversation__line { min-height: 44px; display: grid; align-items: center; }
+.pc-avatar-conversation__expandable:not([data-open]) .pc-chat-content { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.pc-avatar-conversation__line[data-open] { max-height: 40dvh; overflow-y: auto; overscroll-behavior: contain; text-align: start; }
+/* While closed, a transparent button covers the content: the whole text opens it. */
+.pc-avatar-conversation .pc-avatar-conversation__opener { position: absolute; inset: 0; min-height: 0; min-width: 0; margin: 0; padding: 0; border: 0; border-radius: inherit; background: transparent; cursor: pointer; }
+.pc-avatar-conversation .pc-avatar-conversation__opener:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
+.pc-avatar-conversation__live:focus { outline: none; }
+.pc-avatar-conversation__line-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: .5rem; }
+.pc-avatar-conversation__line-actions button { min-height: 44px; }
+.pc-avatar-conversation__line-actions button[aria-pressed="true"] { border-color: var(--accent-border, #7189c0); background: var(--accent-subtle, #7189c033); }
+@keyframes pc-avatar-line-enter { from { opacity: 0; transform: translateY(.4em); } }
+/* Content density for the shared message renderer: content only, no card chrome. */
+.pc-avatar-conversation .pc-chat-item.pc-chat-item--caption { max-width: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
+.pc-avatar-conversation .pc-chat-item--caption :is(.pc-chat-body, .pc-chat-content, .pc-md) { font-size: inherit; line-height: inherit; overflow-wrap: anywhere; }
+.pc-avatar-conversation .pc-chat-item--caption .pc-chat-content :where(*) { margin-block: 0; line-height: inherit; }
+.pc-avatar-conversation .pc-chat-item--caption .pc-chat-content :where(* + *) { margin-block-start: .4em; }
+.pc-avatar-conversation .pc-chat-item--caption .pc-chat-content :is(h1, h2, h3, h4, h5, h6) { font-size: 1em; }
+.pc-avatar-conversation .pc-chat-item--caption .pc-chat-content code { font-size: .85em; }
+.pc-avatar-conversation .pc-chat-item--caption :is(.pc-chat-media, .pc-chat-attachments) { margin-top: 0; font-size: .85em; }
+/* The answer: a normal message, once; it scrolls in place when long. */
+.pc-avatar-conversation__answer { flex: 0 1 auto; min-height: 0; width: min(100%, 46rem); margin: 0 auto; overflow-y: auto; overscroll-behavior: contain; }
+.pc-avatar-conversation__answer .pc-chat-item { max-width: none; margin: 0; }
+.pc-avatar-conversation__answer[data-attention="completion"] .pc-chat-item { border-inline-start: 3px solid var(--accent-border, #7189c0); }
+/* Findings: compact cards, newest last, each opening to its full text and sources. */
+.pc-avatar-conversation__findings {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  min-height: 0;
+  padding: .75rem;
+  border: 1px solid var(--ui-border-1, #7775);
+  border-radius: .75rem;
+  background: var(--bg-secondary, #16213e);
+  box-shadow: 0 .5rem 1.5rem #0003;
 }
-.pc-avatar-conversation__captions:focus-visible { outline: 2px solid currentColor; outline-offset: 5px; }
-.pc-avatar-conversation__actions, .pc-avatar-conversation__pages { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .5rem; }
+.pc-avatar-conversation__findings-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .5rem; }
+.pc-avatar-conversation__findings-head h2 { margin: 0; font-size: .95rem; font-weight: 600; }
+.pc-avatar-conversation__findings > ol { display: grid; gap: .5rem; margin: 0; padding: 0; list-style: none; overflow-y: auto; overscroll-behavior: contain; min-height: 0; }
+.pc-avatar-conversation__finding { padding: .5rem .65rem; border: 1px solid var(--ui-border-1, #7774); border-radius: .5rem; background: var(--bg-primary, #1a1a2e); font-size: .9rem; line-height: 1.45; }
+.pc-avatar-conversation__finding:focus { outline: none; }
+.pc-avatar-conversation__finding:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.pc-avatar-conversation__finding .pc-avatar-conversation__expandable:not([data-open]) .pc-chat-content { -webkit-line-clamp: 2; }
+.pc-avatar-conversation__sources { margin: .4rem 0 0; padding: .4rem 0 0; list-style: none; border-top: 1px solid var(--ui-border-1, #7774); color: var(--text-secondary, inherit); font-size: .85em; overflow-wrap: anywhere; }
+.pc-avatar-conversation__sources li + li { margin-top: .2rem; }
+/* Narrow (the default): a bottom sheet the person opens with Findings and closes with Close. */
+.pc-avatar-conversation__findings { inset-inline: 0; bottom: 0; max-height: 70%; border-radius: .9rem .9rem 0 0; border-bottom: 0; padding-bottom: calc(.75rem + env(safe-area-inset-bottom, 0px)); }
+.pc-avatar-conversation:not([data-findings-open]) .pc-avatar-conversation__findings { display: none; }
+.pc-avatar-conversation[data-findings-open] .pc-avatar-conversation__findings { display: flex; }
+/* Wide: the panel floats beside the avatar, always shown; the column keeps clear of it. */
+@container pc-avatar (min-width: 720px) {
+  .pc-avatar-conversation.pc-avatar-conversation[data-has-findings] .pc-avatar-conversation__findings { display: flex; inset-inline: auto clamp(.75rem, 3vw, 1.5rem); top: clamp(.75rem, 3vw, 1.5rem); bottom: auto; width: var(--pc-avatar-findings-width); max-height: calc(100% - 2 * clamp(.75rem, 3vw, 1.5rem)); border-bottom: 1px solid var(--ui-border-1, #7775); border-radius: .75rem; padding-bottom: .75rem; }
+  .pc-avatar-conversation[data-has-findings] > :not(.pc-avatar-conversation__findings) { margin-inline: 0 calc(var(--pc-avatar-findings-width) + 1rem); }
+  .pc-avatar-conversation[data-has-findings] > :is(.pc-avatar-conversation__live, .pc-avatar-conversation__answer) { width: auto; max-width: 46rem; align-self: center; }
+  .pc-avatar-conversation :is(.pc-avatar-conversation__findings-toggle, .pc-avatar-conversation__findings-close) { display: none; }
+}
+.pc-avatar-conversation__actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .5rem; }
+/* Host-supplied control groups (voiceControl, playbackControl) wrap and space like the row itself. */
+.pc-avatar-conversation__actions > span { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .5rem; }
 .pc-avatar-conversation button { font: inherit; color: inherit; background: transparent; border: 1px solid var(--ui-border-1, #7776); border-radius: .4rem; padding: .4rem .65rem; cursor: pointer; }
+.pc-avatar-conversation__actions button { min-height: 44px; min-width: 44px; }
 .pc-avatar-conversation button:disabled { opacity: .5; cursor: default; }
 .pc-avatar-conversation button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
-.pc-avatar-conversation__history { margin: 0; padding-inline-start: 1.5rem; }
-.pc-avatar-conversation__history > li { padding: .75rem .25rem; border-bottom: 1px solid var(--ui-border-1, #7774); }
-.pc-avatar-conversation__history p { white-space: pre-wrap; overflow-wrap: anywhere; margin: .4rem 0; }
-.pc-avatar-conversation__reply-context { margin: 0; }
-.pc-avatar-conversation__preferences { font-size: .9em; }
-.pc-avatar-conversation__preferences summary { cursor: pointer; }
-.pc-avatar-conversation__preferences fieldset { display: inline-flex; flex-wrap: wrap; gap: .75rem; margin: .4rem; border: 1px solid var(--ui-border-1, #7776); }
-.pc-avatar-conversation__preferences label { display: inline-flex; align-items: center; gap: .3rem; }
+.pc-avatar-conversation__findings-head button { min-height: 44px; }
 @media (pointer: coarse) {
-  .pc-avatar-conversation button, .pc-avatar-conversation summary, .pc-avatar-conversation__preferences label { min-height: 44px; }
+  .pc-avatar-conversation button, .pc-avatar-conversation summary { min-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .pc-avatar-conversation *, .pc-avatar-conversation *::before, .pc-avatar-conversation *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }

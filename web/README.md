@@ -25,6 +25,21 @@ The phone layout keeps the orb above the conversation; wider screens give voice
 and the readable conversation their own space. Conversations are searchable and
 grouped by recency, with requests that need you first.
 
+**Automations**, beside Conversations in the sidebar, does what the Apple Watch assistant does:
+the active automations first and the most recently active at the top, then **Paused · N** and
+**Archived · N** folded until opened (framework ADR 0048; the gateway serves the order and the
+counts, and an older gateway gets every automation in one list), an automation's latest runs as a
+conversation (opening it marks its new results seen), Run and Stop, Edit (title, task, active, how
+often, memory; sent with the revision it was read at), archive and restore, talking about its
+latest run (a new conversation, the automation unchanged), a run's tool request answered on its
+page with **Approve all** filling **Allowed for its runs** (kept in this browser, per account;
+this browser then approves those tools for the automation's runs when it reads the list), and New
+automation with its **Tools** (Off, Ask or Auto per tool; the split rides the definition's
+`policy.tool_policy`). The cards are AbstractUIC's Watch-style `AutomationCard`; the gateway
+calls, the flow picker, the tool editor and the edit and Approve all rules are the kit's
+(`createAutomationsClient`, `AutomationWorkflowPicker`, `ToolModeEditor`, `reviseChanges`,
+`trustAfterApproveAll`). Run-finished notifications stay on the native apps.
+
 The Docs drawer keeps its question field at the bottom and scrolls the conversation
 above it. Its questions use Assistant documentation and stay separate from your
 main conversation. The [browser guide](docs/assistant-guide.md) is bundled as
@@ -105,7 +120,7 @@ computer over plain `http://` the microphone button says why it is off.
 ## Tests
 
 ```bash
-npm test                     # vitest: fold, titles, run input and tool-plan parity, workflow choice, the kit transport, hosts
+npm test                     # vitest: fold, titles, run input and tool-plan parity, workflow choice, the kit transport, hosts, automations
 npm run check:urls           # no root-absolute same-origin URL in the browser code
 npm run build && npm run test:layout   # headless Chromium at 420/760/1024/1280 px, fake gateway
 npm run test:experience      # real UI: virtual mic, draft review, speech ownership, avatar preview, keyboard, reduced motion
@@ -115,7 +130,8 @@ npm run test:experience      # real UI: virtual mic, draft review, speech owners
 `-- --shots <dir>` to `node scripts/check_layout.mjs` to save the screenshots. Below 1024 px it
 emulates a touch device and every target must reach 44 px; from 1024 px (a mouse) the rule covers
 the app's own controls and the kit sizes its own for a fine pointer. It also opens Settings →
-Voice and checks that it names the gateway default and fits.
+Voice and checks that it names the gateway default and fits, then the automations at
+400/760/1024/1440 px: the list with Paused and Archived opened, an automation's page, Edit and New.
 
 `test:experience` uses a virtual Chromium microphone, silent generated WAV data
 and a fake Gateway. It performs no inference and never opens a physical microphone.
@@ -137,8 +153,8 @@ PYTHONPATH=. python -P web/scripts/gen_tool_policy_parity.py   # needs the packa
 | `bin/server.js`, `bin/cli.js` | The app server: built files, mount under `/apps/assistant-web/`, gateway session proxy |
 | `src/host/` | What the page needs from its host (gateway URLs, authentication, native capabilities); the browser host |
 | `src/gateway/` | Gateway calls (SSE over fetch, framed by the kit's `sseFrames`) and the kit's `WorkflowTransport` over them, with `replayView` (panel-chat 0.6.2: the conversation, every turn of it, is rendered from the gateway's replay view on AbstractGateway >= 0.17.0, the ledger fold otherwise) |
-| `src/lib/` | Pure logic with tests: session fold, titles, workflow choice, run input, theme group |
-| `src/ui/` | The Assistant space on the kit: the conversation (`WorkflowChat`), the conversation list (the shell's navigation), Settings → Voice |
+| `src/lib/` | Pure logic with tests: session fold, titles, workflow choice, run input, theme group, automations (the list's sections, a new automation's body, runs as messages, its tools and "Allowed for its runs") |
+| `src/ui/` | The Assistant space on the kit: the conversation (`WorkflowChat`), the conversation and automation lists (the shell's navigation), an automation's page, Edit and New, Settings → Voice |
 | `src/vendor/abstractavatar/`, `src/vendor/abstractdocs/` | Generated, hash-checked shared rendering and Docs artifacts; standalone builds use these pinned snapshots |
 | `src/styles/index.css` | App styles on the design tokens of `web/design/tokens.css` |
 | `design/` | Design tokens and mockups (owned separately) |
@@ -179,8 +195,13 @@ with one filename, Download, and Close in the shared AbstractUIC dialog.
 ## Avatar conversation view
 
 Choose **Avatar** in the conversation header for a second view over the same work.
-The avatar shows activity and short subtitles communicate discoveries, choices and
-questions. **Conversation history** opens the full public exchanges and final answer;
+The avatar shows activity and, under it, one live line: the latest thing the assistant
+reports while it works, replaced as soon as something new arrives (nothing cycles). Click
+it to read it in full, then **Reply to this** to answer it or **Latest** to follow again.
+The findings it reports (facts or evidence it established) accumulate in a
+**Findings** panel beside the avatar, or a sheet you open with **Findings** on a phone; open
+one to see the results it came from. The answer appears once, as a message, with Markdown,
+links and files like the conversation.
 **Conversation** restores the ordinary chat and technical details. Switching views
 preserves the current draft and attachments.
 
@@ -189,7 +210,7 @@ icons. “Why I’m asking” shows the assistant’s public explanation when it
 that exact request. “Review details” opens Conversation mode for technical arguments
 and standing permissions. A missing explanation is stated explicitly.
 
-While work continues, type or speak naturally to guide it. **Reply to this** pins a
+While work continues, type or speak naturally to guide it. **Reply to this** on the live line pins a
 specific public update as context. Sending a correction makes it available to the
 assistant; the assistant's later response shows whether it adopted the correction.
 Questions use their displayed answer controls. Permission requests require an explicit
@@ -199,7 +220,7 @@ Essential questions keep waiting. A clarification may state a two-to-five minute
 answer deadline and what will happen without an answer. **Conversation cues** controls
 visual and audio alerts independently for questions, permission requests and completion.
 Audio alerts default off. Voice narration uses the existing voice preference;
-reading history or editing a reply silences automatic narration. Playback can be paused
+holding the live line, reading the findings sheet or editing a reply silences automatic narration. Playback can be paused
 or silenced without stopping the task.
 
 Public updates require a run started in Avatar mode and a backend supporting the public

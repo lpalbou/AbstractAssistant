@@ -92,6 +92,10 @@ public protocol GatewayClient: Sendable {
     func automations() async throws -> [AutomationSummary]
     /// `GET /api/gateway/automations?archived_only=true`: the archived automations.
     func archivedAutomations() async throws -> [AutomationSummary]
+    /// `GET /api/gateway/automations` (first page) with the page's counts (`paused_automations`).
+    func automationList() async throws -> AutomationsPage
+    /// `GET /api/gateway/automations?status=paused`: the paused automations (the Paused section).
+    func pausedAutomations() async throws -> [AutomationSummary]
     /// `POST /api/gateway/automations/{id}/commands` `{type: "automation.run_now"}`.
     func runAutomationNow(id: String) async throws
     /// `POST /automations/{id}/commands` (`automation.pause`, `automation.resume`, …).
@@ -802,8 +806,15 @@ public actor LiveGatewayClient: GatewayClient {
     }
 
     /// The slow call on a public gateway (~7 s of server time, more over a watch's radio): 60 s.
-    public func automations() async throws -> [AutomationSummary] {
-        try JSONDecoder().decode(AutomationsPage.self, from: try await request("GET", "api/gateway/automations", timeout: 60)).items
+    public func automations() async throws -> [AutomationSummary] { try await automationList().items }
+
+    public func automationList() async throws -> AutomationsPage {
+        try JSONDecoder().decode(AutomationsPage.self, from: try await request("GET", "api/gateway/automations", timeout: 60))
+    }
+
+    public func pausedAutomations() async throws -> [AutomationSummary] {
+        try JSONDecoder().decode(AutomationsPage.self, from: try await request(
+            "GET", "api/gateway/automations", query: [.init(name: "status", value: "paused"), .init(name: "limit", value: "200")], timeout: 60)).items
     }
 
     private struct RunNow: Encodable {
