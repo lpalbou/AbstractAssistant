@@ -53,6 +53,8 @@ export type ReplayViewMessage = {
     seqs?: number[];
     source?: string;
     source_call_ids?: string[];
+    /** Public updates: the actor's type, "progress" or "finding". */
+    update_kind?: "progress" | "finding";
     session_id?: string;
     iteration?: number;
     public_update_id?: string;
@@ -64,6 +66,8 @@ export type ReplayViewMessage = {
 };
 export type ReplayViewToolCall = {
     id?: string;
+    /** The model's own call id, when the row is keyed by a runtime call id (`id`). */
+    call_id?: string;
     name?: string;
     arguments?: unknown;
     status?: string;

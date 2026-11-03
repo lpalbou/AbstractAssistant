@@ -35,7 +35,7 @@ Other extras:
 | Extra | Adds |
 |---|---|
 | `voice` (alias `all`) | local speech-to-text on top of the default audio I/O (`abstractvoice[audio-io,stt]`) |
-| `avatar` | the optional activity avatar in the palette (`abstractavatar`) |
+| `avatar` | nothing since 0.18.0: the activity avatar (`abstractavatar`) is in the base install; kept so older install lines still work |
 | `apple` | the Apple Silicon local stack (`abstractcore[all-apple]`, `abstractvoice[all-apple]`) |
 | `gpu` | the NVIDIA/CUDA local stack (`abstractcore[all-gpu]`, `abstractvoice[all-gpu]`) |
 | `macos-app` | PyInstaller, to build the macOS app bundle |

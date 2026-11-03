@@ -35,16 +35,16 @@
     "dist/relative_time.js": "da07fc7ef465673ae20f3c7ee9900cbd9c760e7798f731ca1ab25707d6bf7cf4",
     "dist/compact_activity_card.js": "540ea848d4653ac65afea3714bfad7dead3333bf2c720de7c42c3fb4ce294d2f",
     "dist/session_card.js": "da03c7c60fd9fd969589e6cafbff54f66c3f3bc93bbb0f1343a9eaaf5e675e3a",
-    "dist/automation_card.js": "e49947a82e7110a365831817a4b2901d3c4f2cd25d8537932c5db7e465673ff3",
+    "dist/automation_card.js": "14d8bcca2cc479e9f2ba008cd1139c9f285dadfd9fb1b805b070866940dd0e07",
     "dist/session_activity.js": "1e42b11516538444679129ff31a982a012ce3bee8cdb84fe11e086e3326c4c3b",
     "dist/session_read_client.js": "b9787f91639a869ef6b98f40ab11421330a8245aa96b794c4ebb24612028446b",
     "dist/session_reads_remote.js": "4add9cbecba6970b62c0a7595318b46cf147ff3e3a2086c54f34b1fa6ed235ba",
     "dist/session_reads.js": "c05c38663f578a7f13185b05b5a1df54cc3fee1bf0bb3660c568c42a7cf6cd4c",
     "dist/session_cards.js": "8f5a10250512619f3ccb3887d12a4444cbeeb97af8f523463659d2233a94bea9",
-    "src/theme.css": "506504bca20e0ffa176bccf20fbed87bb6b9199f5e3454089fdcc01b5af6baae"
+    "src/theme.css": "83fe3a16b95177d39f7d5394c1d62fe127960b843d53c5deae143fa86a5745f7"
   },
   "artifacts": {
-    "session_cards.js": "5b83488a60d657c28cf89c3de087fad03ef0fb70a914ebc079247d51f86a2b1f",
+    "session_cards.js": "1af1446d72156deb4d78943763edfc11a46053911f788ae71560edc9abb60a0b",
     "automation_panel.js": "64cac3baeddf737d05e35ea427d86efe6e24d8a8def0c754eeaa84ad42da2690",
     "automation_panel.d.ts": "b2cf19b70e6fdaaab7593e4718ff542a112830ff7188f082a7c211d81d4bf5dc",
     "session_cards.d.ts": "279ee6f875cde6bbdad757e54b8822090a2cde7cd32aacddb5154693389d29c0",

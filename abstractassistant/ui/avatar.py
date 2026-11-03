@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QWidget
 from ..theme import THEME
 
 
-INSTALL_HINT = "Install AbstractAssistant's avatar extra to enable procedural avatars."
+INSTALL_HINT = "AbstractAvatar ships with AbstractAssistant: reinstall AbstractAssistant to restore it."
 _STATES = {"ready", "thinking", "working", "listening", "speaking", "waiting", "error"}
 
 
@@ -61,6 +61,16 @@ def available_styles() -> tuple[list[dict[str, str]], str]:
         return [], f"Avatars unavailable. {INSTALL_HINT} ({exc})"
 
 
+def looks_at_pointer(style: str) -> bool:
+    """Whether the design moves its eyes with a gaze (catalog `gaze`, AbstractAvatar 0.1.1).
+
+    Only designs with eyes follow the pointer; for the others a gaze changes nothing in the frame,
+    so the widget never sends one (and never redraws for a pointer move)."""
+    from abstractavatar import catalog
+
+    return any(str(row["id"]) == style and row["gaze"] == "eyes" for row in catalog())
+
+
 class ActivityAvatar(QWidget):
     """One bounded native handle, owned and clocked only while this widget is visible."""
 
@@ -83,6 +93,7 @@ class ActivityAvatar(QWidget):
         self._last_draw_at = 0.0
         self._gaze = (0.0, 0.0)
         self._gaze_at = 0.0
+        self._looks = False
         self._started = time.monotonic()
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.refresh)
@@ -112,6 +123,11 @@ class ActivityAvatar(QWidget):
             self.release()
         self._error = ""
         self._last_frame = None
+        try:
+            self._looks = self._enabled and looks_at_pointer(self._style)
+        except Exception:
+            # No catalog means no renderer either: the frame reports the missing install.
+            self._looks = False
         self.setVisible(self._enabled)
         if self._enabled:
             self.refresh()
@@ -147,7 +163,7 @@ class ActivityAvatar(QWidget):
         self._error = f"Avatars unavailable. {INSTALL_HINT} ({error})"
         self.release()
         self._image.clear()
-        self._image.setText("Avatar unavailable\nEnable it after installing the avatar extra.")
+        self._image.setText("Avatar unavailable\nReinstall AbstractAssistant to restore it.")
         self._image.setToolTip(self._error)
         self._image.setAccessibleName(self._error)
 
@@ -223,7 +239,7 @@ class ActivityAvatar(QWidget):
         self.refresh()
 
     def eventFilter(self, watched, event) -> bool:  # noqa: N802
-        if watched is self._image and self._animated and self._enabled:
+        if watched is self._image and self._animated and self._enabled and self._looks:
             if event.type() == QEvent.MouseMove:
                 half = self.FRAME_SIZE / 2
                 self._gaze = (max(-1.0, min(1.0, (event.pos().x() - self._image.width() / 2) / half)),

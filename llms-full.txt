@@ -130,7 +130,7 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 - A menu-bar palette whose title tells you what the app is doing, with a session switcher fed by
   the gateway (your sessions from every device, optionally every client's) and a live gateway
   connection orb.
-- An optional local [AbstractAvatar](https://github.com/lpalbou/AbstractAvatar) portrait in the palette,
+- A local [AbstractAvatar](https://github.com/lpalbou/AbstractAvatar) portrait in the palette (it ships with every install),
   with design and motion controls in [Appearance](docs/settings.md#appearance--window). It follows
   listening, speech, tools, waits and errors; it stays off until you enable it.
 - Automations: schedule a conversation to run on the gateway at a fixed UTC interval or when an
@@ -178,6 +178,10 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 
 ## What's new
 
+0.18.0 ships the activity avatar with every install, folds paused automations under "Paused · N" and archived ones under "Archived · N" in
+the switcher, and the activity avatar looks toward the pointer only when its design has eyes. See
+the [0.18.0 release notes](CHANGELOG.md#0180---2026-11-03).
+
 0.17.0 adds the optional desktop activity avatar (the `avatar` extra), automations that open as
 the chat with a sectioned editor, tool approvals in words, Off / Ask / Auto tool settings, and the
 web Assistant's Avatar conversation view. See the [0.17.0 release notes](CHANGELOG.md#0170---2026-11-02).
@@ -188,8 +192,8 @@ web Assistant's Avatar conversation view. See the [0.17.0 release notes](CHANGEL
 pip install "abstractassistant[voice]"
 ```
 
-Add the `avatar` extra (`pip install "abstractassistant[voice,avatar]"`) for the optional activity
-avatar in the palette.
+The activity avatar ships with every install (since 0.18.0); turn it on in **Settings → Appearance**.
+The `avatar` extra is kept so older install lines still work; it adds nothing.
 
 The `voice` extra adds local microphone capture (dictation and voice conversations). The base
 install covers text chat, spoken replies and gateway-backed media; STT and TTS run on the gateway
@@ -375,7 +379,7 @@ Other extras:
 | Extra | Adds |
 |---|---|
 | `voice` (alias `all`) | local speech-to-text on top of the default audio I/O (`abstractvoice[audio-io,stt]`) |
-| `avatar` | the optional activity avatar in the palette (`abstractavatar`) |
+| `avatar` | nothing since 0.18.0: the activity avatar (`abstractavatar`) is in the base install; kept so older install lines still work |
 | `apple` | the Apple Silicon local stack (`abstractcore[all-apple]`, `abstractvoice[all-apple]`) |
 | `gpu` | the NVIDIA/CUDA local stack (`abstractcore[all-gpu]`, `abstractvoice[all-gpu]`) |
 | `macos-app` | PyInstaller, to build the macOS app bundle |
@@ -483,16 +487,16 @@ pip install "abstractassistant[voice]"
 The `voice` extra adds local microphone capture (dictation and voice conversations). The base
 install covers text chat, spoken replies and gateway-backed media.
 
-The optional `avatar` extra adds the local procedural portrait. In a source workspace with sibling
-AbstractAvatar and AbstractAssistant checkouts, install the renderer first, then the app extra:
+The local procedural portrait (AbstractAvatar) ships with every install: its wheels carry the native
+renderer for macOS, Linux and Windows. In a source workspace with a sibling AbstractAvatar checkout,
+install the renderer from it first (building it from source requires Rust 1.87 or later):
 
 ```bash
 python -m pip install ../abstractavatar
-python -m pip install ".[avatar]"
+python -m pip install .
 ```
 
-Building AbstractAvatar from source requires Rust 1.87 or later; its Python wheel carries the native
-renderer. Enable **Settings → Appearance → Activity avatar**, then choose a design and motion preference.
+Enable **Settings → Appearance → Activity avatar**, then choose a design and motion preference.
 See [Appearance settings](settings.md#appearance--window).
 
 ## 2. Start a gateway
@@ -837,7 +841,7 @@ Listed as **Appearance** in the sidebar.
 | Control | Meaning | Stored |
 |---|---|---|
 | Theme | The colour palettes shared with the other AbstractFramework apps; applies to every window of this app at once | this app `ui_theme` |
-| Activity avatar | Optional procedural portrait beneath the palette header. Off by default; shows listening, speech, thinking, tool activity, waiting and errors from the app's existing state. Requires the `avatar` extra | this app `avatar_enabled` |
+| Activity avatar | Optional procedural portrait beneath the palette header. Off by default; shows listening, speech, thinking, tool activity, waiting and errors from the app's existing state. Ships with every install | this app `avatar_enabled` |
 | Design | A design from AbstractAvatar's shared catalog, stored by its stable key | this app `avatar_style` |
 | Motion | Animate only while the palette is visible. Turn off for still state frames; hidden avatars release their renderer and run no animation clock | this app `avatar_animated` |
 | Text size / Line spacing / Paragraph gap / Bullet gap | How replies are set in the transcript: text size 10–22 px (default 13), line spacing 1.0–2.2 × (default 1.2), paragraph gap 0–28 px and bullet gap 0–16 px (default 3 each). Applies immediately | this app `text_size`, `line_spacing`, `paragraph_spacing`, `bullet_spacing` |
@@ -846,7 +850,8 @@ Listed as **Appearance** in the sidebar.
 | Width / Expanded height / Screen edge gap | Apply as they change. Palette size; the transcript takes the remaining height. Defaults: width 650 px, height 286 px, gap 12 px. Settings accepts a width of 420–2000 px and a gap of 0–200 px; the only further limit is the screen the window is on (width up to 62% of it, gap up to a quarter of its smaller side). The gap is the space kept between the window (and Settings) and the screen edges it sits against; 0 puts it flush with the edge | this app `window_width`, `window_height`, `bottom_offset` |
 
 The portrait renders on this device through [AbstractAvatar](https://github.com/lpalbou/AbstractAvatar).
-It uses the app's theme and audio level without a model or network request. Its presence does not
+It uses the app's theme and audio level without a model or network request. A design with eyes looks
+toward the pointer while it is over the portrait; the other designs (orbs, forms) stay still. Its presence does not
 change the menu-bar icon or its click controls. If native avatar support is unavailable, Appearance
 shows the reason and leaves the feature off; an enabled portrait shows an explicit unavailable message.
 
@@ -3280,6 +3285,11 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-03
+
+Avatars ship with every install. The switcher folds paused and archived automations into their own
+sections, and the activity avatar follows the pointer only with a design that has eyes. The web Assistant gets its first npm release.
+
 ### Added
 
 - **Assistant (web) on npm.** The web Assistant is published as `@abstractframework/assistant`
@@ -3288,6 +3298,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Changed
 
+- **Avatars ship with every install.** `abstractavatar` (0.1.1 or later) is a base dependency, so
+  `pip install abstractassistant` brings the activity avatar on macOS, Linux and Windows; turn it on
+  in **Settings → Appearance**. The `avatar` extra stays as an alias that adds nothing, so
+  `abstractassistant[avatar]` still installs.
 - **Paused automations fold under "Paused · N" in the switcher.** The Automations tab draws the
   gateway's order (active ones first, most recent activity first) and keeps the paused ones behind a
   "Paused · N" row that opens them on a click. A gateway that does not serve sections (0.19.0 and
@@ -3297,6 +3311,9 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   archived" button is gone (it could show nothing: the gateway leaves archived automations out of
   its default listing). The filter also finds paused and archived automations while their section
   is closed.
+- **Only an avatar with eyes looks at the pointer.** The activity avatar follows the pointer when its
+  design has eyes (AbstractAvatar's catalog says which: `hover`, `eye`, the watch designs with eyes);
+  orbs and forms stay still and are not redrawn when the pointer moves.
 
 ## [0.17.0] - 2026-11-02
 
@@ -5127,33 +5144,15 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
 
-### Added
-
-- **Read an automation run aloud.** The run's sheet has the conversation's speaker beside its
-  answer: it reads the answer aloud, pauses and resumes it, and Stop ends it. The reading goes on
-  with the iPhone locked.
-
-### Fixed
-
-- **A reading interrupted by the connection picks up at the right words.** When the connection drops
-  in the middle of an answer, the part that was fully read is never read again: the rest is requested
-  from the end of the last finished sentence group. Inside a sentence group that was cut, the seconds
-  already heard are skipped (with a cloned voice, a few words at that point may still repeat or be
-  skipped). Needs a gateway whose voice reports its text segments (AbstractVoice 0.20.0); with an
-  older one the reading resumes as before.
-- **Automation cards show their answer as clean plain text.** The Markdown markers (`**`, `#`)
-  are gone and nothing is bold: one font, one weight, in the same three lines as before. The full
-  formatting is in the run's sheet.
-- **An automation's page keeps Run now and Pause clear of the back button.** The navigation bar
-  is opaque on that page, so what scrolls up goes under it instead of showing behind the back
-  button.
-
-## [0.17.0] — 2026-11-02
+## [0.17.0] — 2026-11-03
 
 What testers get since build 39 (0.16.0). The watch app inside it carries the same version.
 
 ### Added
 
+- **Read an automation run aloud.** The run's sheet has the conversation's speaker beside its
+  answer: it reads the answer aloud, pauses and resumes it, and Stop ends it. The reading goes on
+  with the iPhone locked.
 - **Reading goes on with the iPhone locked or in your pocket.** A reply being read aloud keeps
   playing when you lock the iPhone or put it away. The lock screen, Control Center and the
   headphones' button show the conversation with play and pause. A call or Siri pauses the reading
@@ -5166,6 +5165,9 @@ What testers get since build 39 (0.16.0). The watch app inside it carries the sa
   a few words at that point may repeat or be skipped). If the connection stays lost,
   the reading ends with "The voice stopped early. Tap play to continue." and play continues from
   that point.
+  Where the gateway's voice reports its text segments (AbstractVoice 0.20.0), the part already
+  read is never requested again: the rest starts at the end of the last finished sentence group,
+  and only the seconds already heard of a cut sentence group are skipped.
 - **Your voices, the engine's and the shared ones (AbstractGateway 0.16.0 voice library).**
   Settings → Voice & reading → Voice lists the speaking voices in three groups: **Your voices**
   (the ones you cloned or designed), **Engine voices** and **Shared voices** (the gateway's
@@ -5233,6 +5235,12 @@ What testers get since build 39 (0.16.0). The watch app inside it carries the sa
 
 ### Fixed
 
+- **Automation cards show their answer as clean plain text.** The Markdown markers (`**`, `#`)
+  are gone and nothing is bold: one font, one weight, in the same three lines as before. The full
+  formatting is in the run's sheet.
+- **An automation's page keeps Run now and Pause clear of the back button.** The navigation bar
+  is opaque on that page, so what scrolls up goes under it instead of showing behind the back
+  button.
 - Reconnecting reconciles unread attention before posting local alerts. Approvals and results
   consumed on another client stay silent, and known-resolved notifications are withdrawn.
   Genuine unread items remain eligible across reconnects and saved-state upgrades.
@@ -6779,18 +6787,7 @@ Since 0.16.0 the watch app shares the iPhone app's version (`MARKETING_VERSION` 
 iPhone app); the Python package's history is in
 [../../CHANGELOG.md](../../CHANGELOG.md).
 
-## [Unreleased]
-
-### Fixed
-
-- **A reading interrupted by the connection picks up at the right words.** When the connection drops
-  in the middle of an answer, the part that was fully read is never read again: the rest is requested
-  from the end of the last finished sentence group. Inside a sentence group that was cut, the seconds
-  already heard are skipped (with a cloned voice, a few words at that point may still repeat or be
-  skipped). Needs a gateway whose voice reports its text segments (AbstractVoice 0.20.0); with an
-  older one the reading resumes as before.
-
-## [0.17.0] - 2026-11-02
+## [0.17.0] - 2026-11-03
 
 What testers get since build 39 (0.16.0), inside the iPhone app of the same version.
 
@@ -6803,6 +6800,9 @@ What testers get since build 39 (0.16.0), inside the iPhone app of the same vers
   a few words at that point may repeat or be skipped). If the connection stays lost,
   the watch says "The voice stopped early. Tap the speaker to continue." and the tap continues from
   there; the app coming back after a lost connection continues by itself.
+  Where the gateway's voice reports its text segments (AbstractVoice 0.20.0), the part already
+  read is never requested again: the rest starts at the end of the last finished sentence group,
+  and only the seconds already heard of a cut sentence group are skipped.
 - Optional **Avatar conversation** view with public subtitles, pinned replies, Talk/Type during
   work and accessible update history. Agent corrections use live guidance; entity conversations
   use the canonical visit routes and preserve entity approval and privacy policy.
@@ -8161,19 +8161,40 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 
 ## [Unreleased]
 
-### Changed
+## [0.1.0] - 2026-11-03
 
-- **Avatar view: one live line and a Findings panel.** Under the avatar, one line shows the latest
-  thing the assistant reports while it works, replaced as soon as something new arrives; click it to
-  read it in full, then **Reply to this** or **Latest** (back to following). The findings it reports
-  (facts or evidence it established) accumulate in a **Findings** panel beside the avatar, a sheet
-  opened with **Findings** on a phone; each opens to the results it came from. The answer appears
-  once, as a message. The rolling captions and the in-view Conversation history are gone. Needs the producer-typed public
-  updates of AbstractAgent (`kind`) and AbstractRuntime (`update_kind`); older updates are shown as
-  progress. Shared conversation bundle re-synced from AbstractUIC panel-chat.
+First public release on npm. AbstractGateway lists it as **Assistant (web)** and installs it from
+the npm registry (`abstractgateway apps install assistant-web`, or **Install** in the console and
+tray Apps menu); you can also run it yourself with `npx @abstractframework/assistant`.
+It is built on AbstractUIC ui-kit 0.9.14 and panel-chat 0.8.1 (shared bundles re-synced from them) and
+AbstractAvatar 0.1.1.
 
 ### Added
 
+- **Conversations in the browser.** Your gateway conversations, grouped by recency and searchable,
+  with live answers, Stop, attachments, copy and export, rendered from the gateway's replay view.
+  Requests that need you are listed first.
+- **Voice.** A Watch-style animated orb: tap to talk (or hold, in Voice settings), dictation into
+  the draft for review or sent automatically, read aloud that follows your voice setting, and
+  playback controls. The composer microphone and the orb share one recording.
+- **Avatar conversation view.** A second view over the same work. Under the avatar, one line shows the
+  latest thing the assistant reports while it works, replaced as soon as something new arrives; click it
+  to read it in full, then **Reply to this** or **Latest** (back to following). The findings it reports
+  (facts or evidence it established) accumulate in a **Findings** panel beside the avatar, a sheet
+  opened with **Findings** on a phone; each opens to the results it came from. The answer appears once,
+  as a message. An open question or approval stays pinned at the top of the view with its buttons on
+  screen, also on a laptop-height window (1000×650); on a very short view its context scrolls inside it
+  while the heading and the buttons stay visible. Needs the producer-typed public updates of AbstractAgent (`kind`) and AbstractRuntime
+  (`update_kind`); older updates are shown as progress. Permission requests use plain actions with the
+  assistant's public explanation when the gateway serves one. The view holds no settings: they open
+  from **Settings** in the conversations sidebar (behind **Open Conversations** on a phone), as
+  everywhere in the app.
+- **Approvals in the conversation.** Deny, Allow once, Allow for this chat or Decide later; a
+  chat's tool policy is stored on the gateway when it offers one.
+- **Avatar designs.** The 44-design AbstractAvatar catalog with previews of every activity state;
+  your choice is kept in this browser. Only avatars with eyes (such as the Hover robot, the Eye, the
+  Rover and the Watch faces and robots) look toward the pointer while Ready, and only their eyes
+  move, easing back to centre after two idle seconds; the orb and every other avatar stay still.
 - **Automations, as on the Apple Watch.** **Automations** beside Conversations lists them in the
   gateway's order: the active ones first, the most recently active at the top, then **Paused · N** and
   **Archived · N**, folded until opened (with an older gateway every automation is in one list).
@@ -8188,41 +8209,6 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
   first and **Restore** brings an archived one back. **New** creates one: its task, the flow that
   runs it, its **Tools** (each Off, Ask or Auto, from the gateway's defaults), every interval from
   30 seconds to a week or every day at a time, and whether its runs build on each other.
-
-### Changed
-
-- **The orb no longer follows the mouse.** Only avatars with eyes (such as the Hover robot,
-  the Eye, the Rover and the Watch faces and robots) look toward the pointer while Ready, and
-  only their eyes move, easing back to centre after two idle seconds. The orb and every other
-  avatar stay still. Uses the shared AbstractUIC avatar rule and the refreshed AbstractAvatar
-  renderer.
-
-## [0.1.0] - 2026-11-02
-
-First public release on npm. AbstractGateway lists it as **Assistant (web)** and installs it from
-the npm registry (`abstractgateway apps install assistant-web`, or **Install** in the console and
-tray Apps menu); you can also run it yourself with `npx @abstractframework/assistant`.
-
-### Added
-
-- **Conversations in the browser.** Your gateway conversations, grouped by recency and searchable,
-  with live answers, Stop, attachments, copy and export, rendered from the gateway's replay view.
-  Requests that need you are listed first.
-- **Voice.** A Watch-style animated orb: tap to talk (or hold, in Voice settings), dictation into
-  the draft for review or sent automatically, read aloud that follows your voice setting, and
-  playback controls. The composer microphone and the orb share one recording.
-- **Avatar conversation view.** A second view over the same work: the avatar shows activity, and
-  realtime rolling captions under it list the current turn's public updates, questions and answer,
-  newest at the bottom, rendered like the conversation (Markdown, links, files). The captions and the
-  Conversation history, Talk and read-aloud buttons sit above the message box at every width;
-  **Conversation history** opens the full exchanges with plain labels (You, Update, Question,
-  Answer). Permission requests use plain actions with the assistant's public explanation when the
-  gateway serves one. The view holds no settings: they open from **Settings** in the conversations
-  sidebar (behind **Open Conversations** on a phone), as everywhere in the app.
-- **Approvals in the conversation.** Deny, Allow once, Allow for this chat or Decide later; a
-  chat's tool policy is stored on the gateway when it offers one.
-- **Avatar designs.** The 44-design AbstractAvatar catalog with previews of every activity state;
-  your choice is kept in this browser.
 - **Docs drawer.** Questions about the Assistant answered from its bundled browser guide, separate
   from your main conversation.
 - **The app server** (`abstractassistant-web`): serves the built app on 127.0.0.1 (port 3008 by
@@ -8237,7 +8223,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.17.0"
+version = "0.18.0"
 description = "A gateway-native macOS menu-bar assistant for AbstractFramework: a compact palette, hands-free voice conversations, automations and a small CLI over AbstractGateway"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -8298,10 +8284,14 @@ dependencies = [
     # until nothing else in the resolved set is shown to import pkg_resources.
     # It lives in base deps because extras merge with base at resolve time.
     "setuptools>=61.0,<81",
+    # The activity avatar ships with every install (0.18.0). 0.1.1: the catalog says which designs
+    # have eyes (`gaze`); only those follow the pointer. Wheels: macOS arm64/x86_64, Linux
+    # x86_64/aarch64 (manylinux 2.28), Windows amd64.
+    "abstractavatar>=0.1.1",
 ]
 
 [project.optional-dependencies]
-avatar = ["abstractavatar>=0.1.0"]
+avatar = []  # Back-compat alias: the avatar is in the base install since 0.18.0.
 lite = []  # Back-compat alias for the base install.
 voice = [
     "abstractvoice[audio-io,stt]>=0.19.5",

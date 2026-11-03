@@ -2735,13 +2735,27 @@ button.pc-ws__name:hover {
 .pc-avatar-conversation[data-compact] .pc-avatar-conversation__scene { flex: 0 0 48px; height: 48px; }
 .pc-avatar-conversation[data-compact] .pc-avatar-conversation__scene > * { width: 48px !important; height: 48px !important; }
 .pc-avatar-conversation[data-compact] .pc-avatar-conversation__status { text-align: start; }
+/* An open question or approval keeps its full height and stays pinned at the top while the rest of
+   the view (live line, answer, actions) scrolls under it. It is never taller than the view minus the
+   compact avatar row (40px scene + 8px gap): on a short view its context (why, targets, details)
+   scrolls inside it, so the heading and the buttons are always on screen. */
 .pc-avatar-conversation__request {
-  flex: 0 1 auto;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100% - 48px);
   min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  min-width: 0;
+  overflow: hidden;
   background: var(--ui-surface-0, var(--bg-primary, #191a25));
 }
+.pc-avatar-conversation__request > .pc-workflow-interaction,
+.pc-avatar-conversation__request .pc-workflow-interaction__body { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; }
+.pc-avatar-conversation__request :is(.pc-workflow-interaction__heading, .pc-workflow-interaction__buttons) { flex-shrink: 0; }
+.pc-avatar-conversation__request :is(.pc-public-approval__context, .pc-workflow-interaction__detail) { flex: 0 1 auto; min-height: 3rem; }
 .pc-avatar-conversation__request .pc-workflow-interaction__detail {
   max-height: clamp(48px, 10dvh, 96px);
   overflow-y: auto;

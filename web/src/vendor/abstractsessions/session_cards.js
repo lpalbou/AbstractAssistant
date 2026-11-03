@@ -281,7 +281,7 @@ function AutomationCard(p) {
   const working = Boolean(s.current_occurrence) && !pending;
   const failed = s.last_occurrence?.status === "failed" || s.status === "failed";
   const cadence = automationCardSchedule(s);
-  const nextAt = s.next_run_at || s.next_fire_at;
+  const nextAt = s.next_run_at;
   const next = s.status === "active" ? automationCardNext(nextAt, p.nowMs) : "";
   const state = s.status === "paused" ? "Paused" : s.status === "archived" ? "Archived" : s.status === "failed" ? "Failed" : s.status === "completed" ? "Ended" : "";
   const count = Number.isSafeInteger(s.occurrence_count) && s.occurrence_count >= 0 ? s.occurrence_count : null;

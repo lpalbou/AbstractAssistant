@@ -157,6 +157,38 @@ def test_meter_bursts_cannot_exceed_frame_budget_and_motion_off_is_static(monkey
 
 
 @pytest.mark.basic
+def test_only_designs_with_eyes_follow_the_pointer(monkeypatch):
+    """AbstractAvatar 0.1.1: the catalog says which designs move their eyes with a gaze. A pointer
+    over any other design sends no gaze and causes no redraw."""
+    _app()
+    import abstractassistant.ui.avatar as module
+    from PyQt5.QtCore import QEvent, QPoint, Qt
+    from PyQt5.QtGui import QMouseEvent
+
+    rows = [{"id": "hover", "name": "Hover", "gaze": "eyes"}, {"id": "halo", "name": "Halo", "gaze": "none"}]
+    monkeypatch.setitem(sys.modules, "abstractavatar", SimpleNamespace(catalog=lambda: rows))
+    clock = [10.0]
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+    widget = ActivityAvatar(lambda: AvatarPresentation(), renderer_factory=Renderer)
+
+    def point_at_corner(style):
+        widget.configure(enabled=True, style=style, animated=True)
+        renderer = widget._renderer
+        before = len(renderer.calls)
+        clock[0] += 1.0
+        move = QMouseEvent(QEvent.MouseMove, QPoint(0, 0), Qt.NoButton, Qt.NoButton, Qt.NoModifier)
+        widget.eventFilter(widget._image, move)
+        return renderer.calls[before:]
+
+    looked = point_at_corner("hover")
+    assert looked and looked[-1]["gaze"] != (0.0, 0.0)
+    assert point_at_corner("halo") == []
+    assert widget._gaze == (0.0, 0.0)
+    widget.hide()
+    widget.deleteLater()
+
+
+@pytest.mark.basic
 def test_settings_persists_style_motion_and_preserves_other_preferences(monkeypatch):
     _app()
     from abstractassistant.ui.settings.pages import WindowPage

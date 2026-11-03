@@ -22,16 +22,16 @@ pip install "abstractassistant[voice]"
 The `voice` extra adds local microphone capture (dictation and voice conversations). The base
 install covers text chat, spoken replies and gateway-backed media.
 
-The optional `avatar` extra adds the local procedural portrait. In a source workspace with sibling
-AbstractAvatar and AbstractAssistant checkouts, install the renderer first, then the app extra:
+The local procedural portrait (AbstractAvatar) ships with every install: its wheels carry the native
+renderer for macOS, Linux and Windows. In a source workspace with a sibling AbstractAvatar checkout,
+install the renderer from it first (building it from source requires Rust 1.87 or later):
 
 ```bash
 python -m pip install ../abstractavatar
-python -m pip install ".[avatar]"
+python -m pip install .
 ```
 
-Building AbstractAvatar from source requires Rust 1.87 or later; its Python wheel carries the native
-renderer. Enable **Settings → Appearance → Activity avatar**, then choose a design and motion preference.
+Enable **Settings → Appearance → Activity avatar**, then choose a design and motion preference.
 See [Appearance settings](settings.md#appearance--window).
 
 ## 2. Start a gateway

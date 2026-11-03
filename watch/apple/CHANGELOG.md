@@ -5,18 +5,7 @@ Since 0.16.0 the watch app shares the iPhone app's version (`MARKETING_VERSION` 
 iPhone app); the Python package's history is in
 [../../CHANGELOG.md](../../CHANGELOG.md).
 
-## [Unreleased]
-
-### Fixed
-
-- **A reading interrupted by the connection picks up at the right words.** When the connection drops
-  in the middle of an answer, the part that was fully read is never read again: the rest is requested
-  from the end of the last finished sentence group. Inside a sentence group that was cut, the seconds
-  already heard are skipped (with a cloned voice, a few words at that point may still repeat or be
-  skipped). Needs a gateway whose voice reports its text segments (AbstractVoice 0.20.0); with an
-  older one the reading resumes as before.
-
-## [0.17.0] - 2026-11-02
+## [0.17.0] - 2026-11-03
 
 What testers get since build 39 (0.16.0), inside the iPhone app of the same version.
 
@@ -29,6 +18,9 @@ What testers get since build 39 (0.16.0), inside the iPhone app of the same vers
   a few words at that point may repeat or be skipped). If the connection stays lost,
   the watch says "The voice stopped early. Tap the speaker to continue." and the tap continues from
   there; the app coming back after a lost connection continues by itself.
+  Where the gateway's voice reports its text segments (AbstractVoice 0.20.0), the part already
+  read is never requested again: the rest starts at the end of the last finished sentence group,
+  and only the seconds already heard of a cut sentence group are skipped.
 - Optional **Avatar conversation** view with public subtitles, pinned replies, Talk/Type during
   work and accessible update history. Agent corrections use live guidance; entity conversations
   use the canonical visit routes and preserve entity approval and privacy policy.
