@@ -71,6 +71,24 @@ private final class SpeechWire: URLProtocol, @unchecked Sendable {
         #expect(SpeechWire.requests.first?.timeoutInterval == 90)
     }
 
+    /// `segment_end` lines reach a resuming reader as parts, in stream order; the plain audio stream
+    /// skips them (AbstractVoice ADR 0009).
+    @Test func segmentEndsArriveAsPartsInOrder() async throws {
+        let segmented = "{\"type\":\"audio\",\"segment\":0,\"text_start\":0,\"text_end\":12,\"audio_b64\":\"\(wav.base64EncodedString())\"}\n"
+        let end = "{\"type\":\"segment_end\",\"segment\":0,\"text_start\":0,\"text_end\":12}\n"
+        let api = client(segmented + end + audio + done)
+        var parts: [SpeechPart] = []
+        for try await part in api.speechParts(text: "Hello there. Bye.", scope: .run("r1"), voice: nil) { parts.append(part) }
+        #expect(parts == [.audio(wav), .segmentEnd(textEnd: 12), .audio(wav)])
+        let plain = client(segmented + end + audio + done)
+        #expect(try await collect(plain.speech(text: "Hello there. Bye.", scope: .run("r1"))) == [wav, wav])
+        // A segment_end without its offset cannot place a resume: the line is refused.
+        let broken = client(segmented + "{\"type\":\"segment_end\",\"segment\":0}\n" + done)
+        await #expect(throws: GatewayError.self) {
+            for try await _ in broken.speechParts(text: "Hello", scope: .run("r1"), voice: nil) {}
+        }
+    }
+
     @Test func aCleanSocketEOFStillMeansTruncatedSpeech() async throws {
         let api = client(audio)
         var received: [Data] = []

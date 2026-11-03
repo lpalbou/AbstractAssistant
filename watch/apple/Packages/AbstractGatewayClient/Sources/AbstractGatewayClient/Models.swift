@@ -1422,6 +1422,14 @@ public enum SpeechScope: Hashable, Sendable {
     case entity(String)
 }
 
+/// One line of a speech stream that a reader acts on: a WAV chunk, or the end of a text segment
+/// (`segment_end`, AbstractVoice ADR 0009) whose `textEnd` is a Unicode-scalar offset into the
+/// requested text: every sound of the text before it has arrived.
+public enum SpeechPart: Sendable, Equatable {
+    case audio(Data)
+    case segmentEnd(textEnd: Int)
+}
+
 struct SpeechRequest: Encodable {
     let text: String
     let format = "wav"
