@@ -260,7 +260,7 @@ struct AutomationDetailScreen: View {
         .sheet(isPresented: $showingTools) {
             ConversationToolsScreen(scope: .automation, automationSelection: definition?.tools) { selected in try await saveTools(selected) }
         }
-        .sheet(item: $selectedRun) { selection in AutomationRunSheet(automationID: automationID, occurrence: selection.occurrence) }
+        .sheet(item: $selectedRun) { selection in AutomationRunSheet(automationID: automationID, occurrence: selection.occurrence, automationName: row?.name) }
     }
     private func runCard(_ occurrence: LastOccurrence) -> some View {
         let explanation = AutomationRunExplanation(occurrence: occurrence)

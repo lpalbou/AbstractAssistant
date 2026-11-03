@@ -5,12 +5,18 @@ import AbstractGatewayClient
 struct AutomationRunSheet: View {
     let automationID: String
     @State var occurrence: LastOccurrence
+    /// The automation's name, for the lock screen while the answer is read aloud.
+    let automationName: String?
     @Environment(AssistantStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     /// The run's answer read aloud, as in a conversation: in pieces, paused and resumed here or on
     /// the lock screen, going on with the iPhone locked; it stops when the sheet closes.
-    @State private var voice = VoiceController.forApp()
+    @State private var voice: VoiceController
+    init(automationID: String, occurrence: LastOccurrence, automationName: String?, voice: VoiceController = .forApp()) {
+        self.automationID = automationID; _occurrence = State(initialValue: occurrence)
+        self.automationName = automationName; _voice = State(initialValue: voice)
+    }
     @State private var runError: String?
     @State private var problem: String?
     @State private var loading = false
@@ -81,7 +87,7 @@ struct AutomationRunSheet: View {
             if voice.speaking { voice.togglePause() }
             else if let client = store.client {
                 voice.read(answer, client: client, scope: .run(runID), choice: store.preferences.voice, speed: store.preferences.speed,
-                           messageID: occurrence.stableID, title: store.automations.first { $0.id == automationID }?.name ?? "Automation run")
+                           messageID: occurrence.stableID, title: automationName ?? "Automation run")
             }
         } label: { Image(systemName: voice.speaking ? (voice.paused ? "speaker.wave.2.fill" : "pause.fill") : "speaker.wave.2").frame(width: 44, height: 44).contentShape(Rectangle()) }
             .accessibilityLabel(voice.speaking ? "Pause or resume reading" : "Read answer aloud")

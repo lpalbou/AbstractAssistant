@@ -1,5 +1,7 @@
 import XCTest
 import SwiftUI
+import AssistantKit
+import AbstractGatewayClient
 @testable import AbstractAssistantPhone
 
 /// An automation's cards show the answer's Markdown rendered, never its markers, in the room the
@@ -42,5 +44,23 @@ final class AutomationPreviewTests: XCTestCase {
         XCTAssertEqual(preview, plain, accuracy: 4, "the rendered preview is \(preview) pt tall, the plain text was \(plain) pt")
         let short = height(AutomationMarkdownPreview(text: "**Done.**", lines: 3, font: .subheadline, color: .primary, spacing: 0))
         XCTAssertLessThan(short, plain / 2, "a one-line answer should take one line")
+    }
+
+    /// Each run sheet owns its reading: closing the sheet (Done, a swipe down) stops it, so no voice
+    /// goes on with nothing on screen to stop it.
+    @MainActor func testClosingTheRunSheetStopsItsReading() async throws {
+        let store = AssistantStore(); store.connect(nil, client: MockGatewayClient(world: .phone)); defer { store.disconnect() }
+        let voice = VoiceController(configureAudio: false)
+        let run = LastOccurrence(status: "completed", excerpt: nil, runId: "occ-40", index: 40, answer: "**Digest 40**: the assay QC run passed.")
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 440, height: 956))
+        window.rootViewController = UIHostingController(rootView: AutomationRunSheet(automationID: "auto-morning", occurrence: run, automationName: "Morning digest", voice: voice).environment(store))
+        window.makeKeyAndVisible()
+        try await Task.sleep(for: .milliseconds(300))
+        voice.read("The first sentence is here. The second sentence is there.", client: MockGatewayClient(world: .phone), scope: .run("occ-40"), messageID: run.stableID)
+        XCTAssertTrue(voice.speaking)
+        window.rootViewController = UIHostingController(rootView: Text("Automation page"))      // the sheet closes
+        for _ in 0..<100 { if !voice.speaking { break }; try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertFalse(voice.speaking, "the reading went on after its sheet closed")
+        window.isHidden = true
     }
 }
