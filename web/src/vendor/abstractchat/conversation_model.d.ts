@@ -9,8 +9,9 @@ export type PublicUpdate = {
     sessionId?: string;
     iteration?: number;
     sourceCallIds: string[];
-    /** Typed by the actor: "finding" for a fact or piece of evidence it established, "progress" for what it is doing. */
-    kind: "progress" | "finding";
+    /** Typed by the actor: "finding" for a fact or piece of evidence it established, "progress" (or absent, from an
+     * older producer or host) for what it is doing. `publicUpdate()` always sets it. */
+    kind?: "progress" | "finding";
 };
 export type AvatarConversationState = "idle" | "working" | "paused" | "listening" | "speaking" | "question" | "approval" | "completed" | "failed" | "connecting" | "disconnected";
 export type ConversationAttention = {

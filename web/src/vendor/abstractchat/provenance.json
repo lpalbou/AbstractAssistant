@@ -57,7 +57,7 @@
     "chat_thread.d.ts": "027fe6a56e3c85ba359c06d3b9df48e43e1824b0d8c119e71f8cc8a0dcb082be",
     "composer_attachments.d.ts": "1293d10d041ac8c77b8aad3bf620b7c5de05ed07b229a7ff9e6a1fc6f93e0d2b",
     "conversation.d.ts": "77506a9d9bec750db1363ebb92783d6a65a594bbaa2d9a4a29057b2095fd8b0a",
-    "conversation_model.d.ts": "04f392a1ca332c2bf6e54c68cccec36e7bd4106f77238fd9bcb4ba275ebc7549",
+    "conversation_model.d.ts": "805f1d795c3370a9e27a29d3f919f0541cce87ef35b7972b4fa06372703fd96a",
     "conversation_preferences.d.ts": "4b6706b1841bc4e547ec20170b2ba8bcc9a55373d808ddb002123bfc2d5c3881",
     "docs_assistant.d.ts": "16ea1c5ba584a85aa939c5a04a88a82473a4999159e13decf9685da8c678c15c",
     "docs_voice.d.ts": "91e2e6a2e558ab2ef83557c8e8a466709592c2b23e0a41e5013e8f59a8738955",
