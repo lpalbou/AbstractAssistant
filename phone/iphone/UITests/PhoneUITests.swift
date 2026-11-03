@@ -42,9 +42,9 @@ final class PhoneUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 1)
         capture(app, "Automation page — scrolled under the navigation bar")
     }
-    /// Operator 2026-11-03: a run card shows its answer's Markdown rendered (no `**`), and a run's
+    /// Operator 2026-11-03: a run card shows its answer as plain text (no `**`, no bold), and a run's
     /// answer is read aloud from its sheet with the conversation's controls: read, pause, resume, stop.
-    @MainActor func testAutomationRunsRenderMarkdownAndReadAloud() throws {
+    @MainActor func testAutomationRunsShowPlainAnswersAndReadAloud() throws {
         let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--screen", "automations"]; app.launch()
         XCTAssertTrue(app.buttons["automation.open.auto-morning"].waitForExistence(timeout: 15))
         Thread.sleep(forTimeInterval: 1.5)

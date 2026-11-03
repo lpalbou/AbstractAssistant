@@ -4,7 +4,7 @@ import AssistantKit
 import AbstractGatewayClient
 @testable import AbstractAssistantPhone
 
-/// An automation's cards show the answer's Markdown rendered, never its markers, in the room the
+/// An automation's cards show the answer as plain text, never its markers or bold, in the room the
 /// plain text had (operator 2026-11-03: a run card read `**Monday, November second…**`).
 final class AutomationPreviewTests: XCTestCase {
     private let answer = """

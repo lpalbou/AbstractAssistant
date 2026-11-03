@@ -158,7 +158,7 @@ jobs:
               testCategoryBulkControlsRespectHiddenAndDisabledTools \
               testGroupedHistoryArchivesAndRestoresUsingExistingActions \
               testAutomationHeaderSitsBelowTheNavigationBar \
-              testAutomationRunsRenderMarkdownAndReadAloud; do
+              testAutomationRunsShowPlainAnswersAndReadAloud; do
               selectors+=("-only-testing:AbstractAssistantPhoneUITests/PhoneUITests/$test")
             done
           fi
