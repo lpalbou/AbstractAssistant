@@ -22,7 +22,7 @@ export type AvatarConversationOptions = {
     /** Explicit opt-in; the host owns its existing speech stack and handles errors. */
     narrate?: boolean;
     onNarrate?: (message: ChatMessage) => void;
-    /** Called before voice, reply, reading history, or session reset. */
+    /** Called before voice, reply, reading a held line or the findings, or session reset. */
     onInterruptSpeech?: () => void;
     onReplyContext?: (message: ChatMessage | null) => void;
     /** Hosts use this to suppress their existing automatic final speech while the person reads or replies. */
@@ -39,16 +39,16 @@ export type AvatarConversationProps = AvatarConversationOptions & {
     interaction?: React.ReactNode;
     /** Exact currently rendered request; an empty ID means the host deferred it. */
     interactionId?: string;
-    /** Draft editing or other host-owned attention: silences narration and non-essential cues. Captions keep rolling. */
+    /** Draft editing or other host-owned attention: silences narration and non-essential cues. The live line keeps updating. */
     attended?: boolean;
-    /** Shared message rendering (captions and history), with private reasoning removed before presentation. */
+    /** Shared message rendering (live line, answer, findings), with private reasoning removed before presentation. */
     messageProps?: Omit<ChatMessageCardProps, "message">;
 };
 /**
- * Optional public presentation: the avatar, its status, the current turn's public messages as
- * realtime rolling captions (newest at the bottom, never cycling), any open question or
- * approval, and the person's actions (history, voice, playback), all above the host's composer.
- * No model, microphone, network or permission side effects.
+ * Optional public presentation: the avatar, its status, ONE live line (the latest public update,
+ * replaced as new ones arrive), any open question or approval pinned above it, the turn's answer
+ * shown once as a message, and the findings the actor reported so far beside the avatar (a sheet
+ * the person opens on a narrow screen). No model, microphone, network or permission side effects.
  */
 export declare function AvatarConversation(props: AvatarConversationProps): React.ReactElement;
 //# sourceMappingURL=avatar_conversation.d.ts.map

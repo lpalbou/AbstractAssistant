@@ -44,7 +44,7 @@ function view(id) {
     runs: [{ run_id: id, parent_run_id: null, status: r.status, depth: 0, order: ["", id, 0, id], waiting: null, holds_interaction: false }, ...(r.child_runs || []).map(child => ({run_id:child,parent_run_id:id,status:r.status,depth:1,order:["",id,1,child],waiting:null,holds_interaction:false}))],
     interaction: r.interaction || null, open_waits: [], activities: [], artifacts: id === "history" ? [{id:"answer-file",run_id:id,path:"output.attachments[0]"},{id:"scratchpad-file",run_id:id,path:"output.scratchpad.steps"},{id:"session-file",run_id:id,path:"output.session.artifacts[0]"}] : [], warnings: [], usage: {},
     messages: [
-      ...(r.public_updates || []).map((u, i) => ({ id: u.id, role: "assistant", kind: "public_update", text: u.text, run_id: u.run_id || id, source: "emit_event", source_call_ids: [], order: order(i+1), step_ids: [], seqs: [i+1], artifact_ids: [] })),
+      ...(r.public_updates || []).map((u, i) => ({ id: u.id, role: "assistant", kind: "public_update", text: u.text, run_id: u.run_id || id, ...(u.kind ? { update_kind: u.kind } : {}), source: "emit_event", source_call_ids: [], order: order(i+1), step_ids: [], seqs: [i+1], artifact_ids: [] })),
       { id: `${id}:input`, role: "user", kind: "prompt", text: r.prompt, run_id: id, order: order(0), step_ids: [], seqs: [], source: "run_input", artifact_ids: [] },
       { id: `${id}:final`, role: "assistant", kind: "final", text: r.answer, run_id: id, order: order(2), step_ids: ["done"], seqs: [2], source: "ledger", artifact_ids: id === "history" ? ["answer-file","scratchpad-file","session-file"] : [] },
     ],
@@ -60,9 +60,7 @@ async function checkAvatar({page, runs, calls, report, shots}) {
   await page.getByRole("region", {name:"Avatar conversation",exact:true}).waitFor();
   assert.equal(await composer.inputValue(),"Keep this draft while switching views");
   assert.equal(calls.speech,0);
-  await page.getByRole("button", {name:"Conversation history",exact:true}).click();
-  await page.getByRole("list",{name:"Public conversation history"}).getByText("An earlier answer",{exact:true}).waitFor();
-  await page.getByRole("button", {name:"Conversation history",exact:true}).click();
+  await page.locator(".pc-avatar-conversation__answer").getByText("An earlier answer",{exact:true}).waitFor();
   report.defaultHistoryAndDraftPreserved = true;
   await page.locator('[data-toolbar="new"]').click();
   await composer.fill("Find a place for lunch");
@@ -76,11 +74,11 @@ async function checkAvatar({page, runs, calls, report, shots}) {
   live.answer = "";
   await page.reload();
   await page.locator(".aa-session").filter({hasText:"Find a place for lunch"}).click();
-  const subtitles = page.getByLabel("Public subtitles",{exact:true});
-  await subtitles.getByText("I found a quiet restaurant near the park.",{exact:true}).waitFor();
+  const line = page.locator(".pc-avatar-conversation__line");
+  await line.getByText("I found a quiet restaurant near the park.",{exact:true}).waitFor();
   assert.equal(calls.speech,0,"Restoring an existing update stays silent");
   await page.getByRole("button", {name:"Read new replies aloud",exact:true}).click();
-  live.public_updates.push({id:"new-1:public:2",text:"I am keeping the riverside option while I check access."});
+  live.public_updates.push({id:"new-1:public:2",run_id:"actor-child-1",kind:"finding",text:"The riverside restaurant has step-free access."});
   await page.getByRole("button",{name:"Pause voice",exact:true}).waitFor();
   const synthesisCount = calls.speech;
   assert.equal(synthesisCount,1);
@@ -93,15 +91,19 @@ async function checkAvatar({page, runs, calls, report, shots}) {
   await page.getByRole("button",{name:"Silence voice",exact:true}).click();
   await page.getByRole("button",{name:"Read new replies aloud",exact:true}).click();
   report.busyPublicNarrationPauseResumeAndSpeakingPose = true;
-  await page.getByRole("button", {name:"Conversation history",exact:true}).click();
-  const update = page.getByRole('list', {name:'Public conversation history'}).getByRole('listitem').filter({hasText:'I found a quiet restaurant near the park.'});
-  await update.getByRole('button',{name:'Reply to this',exact:true}).click();
+  await line.getByText("The riverside restaurant has step-free access.",{exact:true}).waitFor();
+  await page.getByRole("complementary",{name:"Findings",exact:true}).getByText("The riverside restaurant has step-free access.",{exact:true}).waitFor();
+  assert.equal(await page.locator(".pc-avatar-conversation__finding").count(),1,"Only the update typed as a finding is in Findings");
+  report.liveLineAndFindingsPanel = true;
+  if(shots) await page.screenshot({path:`${shots}/avatar-live-findings-desktop.png`});
+  await line.click();
+  await page.getByRole('button',{name:'Reply to this',exact:true}).click();
   await composer.fill("Please keep the other restaurant too; it has wheelchair access.");
   await page.getByRole("button", {name:"Send",exact:true}).click();
   assert.equal(calls.commands.length,1);
   assert.equal(calls.commands[0].type,"inject_guidance");
   assert.match(JSON.stringify(calls.commands[0]),/wheelchair access/);
-  assert.match(JSON.stringify(calls.commands[0]),/new-1:public:1/);
+  assert.match(JSON.stringify(calls.commands[0]),/new-1:public:2/);
   assert.match(calls.commands[0].payload.guidance,/"run_id":"actor-child-1"/,"Replying to a public update preserves the actual actor child identity");
   report.activeReplyUsesGuidanceAndPinnedPublicContext = true;
   live.status = "waiting";

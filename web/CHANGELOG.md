@@ -6,6 +6,17 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 
 ## [Unreleased]
 
+### Changed
+
+- **Avatar view: one live line and a Findings panel.** Under the avatar, one line shows the latest
+  thing the assistant reports while it works, replaced as soon as something new arrives; click it to
+  read it in full, then **Reply to this** or **Latest** (back to following). The findings it reports
+  (facts or evidence it established) accumulate in a **Findings** panel beside the avatar, a sheet
+  opened with **Findings** on a phone; each opens to the results it came from. The answer appears
+  once, as a message. The rolling captions and the in-view Conversation history are gone. Needs the producer-typed public
+  updates of AbstractAgent (`kind`) and AbstractRuntime (`update_kind`); older updates are shown as
+  progress. Shared conversation bundle re-synced from AbstractUIC panel-chat.
+
 ### Added
 
 - **Automations, as on the Apple Watch.** **Automations** beside Conversations lists them in the
