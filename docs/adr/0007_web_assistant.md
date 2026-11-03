@@ -4,8 +4,8 @@ Status: Proposed
 Date: 2026-10-26
 Catalog integration accepted and implemented 2026-10-31 at the operator's request:
 `assistant-web`, Assistant (web), port 3008, cookie prefix `abstractassistant`.
-Published on npm as `@abstractframework/assistant` 0.1.0 on 2026-11-02 (operator decision; release
-tag family `web-vX.Y.Z`, `.github/workflows/release-web.yml`); the remaining product phases below
+Published on npm as `@abstractframework/assistant` 0.1.0 on 2026-11-03 (operator decision 2026-11-02; the
+first version is published by the package owner, later ones by CI; release tag family `web-vX.Y.Z`, `.github/workflows/release-web.yml`); the remaining product phases below
 are unchanged.
 Implementation amendment 2026-10-31: the operator requested the Watch interaction
 for the web. The shipped composition uses AbstractUIC `AfAppShell`, `WorkflowChat`,
@@ -108,7 +108,7 @@ adopts it and deletes its reducer (owner: uic + assistant).
 ### 3. Served as a gateway app
 
 - npm package `@abstractframework/assistant` (name free on npm, 2026-10-26), `bin`
-  `abstractassistant-web`; public since 0.1.0 (2026-11-02).
+  `abstractassistant-web`; public since 0.1.0 (2026-11-03).
 - Catalog id **`assistant-web`**, display name "Assistant (web)", cookie prefix
   `abstractassistant`, page title starting `AbstractAssistant`, usual port **3008** (3001-3006 are
   the stack map, 3000/3007 legacy probe ports, `apps_manager.py:115-128`). The id cannot be

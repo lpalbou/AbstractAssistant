@@ -5,7 +5,7 @@ Since 0.16.0 the watch app shares the iPhone app's version (`MARKETING_VERSION` 
 iPhone app); the Python package's history is in
 [../../CHANGELOG.md](../../CHANGELOG.md).
 
-## [0.17.0] - 2026-11-02
+## [0.17.0] - 2026-11-03
 
 What testers get since build 39 (0.16.0), inside the iPhone app of the same version.
 

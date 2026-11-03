@@ -5141,27 +5141,15 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
 
-### Added
-
-- **Read an automation run aloud.** The run's sheet has the conversation's speaker beside its
-  answer: it reads the answer aloud, pauses and resumes it, and Stop ends it. The reading goes on
-  with the iPhone locked.
-
-### Fixed
-
-- **Automation cards show their answer as clean plain text.** The Markdown markers (`**`, `#`)
-  are gone and nothing is bold: one font, one weight, in the same three lines as before. The full
-  formatting is in the run's sheet.
-- **An automation's page keeps Run now and Pause clear of the back button.** The navigation bar
-  is opaque on that page, so what scrolls up goes under it instead of showing behind the back
-  button.
-
-## [0.17.0] — 2026-11-02
+## [0.17.0] — 2026-11-03
 
 What testers get since build 39 (0.16.0). The watch app inside it carries the same version.
 
 ### Added
 
+- **Read an automation run aloud.** The run's sheet has the conversation's speaker beside its
+  answer: it reads the answer aloud, pauses and resumes it, and Stop ends it. The reading goes on
+  with the iPhone locked.
 - **Reading goes on with the iPhone locked or in your pocket.** A reply being read aloud keeps
   playing when you lock the iPhone or put it away. The lock screen, Control Center and the
   headphones' button show the conversation with play and pause. A call or Siri pauses the reading
@@ -5241,6 +5229,12 @@ What testers get since build 39 (0.16.0). The watch app inside it carries the sa
 
 ### Fixed
 
+- **Automation cards show their answer as clean plain text.** The Markdown markers (`**`, `#`)
+  are gone and nothing is bold: one font, one weight, in the same three lines as before. The full
+  formatting is in the run's sheet.
+- **An automation's page keeps Run now and Pause clear of the back button.** The navigation bar
+  is opaque on that page, so what scrolls up goes under it instead of showing behind the back
+  button.
 - Reconnecting reconciles unread attention before posting local alerts. Approvals and results
   consumed on another client stay silent, and known-resolved notifications are withdrawn.
   Genuine unread items remain eligible across reconnects and saved-state upgrades.
@@ -6787,7 +6781,7 @@ Since 0.16.0 the watch app shares the iPhone app's version (`MARKETING_VERSION` 
 iPhone app); the Python package's history is in
 [../../CHANGELOG.md](../../CHANGELOG.md).
 
-## [0.17.0] - 2026-11-02
+## [0.17.0] - 2026-11-03
 
 What testers get since build 39 (0.16.0), inside the iPhone app of the same version.
 
@@ -8158,19 +8152,36 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 
 ## [Unreleased]
 
-### Changed
+## [0.1.0] - 2026-11-03
 
-- **Avatar view: one live line and a Findings panel.** Under the avatar, one line shows the latest
-  thing the assistant reports while it works, replaced as soon as something new arrives; click it to
-  read it in full, then **Reply to this** or **Latest** (back to following). The findings it reports
-  (facts or evidence it established) accumulate in a **Findings** panel beside the avatar, a sheet
-  opened with **Findings** on a phone; each opens to the results it came from. The answer appears
-  once, as a message. The rolling captions and the in-view Conversation history are gone. Needs the producer-typed public
-  updates of AbstractAgent (`kind`) and AbstractRuntime (`update_kind`); older updates are shown as
-  progress. Shared conversation bundle re-synced from AbstractUIC panel-chat.
+First public release on npm. AbstractGateway lists it as **Assistant (web)** and installs it from
+the npm registry (`abstractgateway apps install assistant-web`, or **Install** in the console and
+tray Apps menu); you can also run it yourself with `npx @abstractframework/assistant`.
 
 ### Added
 
+- **Conversations in the browser.** Your gateway conversations, grouped by recency and searchable,
+  with live answers, Stop, attachments, copy and export, rendered from the gateway's replay view.
+  Requests that need you are listed first.
+- **Voice.** A Watch-style animated orb: tap to talk (or hold, in Voice settings), dictation into
+  the draft for review or sent automatically, read aloud that follows your voice setting, and
+  playback controls. The composer microphone and the orb share one recording.
+- **Avatar conversation view.** A second view over the same work. Under the avatar, one line shows the
+  latest thing the assistant reports while it works, replaced as soon as something new arrives; click it
+  to read it in full, then **Reply to this** or **Latest** (back to following). The findings it reports
+  (facts or evidence it established) accumulate in a **Findings** panel beside the avatar, a sheet
+  opened with **Findings** on a phone; each opens to the results it came from. The answer appears once,
+  as a message. Needs the producer-typed public updates of AbstractAgent (`kind`) and AbstractRuntime
+  (`update_kind`); older updates are shown as progress. Permission requests use plain actions with the
+  assistant's public explanation when the gateway serves one. The view holds no settings: they open
+  from **Settings** in the conversations sidebar (behind **Open Conversations** on a phone), as
+  everywhere in the app.
+- **Approvals in the conversation.** Deny, Allow once, Allow for this chat or Decide later; a
+  chat's tool policy is stored on the gateway when it offers one.
+- **Avatar designs.** The 44-design AbstractAvatar catalog with previews of every activity state;
+  your choice is kept in this browser. Only avatars with eyes (such as the Hover robot, the Eye, the
+  Rover and the Watch faces and robots) look toward the pointer while Ready, and only their eyes
+  move, easing back to centre after two idle seconds; the orb and every other avatar stay still.
 - **Automations, as on the Apple Watch.** **Automations** beside Conversations lists them in the
   gateway's order: the active ones first, the most recently active at the top, then **Paused · N** and
   **Archived · N**, folded until opened (with an older gateway every automation is in one list).
@@ -8185,41 +8196,6 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
   first and **Restore** brings an archived one back. **New** creates one: its task, the flow that
   runs it, its **Tools** (each Off, Ask or Auto, from the gateway's defaults), every interval from
   30 seconds to a week or every day at a time, and whether its runs build on each other.
-
-### Changed
-
-- **The orb no longer follows the mouse.** Only avatars with eyes (such as the Hover robot,
-  the Eye, the Rover and the Watch faces and robots) look toward the pointer while Ready, and
-  only their eyes move, easing back to centre after two idle seconds. The orb and every other
-  avatar stay still. Uses the shared AbstractUIC avatar rule and the refreshed AbstractAvatar
-  renderer.
-
-## [0.1.0] - 2026-11-02
-
-First public release on npm. AbstractGateway lists it as **Assistant (web)** and installs it from
-the npm registry (`abstractgateway apps install assistant-web`, or **Install** in the console and
-tray Apps menu); you can also run it yourself with `npx @abstractframework/assistant`.
-
-### Added
-
-- **Conversations in the browser.** Your gateway conversations, grouped by recency and searchable,
-  with live answers, Stop, attachments, copy and export, rendered from the gateway's replay view.
-  Requests that need you are listed first.
-- **Voice.** A Watch-style animated orb: tap to talk (or hold, in Voice settings), dictation into
-  the draft for review or sent automatically, read aloud that follows your voice setting, and
-  playback controls. The composer microphone and the orb share one recording.
-- **Avatar conversation view.** A second view over the same work: the avatar shows activity, and
-  realtime rolling captions under it list the current turn's public updates, questions and answer,
-  newest at the bottom, rendered like the conversation (Markdown, links, files). The captions and the
-  Conversation history, Talk and read-aloud buttons sit above the message box at every width;
-  **Conversation history** opens the full exchanges with plain labels (You, Update, Question,
-  Answer). Permission requests use plain actions with the assistant's public explanation when the
-  gateway serves one. The view holds no settings: they open from **Settings** in the conversations
-  sidebar (behind **Open Conversations** on a phone), as everywhere in the app.
-- **Approvals in the conversation.** Deny, Allow once, Allow for this chat or Decide later; a
-  chat's tool policy is stored on the gateway when it offers one.
-- **Avatar designs.** The 44-design AbstractAvatar catalog with previews of every activity state;
-  your choice is kept in this browser.
 - **Docs drawer.** Questions about the Assistant answered from its bundled browser guide, separate
   from your main conversation.
 - **The app server** (`abstractassistant-web`): serves the built app on 127.0.0.1 (port 3008 by

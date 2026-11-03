@@ -5,27 +5,15 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
 
-### Added
-
-- **Read an automation run aloud.** The run's sheet has the conversation's speaker beside its
-  answer: it reads the answer aloud, pauses and resumes it, and Stop ends it. The reading goes on
-  with the iPhone locked.
-
-### Fixed
-
-- **Automation cards show their answer as clean plain text.** The Markdown markers (`**`, `#`)
-  are gone and nothing is bold: one font, one weight, in the same three lines as before. The full
-  formatting is in the run's sheet.
-- **An automation's page keeps Run now and Pause clear of the back button.** The navigation bar
-  is opaque on that page, so what scrolls up goes under it instead of showing behind the back
-  button.
-
-## [0.17.0] — 2026-11-02
+## [0.17.0] — 2026-11-03
 
 What testers get since build 39 (0.16.0). The watch app inside it carries the same version.
 
 ### Added
 
+- **Read an automation run aloud.** The run's sheet has the conversation's speaker beside its
+  answer: it reads the answer aloud, pauses and resumes it, and Stop ends it. The reading goes on
+  with the iPhone locked.
 - **Reading goes on with the iPhone locked or in your pocket.** A reply being read aloud keeps
   playing when you lock the iPhone or put it away. The lock screen, Control Center and the
   headphones' button show the conversation with play and pause. A call or Siri pauses the reading
@@ -105,6 +93,12 @@ What testers get since build 39 (0.16.0). The watch app inside it carries the sa
 
 ### Fixed
 
+- **Automation cards show their answer as clean plain text.** The Markdown markers (`**`, `#`)
+  are gone and nothing is bold: one font, one weight, in the same three lines as before. The full
+  formatting is in the run's sheet.
+- **An automation's page keeps Run now and Pause clear of the back button.** The navigation bar
+  is opaque on that page, so what scrolls up goes under it instead of showing behind the back
+  button.
 - Reconnecting reconciles unread attention before posting local alerts. Approvals and results
   consumed on another client stay silent, and known-resolved notifications are withdrawn.
   Genuine unread items remain eligible across reconnects and saved-state upgrades.
