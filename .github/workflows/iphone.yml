@@ -156,7 +156,9 @@ jobs:
             for test in testWorkingOrbIsTheOnlyStopAndReturnsAfterCancellation \
               testRestoredImageSurvivesColdRelaunchPreviewAndTabChanges \
               testCategoryBulkControlsRespectHiddenAndDisabledTools \
-              testGroupedHistoryArchivesAndRestoresUsingExistingActions; do
+              testGroupedHistoryArchivesAndRestoresUsingExistingActions \
+              testAutomationHeaderSitsBelowTheNavigationBar \
+              testAutomationRunsShowPlainAnswersAndReadAloud; do
               selectors+=("-only-testing:AbstractAssistantPhoneUITests/PhoneUITests/$test")
             done
           fi

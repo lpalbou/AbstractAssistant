@@ -259,7 +259,9 @@ audio service ends it.
 
 **Lock screen.** A reading started from a conversation is the Now Playing item: the conversation's
 title (or who answers) with play and pause on the lock screen, in Control Center and on the
-headphones' button. It is cleared when the reading ends.
+headphones' button. It is cleared when the reading ends. An automation run's sheet reads its
+answer with the same controller and controls (the automation's name on the lock screen); closing
+the sheet stops it.
 
 ## Voice settings and responder selection
 

@@ -19,6 +19,61 @@ final class PhoneUITests: XCTestCase {
         app.buttons["Done"].tap()
         XCTAssertTrue(app.buttons["automation.run.occ-39"].waitForExistence(timeout: 5))
     }
+    /// Operator 2026-11-03: an automation's page opens with Run now and Pause clear of the status bar
+    /// and the back button, at rest and after the page settles.
+    @MainActor func testAutomationHeaderSitsBelowTheNavigationBar() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--screen", "automations"]; app.launch()
+        let card = app.buttons["automation.open.auto-morning"]
+        XCTAssertTrue(card.waitForExistence(timeout: 15))
+        Thread.sleep(forTimeInterval: 1.5)                       // the list has settled (its first refresh relays it out)
+        app.staticTexts["Morning digest"].firstMatch.tap()
+        let run = app.buttons["Run now"].firstMatch, pause = app.buttons["Pause"].firstMatch
+        XCTAssertTrue(run.waitForExistence(timeout: 12)); XCTAssertTrue(pause.waitForExistence(timeout: 5))
+        Thread.sleep(forTimeInterval: 1.5)                       // the page's first refresh has landed
+        let bar = app.navigationBars.firstMatch.frame, back = app.navigationBars.buttons.firstMatch.frame
+        capture(app, "Automation page — header below the navigation bar")
+        for button in [run, pause] {
+            XCTAssertGreaterThanOrEqual(button.frame.minY, bar.maxY - 0.5, "\(button.label) sits under the navigation bar (\(button.frame) vs \(bar))")
+            XCTAssertFalse(button.frame.intersects(back), "\(button.label) overlaps the back button")
+        }
+        // Scrolled so the buttons pass under the bar: the bar's hard edge hides them (checked on the screenshot).
+        let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
+        from.press(forDuration: 0.1, thenDragTo: from.withOffset(CGVector(dx: 0, dy: -(run.frame.minY - bar.minY))))
+        Thread.sleep(forTimeInterval: 1)
+        capture(app, "Automation page — scrolled under the navigation bar")
+    }
+    /// Operator 2026-11-03: a run card shows its answer as plain text (no `**`, no bold), and a run's
+    /// answer is read aloud from its sheet with the conversation's controls: read, pause, resume, stop.
+    @MainActor func testAutomationRunsShowPlainAnswersAndReadAloud() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--screen", "automations"]; app.launch()
+        XCTAssertTrue(app.buttons["automation.open.auto-morning"].waitForExistence(timeout: 15))
+        Thread.sleep(forTimeInterval: 1.5)
+        app.staticTexts["Morning digest"].firstMatch.tap()
+        let card = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'automation.run.occ-' AND label CONTAINS 'Digest'")).firstMatch
+        for _ in 0..<4 where !card.waitForExistence(timeout: 4) { app.swipeUp() }
+        XCTAssertTrue(card.exists, app.debugDescription)
+        XCTAssertFalse(card.label.contains("**"), "the run card shows raw Markdown: \(card.label)")
+        XCTAssertFalse(card.label.contains("*nothing"), card.label)
+        capture(app, "Automation runs — answers rendered")
+        if !card.isHittable { app.swipeUp() }
+        card.tap()
+        XCTAssertTrue(app.navigationBars["Automation run"].waitForExistence(timeout: 5))
+        let read = app.buttons["automation.run.read"], stop = app.buttons["automation.run.stop"]
+        XCTAssertTrue(read.waitForExistence(timeout: 8)); XCTAssertEqual(read.label, "Read answer aloud")
+        // The sheet reads its details once open (the content moves): tap once they are in.
+        XCTAssertTrue(app.staticTexts["Checking run details…"].waitForNonExistence(timeout: 15))
+        Thread.sleep(forTimeInterval: 1)
+        XCTAssertFalse(stop.exists)
+        read.tap()
+        XCTAssertTrue(stop.waitForExistence(timeout: 5), "no Stop while it reads")
+        XCTAssertEqual(read.label, "Pause or resume reading")
+        capture(app, "Automation run — reading aloud")
+        read.tap()                                                   // pause
+        XCTAssertTrue(stop.exists, "a paused reading keeps Stop")
+        read.tap()                                                   // resume
+        stop.tap()
+        XCTAssertTrue(stop.waitForNonExistence(timeout: 5)); XCTAssertEqual(read.label, "Read answer aloud")
+    }
     @MainActor func testSettingsShowsBuildAndTestFlightUpdateInstructions() throws {
         let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--updates=testflight"]; app.launch(); openSettings(app)
         let updates = app.buttons["settings.updates"]

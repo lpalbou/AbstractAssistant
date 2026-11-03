@@ -586,7 +586,7 @@ public actor MockGatewayClient: GatewayClient {
             if world == .phone {
                 return LastOccurrence(status: failed ? "failed" : "completed", excerpt: nil, runId: "occ-\(i)", index: i,
                                       firedAt: ISO8601DateFormatter().string(from: day), finishedAt: ISO8601DateFormatter().string(from: day.addingTimeInterval(90)),
-                                      answer: failed ? "" : "Digest \(i): the assay QC run passed; nothing new to pin.",
+                                      answer: failed ? "" : "**Digest \(i)**: the assay QC run passed; *nothing new* to pin.",
                                       failure: failed ? .init(reasonCode: "occurrence_failed", message: "OpenAI-compatible server API error (401): Missing or invalid AIRelays bearer token.", attempts: 3) : nil,
                                       attempts: failed ? 3 : 1, userTurn: "Check my emails for important updates.")
             }
