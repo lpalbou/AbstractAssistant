@@ -1228,7 +1228,7 @@ final class PhoneUITests: XCTestCase {
         let read = app.segmentedControls["tool.read_file"]
         XCTAssertTrue(read.waitForExistence(timeout: 5)); read.buttons["Off"].tap()
         searchTools(app, for: "fetch_url"); app.segmentedControls["tool.fetch_url"].buttons["Auto"].tap()
-        searchTools(app, for: "execute_command"); app.segmentedControls["tool.execute_command"].buttons["Approve"].tap()
+        searchTools(app, for: "execute_command"); app.segmentedControls["tool.execute_command"].buttons["Ask"].tap()
         XCTAssertTrue(app.buttons["tools.save"].isHittable)
         capture(app, "Saving filtered tool choices")
         app.buttons["tools.save"].tap()
@@ -1236,7 +1236,7 @@ final class PhoneUITests: XCTestCase {
         XCTAssertEqual(defaults.value as? String, "0")
         searchTools(app, for: "read_file"); XCTAssertTrue(read.buttons["Off"].isSelected)
         searchTools(app, for: "fetch_url"); XCTAssertTrue(app.segmentedControls["tool.fetch_url"].buttons["Auto"].isSelected)
-        searchTools(app, for: "execute_command"); XCTAssertTrue(app.segmentedControls["tool.execute_command"].buttons["Approve"].isSelected)
+        searchTools(app, for: "execute_command"); XCTAssertTrue(app.segmentedControls["tool.execute_command"].buttons["Ask"].isSelected)
         searchTools(app, for: "read_file")
         defaults.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
         XCTAssertTrue(read.buttons["Auto"].isSelected)
@@ -1266,6 +1266,16 @@ final class PhoneUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["The gateway camera is not enabled."].exists)
         capture(app, "Gateway-disabled tool")
         searchTools(app, for: "No such tool"); XCTAssertTrue(app.staticTexts["No tools match your search."].waitForExistence(timeout: 5))
+    }
+    /// Scrolls the screen's list in short drags until `element` is on screen: down the list while it is
+    /// below the middle or not rendered yet (a Form renders only the rows near the screen), else up.
+    @MainActor private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
+        for _ in 0..<10 where !element.isHittable {
+            let below = !element.exists || element.frame.midY > app.frame.midY
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: below ? 0.7 : 0.3))
+            start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: below ? -160 : 160)))
+        }
+        XCTAssertTrue(element.isHittable, "\(element) is not on screen")
     }
     @MainActor private func searchTools(_ app: XCUIApplication, for text: String) {
         let field = app.searchFields.firstMatch
@@ -1312,21 +1322,25 @@ final class PhoneUITests: XCTestCase {
         growing.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
         XCTAssertTrue(budget.waitForExistence(timeout: 5))
         XCTAssertTrue((budget.value as? String ?? "").contains("50,000"))
-        budget.tap(); budget.typeText("0"); app.staticTexts["History token budget"].tap()
+        let label = app.staticTexts["History token budget"]
+        budget.tap(); budget.typeText("0"); label.tap()
+        // Create sits at the end of the form, below the Tools section (1081): the form renders its rows
+        // near the screen only, so each check first brings the control into view.
         let create = app.buttons["automation.create"]
-        XCTAssertFalse(create.isEnabled)
-        budget.tap(); budget.typeText(XCUIKeyboardKey.delete.rawValue + "24000"); app.staticTexts["History token budget"].tap()
-        XCTAssertTrue(create.isEnabled)
+        reveal(create, in: app); XCTAssertFalse(create.isEnabled)
+        reveal(budget, in: app); budget.tap(); budget.typeText(XCUIKeyboardKey.delete.rawValue + "24000")
+        reveal(label, in: app); label.tap()
+        reveal(create, in: app); XCTAssertTrue(create.isEnabled)
         capture(app, "Custom history budget")
-        growing.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
+        reveal(growing, in: app); growing.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
         XCTAssertFalse(budget.exists)
         growing.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
-        XCTAssertEqual(budget.value as? String, "24000")
-        budget.tap(); budget.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 5)); app.staticTexts["History token budget"].tap()
+        XCTAssertTrue(budget.waitForExistence(timeout: 5)); XCTAssertEqual(budget.value as? String, "24000")
+        reveal(budget, in: app); budget.tap(); budget.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 5))
+        reveal(label, in: app); label.tap()
         XCTAssertTrue((budget.value as? String ?? "").contains("50,000"))
-        XCTAssertTrue(create.isEnabled)
+        reveal(create, in: app); XCTAssertTrue(create.isEnabled)
         capture(app, "Inherited history budget")
-        for _ in 0..<4 { if create.isHittable { break }; app.swipeUp() }
         XCTAssertTrue(create.isHittable); create.tap()
         XCTAssertTrue(app.staticTexts["My inherited history briefing"].firstMatch.waitForExistence(timeout: 20))
     }

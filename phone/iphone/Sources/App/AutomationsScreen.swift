@@ -81,6 +81,8 @@ private struct AutomationListCard: View {
                 }
                 HStack { if !a.isEventTrigger, let next = a.nextFireAt.flatMap(ISO8601.date) { Text("Next "); Text(next, style: .relative) }; Spacer(); Image(systemName: "arrow.up.right") }.font(.caption).foregroundStyle(PhoneTheme.lavender)
         }.frame(maxWidth: .infinity, alignment: .leading)
+        // The whole card opens the automation: the preview, the gaps between lines, not only the words.
+        .contentShape(Rectangle())
     }
 }
 
@@ -120,7 +122,6 @@ struct AutomationMarkdownPreview: View {
             .lineSpacing(spacing).lineLimit(lines).truncationMode(.tail)
             .multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .allowsHitTesting(false)
     }
 }
 
