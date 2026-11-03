@@ -220,7 +220,7 @@ Essential questions keep waiting. A clarification may state a two-to-five minute
 answer deadline and what will happen without an answer. **Conversation cues** controls
 visual and audio alerts independently for questions, permission requests and completion.
 Audio alerts default off. Voice narration uses the existing voice preference;
-reading history or editing a reply silences automatic narration. Playback can be paused
+holding the live line, reading the findings sheet or editing a reply silences automatic narration. Playback can be paused
 or silenced without stopping the task.
 
 Public updates require a run started in Avatar mode and a backend supporting the public

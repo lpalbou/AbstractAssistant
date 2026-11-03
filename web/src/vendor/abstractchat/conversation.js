@@ -3141,13 +3141,13 @@ function AvatarConversationSession(props) {
   const lineActions = useRef10(null);
   const toggle = useRef10(null);
   const closeButton = useRef10(null);
-  const wasHeld = useRef10(false);
+  const focusLine = useRef10(false);
   useEffect14(() => {
     if (held)
       lineActions.current?.querySelector("button")?.focus();
-    else if (wasHeld.current)
+    else if (focusLine.current)
       (liveArea.current?.querySelector(".pc-avatar-conversation__opener") || liveArea.current)?.focus();
-    wasHeld.current = Boolean(held);
+    focusLine.current = false;
   }, [held]);
   const hold = () => {
     if (!line)
@@ -3163,6 +3163,7 @@ function AvatarConversationSession(props) {
     props.onReplyContext?.(held);
   };
   const latest = () => {
+    focusLine.current = true;
     setHeld(null);
     if (replying) {
       setReplying(false);
