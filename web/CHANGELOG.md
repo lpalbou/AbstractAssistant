@@ -11,7 +11,7 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 First public release on npm. AbstractGateway lists it as **Assistant (web)** and installs it from
 the npm registry (`abstractgateway apps install assistant-web`, or **Install** in the console and
 tray Apps menu); you can also run it yourself with `npx @abstractframework/assistant`.
-It is built on AbstractUIC ui-kit 0.9.13 and panel-chat 0.8.0 (shared bundles re-synced from them) and
+It is built on AbstractUIC ui-kit 0.9.14 and panel-chat 0.8.1 (shared bundles re-synced from them) and
 AbstractAvatar 0.1.1.
 
 ### Added
@@ -27,7 +27,9 @@ AbstractAvatar 0.1.1.
   to read it in full, then **Reply to this** or **Latest** (back to following). The findings it reports
   (facts or evidence it established) accumulate in a **Findings** panel beside the avatar, a sheet
   opened with **Findings** on a phone; each opens to the results it came from. The answer appears once,
-  as a message. Needs the producer-typed public updates of AbstractAgent (`kind`) and AbstractRuntime
+  as a message. An open question or approval stays pinned at the top of the view with its buttons on
+  screen, also on a laptop-height window (1000×650); on a very short view its context scrolls inside it
+  while the heading and the buttons stay visible. Needs the producer-typed public updates of AbstractAgent (`kind`) and AbstractRuntime
   (`update_kind`); older updates are shown as progress. Permission requests use plain actions with the
   assistant's public explanation when the gateway serves one. The view holds no settings: they open
   from **Settings** in the conversations sidebar (behind **Open Conversations** on a phone), as

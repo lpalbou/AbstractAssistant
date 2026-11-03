@@ -41,7 +41,7 @@
     "dist/session_reads_remote.js": "4add9cbecba6970b62c0a7595318b46cf147ff3e3a2086c54f34b1fa6ed235ba",
     "dist/session_reads.js": "c05c38663f578a7f13185b05b5a1df54cc3fee1bf0bb3660c568c42a7cf6cd4c",
     "dist/session_cards.js": "8f5a10250512619f3ccb3887d12a4444cbeeb97af8f523463659d2233a94bea9",
-    "src/theme.css": "f3e004cbe3072a6cb297868f453c3b58a1317ba52daf2ceb048132aed0f59bfe"
+    "src/theme.css": "83fe3a16b95177d39f7d5394c1d62fe127960b843d53c5deae143fa86a5745f7"
   },
   "artifacts": {
     "session_cards.js": "1af1446d72156deb4d78943763edfc11a46053911f788ae71560edc9abb60a0b",
