@@ -65,11 +65,14 @@ dependencies = [
     # until nothing else in the resolved set is shown to import pkg_resources.
     # It lives in base deps because extras merge with base at resolve time.
     "setuptools>=61.0,<81",
+    # The activity avatar ships with every install (0.18.0). 0.1.1: the catalog says which designs
+    # have eyes (`gaze`); only those follow the pointer. Wheels: macOS arm64/x86_64, Linux
+    # x86_64/aarch64 (manylinux 2.28), Windows amd64.
+    "abstractavatar>=0.1.1",
 ]
 
 [project.optional-dependencies]
-# 0.1.1: the catalog says which designs have eyes (`gaze`); only those follow the pointer.
-avatar = ["abstractavatar>=0.1.1"]
+avatar = []  # Back-compat alias: the avatar is in the base install since 0.18.0.
 lite = []  # Back-compat alias for the base install.
 voice = [
     "abstractvoice[audio-io,stt]>=0.19.5",

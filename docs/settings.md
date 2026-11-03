@@ -207,7 +207,7 @@ Listed as **Appearance** in the sidebar.
 | Control | Meaning | Stored |
 |---|---|---|
 | Theme | The colour palettes shared with the other AbstractFramework apps; applies to every window of this app at once | this app `ui_theme` |
-| Activity avatar | Optional procedural portrait beneath the palette header. Off by default; shows listening, speech, thinking, tool activity, waiting and errors from the app's existing state. Requires the `avatar` extra | this app `avatar_enabled` |
+| Activity avatar | Optional procedural portrait beneath the palette header. Off by default; shows listening, speech, thinking, tool activity, waiting and errors from the app's existing state. Ships with every install | this app `avatar_enabled` |
 | Design | A design from AbstractAvatar's shared catalog, stored by its stable key | this app `avatar_style` |
 | Motion | Animate only while the palette is visible. Turn off for still state frames; hidden avatars release their renderer and run no animation clock | this app `avatar_animated` |
 | Text size / Line spacing / Paragraph gap / Bullet gap | How replies are set in the transcript: text size 10–22 px (default 13), line spacing 1.0–2.2 × (default 1.2), paragraph gap 0–28 px and bullet gap 0–16 px (default 3 each). Applies immediately | this app `text_size`, `line_spacing`, `paragraph_spacing`, `bullet_spacing` |

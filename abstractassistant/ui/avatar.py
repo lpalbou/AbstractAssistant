@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QWidget
 from ..theme import THEME
 
 
-INSTALL_HINT = "Install AbstractAssistant's avatar extra to enable procedural avatars."
+INSTALL_HINT = "AbstractAvatar ships with AbstractAssistant: reinstall AbstractAssistant to restore it."
 _STATES = {"ready", "thinking", "working", "listening", "speaking", "waiting", "error"}
 
 
@@ -163,7 +163,7 @@ class ActivityAvatar(QWidget):
         self._error = f"Avatars unavailable. {INSTALL_HINT} ({error})"
         self.release()
         self._image.clear()
-        self._image.setText("Avatar unavailable\nEnable it after installing the avatar extra.")
+        self._image.setText("Avatar unavailable\nReinstall AbstractAssistant to restore it.")
         self._image.setToolTip(self._error)
         self._image.setAccessibleName(self._error)
 

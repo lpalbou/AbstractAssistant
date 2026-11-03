@@ -17,7 +17,7 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 - A menu-bar palette whose title tells you what the app is doing, with a session switcher fed by
   the gateway (your sessions from every device, optionally every client's) and a live gateway
   connection orb.
-- An optional local [AbstractAvatar](https://github.com/lpalbou/AbstractAvatar) portrait in the palette,
+- A local [AbstractAvatar](https://github.com/lpalbou/AbstractAvatar) portrait in the palette (it ships with every install),
   with design and motion controls in [Appearance](docs/settings.md#appearance--window). It follows
   listening, speech, tools, waits and errors; it stays off until you enable it.
 - Automations: schedule a conversation to run on the gateway at a fixed UTC interval or when an
@@ -65,7 +65,7 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 
 ## What's new
 
-0.18.0 folds paused automations under "Paused · N" and archived ones under "Archived · N" in
+0.18.0 ships the activity avatar with every install, folds paused automations under "Paused · N" and archived ones under "Archived · N" in
 the switcher, and the activity avatar looks toward the pointer only when its design has eyes. See
 the [0.18.0 release notes](CHANGELOG.md#0180---2026-11-03).
 
@@ -79,8 +79,8 @@ web Assistant's Avatar conversation view. See the [0.17.0 release notes](CHANGEL
 pip install "abstractassistant[voice]"
 ```
 
-Add the `avatar` extra (`pip install "abstractassistant[voice,avatar]"`) for the optional activity
-avatar in the palette.
+The activity avatar ships with every install (since 0.18.0); turn it on in **Settings → Appearance**.
+The `avatar` extra is kept so older install lines still work; it adds nothing.
 
 The `voice` extra adds local microphone capture (dictation and voice conversations). The base
 install covers text chat, spoken replies and gateway-backed media; STT and TTS run on the gateway
