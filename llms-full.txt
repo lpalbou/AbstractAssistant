@@ -178,6 +178,10 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 
 ## What's new
 
+0.18.0 folds paused automations under "Paused · N" and archived ones under "Archived · N" in
+the switcher, and the activity avatar looks toward the pointer only when its design has eyes. See
+the [0.18.0 release notes](CHANGELOG.md#0180---2026-11-03).
+
 0.17.0 adds the optional desktop activity avatar (the `avatar` extra), automations that open as
 the chat with a sectioned editor, tool approvals in words, Off / Ask / Auto tool settings, and the
 web Assistant's Avatar conversation view. See the [0.17.0 release notes](CHANGELOG.md#0170---2026-11-02).
@@ -846,7 +850,8 @@ Listed as **Appearance** in the sidebar.
 | Width / Expanded height / Screen edge gap | Apply as they change. Palette size; the transcript takes the remaining height. Defaults: width 650 px, height 286 px, gap 12 px. Settings accepts a width of 420–2000 px and a gap of 0–200 px; the only further limit is the screen the window is on (width up to 62% of it, gap up to a quarter of its smaller side). The gap is the space kept between the window (and Settings) and the screen edges it sits against; 0 puts it flush with the edge | this app `window_width`, `window_height`, `bottom_offset` |
 
 The portrait renders on this device through [AbstractAvatar](https://github.com/lpalbou/AbstractAvatar).
-It uses the app's theme and audio level without a model or network request. Its presence does not
+It uses the app's theme and audio level without a model or network request. A design with eyes looks
+toward the pointer while it is over the portrait; the other designs (orbs, forms) stay still. Its presence does not
 change the menu-bar icon or its click controls. If native avatar support is unavailable, Appearance
 shows the reason and leaves the feature off; an enabled portrait shows an explicit unavailable message.
 
@@ -3280,6 +3285,11 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-03
+
+The switcher folds paused and archived automations into their own sections, and the activity avatar
+follows the pointer only with a design that has eyes. The web Assistant gets its first npm release.
+
 ### Added
 
 - **Assistant (web) on npm.** The web Assistant is published as `@abstractframework/assistant`
@@ -3297,6 +3307,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   archived" button is gone (it could show nothing: the gateway leaves archived automations out of
   its default listing). The filter also finds paused and archived automations while their section
   is closed.
+- **Only an avatar with eyes looks at the pointer.** The activity avatar follows the pointer when its
+  design has eyes (AbstractAvatar's catalog says which: `hover`, `eye`, the watch designs with eyes);
+  orbs and forms stay still and are not redrawn when the pointer moves. The `avatar` extra now needs
+  `abstractavatar` 0.1.1.
 
 ## [0.17.0] - 2026-11-02
 
@@ -8220,7 +8234,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.17.0"
+version = "0.18.0"
 description = "A gateway-native macOS menu-bar assistant for AbstractFramework: a compact palette, hands-free voice conversations, automations and a small CLI over AbstractGateway"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -8284,7 +8298,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-avatar = ["abstractavatar>=0.1.0"]
+# 0.1.1: the catalog says which designs have eyes (`gaze`); only those follow the pointer.
+avatar = ["abstractavatar>=0.1.1"]
 lite = []  # Back-compat alias for the base install.
 voice = [
     "abstractvoice[audio-io,stt]>=0.19.5",

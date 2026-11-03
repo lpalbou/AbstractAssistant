@@ -216,7 +216,8 @@ Listed as **Appearance** in the sidebar.
 | Width / Expanded height / Screen edge gap | Apply as they change. Palette size; the transcript takes the remaining height. Defaults: width 650 px, height 286 px, gap 12 px. Settings accepts a width of 420–2000 px and a gap of 0–200 px; the only further limit is the screen the window is on (width up to 62% of it, gap up to a quarter of its smaller side). The gap is the space kept between the window (and Settings) and the screen edges it sits against; 0 puts it flush with the edge | this app `window_width`, `window_height`, `bottom_offset` |
 
 The portrait renders on this device through [AbstractAvatar](https://github.com/lpalbou/AbstractAvatar).
-It uses the app's theme and audio level without a model or network request. Its presence does not
+It uses the app's theme and audio level without a model or network request. A design with eyes looks
+toward the pointer while it is over the portrait; the other designs (orbs, forms) stay still. Its presence does not
 change the menu-bar icon or its click controls. If native avatar support is unavailable, Appearance
 shows the reason and leaves the feature off; an enabled portrait shows an explicit unavailable message.
 

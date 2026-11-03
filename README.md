@@ -65,6 +65,10 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 
 ## What's new
 
+0.18.0 folds paused automations under "Paused · N" and archived ones under "Archived · N" in
+the switcher, and the activity avatar looks toward the pointer only when its design has eyes. See
+the [0.18.0 release notes](CHANGELOG.md#0180---2026-11-03).
+
 0.17.0 adds the optional desktop activity avatar (the `avatar` extra), automations that open as
 the chat with a sectioned editor, tool approvals in words, Off / Ask / Auto tool settings, and the
 web Assistant's Avatar conversation view. See the [0.17.0 release notes](CHANGELOG.md#0170---2026-11-02).

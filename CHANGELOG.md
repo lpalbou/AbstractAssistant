@@ -5,6 +5,11 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-03
+
+The switcher folds paused and archived automations into their own sections, and the activity avatar
+follows the pointer only with a design that has eyes. The web Assistant gets its first npm release.
+
 ### Added
 
 - **Assistant (web) on npm.** The web Assistant is published as `@abstractframework/assistant`
@@ -22,6 +27,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   archived" button is gone (it could show nothing: the gateway leaves archived automations out of
   its default listing). The filter also finds paused and archived automations while their section
   is closed.
+- **Only an avatar with eyes looks at the pointer.** The activity avatar follows the pointer when its
+  design has eyes (AbstractAvatar's catalog says which: `hover`, `eye`, the watch designs with eyes);
+  orbs and forms stay still and are not redrawn when the pointer moves. The `avatar` extra now needs
+  `abstractavatar` 0.1.1.
 
 ## [0.17.0] - 2026-11-02
 

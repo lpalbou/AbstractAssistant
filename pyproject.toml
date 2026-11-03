@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.17.0"
+version = "0.18.0"
 description = "A gateway-native macOS menu-bar assistant for AbstractFramework: a compact palette, hands-free voice conversations, automations and a small CLI over AbstractGateway"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -68,7 +68,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-avatar = ["abstractavatar>=0.1.0"]
+# 0.1.1: the catalog says which designs have eyes (`gaze`); only those follow the pointer.
+avatar = ["abstractavatar>=0.1.1"]
 lite = []  # Back-compat alias for the base install.
 voice = [
     "abstractvoice[audio-io,stt]>=0.19.5",
