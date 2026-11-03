@@ -50,6 +50,21 @@ class SelectXcodeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn('No released Xcode 27.x', result.stdout + result.stderr)
 
+    def test_an_unenterable_candidate_does_not_abort_the_selection(self):
+        (self.apps / 'Xcode_27.3.app').write_text('not a bundle')
+        (self.apps / 'Xcode_27.4.app').symlink_to(self.apps / 'missing.app')
+        released = self.install('Xcode_27.1.app')
+        result = run(self.apps)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), f'selected={released.resolve()}')
+
+    def test_a_link_named_for_the_major_but_pointing_at_another_major_is_refused(self):
+        other = self.install('Xcode_26.4.app')
+        (self.apps / 'Xcode_27.1.app').symlink_to(other)
+        result = run(self.apps)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('No released Xcode 27.x', result.stdout + result.stderr)
+
     def test_another_major_is_ignored(self):
         self.install('Xcode_26.4.app')
         self.assertEqual(run(self.apps).returncode, 1)

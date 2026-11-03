@@ -12,10 +12,10 @@ best=""
 best_version=""
 for link in "$apps"/Xcode_"$major".*.app "$apps"/Xcode_"$major".app; do
   [ -e "$link" ] || continue
-  real=$(cd "$link" && pwd -P)
+  real=$(cd "$link" 2>/dev/null && pwd -P) || continue
   name=$(basename "$real")
-  # Only a bare numeric version is a release: Xcode_27.1.app, Xcode_27.app.
-  [[ "$name" =~ ^Xcode_([0-9]+(\.[0-9]+)*)\.app$ ]] || continue
+  # Only a bare numeric version of the wanted major is a release: Xcode_27.1.app, Xcode_27.app.
+  [[ "$name" =~ ^Xcode_(${major}(\.[0-9]+)*)\.app$ ]] || continue
   version="${BASH_REMATCH[1]}"
   if [ -z "$best" ] || [ "$(printf '%s\n%s\n' "$best_version" "$version" | sort -V | tail -1)" = "$version" ]; then
     best="$real"; best_version="$version"
