@@ -56,7 +56,7 @@ either works without the other's app.
   a different wait.
 - **Automations.** See your routines, what starts each one in words ("When Python news has a new
   item", "When mail arrives in you@example.org", the schedule), and the latest 20 runs, each card
-  with the start of its answer formatted as in a conversation. Tap a dated run card for its explanation, attempts, recorded error and expandable activity; results refresh while the detail screen is open. Its answer reads aloud
+  with the start of its answer as plain text (no Markdown markers, no bold). Tap a dated run card for its explanation, attempts, recorded error and expandable activity; results refresh while the detail screen is open. Its answer reads aloud
   with the speaker beside **Answer**, which pauses and resumes it, with **Stop** while it reads (it goes on with the
   iPhone locked, like a conversation's). Run an
   active or paused routine now, pause it, or resume it. Tap **New automation** (or **+** above an existing list) to create a routine: enter a short title, choose a workflow and its inputs, and select an

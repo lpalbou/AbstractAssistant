@@ -85,38 +85,38 @@ private struct AutomationListCard: View {
 }
 
 /// One compact text flow lets the preview wrap and truncate at a complete line: an automation's
-/// card and its run cards show the answer's Markdown rendered (bold, links, headings as bold lines),
-/// never its markers. Full report typography belongs in the run sheet, not inside a clamped card.
+/// card and its run cards show the answer's words as plain text, one font and one weight, with the
+/// Markdown markers gone (no `**`, no `#`) and no bold or headings (operator 2026-11-03: a clean
+/// card, not a wall of bold). Full report typography belongs in the run sheet.
 struct AutomationMarkdownPreview: View {
     let text: String
     var lines = 5
     var font: Font = .footnote
-    var headingFont: Font = .subheadline.weight(.semibold)
     var color: Color = PhoneTheme.secondary
     var spacing: CGFloat = 3
 
-    /// The preview's text: each Markdown block on its own line, inline styles kept, markers gone.
-    static func formatted(_ text: String, font: Font, headingFont: Font) -> AttributedString {
+    /// The preview's text: each Markdown block on its own line, markers and inline styles gone.
+    static func formatted(_ text: String, font: Font) -> AttributedString {
         var result = AttributedString()
         for block in MarkdownBlock.parse(text) {
             let source: String
-            var heading = false
             switch block {
-            case .heading(_, let value): source = value; heading = true
-            case .paragraph(let value), .quote(let value), .code(let value): source = value
+            case .heading(_, let value), .paragraph(let value), .quote(let value), .code(let value): source = value
             case .item(let marker, _, let value): source = marker + " " + value
             case .table(let rows): source = rows.prefix(2).map { $0.joined(separator: " · ") }.joined(separator: "\n")
             case .rule: continue
             }
             if !result.characters.isEmpty { result.append(AttributedString("\n")) }
             var line = (try? AttributedString(markdown: source, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(source)
-            line.font = heading ? headingFont : font
+            line.inlinePresentationIntent = nil
+            line.link = nil
+            line.font = font
             result.append(line)
         }
         return result
     }
     var body: some View {
-        Text(Self.formatted(text, font: font, headingFont: headingFont)).foregroundStyle(color)
+        Text(Self.formatted(text, font: font)).foregroundStyle(color)
             .lineSpacing(spacing).lineLimit(lines).truncationMode(.tail)
             .multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -281,7 +281,7 @@ struct AutomationDetailScreen: View {
                         if let attempts = occurrence.attemptCount { Text("\(attempts) " + (attempts == 1 ? "attempt" : "attempts")) }
                     }.font(.caption).foregroundStyle(PhoneTheme.secondary)
                     if occurrence.status != "failed", !occurrence.isActive, let answer = occurrence.displayAnswer {
-                        AutomationMarkdownPreview(text: answer, lines: 3, font: .subheadline, headingFont: .subheadline.weight(.semibold), color: PhoneTheme.ink, spacing: 0)
+                        AutomationMarkdownPreview(text: answer, lines: 3, font: .subheadline, color: PhoneTheme.ink, spacing: 0)
                     } else {
                         Text(explanation.message).font(.subheadline).foregroundStyle(PhoneTheme.ink).lineLimit(3).multilineTextAlignment(.leading)
                     }

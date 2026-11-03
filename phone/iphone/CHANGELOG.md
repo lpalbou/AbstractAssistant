@@ -13,8 +13,9 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ### Fixed
 
-- **Automation run cards show their answer formatted.** Bold, italics, links and headings appear
-  as they do in a conversation, never as `**` or `#` markers, in the same three lines as before.
+- **Automation cards show their answer as clean plain text.** The Markdown markers (`**`, `#`)
+  are gone and nothing is bold: one font, one weight, in the same three lines as before. The full
+  formatting is in the run's sheet.
 - **An automation's page keeps Run now and Pause clear of the back button.** The navigation bar
   is opaque on that page, so what scrolls up goes under it instead of showing behind the back
   button.
