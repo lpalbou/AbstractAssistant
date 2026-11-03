@@ -372,9 +372,11 @@ public actor MockGatewayClient: GatewayClient {
     }
 
     public func sessionHistory(latestRun runId: String, limit: Int) async throws -> [SessionTurn] {
-        guard let session = world.sampleRuns.first(where: { $0.runId == runId })?.sessionId else { return [] }
+        // The bundle read serves the same conversation as the listing (`turns(ofSession:)`).
+        let rows = historyFixture ? Self.historyRuns : world.sampleRuns
+        guard let session = rows.first(where: { $0.runId == runId })?.sessionId else { return [] }
         var out: [SessionTurn] = []
-        for r in world.sampleRuns where r.sessionId == session {
+        for r in rows where r.sessionId == session {
             out.append(SessionTurn(runId: r.runId, createdAt: r.createdAt, prompt: try await prompt(ofRun: r.runId),
                                    answer: r.outputText, status: r.status))
         }
@@ -1353,7 +1355,9 @@ public actor MockGatewayClient: GatewayClient {
             return captured
         }
         #endif
-        if world == .watch, let wait = pending.first(where: { $0.runId == id }) {
+        // A pending wait's run is waiting on it, in both worlds: both apps read the owning run before
+        // they keep an approval (f5789f6), and an unknown run reads as failed.
+        if let wait = pending.first(where: { $0.runId == id }) {
             let calls = wait.details.map { details in JSONValue.array(details.map { call in
                 .object(["name": .string(call.name), "arguments": .object(call.arguments)])
             }) }

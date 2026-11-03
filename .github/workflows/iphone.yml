@@ -84,7 +84,9 @@ jobs:
     name: Test combined iPhone + Watch app
     needs: [contracts, watch_checks]
     runs-on: xcode-27
-    timeout-minutes: 60
+    # The full UI suite (uploads, full_ui_suite) runs about 55 minutes of native tests once every
+    # test passes (2026-11-03: 60 cancelled it); the critical set takes about 15.
+    timeout-minutes: 90
     outputs:
       version: ${{ steps.version.outputs.version }}
       build: ${{ steps.version.outputs.build }}

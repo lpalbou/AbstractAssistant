@@ -117,6 +117,9 @@ private final class OutputLevels: @unchecked Sendable {
     var error: String?
     /// Seconds of the reading played back so far (tests read it).
     @ObservationIgnored private(set) var playedSeconds: Double = 0
+    /// How the last reading ended: the seconds it played and whether it reached its end (false: stopped
+    /// or cut short). Nil while a reading runs. The UI tests read it (`voice.lastReading`).
+    private(set) var lastReading: (played: Double, completed: Bool)?
     @ObservationIgnored var onUnauthorized: (() -> Void)?
     @ObservationIgnored private var turn = VoiceTurn()
     @ObservationIgnored private var envelope = AudioEnvelope()
@@ -299,7 +302,7 @@ private final class OutputLevels: @unchecked Sendable {
         guard !plain.isEmpty else { return }
         pieces = resume?.pieces ?? SpeechText.pieces(plain, target: pieceTarget, cap: pieceTarget * 4 / 3)
         nextPiece = resume?.next ?? 0
-        streamDone = false; stoppedEarly = nil; playedSeconds = 0; readText = plain
+        streamDone = false; stoppedEarly = nil; playedSeconds = 0; lastReading = nil; readText = plain
         pitch.rate = Float(PhonePreferences.validSpeed(speed))
         speaking = true; preparing = true; readingID = messageID; startSampling()
         Self.log.info("reading \(plain.count, privacy: .public) chars in \(self.pieces.count, privacy: .public) pieces from piece \(self.nextPiece + 1, privacy: .public)")
@@ -492,6 +495,7 @@ private final class OutputLevels: @unchecked Sendable {
             }
         }
         PhoneTrace.note("voice: reading ended after \(String(format: "%.1f", playedSeconds)) s played, app \(isActive() ? "in front" : "in the background")\(error.map { ": " + $0 } ?? "")")
+        lastReading = (playedSeconds, stoppedEarly == nil)
         speaking = false; preparing = false; paused = false; readingID = nil; stopSampling()
         stopEngine(); deactivateAudio(); endReadingTasks()
     }
@@ -627,6 +631,7 @@ private final class OutputLevels: @unchecked Sendable {
         captureTask?.cancel(); captureTask = nil; playback?.cancel(); playback = nil
         recorder?.stop(); recorder = nil
         stopEngine(); pieces.removeAll(); nextPiece = 0
+        if speaking || preparing { lastReading = (playedSeconds, false) }
         speaking = false; preparing = false; paused = false
         if let file { try? storage.discard(file) }; file = nil; deactivateAudio(); endReadingTasks()
     }
