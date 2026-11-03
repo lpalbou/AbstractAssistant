@@ -700,10 +700,13 @@ final class PhoneUITests: XCTestCase {
         sleep(4)                                             // the second chunk arrives while the app is away
         XCTAssertEqual(app.state, .runningBackground, "the app was suspended mid-reading")
         app.activate()
-        XCTAssertTrue(app.buttons["Stop reading"].firstMatch.waitForExistence(timeout: 5), "the reading stopped when the app left the screen")
-        let ended = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.buttons["Stop reading"].firstMatch)
-        XCTAssertEqual(XCTWaiter.wait(for: [ended], timeout: 20), .completed, "the reading did not end by itself")
-        XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'interrupted'")).firstMatch.exists)
+        // How it ended, measured by the voice controller (not a moment on the clock): the whole reading
+        // played, both chunks (2.4 s + 2.0 s), and it reached its end rather than being stopped.
+        let ended = app.descendants(matching: .any)["voice.lastReading"]
+        XCTAssertTrue(ended.waitForExistence(timeout: 20), "the reading did not end by itself")
+        XCTAssertEqual(ended.label, "4.4 s, completed", "the reading stopped when the app left the screen")
+        XCTAssertFalse(app.buttons["Stop reading"].firstMatch.exists)
+        XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'interrupted' OR label CONTAINS 'stopped early'")).firstMatch.exists)
     }
 
     @MainActor func testFailedRunAndLostConnectionHaveDistinctFeedback() throws {

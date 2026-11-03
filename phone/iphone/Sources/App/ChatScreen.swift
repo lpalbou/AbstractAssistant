@@ -218,6 +218,14 @@ struct ChatScreen: View {
                 }
                 PhoneTrace.note("voice: --test-read-last found no answer to read")
             }
+            // UI tests: how the last reading ended, measured by the controller (seconds played, reached its end).
+            .overlay(alignment: .topLeading) {
+                if ProcessInfo.processInfo.arguments.contains("--ui-test"), let last = voice.lastReading {
+                    Color.clear.frame(width: 1, height: 1).accessibilityElement()
+                        .accessibilityLabel(String(format: "%.1f s, %@", last.played, last.completed ? "completed" : "stopped"))
+                        .accessibilityIdentifier("voice.lastReading")
+                }
+            }
             #endif
             .onDisappear { readMarkerVisible = false; composing = false; cancelVoice(); if media.preview == nil { media.reset() } else { media.stop() }; attachments.cancel(); cancelMedia() }
             .onChange(of: voice.inputPhase) { _, phase in if phase == .ready { finishVoice() } }
