@@ -11,6 +11,8 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 First public release on npm. AbstractGateway lists it as **Assistant (web)** and installs it from
 the npm registry (`abstractgateway apps install assistant-web`, or **Install** in the console and
 tray Apps menu); you can also run it yourself with `npx @abstractframework/assistant`.
+It is built on AbstractUIC ui-kit 0.9.13 and panel-chat 0.8.0 (shared bundles re-synced from them) and
+AbstractAvatar 0.1.1.
 
 ### Added
 

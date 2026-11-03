@@ -6,8 +6,8 @@
     "src/avatar_renderer.ts": "def5382569a006a5a16f6ea1a1bf28d571ae058bb671b8248a58a96b62d11fc7",
     "src/activity_avatar.tsx": "994aa85d3dad0952ea0925ae6d0f2f57703aaf7ca329bdec153c0a2220e62bba",
     "src/avatar_quality.ts": "838dac94d83ab2f08d711b49d660cb521a57cd02782fad34f27219ae77f25d35",
-    "src/avatars/avatar_core.wasm": "8501b200d95e68dfa6cb25d3f6112b7da990f6a86fe7d294a198268a83de07f3",
-    "src/avatars/provenance.json": "abc64a7ffd133126098b965e3a840585a6cd5107f162e554d2140ed37185462d"
+    "src/avatars/avatar_core.wasm": "340cda76600252f2abf0750d7fa259c56aa7d505a9fb37de6fdd2a399dec167a",
+    "src/avatars/provenance.json": "7cdc9e17052046a0876aac6adf0231a78e90da71b53aa547dacf55dc42272fa1"
   },
   "artifacts": {
     "avatar_renderer.js": "62802793cecf925e77b0f59423745b14fff44c2a0e1170683f09bda32731247c",
@@ -16,7 +16,7 @@
     "activity_avatar.d.ts": "eb12ec34c696089dc69d881db460d05726848881869aaf6937487c398851e338",
     "avatar_quality.js": "43d5212b2159448217ee6db769f49079be4233dc1bdb60cd7ee75d92e1e500a2",
     "avatar_quality.d.ts": "b1db1791b279b63c4648b6f4e5000a238cfce3cbdc1d307bf864153cf3c321f6",
-    "avatars/avatar_core.wasm": "8501b200d95e68dfa6cb25d3f6112b7da990f6a86fe7d294a198268a83de07f3",
-    "avatars/provenance.json": "abc64a7ffd133126098b965e3a840585a6cd5107f162e554d2140ed37185462d"
+    "avatars/avatar_core.wasm": "340cda76600252f2abf0750d7fa259c56aa7d505a9fb37de6fdd2a399dec167a",
+    "avatars/provenance.json": "7cdc9e17052046a0876aac6adf0231a78e90da71b53aa547dacf55dc42272fa1"
   }
 }
