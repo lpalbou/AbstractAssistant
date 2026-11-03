@@ -11,8 +11,8 @@ import SwiftUI
 ///
 /// The text is requested in pieces (`SpeechText.pieces`, about 600 characters each), one stream at
 /// a time, the next while under `aheadSeconds` of audio wait: a piece whose stream breaks is
-/// requested again while what arrived plays, the retry skipping the sound already here
-/// (`SpeechPieceRetry`), and a reading that still fails goes on from that piece with a tap
+/// requested again while what arrived plays, the retry asking only for the text after its ended
+/// segments and skipping the sound already here of the one that did not end (`SpeechPieceRetry`), and a reading that still fails goes on from that piece with a tap
 /// (2026-11-01: one request for ten minutes of audio was lost whole when the link went quiet for
 /// 90 s). The recordings wait for the text: they never play before the rest of a reading that
 /// stopped early.
@@ -272,8 +272,9 @@ final class Speaker: NSObject, ObservableObject {
     /// Requests the pieces from `nextPiece` on, one stream at a time, the next once less than
     /// `aheadSeconds` of audio waits. A piece whose stream breaks (the link, the gateway) is
     /// requested again up to `retries` times, 2 s apart, while the audio already here plays on; the
-    /// retry's stream skips the seconds of that piece already here (`SpeechPieceRetry`: exact for a
-    /// voice rendered the same way each time, within a few words for a sampled or cloned voice).
+    /// retry asks for the text after the piece's last ended segment and skips the seconds already
+    /// here of the segment that did not end (`SpeechPieceRetry`, AbstractVoice ADR 0009: exact at a
+    /// segment end, within a few words inside a segment for a sampled or cloned voice).
     /// Returns the error that ended the reading, nil once every piece has arrived.
     private func readPieces() async -> Error? {
         guard let scope, let client else { return nil }
@@ -289,9 +290,14 @@ final class Speaker: NSObject, ObservableObject {
             while true {
                 attempt += 1
                 trace("piece \(i + 1)/\(pieces.count) started: \(pieces[i].count) chars, try \(attempt)")
+                guard let text = retry.text(of: pieces[i]) else { break }   // every segment of it ended
                 do {
-                    for try await raw in client.speech(text: pieces[i], scope: scope, voice: voice) {
+                    for try await part in client.speechParts(text: text, scope: scope, voice: voice) {
                         if Task.isCancelled { return nil }
+                        guard case .audio(let raw) = part else {
+                            if case .segmentEnd(let end) = part { retry.segmentEnded(textEnd: end) }
+                            continue
+                        }
                         let admitted: Data?
                         do { admitted = try retry.admit(wav: raw) } catch {
                             // Not a WAV: no player can play it, and asking again would not change it.

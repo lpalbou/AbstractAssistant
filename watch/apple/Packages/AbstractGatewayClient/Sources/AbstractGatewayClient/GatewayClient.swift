@@ -172,6 +172,9 @@ public protocol GatewayClient: Sendable {
     /// The gateway's configured voice answers (or `voice`); the first chunk arrives after the first sentence is synthesized.
     nonisolated func speech(text: String, scope: SpeechScope) -> AsyncThrowingStream<Data, Error>
     nonisolated func speech(text: String, scope: SpeechScope, voice: VoiceChoice?) -> AsyncThrowingStream<Data, Error>
+    /// The same stream with the ends of its text segments, for a reader that resumes a broken
+    /// stream after the last ended segment (`SpeechPieceRetry`).
+    nonisolated func speechParts(text: String, scope: SpeechScope, voice: VoiceChoice?) -> AsyncThrowingStream<SpeechPart, Error>
     /// What the person said: uploads the WAV as a session attachment (`POST /api/gateway/attachments/upload`)
     /// and transcribes it with the gateway's STT (`POST /api/gateway/runs/{session owner}/audio/transcribe`).
     func transcribe(wav: Data, sessionId: String) async throws -> String
@@ -206,6 +209,17 @@ public protocol GatewayClient: Sendable {
 
 /// What a test double that does not answer a route gives: what a gateway without it would.
 public extension GatewayClient {
+    /// A double's speech has no segments, like a gateway whose engine reports none.
+    nonisolated func speechParts(text: String, scope: SpeechScope, voice: VoiceChoice?) -> AsyncThrowingStream<SpeechPart, Error> {
+        let audio = speech(text: text, scope: scope, voice: voice)
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do { for try await wav in audio { continuation.yield(.audio(wav)) }; continuation.finish() }
+                catch { continuation.finish(throwing: error) }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
     func sessionReads(runIDs: [String]) async throws -> [SessionReadReceipt] { throw GatewayError.http(status: 404, body: "") }
     func markSessionReads(_ receipts: [SessionReadReceipt]) async throws -> [SessionReadReceipt] { throw GatewayError.http(status: 404, body: "") }
     func turns(ofSession id: String, limit: Int) async throws -> [RunSummary] { throw GatewayError.http(status: 404, body: "") }
@@ -1114,6 +1128,18 @@ public actor LiveGatewayClient: GatewayClient {
 
     public nonisolated func speech(text: String, scope: SpeechScope) -> AsyncThrowingStream<Data, Error> { speech(text: text, scope: scope, voice: nil) }
     public nonisolated func speech(text: String, scope: SpeechScope, voice: VoiceChoice?) -> AsyncThrowingStream<Data, Error> {
+        let parts = speechParts(text: text, scope: scope, voice: voice)
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    for try await part in parts { if case .audio(let wav) = part { continuation.yield(wav) } }
+                    continuation.finish()
+                } catch { continuation.finish(throwing: error) }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+    public nonisolated func speechParts(text: String, scope: SpeechScope, voice: VoiceChoice?) -> AsyncThrowingStream<SpeechPart, Error> {
         let path: String
         switch scope {
         case .run(let id): path = "api/gateway/runs/\(id)/voice/tts/stream"
@@ -1151,7 +1177,10 @@ public actor LiveGatewayClient: GatewayClient {
                             guard let b64 = event.audioB64, let wav = Data(base64Encoded: b64), !wav.isEmpty else {
                                 throw GatewayError.invalidResponse
                             }
-                            continuation.yield(wav)
+                            continuation.yield(.audio(wav))
+                        case "segment_end":
+                            guard let end = event.textEnd, end >= 0 else { throw GatewayError.invalidResponse }
+                            continuation.yield(.segmentEnd(textEnd: end))
                         case "error", "cancelled":
                             throw GatewayError.http(status: 502, body: event.error ?? "Speech stopped before it finished.")
                         case "done":

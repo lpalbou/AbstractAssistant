@@ -18,6 +18,9 @@ What testers get since build 39 (0.16.0), inside the iPhone app of the same vers
   a few words at that point may repeat or be skipped). If the connection stays lost,
   the watch says "The voice stopped early. Tap the speaker to continue." and the tap continues from
   there; the app coming back after a lost connection continues by itself.
+  Where the gateway's voice reports its text segments (AbstractVoice 0.20.0), the part already
+  read is never requested again: the rest starts at the end of the last finished sentence group,
+  and only the seconds already heard of a cut sentence group are skipped.
 - Optional **Avatar conversation** view with public subtitles, pinned replies, Talk/Type during
   work and accessible update history. Agent corrections use live guidance; entity conversations
   use the canonical visit routes and preserve entity approval and privacy policy.

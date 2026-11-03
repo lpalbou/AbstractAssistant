@@ -26,6 +26,9 @@ What testers get since build 39 (0.16.0). The watch app inside it carries the sa
   a few words at that point may repeat or be skipped). If the connection stays lost,
   the reading ends with "The voice stopped early. Tap play to continue." and play continues from
   that point.
+  Where the gateway's voice reports its text segments (AbstractVoice 0.20.0), the part already
+  read is never requested again: the rest starts at the end of the last finished sentence group,
+  and only the seconds already heard of a cut sentence group are skipped.
 - **Your voices, the engine's and the shared ones (AbstractGateway 0.16.0 voice library).**
   Settings → Voice & reading → Voice lists the speaking voices in three groups: **Your voices**
   (the ones you cloned or designed), **Engine voices** and **Shared voices** (the gateway's
