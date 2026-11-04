@@ -6,7 +6,7 @@ import XCTest
 final class EntityIdentityUITests: XCTestCase {
     func testTheSpeakerIsNamedWhenTheIdentityChanges() {
         let app = XCUIApplication()
-        app.launchArguments = ["--mock", "--no-notification-prompt", "--screen", "ask-entity", "--test-ask", "Check last night's QC.",
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--screen", "ask-entity", "--test-ask", "Check the QC log.",
                                "-ask.conversation", "YES", "-ask.speak", "NO"]
         app.launch()
         let subtitle = app.buttons["conversation.subtitle"]

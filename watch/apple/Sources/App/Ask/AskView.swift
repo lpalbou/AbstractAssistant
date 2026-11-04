@@ -158,7 +158,7 @@ struct AskView: View {
                                 if conversationView { conversationSubtitles }
                                 if controlsShown { if let a = automationFeed { automationName(a) } else { responderSwitch } }
                                 Text(status).font(.rounded(.footnote)).foregroundStyle(statusColor)
-                                    .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.85)
+                                    .multilineTextAlignment(.center).lineLimit(3).minimumScaleFactor(0.85)
                                     .accessibilityIdentifier("ask.status")
 
                                     .shadow(color: .black, radius: 3)

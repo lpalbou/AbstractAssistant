@@ -32,7 +32,7 @@ struct ReadView: View {
                             .accessibilityLabel(speaker.isActive ? "Pause" : speaker.isPaused ? "Resume" : "Read aloud")
                     } bottom: {
                         Text(status).font(.rounded(.footnote)).foregroundStyle(statusColor)
-                            .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.85).shadow(color: .black, radius: 3)
+                            .multilineTextAlignment(.center).lineLimit(3).minimumScaleFactor(0.85).shadow(color: .black, radius: 3)
                             .padding(.bottom, 8)
                     }
                     MarkdownText(item.text, font: .rounded(.body)).padding(.horizontal, 10)
@@ -52,6 +52,8 @@ struct ReadView: View {
         // Starts once: watchOS repeats onAppear (dimming, polling) and reading must go on with the
         // wrist down. Leaving the screen (Back) is what stops it.
         .onAppear { if !started { started = true; start() } }
+        // An entity's text: its orb is its identity record, read as the page opens.
+        .task { if case .entity(let name) = item.scope { await model.loadIdentity(of: name) } }
         #if DEBUG
         .task {   // --test-rewind: rewind once mid-reading, once after it finished; positions printed
             guard ProcessInfo.processInfo.arguments.contains("--test-rewind") else { return }
