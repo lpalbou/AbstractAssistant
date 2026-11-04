@@ -172,5 +172,10 @@ private final class IdentityWire: URLProtocol, @unchecked Sendable {
         #expect(earlier.identity.avatar.drawing == .shape("kitty"))
         let updates = try await mock.entitySession(name: "castor", runID: "mock-visit-castor").publicUpdates ?? []
         #expect(SpeakerChange.label(updates.map(\.identityRef)) == castor.identityRef)
+        // Mira's visit is a dialogue: Castor, then Mira, who is named.
+        let mira = try #require(await mock.entities().first { $0.name == "mira" })
+        let dialogue = try await mock.entitySession(name: "mira", runID: "mock-visit-mira").publicUpdates ?? []
+        #expect(dialogue.first?.identityRef == castor.identityRef)
+        #expect(SpeakerChange.label(dialogue.map(\.identityRef)) == mira.identityRef)
     }
 }

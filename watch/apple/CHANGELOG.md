@@ -20,7 +20,7 @@ iPhone app); the Python package's history is in
 ### Changed
 
 - An entity's look is read only from its identity record: with a gateway older than 0.20, or while
-  an entity is closed for maintenance, it shows the Assistant's look and the gateway's sentence.
+  an entity is closed for maintenance, it has no orb (an empty grey ring) and the gateway's sentence shows.
 
 ## [0.17.0] - 2026-11-03
 

@@ -21,7 +21,7 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 ### Changed
 
 - An entity's look is read only from its identity record. With a gateway older than 0.20, or while
-  an entity is closed for maintenance, it shows the Assistant's look, and the watch shows the
+  an entity is closed for maintenance, the watch draws no orb for it (an empty grey ring) and shows the
   gateway's sentence under the orb.
 
 ## [0.17.0] — 2026-11-03

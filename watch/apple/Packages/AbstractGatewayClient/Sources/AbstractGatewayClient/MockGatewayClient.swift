@@ -109,6 +109,16 @@ public actor MockGatewayClient: GatewayClient {
         "nerin": [.init(rev: 1, avatar: .init(style: "watch-aurora", color: "#2dd4bf", watchCode: "AU"))],
     ]
     static func sampleEntityId(_ name: String) -> String { "entity:\(name)@mock-home" }
+    /// `--test-held-entity <name>` (debug builds): that entity is closed for maintenance, as gateway
+    /// 0.20 serves it: no identity on its row, its identity route refuses with the gateway's sentence.
+    static let heldEntity: String? = {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        return args.firstIndex(of: "--test-held-entity").flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil }
+        #else
+        return nil
+        #endif
+    }()
     /// The rows as gateway 0.20 lists them: the identity record and the appearance derived from it.
     private static func sampleRow(_ name: String, _ extra: [String: JSONValue], shape: String) -> EntitySummary {
         let record = sampleIdentities[name]!.last!
@@ -753,9 +763,17 @@ public actor MockGatewayClient: GatewayClient {
     // MARK: Entities
 
     private var createdEntities: [EntitySummary] = []
-    public func entities() async throws -> [EntitySummary] { Self.sampleEntities + createdEntities }
+    public func entities() async throws -> [EntitySummary] {
+        (Self.sampleEntities + createdEntities).map { row in
+            guard row.name == Self.heldEntity else { return row }
+            var held = row; held.extra["identity"] = .null; held.extra["appearance"] = nil; return held
+        }
+    }
     public func entityIdentity(name: String, rev: Int?) async throws -> EntityIdentityView {
         guard let records = Self.sampleIdentities[name] else { throw GatewayError.http(status: 404, body: #"{"detail":"entity not found"}"#) }
+        if name == Self.heldEntity {
+            throw GatewayError.http(status: 409, body: #"{"detail":"\#(name.capitalized) is closed for maintenance; its identity is served again when the window closes."}"#)
+        }
         guard let record = rev.map({ r in records.first { $0.rev == r } }) ?? records.last else {
             throw GatewayError.http(status: 404, body: #"{"detail":"no identity revision \#(rev ?? 0)"}"#)
         }
@@ -1269,10 +1287,16 @@ public actor MockGatewayClient: GatewayClient {
         try await startRun(prompt: prompt, sessionId: sessionId, toolPolicy: toolPolicy, tools: tools, workflow: workflow, primaryImage: primaryImage)
     }
     /// An entity visit's updates, each stamped with the identity that wrote it (gateway 0.20): an
-    /// earlier one under the entity's previous look, the newest under its look now.
+    /// earlier one under the entity's previous look, the newest under its look now. Mira's is a
+    /// dialogue: Castor speaks first, then Mira.
     static func visitUpdates(name: String, runID: String) -> [PublicConversationUpdate] {
         let records = sampleIdentities[name] ?? []
         let ref = { (rev: Int) in IdentityRef(of: sampleEntityId(name), rev: rev) }
+        if name == "mira", let castor = sampleIdentities["castor"]?.last, let mira = records.last {
+            return [.init(id: runID + ":public_update:1", text: "Mira, two plates are flagged in last night’s log.", runId: runID,
+                          identityRef: IdentityRef(of: sampleEntityId("castor"), rev: castor.rev)),
+                    .init(id: runID + ":public_update:2", text: "Then I’ll re-read P07 and P12 first.", runId: runID, identityRef: ref(mira.rev))]
+        }
         var updates: [PublicConversationUpdate] = []
         if records.count > 1 {
             updates.append(.init(id: runID + ":public_update:1", text: "I read last night’s QC log.", runId: runID, identityRef: ref(records[0].rev)))

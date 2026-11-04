@@ -182,12 +182,15 @@ enum OrbShape: String, CaseIterable, Identifiable {
 }
 
 /// An orb's look: its colour (nil = the app's cyan and indigo), shape and design (nil = the one
-/// chosen in Settings).
+/// chosen in Settings). `empty`: an entity whose identity is not known: no orb is drawn for it,
+/// only the neutral ring of its empty place (never another look in its stead).
 struct OrbLook: Equatable {
     var color: Color? = nil
     var shape: OrbShape = .planet
     var design: OrbDesign? = nil
+    var empty = false
     static let assistant = OrbLook()
+    static let unknown = OrbLook(empty: true)
 }
 
 extension OrbLook {
@@ -240,21 +243,31 @@ struct Orb: View {
         // Nobody looks: the screen dimmed (wrist down, always on), the app not active, or the orb
         // covered by another page. It holds its last frame and costs nothing.
         let still = dimmed || scenePhase != .active || !onScreen
-        TimelineView(.animation(minimumInterval: 1 / rate, paused: still)) { ctx in
-            let t = ctx.date.timeIntervalSinceReferenceDate
-            let voiced = mode == .listening || mode == .speaking
-            let doing = work?(t)
-            let _ = engine.step(t: t, voice: voiced ? (voice?(t) ?? .silent) : .silent, engaged: voiced, thinking: mode == .thinking,
-                                speaking: mode == .speaking, working: (doing?.satellites ?? 0) > 0)
-            let width = fillsWidth(chosen) ? WKInterfaceDevice.current().screenBounds.width : size
-            let k = pageScale(chosen)
-            OrbCanvas(t: t, engine: engine, design: chosen, look: look, countdown: countdown?() ?? 0, work: work?(t) ?? .none)
-                .frame(width: width * k, height: size * k)
-                .frame(width: width, height: size)
+        if look.empty {
+            // No identity known: the empty place, a still grey ring, nothing that could pass for a look.
+            Circle().stroke(Theme.muted.opacity(0.45), lineWidth: max(1, size * 0.012))
+                .frame(width: size * 0.62, height: size * 0.62)
+                .frame(width: size, height: size)
+                .contentShape(Circle())
+                .accessibilityIdentifier("orb.empty")
+                .accessibilityLabel(label)
+        } else {
+            TimelineView(.animation(minimumInterval: 1 / rate, paused: still)) { ctx in
+                let t = ctx.date.timeIntervalSinceReferenceDate
+                let voiced = mode == .listening || mode == .speaking
+                let doing = work?(t)
+                let _ = engine.step(t: t, voice: voiced ? (voice?(t) ?? .silent) : .silent, engaged: voiced, thinking: mode == .thinking,
+                                    speaking: mode == .speaking, working: (doing?.satellites ?? 0) > 0)
+                let width = fillsWidth(chosen) ? WKInterfaceDevice.current().screenBounds.width : size
+                let k = pageScale(chosen)
+                OrbCanvas(t: t, engine: engine, design: chosen, look: look, countdown: countdown?() ?? 0, work: work?(t) ?? .none)
+                    .frame(width: width * k, height: size * k)
+                    .frame(width: width, height: size)
+            }
+            .onAppear { onScreen = true }
+            .onDisappear { onScreen = false }
+            .accessibilityLabel(label)
         }
-        .onAppear { onScreen = true }
-        .onDisappear { onScreen = false }
-        .accessibilityLabel(label)
     }
 
     /// The sea takes the screen's whole width where the orb is the page (the talk and Read pages),

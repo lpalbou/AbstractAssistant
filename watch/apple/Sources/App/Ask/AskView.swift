@@ -1757,6 +1757,8 @@ private struct SpeakerLabel: View {
                     Orb(mode: .idle, size: 18, fps: 8, look: who.look)
                     Text(who.name).font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.muted).lineLimit(1)
                 }
+                .padding(.horizontal, 7).padding(.vertical, 2)
+                .background(Capsule().fill(Theme.ground.opacity(0.85)))     // legible over the orb's light
                 .accessibilityElement(children: .ignore).accessibilityLabel(who.name)
                 .accessibilityIdentifier("conversation.speaker")
             }

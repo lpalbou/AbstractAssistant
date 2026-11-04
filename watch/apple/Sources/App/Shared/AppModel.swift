@@ -1148,11 +1148,11 @@ final class AppModel: ObservableObject {
 
     /// The orb's look for a responder: the Assistant's own, or the entity drawn from its identity
     /// record (framework ADR 0052: its design and colour). Until a record is known (launch, a
-    /// gateway that serves none, a home closed for maintenance) an entity shows the Assistant's
-    /// look: nothing else is ever taken for its identity.
+    /// gateway that serves none, a home closed for maintenance) an entity has no orb, only its
+    /// empty place: no other look is ever drawn in its stead.
     func look(for r: Responder) -> OrbLook {
-        guard case .entity(let name) = r, let identity = identity(of: name) else { return .assistant }
-        return OrbLook(identity: identity)
+        guard case .entity(let name) = r else { return .assistant }
+        return identity(of: name).map(OrbLook.init(identity:)) ?? .unknown
     }
 
     /// The record an entity is drawn from: the newer of its list row's and its route's.

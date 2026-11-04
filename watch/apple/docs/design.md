@@ -315,7 +315,8 @@ its record's `watch_code` names (`B` is Vortex, `AU` Aurora; `shape:kitty|face|w
 answers the voice as Nebula does) in the record's colour. The record comes from the entity's list row
 and from `GET /entities/{name}/identity`, read when its conversation opens; nothing else is taken for
 it: until a record is known, or when the gateway refuses (its sentence shows under the orb at rest),
-the entity shows the Assistant's look. A code this watch does not draw keeps the chosen design in the
+the entity has no orb: only a still grey ring marks its empty place (never the Assistant's look or any
+other in its stead). A code this watch does not draw keeps the chosen design in the
 entity's colour. The Assistant keeps the design chosen in Settings, and the watch face complication
 still draws the Assistant (its pictures and keys are unchanged). In the avatar conversation view,
 when an update was written by another identity than the one before it (another entity in a dialogue,
