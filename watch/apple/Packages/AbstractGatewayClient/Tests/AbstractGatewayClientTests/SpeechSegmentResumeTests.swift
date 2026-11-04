@@ -29,6 +29,7 @@ import Testing
             switch part {
             case .segmentEnd(let end): retry.segmentEnded(textEnd: end)
             case .audio(let wav): if let kept = try retry.admit(wav: wav) { heard += pcm(kept) }
+            case .identity: break
             }
         }
         return heard
