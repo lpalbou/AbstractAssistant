@@ -158,7 +158,7 @@ struct AskView: View {
                                 if conversationView { conversationSubtitles }
                                 if controlsShown { if let a = automationFeed { automationName(a) } else { responderSwitch } }
                                 Text(status).font(.rounded(.footnote)).foregroundStyle(statusColor)
-                                    .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.85)
+                                    .multilineTextAlignment(.center).lineLimit(3).minimumScaleFactor(0.85)
                                     .accessibilityIdentifier("ask.status")
 
                                     .shadow(color: .black, radius: 3)
@@ -236,6 +236,8 @@ struct AskView: View {
             }
         }
         .task { await onOpen() }
+        // The entity's look is its identity record, read when its conversation opens.
+        .task(id: pageEntity) { if let name = pageEntity { await model.loadIdentity(of: name) } }
         .sheet(item: $expandedBrief) { brief in
             FitScroll {
                 VStack(alignment: .leading, spacing: 10) {
@@ -508,6 +510,7 @@ struct AskView: View {
             Text(hostOutcomeCaption).font(.rounded(.body)).foregroundStyle(Theme.text).multilineTextAlignment(.center).lineLimit(3)
                 .accessibilityIdentifier("conversation.hostOutcome")
         } else if let current {
+            if let ref = speakerChange(at: current) { SpeakerLabel(ref: ref) }
             Button { pinnedBrief = current; expandedBrief = current } label: {
                 Text(current.text).font(.rounded(.body)).foregroundStyle(Theme.text)
                     .multilineTextAlignment(.center).lineLimit(3)
@@ -811,6 +814,26 @@ struct AskView: View {
         return answerEntity.map { model.look(for: .entity($0)) } ?? model.responderLook
     }
 
+    /// The entity this page talks with (nil: the Assistant, or an automation's page).
+    private var pageEntity: String? {
+        if automationFeed != nil { return nil }
+        if let answerEntity { return answerEntity }
+        if case .entity(let name) = model.responder { return name }
+        return nil
+    }
+
+    /// Its identity could not be read: the gateway's sentence, under the orb at rest.
+    private var identityProblem: String? { pageEntity.flatMap { model.identityProblems[$0] } }
+
+    /// Who speaks over the subtitle, named when the speaker changed (another entity in a dialogue,
+    /// or a new look): the identity that wrote each update, then the one whose voice reads it now.
+    private func speakerChange(at current: PublicConversationUpdate) -> IdentityRef? {
+        guard let i = briefs.firstIndex(where: { $0.id == current.id }) else { return nil }
+        var refs = briefs[...i].map(\.identityRef)
+        if speaker.isActive, let spoken = speaker.speakingAs, spoken != current.identityRef { refs.append(spoken) }
+        return SpeakerChange.label(refs)
+    }
+
     /// The keyboard and who answers show together, only while the orb is at rest: not listening,
     /// not working, not speaking (a paused or finished answer is at rest).
     /// The voice is engaged: it speaks, or is paused (a tap pauses or resumes; Stop ends it, and the
@@ -926,6 +949,7 @@ struct AskView: View {
         if let error { return error }
         if let note { return note }
         if keptShown { return Self.keptLine }
+        if phase == .idle, let identityProblem { return identityProblem }
         switch phase {
         case .idle: return "Tap to talk"
         case .listening: return "Listening…"
@@ -944,6 +968,7 @@ struct AskView: View {
         if liveRecording { return Theme.cyan }
         if error != nil { return Theme.red }
         if keptShown, note == nil { return Theme.amber }
+        if phase == .idle, note == nil, identityProblem != nil { return Theme.amber }
         if case .failed = speaker.state, phase == .answer { return Theme.red }
         switch phase {
         case .listening: return Theme.cyan
@@ -1719,3 +1744,25 @@ private struct KeptButtonStyle: ButtonStyle {
     static var pending = on
 }
 #endif
+
+/// The name and orb of who speaks in a conversation (a dialogue between entities), drawn from the
+/// identity the reference names; nothing until that record is known.
+private struct SpeakerLabel: View {
+    let ref: IdentityRef
+    @EnvironmentObject private var model: AppModel
+    var body: some View {
+        ZStack {
+            if let who = model.speaker(ref) {
+                HStack(spacing: 4) {
+                    Orb(mode: .idle, size: 18, fps: 8, look: who.look)
+                    Text(who.name).font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.muted).lineLimit(1)
+                }
+                .padding(.horizontal, 7).padding(.vertical, 2)
+                .background(Capsule().fill(Theme.ground.opacity(0.85)))     // legible over the orb's light
+                .accessibilityElement(children: .ignore).accessibilityLabel(who.name)
+                .accessibilityIdentifier("conversation.speaker")
+            }
+        }
+        .task(id: ref) { await model.resolve(ref) }
+    }
+}

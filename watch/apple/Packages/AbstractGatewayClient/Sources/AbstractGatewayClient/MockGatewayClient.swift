@@ -100,13 +100,40 @@ public actor MockGatewayClient: GatewayClient {
                           occurrenceCount: 42, triggerSource: "schedule", triggerConfig: ["every": .string("12h")], revision: 1),
     ]
 
+    /// Each sample entity's identity records, oldest first (the newest is on its row). Castor's
+    /// look changed once (rev 1 the kitty silhouette, rev 2 the Vortex design).
+    static let sampleIdentities: [String: [EntityIdentity]] = [
+        "castor": [.init(rev: 1, avatar: .init(style: "watch-shape-kitty", color: "#f59e0b", watchCode: "shape:kitty")),
+                   .init(rev: 2, avatar: .init(style: "watch-vortex", color: "#f59e0b", watchCode: "B"))],
+        "mira": [.init(rev: 1, avatar: .init(style: "watch-shape-face", color: "#f472b6", watchCode: "shape:face"))],
+        "nerin": [.init(rev: 1, avatar: .init(style: "watch-aurora", color: "#2dd4bf", watchCode: "AU"))],
+    ]
+    static func sampleEntityId(_ name: String) -> String { "entity:\(name)@mock-home" }
+    /// `--test-held-entity <name>` (debug builds): that entity is closed for maintenance, as gateway
+    /// 0.20 serves it: no identity on its row, its identity route refuses with the gateway's sentence.
+    static let heldEntity: String? = {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        return args.firstIndex(of: "--test-held-entity").flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil }
+        #else
+        return nil
+        #endif
+    }()
+    /// The rows as gateway 0.20 lists them: the identity record and the appearance derived from it.
+    private static func sampleRow(_ name: String, _ extra: [String: JSONValue], shape: String) -> EntitySummary {
+        let record = sampleIdentities[name]!.last!
+        var row = extra
+        row["entity_id"] = .string(sampleEntityId(name))
+        row["identity"] = .object(["rev": .number(Double(record.rev)), "avatar": .object([
+            "style": .string(record.avatar.style), "color": .string(record.avatar.color), "source": .string("chosen"),
+            "watch_code": record.avatar.watchCode.map(JSONValue.string) ?? .null])])
+        row["appearance"] = .object(["color": .string(record.avatar.color), "shape": .string(shape)])
+        return EntitySummary(name: name, extra: row)
+    }
     public static let sampleEntities: [EntitySummary] = [
-        EntitySummary(name: "castor", extra: ["phase": .string("work"), "age": .string("long-lived"),
-                                              "appearance": .object(["color": .string("#f59e0b"), "shape": .string("kitty")])]),
-        EntitySummary(name: "mira", extra: ["phase": .string("personal"),
-                                            "appearance": .object(["color": .string("#f472b6"), "shape": .string("face")])]),
-        EntitySummary(name: "nerin", extra: ["phase": .string("sleep"),
-                                             "appearance": .object(["color": .string("#2dd4bf"), "shape": .string("wave")])]),
+        sampleRow("castor", ["phase": .string("work"), "age": .string("long-lived")], shape: "planet"),
+        sampleRow("mira", ["phase": .string("personal")], shape: "face"),
+        sampleRow("nerin", ["phase": .string("sleep")], shape: "planet"),
     ]
     public static let cannedEntityReply = "Yes. The nightly QC finished at 02:14 and passed on 10 of 12 plates; P07 and P12 are flagged for a re-read, and I drafted a note to the QC team that is waiting for your approval."
 
@@ -736,7 +763,23 @@ public actor MockGatewayClient: GatewayClient {
     // MARK: Entities
 
     private var createdEntities: [EntitySummary] = []
-    public func entities() async throws -> [EntitySummary] { Self.sampleEntities + createdEntities }
+    public func entities() async throws -> [EntitySummary] {
+        (Self.sampleEntities + createdEntities).map { row in
+            guard row.name == Self.heldEntity else { return row }
+            var held = row; held.extra["identity"] = .null; held.extra["appearance"] = nil; return held
+        }
+    }
+    public func entityIdentity(name: String, rev: Int?) async throws -> EntityIdentityView {
+        guard let records = Self.sampleIdentities[name] else { throw GatewayError.http(status: 404, body: #"{"detail":"entity not found"}"#) }
+        if name == Self.heldEntity {
+            throw GatewayError.http(status: 409, body: #"{"detail":"\#(name.capitalized) is closed for maintenance; its identity is served again when the window closes."}"#)
+        }
+        guard let record = rev.map({ r in records.first { $0.rev == r } }) ?? records.last else {
+            throw GatewayError.http(status: 404, body: #"{"detail":"no identity revision \#(rev ?? 0)"}"#)
+        }
+        let id = Self.sampleEntityId(name)
+        return EntityIdentityView(entityId: id, identity: record, identityRef: IdentityRef(of: id, rev: record.rev)!)
+    }
     public func validateEntity(_ draft: EntityDraft) async throws -> EntityValidation {
         EntityValidation(ok: draft.valid, exists: (Self.sampleEntities + createdEntities).contains { $0.name == draft.slug }, slug: draft.slug)
     }
@@ -1243,6 +1286,25 @@ public actor MockGatewayClient: GatewayClient {
     public func startConversationRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?, workflow: WorkflowChoice?, primaryImage: MediaItem?) async throws -> String {
         try await startRun(prompt: prompt, sessionId: sessionId, toolPolicy: toolPolicy, tools: tools, workflow: workflow, primaryImage: primaryImage)
     }
+    /// An entity visit's updates, each stamped with the identity that wrote it (gateway 0.20): an
+    /// earlier one under the entity's previous look, the newest under its look now. Mira's is a
+    /// dialogue: Castor speaks first, then Mira.
+    static func visitUpdates(name: String, runID: String) -> [PublicConversationUpdate] {
+        let records = sampleIdentities[name] ?? []
+        let ref = { (rev: Int) in IdentityRef(of: sampleEntityId(name), rev: rev) }
+        if name == "mira", let castor = sampleIdentities["castor"]?.last, let mira = records.last {
+            return [.init(id: runID + ":public_update:1", text: "Mira, two plates are flagged in last night’s log.", runId: runID,
+                          identityRef: IdentityRef(of: sampleEntityId("castor"), rev: castor.rev)),
+                    .init(id: runID + ":public_update:2", text: "Then I’ll re-read P07 and P12 first.", runId: runID, identityRef: ref(mira.rev))]
+        }
+        var updates: [PublicConversationUpdate] = []
+        if records.count > 1 {
+            updates.append(.init(id: runID + ":public_update:1", text: "I read last night’s QC log.", runId: runID, identityRef: ref(records[0].rev)))
+        }
+        updates.append(.init(id: runID + ":public_update:\(updates.count + 1)", text: "I’m comparing the options. You can tell me what matters to you.",
+                             runId: runID, identityRef: records.last.flatMap { ref($0.rev) }))
+        return updates
+    }
     public func publicConversation(runId: String) async throws -> [PublicConversationUpdate] {
         [.init(id: runId + ":public_update:1", text: "I’m comparing the options. You can tell me what matters to you.", runId: runId)]
     }
@@ -1272,7 +1334,7 @@ public actor MockGatewayClient: GatewayClient {
     public func entitySession(name: String, runID: String) async throws -> EntitySessionState {
         let ready = conversationVisits[runID].map { Date().timeIntervalSince($0.0) > 3 } ?? true
         return .init(runID: runID, status: "waiting", turn: 1, reply: ready ? world.cannedAnswer : nil,
-                     readyForInput: ready, publicUpdates: try await publicConversation(runId: runID), publicMessages: conversationGuidance[runID]?.messages)
+                     readyForInput: ready, publicUpdates: Self.visitUpdates(name: name, runID: runID), publicMessages: conversationGuidance[runID]?.messages)
     }
     public func guideEntityVisit(name: String, runId: String, text: String) async throws { _ = try await guideRun(runId: runId, text: text, displayText: text) }
     public func guideEntityVisit(name: String, runId: String, text: String, displayText: String) async throws -> PublicUserGuidance {

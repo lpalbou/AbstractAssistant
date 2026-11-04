@@ -308,7 +308,7 @@ private final class OutputLevels: @unchecked Sendable {
         Self.log.info("reading \(plain.count, privacy: .public) chars in \(self.pieces.count, privacy: .public) pieces from piece \(self.nextPiece + 1, privacy: .public)")
         PhoneTrace.note("voice: reading \(plain.count) chars in \(pieces.count) pieces from piece \(nextPiece + 1)")
         let epoch = generation
-        let voice: VoiceChoice? = { if case .run = scope { choice } else { nil } }()
+        let voice = scope.requestedVoice(choice)                // an entity speaks with its identity's voice
         if configureAudio {
             firstSoundTask = UIApplication.shared.beginBackgroundTask(withName: "first sound") { [weak self] in MainActor.assumeIsolated { self?.endFirstSoundTask() } }
             if let title { nowPlaying.begin(title: title, toggle: { [weak self] in self?.togglePause() }, play: { [weak self] in self?.resume() }, pause: { [weak self] in self?.pause() }) }

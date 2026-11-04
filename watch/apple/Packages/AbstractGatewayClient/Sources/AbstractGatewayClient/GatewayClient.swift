@@ -122,6 +122,9 @@ public protocol GatewayClient: Sendable {
     func reviseAutomation(id: String, changes: [String: JSONValue], expectedRevision: Int?) async throws
     /// `GET /api/gateway/entities`: the entities this account may visit.
     func entities() async throws -> [EntitySummary]
+    /// `GET /api/gateway/entities/{name}/identity[?rev=N]`: the entity's identity record (its look)
+    /// and the reference to it (framework ADR 0052); `rev` reads an earlier revision.
+    func entityIdentity(name: String, rev: Int?) async throws -> EntityIdentityView
     /// `POST /entities/{slug}/validate` and `POST /entities`: a new entity.
     func validateEntity(_ draft: EntityDraft) async throws -> EntityValidation
     func createEntity(_ draft: EntityDraft) async throws -> CreatedEntity
@@ -949,6 +952,11 @@ public actor LiveGatewayClient: GatewayClient {
         try await get("api/gateway/entities", as: EntitiesPage.self).entities
     }
 
+    public func entityIdentity(name: String, rev: Int?) async throws -> EntityIdentityView {
+        try await get("api/gateway/entities/\(name)/identity", query: rev.map { [URLQueryItem(name: "rev", value: String($0))] } ?? [],
+                      as: EntityIdentityView.self)
+    }
+
     public func validateEntity(_ draft: EntityDraft) async throws -> EntityValidation {
         guard draft.valid else { throw GatewayError.http(status: 400, body: "{\"detail\":\"Use a name of up to 64 letters, numbers, spaces, hyphens or underscores.\"}") }
         let data = try await request("POST", "api/gateway/entities/\(draft.slug)/validate", body: draft.body)
@@ -1165,6 +1173,10 @@ public actor LiveGatewayClient: GatewayClient {
                         var body = ""
                         for try await line in bytes.lines { body += line; if body.count > 400 { break } }
                         throw GatewayError.http(status: http.statusCode, body: body)
+                    }
+                    // Who speaks: the entity lane names the identity whose voice this is.
+                    if let ref = http.value(forHTTPHeaderField: "X-Identity-Ref").flatMap(IdentityRef.init(header:)) {
+                        continuation.yield(.identity(ref))
                     }
                     for try await line in bytes.lines {
                         try Task.checkCancellation()

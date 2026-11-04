@@ -1428,6 +1428,8 @@ public enum SpeechScope: Hashable, Sendable {
 public enum SpeechPart: Sendable, Equatable {
     case audio(Data)
     case segmentEnd(textEnd: Int)
+    /// The identity whose voice speaks (`X-Identity-Ref` on the entity lane), before its audio.
+    case identity(IdentityRef)
 }
 
 struct SpeechRequest: Encodable {
