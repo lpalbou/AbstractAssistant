@@ -5,10 +5,11 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
-## [0.18.0] - 2026-11-03
+## [0.18.0] - 2026-11-04
 
 Avatars ship with every install. The switcher folds paused and archived automations into their own
 sections, and the activity avatar follows the pointer only with a design that has eyes. The web Assistant gets its first npm release.
+The "Paused · N" section needs AbstractGateway 0.20.0; an older gateway shows the list as before.
 
 ### Added
 
