@@ -1,3 +1,4 @@
+import AbstractGatewayClient
 import SwiftUI
 import WatchKit
 
@@ -180,11 +181,27 @@ enum OrbShape: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-/// An orb's look: its colour (nil = the app's cyan and indigo) and shape.
+/// An orb's look: its colour (nil = the app's cyan and indigo), shape and design (nil = the one
+/// chosen in Settings).
 struct OrbLook: Equatable {
     var color: Color? = nil
     var shape: OrbShape = .planet
+    var design: OrbDesign? = nil
     static let assistant = OrbLook()
+}
+
+extension OrbLook {
+    /// An entity drawn from its identity record (framework ADR 0052): the design its `watch_code`
+    /// names (a silhouette keeps the orb's own motion) and its colour. A code this watch does not
+    /// draw keeps the chosen design, still in the entity's colour.
+    init(identity: EntityIdentity) {
+        self.init(color: Color(hexString: identity.avatar.color))
+        switch identity.avatar.drawing {
+        case .design(let code)?: design = OrbDesign(rawValue: code)
+        case .shape(let name)?: shape = OrbShape(rawValue: name) ?? .planet
+        case nil: break
+        }
+    }
 }
 
 /// The assistant's presence: a planet of pixel-size points turning slowly, like the Earth seen from
@@ -219,7 +236,7 @@ struct Orb: View {
     var body: some View {
         // At rest it moves slowly (a turn in fifty seconds): a few frames a second are enough.
         let rate = mode == .idle ? max(10, fps * 0.4) : fps
-        let chosen = design ?? OrbDesign(rawValue: storedDesign) ?? .a
+        let chosen = design ?? look.design ?? OrbDesign(rawValue: storedDesign) ?? .a
         // Nobody looks: the screen dimmed (wrist down, always on), the app not active, or the orb
         // covered by another page. It holds its last frame and costs nothing.
         let still = dimmed || scenePhase != .active || !onScreen

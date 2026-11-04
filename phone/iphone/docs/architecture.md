@@ -207,7 +207,10 @@ action can finish. Leaving the screen detaches it.
 
 `AssistantStore.completedReply` signals only a newly completed current turn. Automatic
 reading listens for this event while active, rather than message-list refreshes, so restored
-history and repeat polls remain silent. Entity speech retains its entity scope and voice.
+history and repeat polls remain silent. Entity speech keeps its entity scope and names no voice:
+the gateway speaks with the entity's identity voice (framework ADR 0052), whatever voice the person
+chose for the Assistant; a refusal ("Castor has no voice yet: …") is shown as the gateway's sentence,
+never replaced by another voice. The entity list tints each entity's icon with its identity colour.
 Per-request provider/model/voice overrides follow the newer Watch client contracts.
 
 ## Reading aloud

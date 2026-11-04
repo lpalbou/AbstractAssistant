@@ -446,6 +446,13 @@ final class AppModel: ObservableObject {
         return new == old ? kept : []
     }
     @Published var entities: [EntitySummary] = []
+    /// Each entity's identity as its route served it (`GET /entities/{name}/identity`), by name;
+    /// the list row's record is used until it is read, then whichever revision is newer.
+    @Published private(set) var identities: [String: EntityIdentityView] = [:]
+    /// Earlier records a conversation's references named (`?rev=N`), by reference.
+    @Published private(set) var identityRevisions: [IdentityRef: EntityIdentity] = [:]
+    /// The gateway's own sentence when an entity's identity could not be read, by name.
+    @Published private(set) var identityProblems: [String: String] = [:]
     /// The gateway's tools by name, with their risk tier (observe · act · outreach · destroy).
     @Published var tools: [String: ToolInfo] = [:]
     /// Tool choices (ToolPrefs): defaults for new conversations, and this conversation's changes.
@@ -629,7 +636,7 @@ final class AppModel: ObservableObject {
         recordingConnectionKey = KeptQuestion.connectionKey(gateway: signIn.gateway, user: signIn.user, tenant: signIn.tenant, credential: signIn.credential)
         client = LiveGatewayClient(baseURL: signIn.gateway, credential: signIn.credential)
         gatewayHost = signIn.gateway.host() ?? signIn.gateway.absoluteString
-        waits = []; waitsReadState = .checking; runs = []; automations = []; principal = nil; lastError = nil; failures = 0; failingSince = nil; unreachable = false; seenWaitIDs = []; entities = []; automationsLoaded = false; automationsPausedCount = nil; automationsArchivedCount = nil; automationsError = nil; automationsTask?.cancel(); automationsTask = nil; automationsLoading = false; automationsReadAt = nil
+        waits = []; waitsReadState = .checking; runs = []; automations = []; principal = nil; lastError = nil; failures = 0; failingSince = nil; unreachable = false; seenWaitIDs = []; entities = []; identities = [:]; identityRevisions = [:]; identityProblems = [:]; automationsLoaded = false; automationsPausedCount = nil; automationsArchivedCount = nil; automationsError = nil; automationsTask?.cancel(); automationsTask = nil; automationsLoading = false; automationsReadAt = nil
         definitions = [:]; results = [:]; savedAt = [:]
         forgetTools()                                    // each account has its own tools (email, …)
         workflows = []; workflowsReadAt = nil; MediaStore.shared.clear()
@@ -668,7 +675,7 @@ final class AppModel: ObservableObject {
         if !SavedSignIn.clear() { notice = "The sign-in could not be removed from this watch's Keychain." }
         stopPolling()
         client = MockGatewayClient(world: .watch); gatewayHost = "—"; recordingConnectionKey = "signed-out"
-        waits = []; waitsReadState = .checking; runs = []; automations = []; principal = nil; lastError = nil; failures = 0; failingSince = nil; unreachable = false; seenWaitIDs = []; entities = []; automationsLoaded = false; automationsPausedCount = nil; automationsArchivedCount = nil; automationsError = nil; automationsTask?.cancel(); automationsTask = nil; automationsLoading = false; automationsReadAt = nil
+        waits = []; waitsReadState = .checking; runs = []; automations = []; principal = nil; lastError = nil; failures = 0; failingSince = nil; unreachable = false; seenWaitIDs = []; entities = []; identities = [:]; identityRevisions = [:]; identityProblems = [:]; automationsLoaded = false; automationsPausedCount = nil; automationsArchivedCount = nil; automationsError = nil; automationsTask?.cancel(); automationsTask = nil; automationsLoading = false; automationsReadAt = nil
         definitions = [:]; results = [:]; savedAt = [:]
         forgetTools()
         workflows = []; workflowsReadAt = nil; MediaStore.shared.clear()
@@ -1136,13 +1143,45 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// The orb's look for a responder: the Assistant's own, or the entity's colour and shape. Until
-    /// the entities are loaded (launch) an entity shows the Assistant's look; a changed look shows
-    /// on the next entities load (the picker reloads them).
+    /// The orb's look for a responder: the Assistant's own, or the entity drawn from its identity
+    /// record (framework ADR 0052: its design and colour). Until a record is known (launch, a
+    /// gateway that serves none, a home closed for maintenance) an entity shows the Assistant's
+    /// look: nothing else is ever taken for its identity.
     func look(for r: Responder) -> OrbLook {
-        guard case .entity(let name) = r, let e = entities.first(where: { $0.name == name }) else { return .assistant }
-        return OrbLook(color: e.appearanceColor.flatMap(Color.init(hexString:)),
-                       shape: e.appearanceShape.flatMap(OrbShape.init(rawValue:)) ?? .planet)
+        guard case .entity(let name) = r, let identity = identity(of: name) else { return .assistant }
+        return OrbLook(identity: identity)
+    }
+
+    /// The record an entity is drawn from: the newer of its list row's and its route's.
+    func identity(of name: String) -> EntityIdentity? {
+        [entities.first { $0.name == name }?.identity, identities[name]?.identity].compactMap { $0 }.max { $0.rev < $1.rev }
+    }
+
+    /// Reads an entity's identity from its route (its conversation opening). A refusal is kept as
+    /// the gateway's sentence for the page to show; the look is never guessed from anything else.
+    func loadIdentity(of name: String) async {
+        do {
+            let view = try await client.entityIdentity(name: name, rev: nil)
+            identities[name] = view; identityProblems[name] = nil
+        } catch is CancellationError {
+        } catch { identityProblems[name] = Self.say(error) }
+    }
+
+    /// Who a reference names (a dialogue's speaker): the entity's name and its look at that
+    /// revision; nil while that record is not known.
+    func speaker(_ ref: IdentityRef) -> (name: String, look: OrbLook)? {
+        guard let row = entities.first(where: { $0.entityId == ref.of }) else { return nil }
+        let record = identityRevisions[ref] ?? [row.identity, identities[row.name]?.identity].compactMap { $0 }.first { $0.rev == ref.rev }
+        return record.map { (row.displayName, OrbLook(identity: $0)) }
+    }
+
+    /// Reads the record a reference names when it is not the entity's current one (`?rev=N`).
+    func resolve(_ ref: IdentityRef) async {
+        if entities.isEmpty { await loadEntities() }
+        guard speaker(ref) == nil, let row = entities.first(where: { $0.entityId == ref.of }) else { return }
+        if let view = try? await client.entityIdentity(name: row.name, rev: ref.rev), view.identityRef == ref {
+            identityRevisions[ref] = view.identity
+        }
     }
     var responderLook: OrbLook { look(for: responder) }
 

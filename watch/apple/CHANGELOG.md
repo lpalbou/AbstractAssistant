@@ -5,6 +5,23 @@ Since 0.16.0 the watch app shares the iPhone app's version (`MARKETING_VERSION` 
 iPhone app); the Python package's history is in
 [../../CHANGELOG.md](../../CHANGELOG.md).
 
+## [Unreleased]
+
+### Added
+
+- **An entity's orb is its digital identity (AbstractGateway 0.20).** Its design and colour come
+  from the entity's identity record, so it looks the same on every device; the Assistant keeps the
+  design chosen in Settings and the watch face still shows the Assistant. In the avatar conversation
+  view, the name and a small orb of whoever speaks show when the speaker changes.
+- **An entity speaks with its own voice.** When the gateway refuses to speak for an entity (for
+  example because it has no voice yet), the watch shows the gateway's sentence instead of "Voice
+  unavailable"; no other voice is used.
+
+### Changed
+
+- An entity's look is read only from its identity record: with a gateway older than 0.20, or while
+  an entity is closed for maintenance, it shows the Assistant's look and the gateway's sentence.
+
 ## [0.17.0] - 2026-11-03
 
 What testers get since build 39 (0.16.0), inside the iPhone app of the same version.

@@ -30,6 +30,8 @@ final class Speaker: NSObject, ObservableObject {
     /// Seconds of the text's speech received (the recordings apart).
     private var speechSeconds: Double = 0
     @Published private(set) var playedSeconds: Double = 0
+    /// Whose voice this reading is (the entity lane's `X-Identity-Ref`); nil for the Assistant's.
+    @Published private(set) var speakingAs: IdentityRef?
 
     /// Chunks to play; analysis is optional and may be cached when replaying a chunk.
     private var queue: [Chunk] = []
@@ -209,7 +211,7 @@ final class Speaker: NSObject, ObservableObject {
         let clips = clips.filter { $0.kind == .audio }
         guard !spoken.isEmpty || !clips.isEmpty else { state = .failed("Nothing to read in this text."); return }
         pieces = spoken.isEmpty ? [] : SpeechText.pieces(spoken, target: Self.pieceTarget, cap: Self.pieceTarget * 4 / 3)
-        nextPiece = 0; self.scope = scope; self.client = client; lastError = nil
+        nextPiece = 0; self.scope = scope; self.client = client; lastError = nil; speakingAs = nil
         guard activateSession() else { return }
         state = .preparing; streamDone = false; streamError = nil; receivedSeconds = 0; speechSeconds = 0; playedSeconds = 0
         buffering = true; refilling = false
@@ -296,6 +298,7 @@ final class Speaker: NSObject, ObservableObject {
                         if Task.isCancelled { return nil }
                         guard case .audio(let raw) = part else {
                             if case .segmentEnd(let end) = part { retry.segmentEnded(textEnd: end) }
+                            if case .identity(let ref) = part { speakingAs = ref }
                             continue
                         }
                         let admitted: Data?
@@ -341,7 +344,9 @@ final class Speaker: NSObject, ObservableObject {
 
     /// The line under the orb for a reading that failed, in the person's words (the reason is in the log).
     var failureLine: String {
-        guard playedSeconds > 0 else { return "Voice unavailable" }
+        // A refusal the gateway explained ("Castor has no voice yet: …") is said as it is: no
+        // other voice is ever tried in its place.
+        guard playedSeconds > 0 else { return lastError.flatMap(GatewayError.refusal) ?? "Voice unavailable" }
         return canResume ? "The voice stopped early. Tap the speaker to continue." : "The voice stopped early."
     }
 

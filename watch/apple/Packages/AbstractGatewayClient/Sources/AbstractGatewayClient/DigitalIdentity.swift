@@ -57,6 +57,11 @@ public struct EntityIdentity: Decodable, Hashable, Sendable {
         /// The design's watch code, or nil when this gateway's catalog has none for it.
         public let watchCode: String?
         public var drawing: WatchDrawing? { WatchDrawing(watchCode: watchCode) }
+        /// The colour as 0…1 components; nil when it is not `#rrggbb`.
+        public var rgb: (red: Double, green: Double, blue: Double)? {
+            guard color.count == 7, color.first == "#", let v = UInt32(color.dropFirst(), radix: 16) else { return nil }
+            return (Double(v >> 16 & 0xff) / 255, Double(v >> 8 & 0xff) / 255, Double(v & 0xff) / 255)
+        }
         public init(style: String, color: String, watchCode: String?) { self.style = style; self.color = color; self.watchCode = watchCode }
         private enum CodingKeys: String, CodingKey { case style, color, watchCode = "watch_code" }
     }

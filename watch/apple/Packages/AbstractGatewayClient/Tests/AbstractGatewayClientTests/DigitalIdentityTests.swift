@@ -77,6 +77,11 @@ private final class IdentityWire: URLProtocol, @unchecked Sendable {
         #expect(WatchDrawing(watchCode: "shape:wave") == .shape("wave"))
         #expect(WatchDrawing(watchCode: "shape:") == nil)
         #expect(WatchDrawing(watchCode: "") == nil && WatchDrawing(watchCode: nil) == nil)
+        let amber = EntityIdentity.Avatar(style: "watch-vortex", color: "#f59e0b", watchCode: "B").rgb
+        #expect(amber?.red == 245.0 / 255 && amber?.green == 158.0 / 255 && amber?.blue == 11.0 / 255)
+        #expect(EntityIdentity.Avatar(style: "s", color: "f59e0b", watchCode: nil).rgb == nil)
+        #expect(EntityIdentity.Avatar(style: "s", color: "#f59e0", watchCode: nil).rgb == nil)
+        #expect(EntityIdentity.Avatar(style: "s", color: "#zzzzzz", watchCode: nil).rgb == nil)
     }
 
     @Test func aReferenceRoundTripsItsStringFormAndRefusesWhatIsNotOne() throws {

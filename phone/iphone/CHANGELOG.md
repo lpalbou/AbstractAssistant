@@ -5,6 +5,25 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
 
+### Added
+
+- **Entities look and sound like themselves everywhere (digital identity, AbstractGateway 0.20).**
+  On the watch, an entity's orb is drawn from its identity record: its own design and colour, the
+  same on every device. The Assistant keeps the design you chose, and the watch face still shows
+  the Assistant. In the avatar conversation view, when another identity speaks (another entity in a
+  dialogue, or the same entity after its look changed), its name and a small orb in its look show
+  above its words. On the iPhone, the entity list shows each entity in its colour.
+- **An entity's voice is its own.** Reading an entity's words aloud always uses the entity's voice
+  from its identity, never the voice you chose for the Assistant. When the gateway cannot speak
+  for it (for example "Castor has no voice yet: choose one in its Identity settings or set the
+  Gateway default voice"), the watch and the iPhone show that sentence; no other voice is used.
+
+### Changed
+
+- An entity's look is read only from its identity record. With a gateway older than 0.20, or while
+  an entity is closed for maintenance, it shows the Assistant's look, and the watch shows the
+  gateway's sentence under the orb.
+
 ## [0.17.0] — 2026-11-03
 
 What testers get since build 39 (0.16.0). The watch app inside it carries the same version.
