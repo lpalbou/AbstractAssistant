@@ -61,7 +61,7 @@ final class EntityIdentityUITests: XCTestCase {
         shoot(app, "entity-no-identity")
         let image = try XCTUnwrap(shot.image.cgImage)
         let scale = CGFloat(image.width) / app.frame.width
-        let f = slot.frame, side = min(f.width, f.height) * 0.6
+        let f = slot.frame, side = min(f.width, f.height) * 0.68   // the ring and what is inside it
         let inner = CGRect(x: f.midX - side / 2, y: f.midY - side / 2, width: side, height: side)
         XCTAssertLessThan(colouredPixels(in: inner, of: image, scale: scale), 20, "the empty place carries a colour (a look was drawn)")
     }
