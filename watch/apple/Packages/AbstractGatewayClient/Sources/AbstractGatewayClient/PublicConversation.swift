@@ -7,10 +7,13 @@ public struct PublicConversationUpdate: Codable, Hashable, Sendable, Identifiabl
     public var runId: String
     public var sourceCallIds: [String]?
     public var order: PublicConversationOrder? = nil
-    public init(id: String, text: String, runId: String, sourceCallIds: [String]? = nil) {
-        self.id = id; self.text = text; self.runId = runId; self.sourceCallIds = sourceCallIds
+    /// Who wrote it: the identity the visit opened with (gateway 0.20, framework ADR 0052); nil
+    /// when the gateway stamped none.
+    public var identityRef: IdentityRef? = nil
+    public init(id: String, text: String, runId: String, sourceCallIds: [String]? = nil, identityRef: IdentityRef? = nil) {
+        self.id = id; self.text = text; self.runId = runId; self.sourceCallIds = sourceCallIds; self.identityRef = identityRef
     }
-    enum CodingKeys: String, CodingKey { case id, text, runId = "run_id", sourceCallIds = "source_call_ids", order }
+    enum CodingKeys: String, CodingKey { case id, text, runId = "run_id", sourceCallIds = "source_call_ids", order, identityRef = "identity_ref" }
 }
 
 /// A server-admitted human correction. Acceptance does not claim the actor considered it.
@@ -148,6 +151,7 @@ public struct PublicConversationView: Decodable, Sendable {
             let calls = row["source_call_ids"]?.arrayValue?.compactMap(\.stringValue)
             var update = PublicConversationUpdate(id: id, text: text, runId: run, sourceCallIds: calls)
             update.order = row["order"].flatMap { try? JSONDecoder().decode(PublicConversationOrder.self, from: JSONEncoder().encode($0)) }
+            update.identityRef = row["identity_ref"].flatMap { try? JSONDecoder().decode(IdentityRef.self, from: JSONEncoder().encode($0)) }
             return update
         }
     }

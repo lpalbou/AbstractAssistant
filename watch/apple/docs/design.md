@@ -310,8 +310,18 @@ its speed), so a change of state is always a smooth morph:
   1.2 s of the voice travelling from the horizon to your feet, crests lit in the app's hues, foam on
   loud syllables.
 
-An entity's orb takes its colour and shape (planet, kitty, face, wave) from the gateway (with one of
-the scenes chosen, an entity keeps its own shape and answers the voice as Nebula does). The microphone is open only while the orb listens.
+An entity's orb is drawn from its digital identity (framework ADR 0052; gateway 0.20): the design
+its record's `watch_code` names (`B` is Vortex, `AU` Aurora; `shape:kitty|face|wave` a silhouette that
+answers the voice as Nebula does) in the record's colour. The record comes from the entity's list row
+and from `GET /entities/{name}/identity`, read when its conversation opens; nothing else is taken for
+it: until a record is known, or when the gateway refuses (its sentence shows under the orb at rest),
+the entity has no orb: only a still grey ring marks its empty place (never the Assistant's look or any
+other in its stead). A code this watch does not draw keeps the chosen design in the
+entity's colour. The Assistant keeps the design chosen in Settings, and the watch face complication
+still draws the Assistant (its pictures and keys are unchanged). In the avatar conversation view,
+when an update was written by another identity than the one before it (another entity in a dialogue,
+or the same entity after its look changed), its name and a small orb in that identity's look show
+above it. The microphone is open only while the orb listens.
 
 While the assistant works, the orb shows the work: each tool call sends a ring of light out from the
 centre (parallel calls a few tenths apart), a new thought a softer ring, an image or a recording

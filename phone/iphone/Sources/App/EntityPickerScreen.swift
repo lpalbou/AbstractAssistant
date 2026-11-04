@@ -25,7 +25,8 @@ struct EntityPickerScreen: View {
                         Text("No entities yet").foregroundStyle(PhoneTheme.secondary)
                     }
                     ForEach(matches) { entity in
-                        row(name: entity.name, title: entity.displayName, detail: entity.extra["error"]?.stringValue ?? entity.detail ?? "A continuing conversation", symbol: "person.crop.circle", available: entity.extra["error"] == nil)
+                        row(name: entity.name, title: entity.displayName, detail: entity.extra["error"]?.stringValue ?? entity.detail ?? "A continuing conversation", symbol: "person.crop.circle", available: entity.extra["error"] == nil,
+                            tint: entity.identity?.avatar.rgb.map { Color(red: $0.red, green: $0.green, blue: $0.blue) })
                     }
                     if !search.isEmpty && matches.isEmpty && !store.entities.isEmpty { Text("No matching entities").foregroundStyle(PhoneTheme.secondary) }
                     NavigationLink { NewEntityScreen(onCreated: { onSelect($0.name) }) } label: { Label("New entity", systemImage: "plus") }
@@ -41,10 +42,11 @@ struct EntityPickerScreen: View {
             .task { await store.loadEntities() }.refreshable { await store.loadEntities() }
         }
     }
-    private func row(name: String?, title: String, detail: String, symbol: String, available: Bool = true) -> some View {
+    /// `tint`: an entity's colour from its identity record (gateway 0.20); without one, the app's own.
+    private func row(name: String?, title: String, detail: String, symbol: String, available: Bool = true, tint: Color? = nil) -> some View {
         Button { onSelect(name) } label: {
             HStack(spacing: 12) {
-                Image(systemName: symbol).font(.title3).foregroundStyle(name == nil ? PhoneTheme.mint : PhoneTheme.lavender).frame(width: 26)
+                Image(systemName: symbol).font(.title3).foregroundStyle(tint ?? (name == nil ? PhoneTheme.mint : PhoneTheme.lavender)).frame(width: 26)
                 VStack(alignment: .leading, spacing: 3) { Text(title).foregroundStyle(PhoneTheme.ink); Text(detail).font(.caption).foregroundStyle(PhoneTheme.secondary) }
                 Spacer(minLength: 8)
                 if store.selectedEntity == name { Image(systemName: "checkmark").foregroundStyle(PhoneTheme.mint) }

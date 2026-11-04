@@ -97,7 +97,8 @@ sign-ins), `--test-known <url,url>` (gateways signed into, oldest first), `--tes
 (sign-ins kept on the default gateway), `--test-approve once|all`, `--test-action allow-first|deny-first`,
 `--test-ask "<prompt>"`, `--test-read "<markdown>"` or `--test-read <run id>` (that run's answer read
 aloud, its course — pieces, chunks, retries, how it ended — on the console: `xcrun devicectl device
-process launch --console`), `--piece-chars <n>` (speech requested in pieces of about n characters
+process launch --console`; with `--test-read-as <entity>` the text is read as that entity's, through its
+own speech lane), `--piece-chars <n>` (speech requested in pieces of about n characters
 instead of 600), `--stalled-voice` / `--stalled-voice-fatal` (the sample voice's second piece times
 out twice, or four times until a tap), `--stalled-voice-midpiece` (its first request sends half
 its sound, goes quiet while that half plays, then breaks), `--test-open <url>`, `--test-listen`,

@@ -34,10 +34,7 @@ enum VoicePrefs {
     }
 
     /// The voice for one reading: the chosen one for the Assistant's text, the entity's own otherwise.
-    static func voice(for scope: SpeechScope) -> VoiceChoice? {
-        if case .run = scope { return voice }
-        return nil
-    }
+    static func voice(for scope: SpeechScope) -> VoiceChoice? { scope.requestedVoice(voice) }
 
     private static func load<T: Decodable>(_ key: String) -> T? {
         UserDefaults.standard.data(forKey: key).flatMap { try? JSONDecoder().decode(T.self, from: $0) }
