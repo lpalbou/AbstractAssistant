@@ -10,10 +10,7 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 Avatars ship with every install. The switcher folds paused and archived automations into their own
 sections, and the activity avatar follows the pointer only with a design that has eyes. The web Assistant gets its first npm release.
 The "Paused · N" section needs AbstractGateway 0.20.0; an older gateway shows the list as before.
-Known limitation: the desktop app ships its own copy of the interface palettes
-(`abstractassistant/assets/uic-theme.css`, taken from AbstractUIC ui-kit 0.1.14). An install without an
-`abstractuic` checkout beside it uses that older copy. A refresh to the ui-kit 0.9.14 palettes is planned,
-with a screenshot review.
+The desktop palettes are now the kit's current ones (ui-kit 0.9.14); their colours were already the same, so the app looks as before.
 
 ### Added
 
