@@ -66,7 +66,10 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 ## What's new
 
 0.18.0 ships the activity avatar with every install, folds paused automations under "Paused · N" and archived ones under "Archived · N" in
-the switcher, and the activity avatar looks toward the pointer only when its design has eyes. See
+the switcher, and the activity avatar looks toward the pointer only when its design has eyes. One
+known limitation: the desktop app ships its own copy of the interface palettes, taken from ui-kit 0.1.14,
+and an install without an `abstractuic` checkout beside it uses that older copy; a refresh to the ui-kit
+0.9.14 palettes is planned, with a screenshot review. See
 the [0.18.0 release notes](CHANGELOG.md#0180---2026-11-04).
 
 0.17.0 adds the optional desktop activity avatar (the `avatar` extra), automations that open as
