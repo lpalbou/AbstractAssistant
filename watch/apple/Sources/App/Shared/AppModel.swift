@@ -499,6 +499,9 @@ final class AppModel: ObservableObject {
     /// Device test hooks: `--test-read "<markdown>"` opens the Read screen on that text (spoken through
     /// the newest run's session); `--test-open <url>` opens a URL as a tapped link would.
     var testRead: String?
+    /// `--test-read-as <entity>` (with `--test-read`): the text is read as that entity's, through its
+    /// own speech lane (a simulator check of an entity's voice and its refusals).
+    var testReadAs: String?
     var testOpen: URL?
     /// `--test-listen`: Ask opens and starts listening at once (simulator/device check of the microphone).
     var testListen = false
@@ -747,11 +750,11 @@ final class AppModel: ObservableObject {
             // (~7 s measured) and its own failure never marks the gateway offline.
             lastError = nil; failures = 0; failingSince = nil; unreachable = false
             lastRefresh = Date()
-            if let value = testRead, let first = runs.first {
+            if let value = testRead, let scope = testReadAs.map(SpeechScope.entity) ?? runs.first.map({ SpeechScope.run($0.runId) }) {
                 testRead = nil
                 // `--test-read <run id>`: that run's answer, read aloud (a device check of a long
                 // reading, its course on the console); any other text is read as it is.
-                var item = ReadItem(title: "Read", text: value, scope: .run(first.runId))
+                var item = ReadItem(title: "Read", text: value, scope: scope)
                 // The list row carries no answer: an id-shaped value is fetched whole.
                 var run: RunSummary?
                 if !value.contains(where: \.isWhitespace), value.count >= 8 { run = try? await client.run(id: value) }
@@ -1543,6 +1546,10 @@ struct LaunchOptions {
         if testAsk != nil { model.useTestSession() }   // before the orb screen opens on it
         #endif
         model.testRead = testRead
+        #if DEBUG
+        model.testReadAs = ProcessInfo.processInfo.arguments.firstIndex(of: "--test-read-as").flatMap { i in
+            i + 1 < ProcessInfo.processInfo.arguments.count ? ProcessInfo.processInfo.arguments[i + 1] : nil }
+        #endif
         model.testOpen = testOpen.flatMap(URL.init(string:))
         model.testListen = testListen
         #if DEBUG
