@@ -269,6 +269,62 @@ def test_pre_audio_stream_rejection_retries_unpinned_before_artifact_lane(monkey
 
 
 @pytest.mark.basic
+@pytest.mark.parametrize("selection", ["voice", "profile", "gateway_clone"])
+@pytest.mark.parametrize("transport_error", [False, True])
+def test_rejected_voice_waits_for_manual_retry_with_same_identity(monkeypatch, selection, transport_error):
+    class RejectOnceGateway(_StreamingGateway):
+        def __init__(self):
+            super().__init__()
+            self.requests = []
+
+        def voice_tts_stream(self, **kwargs):
+            self.requests.append(kwargs)
+            if len(self.requests) == 1:
+                detail = (
+                    "ClonedVoiceNotAppliedError: speaker similarity 0.945, 0.941 below 0.950"
+                    if selection == "gateway_clone" else "selected voice unavailable"
+                )
+                if transport_error:
+                    raise RuntimeError(detail)
+                yield {"type": "error", "error": detail}
+                return
+            yield from super().voice_tts_stream(**kwargs)
+
+    gateway = RejectOnceGateway()
+    manager = _ManagerStub(gateway)
+    manager.current_tts_voice = "my-clone" if selection != "gateway_clone" else ""
+    manager.current_tts_voice_mode = "profile" if selection == "profile" else "voice"
+    vm = GatewayVoiceManager(llm_manager=manager, debug_mode=False)
+    player = _wire_player(vm, monkeypatch)
+    failures, notices, completions, ends = [], [], [], []
+    vm.on_speech_error = failures.append
+    vm.on_speech_notice = notices.append
+    vm.on_speech_end = lambda: ends.append(1)
+
+    with pytest.warns(UserWarning):
+        assert vm.speak("hello", callback=lambda: completions.append(1))
+        assert _wait_for(lambda: completions == [1])
+    assert len(gateway.requests) == 1
+    assert not gateway.artifact_calls and not player.play_calls and not notices
+    assert len(failures) == 1 and "Press Play to retry with the same voice" in failures[0]
+    assert ends == [1]
+
+    # A new user Play is the only trigger for generation, with a fresh id and
+    # the identical voice/profile/provider/model instead of gateway defaults.
+    assert vm.speak("hello", callback=lambda: completions.append(2))
+    assert _wait_for(lambda: completions == [1, 2])
+    assert len(gateway.requests) == 2 and len(player.play_calls) == 1
+    first, second = gateway.requests
+    assert first["request_id"] != second["request_id"]
+    for key in ("voice", "profile", "provider", "model", "text"):
+        assert first[key] == second[key]
+    if selection != "gateway_clone":
+        assert second[selection] == "my-clone"
+    assert not gateway.artifact_calls and not notices
+    assert len(failures) == 1 and ends == [1, 1]
+
+
+@pytest.mark.basic
 def test_unpinned_retry_fires_completion_exactly_once(monkeypatch: pytest.MonkeyPatch) -> None:
     """The retry must not double-fire (or swallow) the terminal signal.
 

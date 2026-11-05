@@ -7,9 +7,12 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Changed
 
+- A rejected cloned or selected voice no longer triggers automatic generation
+  with the default voice or a whole-reply artifact retry. Play explicitly retries
+  using the same voice selection; server-side voice checks remain unchanged.
 - Speech playback no longer announces the output device and volume in a banner;
-  muted or very quiet output still gets an actionable warning. Rejected voice
-  selections show a brief default-voice retry notice, with diagnostics in logs.
+  muted or very quiet output still gets an actionable warning. Speech notices
+  use concise language, with detailed diagnostics in logs.
 - The desktop assistant places its animated avatar beside the composer as the voice control, reclaiming conversation space. Typing stays available, Send
   appears for drafts and attachments, and Stop stays visible during a run.
   Transparent gaps separate the floating panels; Send has a neutral finish,

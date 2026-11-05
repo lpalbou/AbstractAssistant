@@ -1031,12 +1031,24 @@ class GatewayVoiceManager:
 
         def _artifact_fallback(reason: str = "", *, retry_unpinned: bool = False) -> bool:
             nonlocal completion_owned
+            if stop_gate.is_set():
+                return False
+            # A chosen identity is not interchangeable with the default voice.
+            # The server already owns segment retries; after rejection the app
+            # waits for an explicit Play instead of generating the reply again.
+            clone_rejected = "ClonedVoiceNotAppliedError" in reason
+            if voice or profile or clone_rejected:
+                warnings.warn(f"Gateway TTS stopped without automatic regeneration: {reason}")
+                message = (
+                    "The cloned voice didn't pass its voice check."
+                    if clone_rejected else "Couldn't generate speech with your selected voice."
+                )
+                self._report_speech_failure(f"{message} Press Play to retry with the same voice.")
+                return False
             # Keep the streaming cause even when the artifact lane later fails
             # for its own reason: "the stream was rejected AND the fallback
             # timed out" is the sentence the user needs.
             self._note_speech_failure(reason)
-            if stop_gate.is_set():
-                return False
             if retry_unpinned:
                 retried = _retry_stream_unpinned(reason or "stream produced no audio")
                 if retried is not None:
