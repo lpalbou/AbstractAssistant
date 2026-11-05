@@ -9046,7 +9046,10 @@ class AssistantPalette(QMainWindow):
             self.composer_card.height() or self.composer_card.sizeHint().height() or 80
         )
         side_gap = 8
-        card_gap = 12
+        header_gap = 4
+        # The state label sits above the centered orb. Reserve only its
+        # overhang beside the composer, not above the conversation too.
+        composer_gap = max(4, (self.conversation_button.height() - composer_height) // 2 + 4)
         top_gap = 4
         bottom_gap = 12
         if self._zoomed:
@@ -9065,17 +9068,17 @@ class AssistantPalette(QMainWindow):
                     - bottom_gap
                     - header_height
                     - composer_height
-                    - (card_gap * 2)
+                    - (header_gap + composer_gap)
                 ),
             )
             self.history_card.setMinimumHeight(history_height)
             self.history_card.setMaximumHeight(history_height)
             self.header_card.setGeometry(side_gap, top_gap, card_width, header_height)
-            history_y = top_gap + header_height + card_gap
+            history_y = top_gap + header_height + header_gap
             self.history_card.setGeometry(
                 side_gap, history_y, card_width, history_height
             )
-            composer_y = history_y + history_height + card_gap
+            composer_y = history_y + history_height + composer_gap
             self._place_composer(side_gap, composer_y, card_width, composer_height)
             x = int(screen_geom.x() + max(0, (screen_geom.width() - width) / 2))
             y = int(
@@ -9094,16 +9097,16 @@ class AssistantPalette(QMainWindow):
                 - bottom_gap
                 - header_height
                 - composer_height
-                - (card_gap * 2)
+                - (header_gap + composer_gap)
             ),
         )
         self.history_card.setMinimumHeight(history_height)
         self.history_card.setMaximumHeight(history_height)
         card_width = max(420 - (side_gap * 2), width - (side_gap * 2))
         self.header_card.setGeometry(side_gap, top_gap, card_width, header_height)
-        history_y = top_gap + header_height + card_gap
+        history_y = top_gap + header_height + header_gap
         self.history_card.setGeometry(side_gap, history_y, card_width, history_height)
-        composer_y = history_y + history_height + card_gap
+        composer_y = history_y + history_height + composer_gap
         self._place_composer(side_gap, composer_y, card_width, composer_height)
         target_height = int(composer_y + composer_height + bottom_gap)
         previous = self.geometry()
