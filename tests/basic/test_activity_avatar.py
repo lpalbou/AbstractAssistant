@@ -335,3 +335,37 @@ def test_visible_avatar_has_smooth_timer_cadence(state):
     QTest.qWait(80)
     assert len(renderer.calls) == after
     widget.deleteLater()
+
+
+@pytest.mark.basic
+def test_native_wire_orb_has_continuous_hit_area_and_reacts_to_level():
+    if not os.environ.get("ABSTRACTAVATAR_TEST_LIBRARY"):
+        pytest.skip("Set ABSTRACTAVATAR_TEST_LIBRARY for native wire-avatar coverage")
+    from abstractavatar import Renderer as NativeRenderer
+    from abstractassistant.ui.avatar import AvatarVoiceButton
+    _app()
+    current = [AvatarPresentation("listening", 0.0)]
+    button = AvatarVoiceButton(lambda: current[0])
+    button.show()
+    button.avatar.configure(enabled=True, style="iphone-weave", animated=True)
+    _app().processEvents()
+    try:
+        button.update_presentation()
+        image = button.grab().toImage()
+        ratio = image.devicePixelRatio()
+        cx, cy = button.rect().center().x(), button.rect().center().y()
+        for dx in range(-15, 16, 3):
+            for dy in range(-15, 16, 3):
+                assert image.pixelColor(int((cx + dx) * ratio), int((cy + dy) * ratio)).alpha() > 0
+        renderer = NativeRenderer(width=120, height=120)
+        try:
+            for state in ("listening", "speaking"):
+                quiet = renderer.render(style="iphone-weave", state=state, level=0.0, time=1)
+                loud = renderer.render(style="iphone-weave", state=state, level=0.8, time=1)
+                assert quiet != loud
+        finally:
+            renderer.close()
+    finally:
+        button.hide()
+        button.deleteLater()
+        _app().processEvents()

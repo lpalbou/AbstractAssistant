@@ -36,7 +36,7 @@ def test_long_draft_grows_without_clipping_orb_and_header(width, orb_palette):
     assert window.composer_card.height() > before
     assert window.prompt_edit.height() <= 144
     assert window.conversation_button.x() - window.composer_card.geometry().right() >= 12
-    assert window.conversation_button.geometry().bottom() == window.composer_card.geometry().bottom()
+    assert abs(window.conversation_button.geometry().center().y() - window.composer_card.geometry().center().y()) <= 1
     assert window.rect().contains(window.conversation_button.geometry())
     assert window.header_card.rect().contains(window.session_picker.geometry())
     assert window.header_card.geometry().bottom() < window.history_card.geometry().top()
@@ -63,7 +63,7 @@ def test_escape_ends_voice_before_hiding_and_speech_labels_follow_player(orb_pal
     assert not controller.voice_manager.listening
     assert not window._voice_conversation_active
     assert window.isVisible()
-    assert "click Talk" in window.prompt_edit.placeholderText()
+    assert window.prompt_edit.placeholderText() == "Ask anything…"
 
 
 @pytest.mark.basic
@@ -81,3 +81,66 @@ def test_floating_orb_gap_is_transparent_and_focus_is_keyboard_only(orb_palette)
     x = (window.composer_card.geometry().right() + button.x()) // 2
     y = button.geometry().center().y()
     assert image.pixelColor(int(x * ratio), int(y * ratio)).alpha() == 0
+
+
+@pytest.mark.basic
+def test_orb_labels_states_above_centered_body_and_owns_voice_stop(orb_palette):
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    window, controller = orb_palette
+    button = window.conversation_button
+    assert button.caption.isHidden()
+    QTest.mouseClick(button, Qt.LeftButton)
+    assert controller.voice_manager.listening
+    assert window.voice_strip.isHidden()
+    assert button.caption.text() == "Listening"
+    assert button.caption.geometry().bottom() < button.avatar.y()
+    window._voice_conversation._set_state("thinking")
+    assert button.caption.text() == "Thinking"
+    assert window.voice_strip.isHidden()
+    QTest.mouseClick(button, Qt.LeftButton)
+    assert not controller.voice_manager.listening
+    assert not window._voice_conversation_active
+    window._set_status("Ready")
+    assert button.caption.isHidden()
+
+
+@pytest.mark.basic
+def test_quiet_microphone_pcm_reaches_avatar_and_stale_level_decays(orb_palette, monkeypatch):
+    import numpy as np
+    import abstractassistant.app as module
+    from abstractvoice.recognition import VoiceRecognizer
+    window, _ = orb_palette
+    window._start_voice_conversation()
+    rec = VoiceRecognizer.__new__(VoiceRecognizer)
+    rec._audio_level_ema = 0.0
+    rec.audio_level_callback = window.voice_level_received.emit
+    for _ in range(8):
+        rec._emit_audio_level(np.full((480, 1), 0.002, dtype=np.float32))
+    _SMOKE["_app"]().processEvents()
+    assert window._avatar_presentation().state == "listening"
+    assert window._avatar_presentation().level > 0.15
+    timestamp = window._avatar_microphone_level_at
+    monkeypatch.setattr(module.time, "monotonic", lambda: timestamp + 1)
+    assert window._avatar_presentation().level == 0
+
+
+@pytest.mark.basic
+def test_speaking_orb_uses_output_bands_and_click_stops_read_aloud(orb_palette):
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    window, controller = orb_palette
+    speaking = [True]
+    controller.voice_manager.is_speaking = lambda: speaking[0]
+    controller.voice_manager.stop_speaking = lambda: speaking.__setitem__(0, False)
+    controller.supports_stt = lambda: False
+    window._on_speech_level([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8])
+    frame = window._avatar_presentation()
+    assert frame.state == "speaking" and len(frame.bands) == 8
+    assert frame.bands[0] < frame.bands[-1]
+    assert window.conversation_button.caption.text() == "Speaking"
+    assert window.conversation_button.isEnabled()
+    assert window.conversation_button.toolTip() == "Stop speaking"
+    QTest.mouseClick(window.conversation_button, Qt.LeftButton)
+    assert not speaking[0]
+    assert not controller.voice_manager.listening

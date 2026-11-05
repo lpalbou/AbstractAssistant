@@ -293,7 +293,7 @@ def test_palette_voice_conversation_starts_listens_and_ends(palette) -> None:
     assert window._voice_conversation.state == "listening"
     assert controller.voice_manager.mode == "wait"
     assert controller.voice_manager.listening is True
-    assert not window.voice_strip.isHidden()
+    assert window.voice_strip.isHidden()
     assert window.voice_strip.state == "listening"
     assert window.conversation_button.isChecked()
     assert not window.mic_button.isEnabled()

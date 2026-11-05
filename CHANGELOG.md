@@ -7,11 +7,14 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Changed
 
-- The desktop assistant places its animated avatar beside the composer as the Talk /
-  End voice control, reclaiming conversation space. Typing stays available, Send
+- The desktop assistant places its animated avatar beside the composer as the voice control, reclaiming conversation space. Typing stays available, Send
   appears for drafts and attachments, and Stop stays visible during a run.
   Transparent gaps separate the floating panels; Send has a neutral finish,
   and the orb shows a focus outline only during keyboard navigation.
+- The orb is vertically centered with Listening, Speaking, or Thinking above it;
+  idle has no label. Voice status no longer adds a duplicate strip or Stop control.
+  Wire avatars have a continuous hit surface for macOS clicks. Speech playback
+  supplies frequency bands to the avatar, and microphone levels decay when stale.
 - Compact windows wrap header controls into a second row, and longer drafts grow
   the composer. Voice preserves unfinished drafts; Escape ends voice before
   hiding the window. Speech preparation and paused playback are labeled accurately.

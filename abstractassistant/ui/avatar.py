@@ -7,8 +7,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
-from PyQt5.QtCore import QEvent, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QColor, QImage, QPixmap
+from PyQt5.QtCore import QEvent, Qt, QTimer, QRectF, pyqtSignal
+from PyQt5.QtGui import QColor, QImage, QPixmap, QPainter
 from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QSizePolicy, QWidget
 
 from ..theme import THEME
@@ -22,6 +22,7 @@ _STATES = {"ready", "thinking", "working", "listening", "speaking", "waiting", "
 class AvatarPresentation:
     state: str = "ready"
     level: float = 0.0
+    bands: tuple[float, ...] | None = None
 
 
 def audio_level(value: Any) -> float:
@@ -42,7 +43,8 @@ def presentation(*, error: bool = False, speaking: bool = False, listening: bool
     for state, active in (("error", error), ("speaking", speaking), ("listening", listening),
                           ("waiting", waiting), ("working", working), ("thinking", thinking)):
         if active:
-            return AvatarPresentation(state, audio_level(level))
+            return AvatarPresentation(state, audio_level(level),
+                                      tuple(audio_level(v) for v in level) if isinstance(level, (list, tuple)) and len(level) == 8 else None)
     return AvatarPresentation()
 
 
@@ -206,12 +208,12 @@ class ActivityAvatar(QWidget):
             gaze = self._gaze if (animated and current.state == "ready"
                                   and time.monotonic() - self._gaze_at < 2) else (0.0, 0.0)
             level = audio_level(current.level) if animated else 0.0
-            key = (self._style, current.state, level, seconds, gaze)
+            key = (self._style, current.state, level, seconds, gaze, current.bands)
             if key == self._last_frame:
                 return
             pixels = self._renderer.render(style=self._style, state=current.state,
                                            level=level, time=seconds,
-                                           gaze=gaze, transparent=True)
+                                           gaze=gaze, transparent=True, bands=current.bands if animated else None)
             if len(pixels) != self._render_size * self._render_size * 4:
                 raise ValueError("The avatar renderer returned an invalid frame size.")
             image = QImage(pixels, self._render_size, self._render_size,
@@ -273,7 +275,7 @@ class AvatarVoiceButton(QPushButton):
     def __init__(self, state: Callable[[], AvatarPresentation], parent=None):
         super().__init__(parent)
         self.setObjectName("avatarVoiceButton")
-        self.setFixedSize(68, 80)
+        self.setFixedSize(84, 96)
         self.setCheckable(True)
         self.setAutoDefault(False)
         self.setCursor(Qt.PointingHandCursor)
@@ -291,13 +293,11 @@ class AvatarVoiceButton(QPushButton):
         self.caption.setObjectName("avatarVoiceCaption")
         self.caption.setAlignment(Qt.AlignCenter)
         self.caption.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        row = QVBoxLayout(self)
-        row.setContentsMargins(4, 0, 4, 0)
-        row.setSpacing(0)
-        row.addWidget(self.avatar)
-        row.addWidget(self.fallback)
+        # Reserve equal space above/below the image: the orb itself stays
+        # centered while a state label can appear above without moving it.
+        self.avatar.move(12, 18)
+        self.fallback.move(12, 18)
         self.caption.setFixedHeight(18)
-        row.addWidget(self.caption, 0, Qt.AlignHCenter)
         self.avatar.failed.connect(self.update_presentation)
         self.update_presentation()
 
@@ -310,12 +310,24 @@ class AvatarVoiceButton(QPushButton):
         if not use_avatar:
             self.fallback.setPixmap(symbol_icon("audio-lines", color=THEME.text_primary, size=24).pixmap(24, 24))
         active = self.isChecked()
-        self.caption.setText("End voice" if active else "Talk")
-        self.caption.setFixedWidth(min(60, self.caption.sizeHint().width() + 6))
         state = self.avatar._state_provider().state.capitalize()
-        action = "End voice conversation" if active else "Start voice conversation"
+        label = {"Listening": "Listening", "Speaking": "Speaking", "Thinking": "Thinking", "Working": "Thinking"}.get(state, "")
+        self.caption.setText(label)
+        self.caption.setFixedWidth(min(84, self.caption.sizeHint().width() + 8))
+        self.caption.move((self.width() - self.caption.width()) // 2, 0)
+        self.caption.setVisible(bool(label))
+        action = "End voice conversation" if active else ("Stop speaking" if state == "Speaking" else "Start voice conversation")
         self.setAccessibleName(action)
         self.setAccessibleDescription(f"Assistant: {state}. {self.toolTip()} {self.avatar.error}")
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        super().paintEvent(event)
+        # macOS uses window alpha for native hit testing. A wire avatar's
+        # transparent center otherwise sends physical clicks to the window below.
+        painter = QPainter(self)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(16, 22, 31, 28))
+        painter.drawEllipse(QRectF(8, 14, 68, 68))
 
     def focusInEvent(self, event) -> None:  # noqa: N802
         self._set_keyboard_focus(event.reason() in (Qt.TabFocusReason, Qt.BacktabFocusReason, Qt.ShortcutFocusReason))

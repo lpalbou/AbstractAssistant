@@ -6255,7 +6255,7 @@ class AssistantPalette(QMainWindow):
         self.prompt_edit.setFixedHeight(64)
         self.prompt_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.prompt_edit.document().setDocumentMargin(1)
-        self.prompt_edit.setPlaceholderText("Ask anything, or click Talk…")
+        self.prompt_edit.setPlaceholderText("Ask anything…")
         self.prompt_edit.setAccessibleName("Message your assistant")
         self.prompt_edit.setAccessibleDescription("Enter to send. Shift Enter for a new line. Drop files to attach.")
         self.prompt_edit.setTabChangesFocus(True)
@@ -9047,7 +9047,7 @@ class AssistantPalette(QMainWindow):
         side_gap = 8
         card_gap = 12
         top_gap = 4
-        bottom_gap = 4
+        bottom_gap = 12
         if self._zoomed:
             width, target_height = _zoomed_shell_size(
                 screen_width=int(screen_geom.width()),
@@ -9132,7 +9132,7 @@ class AssistantPalette(QMainWindow):
         orb = self.conversation_button
         panel_width = width - orb.width() - 12
         self.composer_card.setGeometry(x, y, panel_width, height)
-        orb.move(x + width - orb.width(), y + height - orb.height())
+        orb.move(x + width - orb.width(), y + (height - orb.height()) // 2)
 
     def _toggle_zoom(self) -> None:
         self._zoomed = not bool(self._zoomed)
@@ -9342,7 +9342,7 @@ class AssistantPalette(QMainWindow):
         title.setObjectName("historyEmptyTitle")
         title.setAlignment(Qt.AlignCenter)
         col.addWidget(title, 0, Qt.AlignCenter)
-        sub = QLabel("Type a message, drop files, or click Talk")
+        sub = QLabel("Type a message, drop files, or click the orb to talk")
         sub.setObjectName("historyEmptySubtitle")
         sub.setAlignment(Qt.AlignCenter)
         # No word wrap: Qt's wrap heuristic folds this line even with room to
@@ -11422,6 +11422,10 @@ class AssistantPalette(QMainWindow):
             action.setEnabled(False)
             action.setToolTip(reason)
         action.triggered.connect(self._toggle_voice_conversation)
+        if in_conversation:
+            paused = self._voice_conversation.state == "paused"
+            pause = menu.addAction("Resume voice" if paused else "Pause voice")
+            pause.triggered.connect(self._voice_pause_toggled)
         dictate = menu.addAction("Stop dictation" if self._listening else "Dictate into the message box")
         dictate.setEnabled(not in_conversation and self._controller.supports_stt())
         dictate.triggered.connect(self._toggle_listening)
@@ -11491,6 +11495,12 @@ class AssistantPalette(QMainWindow):
         return ""
 
     def _on_orb_clicked(self) -> None:
+        if not self._state("_voice_conversation_active", False) and (
+            self._voice_is_speaking() or self._controller.voice_manager.is_paused()
+        ):
+            self._voice_stop_speaking()
+            self._refresh_avatar()
+            return
         if self._state("_listening", False) and not self._state("_voice_conversation_active", False):
             self._toggle_listening()
         else:
@@ -11533,7 +11543,8 @@ class AssistantPalette(QMainWindow):
         self.conversation_button.setToolTip("End the voice conversation (⌘⇧V)")
         self.mic_button.setEnabled(False)
         self.mic_button.setToolTip("Dictation is off during a voice conversation")
-        self.voice_strip.show()
+        # State lives above the orb; run cancellation stays on the red Stop.
+        self.voice_strip.hide()
         self._sync_composer_height()
         started = conversation.start(
             listen_kwargs={
@@ -11664,7 +11675,7 @@ class AssistantPalette(QMainWindow):
             "heard": ("Heard you", "voice"),
             "thinking": ("Thinking…", "busy"),
             "speaking": ("Speaking", "voice") if self._voice_is_speaking() else (text or "Preparing speech…", "info" if text == "Speech paused" else "busy"),
-            "paused": ("Microphone paused", "info"),
+            "paused": ("Voice paused", "info"),
             "error": ("Voice stopped", "error"),
         }
         if state in status_map:
@@ -11677,6 +11688,7 @@ class AssistantPalette(QMainWindow):
 
     def _on_voice_level(self, level: float) -> None:
         self._avatar_microphone_level = level
+        self._avatar_microphone_level_at = time.monotonic()
         self._refresh_avatar()
         strip = getattr(self, "__dict__", {}).get("voice_strip")
         if strip is None or not strip.isVisible():
@@ -12435,25 +12447,30 @@ class AssistantPalette(QMainWindow):
             if in_conversation
             else (HOLD_TO_TALK_TOOLTIP if stt_available else "Gateway speech input is not configured.")
         )
-        conversation_button = getattr(self, "__dict__", {}).get("conversation_button")
-        if conversation_button is not None:
-            reason = self._voice_conversation_unavailable_reason()
-            conversation_button.setEnabled(not reason or in_conversation or self._state("_listening", False))
-            conversation_button.setToolTip(
-                "End the voice conversation (⌘⇧V)"
-                if in_conversation
-                else (reason or "Start a voice conversation (⌘⇧V)")
-            )
+        self._refresh_orb_action()
         self._update_prompt_placeholder()
         self._refresh_submission_state()
         self._refresh_workspace_hint()
+
+    def _refresh_orb_action(self) -> None:
+        button = self._state("conversation_button")
+        if button is None:
+            return
+        active = bool(self._state("_voice_conversation_active", False) or self._state("_listening", False))
+        manager = getattr(self._state("_controller"), "voice_manager", None)
+        playing = self._voice_is_speaking() or bool(manager and manager.is_paused())
+        reason = "" if active or playing else self._voice_conversation_unavailable_reason()
+        action = "End voice conversation" if active else ("Stop speaking" if playing else "Start voice conversation")
+        button.setEnabled(not reason)
+        button.setToolTip(reason or action)
+        button.setAccessibleName(action)
 
     def _update_prompt_placeholder(self) -> None:
         if self._state("_automation_view_id", ""):
             return  # the open automation's composer words (`_set_composer_automation_mode`)
         self.prompt_edit.setPlaceholderText(
             "Type a message…" if self._state("_voice_conversation_active", False)
-            else "Ask anything, or click Talk…"
+            else "Ask anything…"
         )
 
     def _refresh_submission_state(self) -> None:
@@ -12487,6 +12504,7 @@ class AssistantPalette(QMainWindow):
                          style=getattr(prefs, "avatar_style", "watch-hover"),
                          animated=getattr(prefs, "avatar_animated", True))
         self.conversation_button.update_presentation()
+        self._refresh_orb_action()
 
     def _refresh_avatar(self) -> None:
         widget = self._state("activity_avatar")
@@ -12496,6 +12514,7 @@ class AssistantPalette(QMainWindow):
         if button is not None:
             button.setChecked(bool(self._state("_voice_conversation_active", False) or self._state("_listening", False)))
             button.update_presentation()
+            self._refresh_orb_action()
 
     def _avatar_presentation(self) -> AvatarPresentation:
         manager = getattr(self._state("_controller"), "voice_manager", None)
@@ -12507,7 +12526,9 @@ class AssistantPalette(QMainWindow):
         except (AttributeError, RuntimeError):
             pass
         speaking = self._voice_is_speaking()
-        level = self._decayed_speech_meter() if speaking else self._state("_avatar_microphone_level", 0.0)
+        mic_age = time.monotonic() - float(self._state("_avatar_microphone_level_at", 0.0))
+        mic_level = self._state("_avatar_microphone_level", 0.0) * max(0.0, 1.0 - mic_age / 0.35)
+        level = self._decayed_speech_meter() if speaking else mic_level
         return avatar_presentation(
             error=self._state("_status_tone", "") == "error",
             speaking=speaking,
@@ -12638,8 +12659,8 @@ class AssistantPalette(QMainWindow):
     def _on_speech_level(self, level: Any) -> None:
         """A meter reading for the assistant's own voice.
 
-        Feeds the tray only: the composer's voice strip is the MICROPHONE
-        meter, fed by `listen(on_audio_level=…)`, and these are output levels.
+        Feeds the tray and speaking avatar. Microphone input arrives separately
+        through `listen(on_audio_level=…)`.
         """
         self._speech_meter = level
         self._speech_meter_ts = time.monotonic()
@@ -12818,7 +12839,7 @@ class AssistantPalette(QMainWindow):
             }
             QFrame#composerCard { border-radius: 22px; }
             QPushButton#avatarVoiceButton {
-                min-height: 78px; max-height: 78px; min-width: 66px; max-width: 66px;
+                min-height: 94px; max-height: 94px; min-width: 82px; max-width: 82px;
                 padding: 0px; border: 1px solid transparent;
                 border-radius: 24px; background: transparent;
             }

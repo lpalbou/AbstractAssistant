@@ -37,7 +37,7 @@ def _state_view() -> dict:
         "starting": ("loader", THEME.text_muted, "Starting the microphone…"),
         "listening": ("mic", THEME.positive, "Listening…"),
         "heard": ("loader", THEME.accent, "Heard you — sending in a moment…"),
-        "thinking": ("spark", THEME.accent, "Thinking… (mic paused)"),
+        "thinking": ("spark", THEME.accent, "Thinking…"),
         "speaking": ("speaker", THEME.positive, "Speaking… Esc ends voice"),
         "paused": ("mic-off", THEME.text_muted, "Microphone paused"),
         "error": ("alert", THEME.danger, "Voice conversation stopped"),
