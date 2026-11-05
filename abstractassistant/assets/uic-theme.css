@@ -30,8 +30,24 @@
   --font-size-sm: calc(12px * var(--font-scale));
   --font-size-md: calc(13px * var(--font-scale));
   --font-size-base: calc(14px * var(--font-scale));
+  /* Headings are FLUID (responsive workstream 2026-09-30): they reach their
+   * desktop size at ~1000px wide and shrink slightly below, so a phone is
+   * never bigger than a laptop. Sizes up to lg stay fixed px (legibility
+   * floor; apps use lg as their 16px touch-input size, so it must not dip).
+   * Everything still multiplies by the user's --font-scale. */
   --font-size-lg: calc(16px * var(--font-scale));
-  --font-size-xl: calc(18px * var(--font-scale));
+  --font-size-xl: calc(clamp(16px, 14px + 0.4vw, 18px) * var(--font-scale));
+  --font-size-2xl: calc(clamp(18px, 15px + 0.7vw, 22px) * var(--font-scale));
+  /* Role sizes: reading text, form fields, monospace. Coarse pointers raise
+   * their floors (see the Responsive tokens block). */
+  --font-size-body: var(--font-size-base);
+  --font-size-input: var(--font-size-md);
+  --font-size-code: var(--font-size-sm);
+  /* Select arrow drawn on touch, where native select appearance is off
+   * (see the RESPONSIVE LAYER). In the base token block so consoles that
+   * sync only :root tokens receive it by name; mid-grey reads on light and
+   * dark themes alike, so no per-theme variant. */
+  --af-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%238a93a3' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
   --line-height-base: 1.5;
 
@@ -81,6 +97,22 @@
   --entity-scar: #e05555;
   --entity-bond: #f0c060;
   --entity-accent: #e8a54a;
+
+  /* Account-kind row tints (.af-row--admin|user|entity, .af-kind-chip--*):
+   * faint washes over whatever surface the row sits on. Users stay neutral,
+   * admin takes the theme accent, entities the entity-standing violet. Text
+   * on a tinted row keeps >= 4.5:1 in every theme (check_modal_rows.mjs
+   * computes it). The light-theme strengths live in the grouped light block. */
+  --af-row-tint-admin: color-mix(in srgb, var(--accent) 7%, transparent);
+  --af-row-tint-user: transparent;
+  --af-row-tint-entity: color-mix(in srgb, var(--entity-standing) 8%, transparent);
+  /* Text on a tinted row: the theme's primary, and a secondary nudged toward
+   * the foreground so it keeps 4.5:1 over the wash (.af-row__muted). */
+  --af-row-text: var(--text-primary);
+  --af-row-text-muted: color-mix(in srgb, var(--text-secondary) 65%, #ffffff);
+  --af-row-mark-admin: var(--accent);
+  --af-row-mark-user: var(--ui-border-2);
+  --af-row-mark-entity: var(--entity-standing);
 
   /* Semantic tints (hue-matched to the base colors above — subtle/border
    * variants must never drift to a different hue family than their base) */
@@ -141,7 +173,16 @@
   }
 }
 
-/* Shared Gateway browser-session sign-in card */
+/* af-gateway-signin:begin
+ * Shared Gateway browser-session sign-in card (ui-kit 0.3.3 layout,
+ * docs/state-toggles.md "Sign-in card"): ONE column, labels ABOVE fields,
+ * max 480px centred; one status pill (neutral / ok / warn); the token field
+ * carries its Show/Hide button INSIDE; a plain body-size "Remember this
+ * browser" checkbox row with the primary button right-aligned; one quiet text
+ * link for "Forgot your token? Email me a sign-in code" (busy + cooldown
+ * states); the code step block; inline messages at body size. The gateway
+ * console copies this block through console_islands_sync; the React
+ * GatewaySessionSignInCard / GatewayConnectModal use the same classes. */
 .af-gateway-signin,
 .af-gateway-signin *,
 .af-gateway-signin *::before,
@@ -154,7 +195,8 @@
 
 .af-gateway-signin {
   display: block;
-  width: min(760px, 100%);
+  width: min(480px, 100%);
+  margin-inline: auto;
   border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
   border-radius: var(--radius-md);
   padding: 24px;
@@ -162,6 +204,14 @@
   box-shadow: var(--ui-shadow-1);
   color: var(--text-primary);
   font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  line-height: 1.4;
+}
+
+/* Hosts toggle steps with the hidden attribute; the flex/grid rules below
+ * must not resurrect a hidden step. */
+.af-gateway-signin [hidden] {
+  display: none !important;
 }
 
 .af-gateway-signin h2 {
@@ -171,7 +221,7 @@
 }
 
 .af-gateway-signin p {
-  margin: 14px 0 0;
+  margin: 8px 0 0;
   color: var(--text-secondary);
   font-size: var(--font-size-base);
 }
@@ -192,9 +242,15 @@
   outline-offset: 0;
 }
 
+.af-gateway-signin input[aria-invalid="true"] {
+  border-color: var(--error);
+}
+
 .af-gateway-signin input[type="checkbox"] {
   width: auto;
   min-height: auto;
+  margin: 0;
+  accent-color: var(--accent);
 }
 
 .af-gateway-signin button {
@@ -204,7 +260,7 @@
   padding: 8px 14px;
   color: var(--text-primary);
   font: inherit;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
 }
@@ -222,33 +278,37 @@
   cursor: not-allowed;
 }
 
+.af-gateway-signin button[aria-busy="true"] {
+  cursor: progress;
+}
+
 .af-gateway-signin__hero {
   display: flex;
   justify-content: space-between;
   gap: 24px;
-  margin-bottom: 22px;
+  margin-bottom: 18px;
 }
 
 .af-gateway-signin__kicker {
   margin-bottom: 8px;
   color: var(--accent);
   font-size: var(--font-size-xs);
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
 .af-gateway-signin__mark {
-  width: 72px;
-  height: 72px;
+  width: 56px;
+  height: 56px;
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  border-radius: 24px;
+  border-radius: 18px;
   border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
   background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 18%, transparent), color-mix(in srgb, var(--error) 20%, transparent));
   color: var(--text-primary);
-  font-size: 32px;
+  font-size: 26px;
   font-weight: 900;
 }
 
@@ -260,16 +320,34 @@
   margin-bottom: 18px;
 }
 
+/* ONE pill per state: neutral "Not signed in", ok "Signed in as admin",
+ * warn "Token refused". No duplicate caption beside it. */
 .af-gateway-signin__status {
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   min-height: 26px;
-  padding: 4px 12px;
+  padding: 3px 12px;
   border-radius: 999px;
-  font-size: var(--font-size-xs);
-  font-weight: 800;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
   border: 1px solid var(--ui-overlay-border);
   background: var(--ui-overlay-bg);
+}
+
+.af-gateway-signin__status::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.85;
+}
+
+.af-gateway-signin__status--neutral {
+  color: var(--text-secondary);
 }
 
 .af-gateway-signin__status--ok {
@@ -282,6 +360,7 @@
   border-color: var(--warning-border);
 }
 
+/* Kept for existing callers; new code uses --warn for a refused token. */
 .af-gateway-signin__status--err {
   color: var(--error);
   border-color: var(--error-border);
@@ -292,71 +371,238 @@
   font-size: var(--font-size-sm);
 }
 
+/* One column: label above field. Works for the flat markup (label, input,
+ * label, input) and for __field wrappers. */
 .af-gateway-signin__form {
-  display: grid;
-  grid-template-columns: 150px minmax(0, 1fr);
-  gap: 12px;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
 }
 
-/* Narrow drawers (360-480px): a fixed 150px label column leaves too little
- * for the gateway URL — labels stack above their inputs instead
- * (design adversary B, 2026-07-13). */
-@media (max-width: 520px) {
-  .af-gateway-signin__form {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 6px;
-  }
+.af-gateway-signin__form > * + .af-gateway-signin__label,
+.af-gateway-signin__form > * + .af-gateway-signin__field,
+.af-gateway-signin__form > * + .af-gateway-signin__checkbox,
+.af-gateway-signin__form > * + .af-gateway-signin__submit-row {
+  margin-top: 10px;
+}
 
-  .af-gateway-signin__label {
-    margin-top: 6px;
-  }
+.af-gateway-signin__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
 }
 
 .af-gateway-signin__label {
   margin: 0;
-  color: var(--text-secondary);
-  font-size: var(--font-size-xs);
-  /* 600, not 800: labels must not compete with the kicker/buttons for
-   * hierarchy — uppercase + tracking already carry the label look
-   * (design adversary A, 2026-07-13). */
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  color: var(--text-primary);
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
+/* The Show/Hide button sits INSIDE the token field, at its right end. */
 .af-gateway-signin__token-input {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
+  min-width: 0;
 }
 
 .af-gateway-signin__token-input input {
   flex: 1;
+  min-width: 0;
+  padding-right: 72px;
 }
 
-.af-gateway-signin__checkbox {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0;
+.af-gateway-signin .af-gateway-signin__token-input > button {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  min-height: 30px;
+  min-width: 56px;
+  padding: 4px 10px;
+  border-radius: calc(var(--radius-sm) - 1px);
+  background: transparent;
   color: var(--text-secondary);
-  font-weight: 700;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+}
+
+.af-gateway-signin .af-gateway-signin__token-input > button:hover:not(:disabled) {
+  filter: none;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.af-gateway-signin .af-gateway-signin__token-input > button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* A form option, not a setting: a plain checkbox at body size. */
+.af-gateway-signin__checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-base);
+  font-weight: 400;
+  line-height: 1.3;
   text-transform: none;
   letter-spacing: 0;
+  cursor: pointer;
 }
 
-.af-gateway-signin__message {
-  margin-top: 14px;
+/* "Remember this browser" left, primary "Sign in" right. */
+.af-gateway-signin__submit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  flex-wrap: wrap;
+}
+
+.af-gateway-signin__submit-row > .af-gateway-signin__primary,
+.af-gateway-signin__code-actions > .af-gateway-signin__primary {
+  margin-left: auto;
+}
+
+/* Inline messages at body size: an error under the field that failed, a
+ * plain sentence for "a code is on its way". Nothing big, nothing green that
+ * stays. */
+.af-gateway-signin .af-gateway-signin__message,
+.af-gateway-signin .af-gateway-signin__field-error {
+  margin: 10px 0 0;
+  font-size: var(--font-size-base);
+  font-weight: 400;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
-.af-gateway-signin__message--error {
+.af-gateway-signin .af-gateway-signin__field-error {
+  margin-top: 0;
   color: var(--error);
 }
 
-.af-gateway-signin__message--ok {
-  color: var(--success);
+.af-gateway-signin .af-gateway-signin__message--error {
+  color: var(--error);
+}
+
+.af-gateway-signin .af-gateway-signin__message--ok {
+  color: var(--text-primary);
+}
+
+/* The one quiet text link ("Forgot your token? Email me a sign-in code",
+ * "Send a new code", "Back to token"). Busy: aria-busy="true" + the host's
+ * "Sending…" text. Cooldown: disabled + "Send a new code (in 24 s)". */
+.af-gateway-signin__recovery {
+  margin-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.af-gateway-signin .af-gateway-signin__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 0;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+  font-weight: 400;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  text-underline-offset: 3px;
+  white-space: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.af-gateway-signin .af-gateway-signin__link:hover:not(:disabled) {
+  filter: none;
+  color: var(--text-primary);
+  text-decoration-color: currentColor;
+}
+
+.af-gateway-signin .af-gateway-signin__link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.af-gateway-signin .af-gateway-signin__link[aria-busy="true"] {
+  color: var(--text-secondary);
+  text-decoration: none;
+  cursor: progress;
+}
+
+.af-gateway-signin .af-gateway-signin__link[aria-busy="true"]::after {
+  content: "";
+  width: 0.85em;
+  height: 0.85em;
+  flex: none;
+  border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentColor;
+  border-radius: 999px;
+  animation: af-signin-spin 0.8s linear infinite;
+}
+
+.af-gateway-signin .af-gateway-signin__link:disabled,
+.af-gateway-signin .af-gateway-signin__link[aria-disabled="true"] {
+  opacity: 1;
+  color: var(--text-muted);
+  text-decoration: none;
+  cursor: not-allowed;
+}
+
+@keyframes af-signin-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The code step: replaces the recovery link once a code was requested. */
+.af-gateway-signin__code {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--ui-border-1);
+}
+
+.af-gateway-signin .af-gateway-signin__code > .af-gateway-signin__message {
+  margin: 0 0 8px;
+}
+
+.af-gateway-signin__code input[inputmode="numeric"] {
+  font-family: var(--font-mono);
+  letter-spacing: 0.18em;
+  font-variant-numeric: tabular-nums;
+}
+
+.af-gateway-signin__code-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.af-gateway-signin .af-gateway-signin__back {
+  align-self: flex-start;
+  margin-top: 6px;
 }
 
 /* Shared gateway connect modal (GatewayConnectModal).
@@ -379,7 +625,7 @@
 }
 
 .af-connect-modal {
-  width: min(760px, 100%);
+  width: min(480px, 100%);
   max-height: calc(100vh - 48px);
   /* dvh tracks the REAL viewport under mobile URL bars / open keyboards
    * (design adversary B); vh line above stays as the older-browser fallback. */
@@ -412,7 +658,7 @@
   background: var(--bg-tertiary);
 }
 
-@media (max-width: 680px) {
+@media (max-width: 767.98px) {
   .af-gateway-signin {
     padding: 18px;
   }
@@ -420,18 +666,60 @@
   .af-gateway-signin__hero {
     gap: 16px;
   }
+}
 
+/* A card narrower than ~480px (phones, drawers): the hero mark is dead weight
+ * that squeezes the intro to ~70% of the width — hide it. */
+@container af-signin (max-width: 479.98px) {
   .af-gateway-signin__mark {
-    width: 56px;
-    height: 56px;
-    border-radius: 18px;
-    font-size: 26px;
-  }
-
-  .af-gateway-signin__form {
-    grid-template-columns: 1fr;
+    display: none;
   }
 }
+
+/* A card narrower than ~360px (drawers, phones): the submit and code rows
+ * stack, the primary spans the row (nearest the thumb). */
+@container af-signin (max-width: 319.98px) {
+  .af-gateway-signin__submit-row,
+  .af-gateway-signin__code-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .af-gateway-signin__submit-row > .af-gateway-signin__primary,
+  .af-gateway-signin__code-actions > .af-gateway-signin__primary {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .af-gateway-signin__mark {
+    display: none;
+  }
+}
+
+/* Touch: the in-field Show/Hide button spans the field's height and the text
+ * links become 44px rows (their (0,2,0) selectors outrank the general
+ * `.af-gateway-signin button` touch rule, so they carry their own). */
+@media (pointer: coarse) {
+  .af-gateway-signin .af-gateway-signin__token-input > button {
+    top: 0;
+    bottom: 0;
+    right: 0;
+    transform: none;
+    min-height: var(--tap-min);
+    min-width: var(--tap-min);
+  }
+
+  .af-gateway-signin .af-gateway-signin__link {
+    min-height: var(--tap-min);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .af-gateway-signin .af-gateway-signin__link[aria-busy="true"]::after {
+    animation: none;
+  }
+}
+/* af-gateway-signin:end */
 
 :root.theme-light,
 :root.theme-solarized-light,
@@ -457,6 +745,13 @@
   --entity-scar: #b23230;
   --entity-bond: #66530d;
   --entity-accent: #8f5a0e;
+
+  /* Account-kind row tints, light strengths (see the base :root block). */
+  --af-row-tint-admin: color-mix(in srgb, var(--accent) 6%, transparent);
+  --af-row-tint-user: transparent;
+  --af-row-tint-entity: color-mix(in srgb, var(--entity-standing) 6%, transparent);
+  --af-row-text: color-mix(in srgb, var(--text-primary) 80%, #000000);
+  --af-row-text-muted: color-mix(in srgb, var(--text-secondary) 65%, #000000);
 
   /* Code/JSON syntax tokens, light variants: dark enough to hold ≥4.5:1 on
    * every light theme's primary/secondary backgrounds (worst cases #ffffff
@@ -651,9 +946,23 @@
 
 /* Narrow containers: the three-column control row (filter + segmented +
  * bulk) overflows under ~520px — stack it (design adversary B). */
-@media (max-width: 520px) {
+@container af-tool-policy (max-width: 519.98px) {
   .af-tool-policy__controls {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Narrow tool policy (phones): the approval select wraps under the tool
+ * name instead of squeezing it. */
+@container af-tool-policy (max-width: 359.98px) {
+  /* Scoped to beat the base .af-tool-row rule, which comes later in the file. */
+  .af-tool-policy .af-tool-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .af-tool-policy .af-tool-row__approval {
+    grid-column: 2;
+    justify-self: start;
   }
 }
 
@@ -755,7 +1064,14 @@
 
 .af-tool-row {
   display: grid;
-  grid-template-columns: 24px 1fr auto;
+  /* minmax(0, 1fr): a long tool name must shrink its column, never push the
+   * approval select past the row edge. */
+  /* auto: the first column is the tool's switch (34 px track; 44 px on touch), never a fixed 24 px
+   * that let the switch overlap the name (apps-1 finding 23:15). */
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  /* Never shrink inside the scrolling list: the touch min-height replaces
+   * min-height:auto, which would otherwise let a row shrink below its content. */
+  flex-shrink: 0;
   gap: 10px;
   align-items: flex-start;
   padding: 10px 12px;
@@ -768,21 +1084,25 @@
   border-color: var(--accent-border);
 }
 
-.af-tool-row__check input {
-  width: 16px;
-  height: 16px;
+.af-tool-row__check {
+  display: inline-flex;
+  align-items: center;
 }
 
 .af-tool-row__title {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
 }
 
 .af-tool-row__name {
   font-weight: 700;
   font-size: var(--font-size-sm);
   color: var(--text-primary);
+  min-width: 0;
+  /* Breaks at the <wbr> after each underscore; mid-word only when one segment is wider than the column. */
+  overflow-wrap: break-word;
 }
 
 .af-tool-row__badge {
@@ -794,6 +1114,43 @@
   font-size: var(--font-size-xxs);
   text-transform: uppercase;
   letter-spacing: 0.08em;
+  /* A one-word risk label: it moves under the name (the title wraps), never
+   * breaks mid-word ("DESTRO/Y" in a 360 px rail, release-closing polish). */
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+/* A server-reported tool state (ToolSpec.state): a calm pill under the title. */
+.af-tool-row__state-line {
+  margin-top: 4px;
+}
+
+.af-tool-row__state {
+  display: inline-block;
+  max-width: 100%;
+  padding: 1px 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--ui-chip-border);
+  background: var(--ui-chip-bg);
+  color: var(--text-primary);
+  font-size: var(--font-size-xxs);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.af-tool-row__state.is-ok {
+  border-color: var(--success-border);
+  background: var(--success-subtle);
+}
+
+.af-tool-row__state.is-warn {
+  border-color: var(--warning-border);
+  background: var(--warning-subtle);
+}
+
+.af-tool-row__state.is-danger {
+  border-color: var(--error-border);
+  background: var(--error-subtle);
 }
 
 .af-tool-row__desc {
@@ -808,7 +1165,17 @@
   margin-top: 4px;
 }
 
+.af-tool-row__meta {
+  min-width: 0;
+}
+
+.af-tool-row__approval {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .af-tool-row__approval select {
+  max-width: 100%;
   border-radius: var(--radius-md);
   border: 1px solid var(--ui-border-1);
   background: var(--ui-overlay-bg);
@@ -1583,7 +1950,8 @@
 
 .af-select-popover {
   z-index: 10000;
-  background: var(--bg-card, var(--bg-secondary));
+  /* Opaque: a floating layer over content (--bg-card is translucent). */
+  background: var(--bg-secondary);
   border: 1px solid var(--ui-overlay-border, rgba(255, 255, 255, 0.14));
   border-radius: 12px;
   box-shadow: var(--ui-shadow-1, 0 10px 30px rgba(0, 0, 0, 0.35));
@@ -2009,7 +2377,8 @@
   padding: 18px;
   border-radius: var(--radius-lg);
   border: 1px solid var(--error-border);
-  background: var(--bg-card, var(--bg-secondary));
+  /* Opaque: a floating layer over content (--bg-card is translucent). */
+  background: var(--bg-secondary);
   box-shadow: var(--ui-shadow-1);
   color: var(--text-primary);
   font-family: var(--font-sans);
@@ -2459,13 +2828,18 @@
  *
  * Z-ORDER TOKENS (behavior contract statement 13): bottom→top
  *   app content < drawers (--z-drawer) < connect modal (--z-connect-modal,
- *   the pre-existing 1000) < transient popovers (--z-popover).
+ *   the pre-existing 1000) < transient popovers (--z-popover) < tooltips
+ *   (--z-tooltip).
  * ------------------------------------------------------------------- */
 
 :root {
   --z-drawer: 900;
+  /* AfModal / .af-modal-backdrop: above drawers, below the connect modal. */
+  --z-modal: 950;
   --z-connect-modal: 1000;
   --z-popover: 1100;
+  /* The kit tooltip (af-tooltip): above everything it explains. */
+  --z-tooltip: 1200;
 }
 
 .af-topbar {
@@ -2574,15 +2948,20 @@
   flex-direction: column;
   max-width: 100vw;
   border-left: 1px solid var(--ui-border-1);
-  background: var(--bg-card, var(--bg-secondary));
+  /* Opaque: a floating layer over content (--bg-card is translucent). */
+  background: var(--bg-secondary);
   box-shadow: var(--ui-shadow-1);
   color: var(--text-primary);
   font-family: var(--font-sans);
 }
 
-@media (max-width: 680px) {
+/* Below the sm breakpoint (768px) a drawer is the whole screen (the inline
+ * width prop loses); 0.2.0 switched at 680px. */
+@media (max-width: 767.98px) {
   .af-drawer {
     width: 100vw !important;
+    border-left: 0;
+    border-right: 0;
   }
 }
 
@@ -2668,7 +3047,8 @@
   padding: 18px;
   border-radius: var(--radius-lg);
   border: 1px solid var(--ui-border-1);
-  background: var(--bg-card, var(--bg-secondary));
+  /* Opaque: a floating layer over content (--bg-card is translucent). */
+  background: var(--bg-secondary);
   box-shadow: var(--ui-shadow-1);
   color: var(--text-primary);
   font-family: var(--font-sans);
@@ -2691,7 +3071,7 @@
   align-items: center;
 }
 
-@media (max-width: 520px) {
+@container af-dialog (max-width: 479.98px) {
   .af-appearance__grid {
     grid-template-columns: minmax(0, 1fr);
     gap: 6px;
@@ -2727,52 +3107,203 @@
   filter: brightness(1.12);
 }
 
-/* --- AfAboutDialog (reuses the .af-appearance shell) --- */
-
-.af-about__rows {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 8px 14px;
+/* af-about:begin
+ * ABOUT (ui-kit 0.7.0): AfAbout card + AfAboutDialog (reuses the
+ * .af-appearance shell). App name + version, framework + gateway versions,
+ * one row of links, one author/licence line. No package list. Vendored
+ * verbatim by the AbstractCore console (theme_sync KIT_ABOUT_CSS). */
+.af-appearance.af-about {
+  width: min(460px, 100%);
+  gap: 0;
+  padding: 16px 18px;
+}
+.af-about-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+.af-about-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.af-about-card__name {
+  flex: 1;
+  min-width: 0;
   margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
-
-.af-about__row {
-  display: contents;
-}
-
-@media (max-width: 520px) {
-  .af-about__rows {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 2px;
-  }
-
-  .af-about__value {
-    margin-bottom: 8px;
-  }
-}
-
-.af-about__label {
+.af-about-card__version {
   color: var(--text-secondary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.af-about-card__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  margin: -6px -8px -6px 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.af-about-card__close:hover {
+  background: var(--ui-surface-2, var(--bg-tertiary));
+  color: var(--text-primary);
+}
+.af-about-card__close:focus-visible,
+.af-about-card__link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.af-about-card__versions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 0;
   font-size: var(--font-size-sm);
+}
+.af-about-card__fact {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.af-about-card__fact dt {
+  color: var(--text-secondary);
   font-weight: 600;
 }
-
-.af-about__value {
+.af-about-card__fact dd {
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.af-about-card__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
   font-size: var(--font-size-sm);
 }
-
-.af-about__link {
+.af-about-card__link {
   color: var(--accent);
+  font-weight: 600;
   text-decoration: none;
+  border-radius: 3px;
 }
-
-.af-about__link:hover,
-.af-about__link:focus-visible {
+.af-about-card__link:hover {
   text-decoration: underline;
 }
+.af-about-card__legal {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+}
+/* af-about:end */
+
+/* af-audio:begin
+ * AUDIO PLAYER (ui-kit 0.7.0): AfAudioPlayer, the shared waveform player
+ * (AfFileViewer audio kind, panel-chat media, AbstractFlow artifacts). */
+.af-audio {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  width: min(100%, 640px);
+  padding: 6px 10px 6px 6px;
+  border: 1px solid var(--ui-border-1);
+  border-radius: var(--radius-md);
+  background: var(--ui-surface-1, var(--bg-secondary));
+}
+.af-audio audio {
+  display: none;
+}
+.af-audio__play {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--bg-primary);
+  cursor: pointer;
+}
+.af-audio__play:hover {
+  filter: brightness(1.1);
+}
+.af-audio__play:focus-visible,
+.af-audio__wave:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.af-audio__wave {
+  height: 36px;
+  min-width: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  touch-action: none;
+}
+.af-audio__wave svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.af-audio__bar {
+  fill: var(--text-muted);
+  opacity: 0.55;
+}
+.af-audio__bar--played {
+  fill: var(--accent);
+  opacity: 1;
+}
+.af-audio__time {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.af-audio__error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--error, #ef4444);
+  font-size: var(--font-size-sm);
+}
+@media (pointer: coarse) {
+  .af-audio__play {
+    width: var(--tap-min, 44px);
+    height: var(--tap-min, 44px);
+  }
+  .af-audio__wave {
+    height: var(--tap-min, 44px);
+  }
+}
+@container (max-width: 359.98px) {
+  .af-audio {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .af-audio__time {
+    grid-column: 2;
+  }
+}
+/* af-audio:end */
 
 /* ---------------------------------------------------------------------
  * Kit-wide interaction polish (design adversaries A+B, 2026-07-13)
@@ -3115,7 +3646,29 @@
 /* State = WORD then ICON ("Active ▶"); the icon inherits the word's color. */
 .af-auto__status { display: inline-flex; align-items: center; gap: 4px; }
 .af-auto__status-icon { flex: none; }
-.af-auto__workspace { display: flex; align-items: center; gap: 6px; }
+.af-auto__workspace { display: flex; align-items: center; gap: 6px; min-width: 0; }
+/* Workspace: folder icon + path that wraps at its separators; the whole chip opens the browser. */
+.af-auto__path {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 3px 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--ui-border-2);
+  background: var(--ui-overlay-bg);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.af-auto__path:hover { border-color: var(--accent-border); background: var(--ui-overlay-bg-hover); }
+.af-auto__path:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.af-auto__path--static { cursor: default; }
+.af-auto__path--static:hover { border-color: var(--ui-border-2); background: var(--ui-overlay-bg); }
+.af-auto__path-icon { flex: none; margin-top: 1px; color: var(--text-secondary); }
+.af-auto__path-text { font-family: var(--font-mono); font-size: var(--font-size-xs); line-height: 1.45; overflow-wrap: normal; word-break: normal; min-width: 0; }
 .af-auto__icon-btn {
   flex: none;
   display: inline-flex;
@@ -3130,7 +3683,45 @@
 }
 .af-auto__icon-btn:hover { color: var(--text-primary); background: var(--ui-overlay-bg); }
 .af-auto__icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.af-auto__btn-icon { vertical-align: -2px; }
+.af-auto__btn-icon { flex: none; vertical-align: -2px; }
+.af-auto__icon-btn--bare { border: none; padding: 2px; }
+/* Visible only to assistive tech (the disabled buttons' reasons; also their tooltips). */
+.af-auto__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+/* The committed definition: a card under the controls, one click away. */
+.af-auto__definition {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--ui-border-2);
+  background: var(--ui-overlay-bg);
+}
+.af-auto__definition > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.af-auto__definition > summary::-webkit-details-marker { display: none; }
+.af-auto__definition > summary:hover { color: var(--text-primary); }
+.af-auto__definition > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-md); }
+.af-auto__definition-chevron { transition: transform 120ms ease; }
+.af-auto__definition[open] > summary .af-auto__definition-chevron { transform: rotate(90deg); }
+.af-auto__definition-title { color: var(--text-primary); }
+.af-auto__definition-meta { color: var(--text-muted); font-weight: 500; font-size: var(--font-size-xs); }
+.af-auto__definition > .af-auto__facts { padding: 2px 12px 12px; }
+.af-auto__form-title { display: flex; align-items: center; gap: 6px; margin: 0; font-size: var(--font-size-md); font-weight: 700; }
 /* Turns rendered as shared chat cards (renderTurn): the card is the bubble. */
 .af-auto-turn--card.af-auto-turn--trigger { padding: 0; background: none; }
 .af-auto__facts {
@@ -3144,9 +3735,13 @@
 .af-auto__facts dd.is-notable { font-weight: 700; }
 .af-auto__warn { color: var(--warning); }
 .af-auto__controls-wrap { display: flex; flex-direction: column; gap: 8px; }
+.af-auto__actionbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .af-auto__controls,
 .af-auto__row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .af-auto__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 5px 12px;
   border-radius: var(--radius-md);
   border: 1px solid var(--ui-border-2);
@@ -3181,8 +3776,15 @@
   border-radius: var(--radius-md);
   border: 1px solid var(--ui-border-2);
   background: var(--bg-secondary);
+  /* The standard text colour, whatever the run's tone (operator 2026-10-29: a dimmed one read poorly). */
+  color: var(--text-primary);
 }
+/* Opened at what needs the person (the attention rule): outlined for a moment. */
+.af-auto .is-attention-focus { outline: 2px solid var(--accent); outline-offset: 2px; transition: outline-color 0.4s ease; }
 .af-auto__confirm { border-color: var(--error-border); background: var(--error-subtle); }
+.af-auto__revise { border-color: var(--accent-border); gap: 12px; }
+.af-auto__revise textarea { width: 100%; box-sizing: border-box; resize: vertical; line-height: 1.45; }
+.af-auto__revise fieldset.af-auto__field > label { display: flex; align-items: center; gap: 6px; }
 .af-auto__confirm p { margin: 0; }
 .af-auto__field { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; border: 0; min-width: 0; }
 .af-auto__field > legend,
@@ -3190,6 +3792,9 @@
 .af-auto input:not([type="radio"]),
 .af-auto select,
 .af-auto textarea,
+.af-auto__revise input:not([type="radio"]):not([type="checkbox"]),
+.af-auto__revise select,
+.af-auto__revise textarea,
 .af-schedule input:not([type="radio"]),
 .af-schedule select,
 .af-schedule textarea {
@@ -3202,15 +3807,28 @@
   min-width: 0;
 }
 .af-auto input[type="number"],
+.af-auto__revise input[type="number"],
 .af-schedule input[type="number"] { width: 6em; }
 .af-auto__form-errors { margin: 0; padding-left: 18px; color: var(--error); }
 .af-auto__error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   padding: 8px 12px;
   border-radius: var(--radius-md);
   border: 1px solid var(--error-border);
   background: var(--error-subtle);
 }
-.af-auto__notice { color: var(--text-secondary); font-size: var(--font-size-xs); }
+.af-auto__notice { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: var(--font-size-xs); }
+.af-auto__notice--on {
+  padding: 3px 6px 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--success-border);
+  background: var(--success-subtle);
+  color: var(--text-primary);
+  animation: af-auto-notice-in 160ms ease-out;
+}
+@keyframes af-auto-notice-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
 .af-auto__attention ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .af-auto__attention-item {
   padding: 6px 10px;
@@ -3254,6 +3872,25 @@
 .af-auto-badge--notified { border-color: var(--info-border); background: var(--info-subtle); }
 .af-auto-badge--running { border-color: var(--accent-border); background: var(--accent-subtle); }
 .af-auto-notify { padding: 4px 8px; border-left: 2px solid var(--info); }
+/* What arrived, above the task (UX review 2026-10-25 #3): "Release notes · 1 new item: “…” · 15:13". */
+.af-auto-event {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated, var(--bg-secondary));
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+.af-auto-event .af-auto__btn-icon { flex: none; margin-top: 2px; color: var(--text-secondary); }
+.af-auto-event__source { font-weight: 600; }
+/* The raw text the agent received (trigger header, framed events), behind a disclosure. */
+.af-auto-received { font-size: var(--font-size-xs); color: var(--text-muted); }
+.af-auto-received > summary { cursor: pointer; }
+.af-auto-received__body { margin-top: 4px; color: var(--text-secondary); overflow-wrap: anywhere; }
 .af-auto-wait__prompt { margin: 0; font-weight: 600; }
 .af-auto-artifacts { margin: 0; padding-left: 18px; }
 .af-auto-artifacts a,
@@ -3272,26 +3909,81 @@
 .af-auto-occ__details[open] { display: flex; flex-direction: column; gap: 6px; }
 .af-auto-discuss,
 .af-auto-occ__foot { align-self: stretch; }
-.af-schedule { width: min(640px, 100%); }
+.af-schedule { width: min(960px, 100%); }
 .af-schedule__form { display: flex; flex-direction: column; gap: 14px; }
+.af-schedule__picker { margin-bottom: 10px; min-width: 0; }
+.af-schedule__picker .af-workflow-picker, .af-auto__revise .af-workflow-picker { width: 100%; min-width: 0; }
+.af-schedule__form input[type="checkbox"], .af-auto__revise input[type="checkbox"] { width: auto; flex: 0 0 auto; }
 .af-schedule__form > fieldset { border: 1px solid var(--ui-border-2); border-radius: var(--radius-md); padding: 10px 12px; }
 .af-schedule__preview { margin: 0; color: var(--text-secondary); }
+.af-schedule__calendar { display: flex; flex-direction: column; gap: 8px; }
+.af-schedule__days { flex-wrap: wrap; gap: 6px; }
+/* Day chips are state-showing toggles: ON = tinted + a check mark (the non-colour cue). */
+.af-schedule__day[aria-pressed="true"]::before { content: "\2713"; margin-right: 4px; font-weight: 700; }
+.af-schedule__calendar input[type="time"] { width: auto; min-width: 9em; flex: 0 0 auto; }
+.af-schedule__tz { margin: 0; color: var(--text-secondary); font-size: var(--font-size-xs); }
+.af-schedule__tz-text { border-bottom: 1px dotted var(--text-muted); cursor: help; }
+.af-schedule__tz-text:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.af-auto__link { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
+.af-tz-picker { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.af-tz-picker__head { display: flex; align-items: center; gap: 6px; }
+.af-tz-picker__label { font-weight: 600; }
+.af-tz-picker__help { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--ui-border-2); color: var(--text-muted); font-size: 11px; cursor: help; }
+.af-tz-picker__help:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.af-tz-picker__control { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.af-tz-picker__control > :first-child { flex: 1 1 260px; min-width: 0; max-width: 420px; }
+.af-tz-picker__note { font-size: var(--font-size-xs); color: var(--text-secondary); }
+.af-tz-picker__note.is-error { color: var(--error); }
 .af-schedule__advanced { display: flex; flex-direction: column; gap: 8px; }
 .af-schedule__advanced[open] > .af-auto__field { margin-top: 8px; }
-@media (prefers-reduced-motion: reduce) {
-  .af-auto__btn { transition: none; }
+.af-schedule .af-appearance__actions {
+  position: sticky; bottom: -18px; z-index: 2;
+  padding: 12px 0; margin-top: 0;
+  /* Opaque: a floating layer over content (--bg-card is translucent). */
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--ui-border-2);
 }
-@media (max-width: 520px) {
+.af-schedule__form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+.af-schedule__form > fieldset:first-child,
+.af-schedule__form > details,
+.af-schedule__form > .af-auto__form-errors,
+.af-schedule__form > .af-auto__error,
+.af-schedule__form > .af-appearance__actions { grid-column: 1 / -1; }
+.af-schedule__form > fieldset:first-child { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 14px; }
+.af-schedule__form > fieldset:first-child > legend { grid-column: 1 / -1; }
+.af-schedule__picker { margin-bottom: 0; }
+@media (max-width: 767.98px) {
+  .af-schedule__form { display: flex; gap: 14px; }
+  .af-schedule__form > fieldset:first-child { display: block; }
+  .af-schedule__picker { margin-bottom: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .af-auto__btn,
+  .af-auto__definition-chevron { transition: none; }
+  .af-auto__notice--on { animation: none; }
+}
+.af-auto__error-text { flex: 1; min-width: 0; }
+@container af-auto (max-width: 399.98px) {
   .af-auto__facts { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .af-auto-turn--trigger { max-width: 100%; }
 }
-.af-auto__reasons { display: flex; flex-direction: column; gap: 2px; margin: 0; color: var(--text-muted); font-size: var(--font-size-xs); }
+/* Why controls are disabled: one compact muted line (reasons separated by " · "). */
+.af-auto__reasons { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; margin: 0; color: var(--text-muted); font-size: var(--font-size-xs); }
+.af-auto__reasons > span + span::before { content: "·"; padding: 0 6px; }
+.af-auto__reasons-icon { flex: none; margin-right: 5px; }
 .af-auto-failure { padding: 4px 8px; border-left: 2px solid var(--error); overflow-wrap: anywhere; }
 .af-auto-wait__kind { font-weight: 700; color: var(--text-secondary); }
 .af-auto-wait__calls { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
 .af-auto-wait__tool { font-family: var(--font-mono); font-weight: 700; }
 .af-auto-wait__args { margin: 2px 0 0; padding: 6px 8px; border-radius: var(--radius-sm); background: var(--ui-code-block-bg, var(--bg-secondary)); font-family: var(--font-mono); font-size: var(--font-size-xs); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 12em; overflow: auto; }
 .af-schedule__consent { margin: 0; color: var(--text-secondary); }
+/* Email options of the automation form (framework backlog 0992 WP6). */
+.af-email__trigger,
+.af-email__options { display: flex; flex-direction: column; gap: 8px; }
+.af-email__filters { display: flex; flex-direction: column; gap: 6px; }
+.af-email__check { display: inline-flex; align-items: center; gap: 6px; }
+.af-email__notice { padding: 6px 8px; border: 1px solid var(--warning-border); border-radius: var(--radius-sm); background: var(--warning-subtle); color: var(--text-primary); }
+.af-email__cause { color: var(--text-secondary); }
 .af-auto__definition > summary { cursor: pointer; color: var(--text-secondary); font-size: var(--font-size-xs); }
 .af-auto__definition > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .af-auto__definition[open] > .af-auto__facts { margin-top: 6px; }
@@ -3303,3 +3995,4267 @@
 .af-auto-wait__prompt { min-width: 0; overflow-wrap: anywhere; }
 .af-auto-turn__text > .pc-chat-content > .pc-md > :first-child,
 .af-auto-wait__prompt .pc-md > :first-child { margin-top: 0; }
+
+/* =====================================================================
+ * RESPONSIVE LAYER (ui-kit 0.3.0; responsive workstream 2026-09-30)
+ *
+ * Breakpoints — CSS variables cannot be used in @media, so these literal
+ * values are the contract (mirrored in src/responsive.ts AF_BREAKPOINTS/
+ * AF_MEDIA and docs/responsive.md):
+ *   xs  < 480   (max-width: 479.98px)   phone portrait
+ *   sm  < 768   (max-width: 767.98px)   phone landscape / small tablet
+ *   md  < 1024  (max-width: 1023.98px)  tablet portrait, narrow window
+ *   lg  < 1440  (max-width: 1439.98px)  laptop windows, tablet landscape
+ *   xl  >= 1440 (min-width: 1440px)
+ *   short       (max-height: 500px)     phone landscape
+ *   touch       (pointer: coarse)       44px targets, 16px inputs
+ *   no-hover    (hover: none)
+ * Desktop-first: every rule below only ADDS behaviour under a query, so a
+ * regular desktop window renders exactly as 0.2.0 did.
+ * ===================================================================== */
+
+html {
+  /* No iOS/Android text inflation: a layout that is (even briefly) wider
+   * than the phone must not make the browser boost font sizes. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Responsive tokens (the same for every theme; no theme block redefines them). */
+:root {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --gutter: 16px;
+
+  --tap-min: 32px;
+  --control-h: 32px;
+  --row-pad-y: 4px;
+  --row-pad-x: 8px;
+  --control-pad-x: 10px;
+
+  --vh-full: 100vh;
+  --keyboard-inset: 0px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+
+  --content-max: 1200px;
+  --reading-max: 86ch;
+  --form-max: 720px;
+  --drawer-w: 420px;
+
+  /* Helper / "why unavailable" text floor: 13 px on desktop, 14 px on touch
+   * (below). Every kit helper rule reads this token; checkLabelScale asserts
+   * the same floors in the browser. */
+  --af-helper-size: max(var(--font-size-sm), 13px);
+}
+
+/* Touch helper floor: a coarse pointer OR a viewport under the md breakpoint
+ * (1024 px) — phones and tablets, whatever the pointer reports. */
+@media (pointer: coarse), (max-width: 1023.98px) {
+  :root {
+    --af-helper-size: max(var(--font-size-sm), 14px);
+  }
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --vh-full: 100dvh;
+  }
+}
+
+@media (max-width: 479.98px) {
+  :root {
+    --gutter: 12px;
+  }
+}
+
+@media (min-width: 1440px) {
+  :root {
+    --gutter: 24px;
+  }
+}
+
+/* Touch: bigger targets, comfortable density, legible floors whatever the
+ * user's font scale (body >= 14px, inputs >= 16px so iOS never zooms). */
+@media (pointer: coarse) {
+  :root {
+    --tap-min: 44px;
+    --control-h: 44px;
+    --row-pad-y: 10px;
+    --row-pad-x: 12px;
+    --control-pad-x: 14px;
+    --font-size-body: max(14px, var(--font-size-base));
+    --font-size-input: max(16px, var(--font-size-md));
+    --font-size-code: max(12px, var(--font-size-sm));
+  }
+}
+
+/* Density override (an app Settings toggle may set data-density on <html>).
+ * It never relaxes --tap-min on a touch device. */
+:root[data-density="dense"] {
+  --row-pad-y: 4px;
+  --row-pad-x: 8px;
+  --control-pad-x: 10px;
+}
+
+:root[data-density="comfortable"] {
+  --row-pad-y: 10px;
+  --row-pad-x: 12px;
+  --control-pad-x: 14px;
+}
+
+/* --- Query containers: kit components adapt to the PANE, not the window.
+ * A container must get its width from its parent (block / stretch / flex:1). */
+.af-gateway-signin {
+  container: af-signin / inline-size;
+}
+
+.af-appearance {
+  container: af-dialog / inline-size;
+}
+
+.af-auto {
+  container: af-auto / inline-size;
+}
+
+.af-tool-policy {
+  container: af-tool-policy / inline-size;
+}
+
+.af-drawer__body {
+  container: af-drawer / inline-size;
+}
+
+/* --- Generic helpers (documented in docs/responsive.md) --- */
+.af-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.af-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-popover);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(var(--gutter), var(--safe-top)) max(var(--gutter), var(--safe-right)) calc(max(var(--gutter), var(--safe-bottom)) + var(--keyboard-inset, 0px)) max(var(--gutter), var(--safe-left));
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.af-sheet {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 560px);
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 18px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--ui-border-1);
+  /* Opaque: a floating layer over content (--bg-card is translucent). */
+  background: var(--bg-secondary);
+  box-shadow: var(--ui-shadow-1);
+  color: var(--text-primary);
+}
+
+/* --- Dialog overlays respect the notch / home indicator on every size --- */
+.af-connect-overlay,
+.af-critical__overlay,
+.af-appearance-overlay {
+  padding: max(var(--gutter), var(--safe-top)) max(var(--gutter), var(--safe-right)) calc(max(var(--gutter), var(--safe-bottom)) + var(--keyboard-inset, 0px)) max(var(--gutter), var(--safe-left));
+}
+
+.af-connect-modal,
+.af-appearance,
+.af-critical {
+  max-height: 100%;
+}
+
+.af-critical {
+  width: min(480px, 100%);
+}
+
+/* --- Dialogs become bottom SHEETS on phones (below sm, or a short phone
+ * landscape viewport): full width, up to the full visible height, the
+ * action row pinned to the bottom so it is always reachable. --- */
+@media (max-width: 767.98px), (max-height: 500px) {
+  .af-connect-overlay,
+  .af-critical__overlay,
+  .af-appearance-overlay,
+  .af-sheet-overlay {
+    align-items: flex-end;
+    /* The sheet ends above the on-screen keyboard (installViewportVars); its
+     * max-height: 100% then shrinks with it, so the pinned actions stay
+     * visible. */
+    padding: var(--safe-top) 0 var(--keyboard-inset, 0px);
+  }
+
+  .af-connect-modal,
+  .af-appearance,
+  .af-critical,
+  .af-sheet {
+    /* border-box: max-height 100% must include the padding, or a short
+     * visible area (keyboard up in landscape) pushes the actions off. */
+    box-sizing: border-box;
+    width: 100%;
+    max-width: none;
+    max-height: 100%;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    border-bottom: 0;
+    padding-left: max(18px, var(--safe-left));
+    padding-right: max(18px, var(--safe-right));
+    padding-bottom: 0;
+  }
+
+  .af-connect-modal {
+    padding: 0;
+  }
+
+  .af-connect-modal > .af-gateway-signin {
+    width: 100%;
+    border-bottom: 0;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    padding-left: max(18px, var(--safe-left));
+    padding-right: max(18px, var(--safe-right));
+    padding-bottom: 0;
+  }
+
+  .af-gateway-signin__actions,
+  .af-appearance__actions,
+  .af-critical__actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    margin-top: 12px;
+    padding: 10px 0 max(12px, var(--safe-bottom));
+    background: var(--bg-secondary);
+    box-shadow: 0 -1px 0 var(--ui-border-1);
+  }
+}
+
+@media (max-width: 479.98px) {
+  /* Stack dialog actions full width; the primary (last in DOM) sits nearest
+   * the thumb. */
+  .af-gateway-signin__actions,
+  .af-appearance__actions,
+  .af-critical__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .af-gateway-signin__actions > *,
+  .af-appearance__actions > *,
+  .af-critical__actions > * {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* Phone landscape: the sign-in hero mark and long intro are dead weight. */
+@media (max-height: 500px) {
+  .af-gateway-signin__mark {
+    display: none;
+  }
+
+  .af-gateway-signin__hero {
+    margin-bottom: 12px;
+  }
+
+  .af-gateway-signin p {
+    margin-top: 8px;
+  }
+}
+
+/* --- AfDrawer: safe areas, left edge, overlay backdrop --- */
+.af-drawer {
+  padding-right: var(--safe-right);
+  /* A drawer's bottom (an assistant composer) stays above the keyboard. */
+  bottom: var(--keyboard-inset, 0px);
+}
+
+.af-drawer__header {
+  padding-top: max(12px, var(--safe-top));
+}
+
+.af-drawer__body {
+  padding-bottom: var(--safe-bottom);
+}
+
+.af-drawer--left {
+  right: auto;
+  left: 0;
+  padding-right: 0;
+  padding-left: var(--safe-left);
+  border-left: 0;
+  border-right: 1px solid var(--ui-border-1);
+}
+
+.af-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-drawer) - 1);
+  background: rgba(0, 0, 0, 0.45);
+}
+
+/* A drawer that opens under an app header (topOffset) must not reserve the
+ * notch inset again. */
+.af-drawer--offset .af-drawer__header {
+  padding-top: 12px;
+}
+
+/* --- Top bar: on phones the connection pill keeps its dot and drops the
+ * word (the button keeps its accessible name via aria-label/title). --- */
+@media (max-width: 479.98px) {
+  .af-topbar {
+    gap: 6px;
+  }
+
+  .af-topbar__pill {
+    padding: 4px 10px;
+  }
+
+  .af-topbar__pill-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .af-topbar__identity {
+    display: none;
+  }
+}
+
+/* --- Automations form/panel in narrow panes --- */
+@container af-auto (max-width: 399.98px) {
+  .af-auto__actionbar,
+  .af-auto__controls {
+    gap: 8px;
+  }
+
+  .af-auto__controls > .af-auto__btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .af-auto__revise textarea {
+    min-height: 6em;
+  }
+}
+
+@container af-dialog (max-width: 519.98px) {
+  .af-schedule__form > fieldset {
+    padding: 8px 10px;
+  }
+
+  .af-schedule .af-appearance__actions > .af-auto__btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}
+
+.af-schedule__form textarea,
+.af-auto__revise textarea {
+  max-height: calc(var(--vh-full) * 0.4);
+}
+
+/* --- Provider/model picker and selects: lists scroll inside the viewport --- */
+.af-select-popover {
+  max-width: calc(100vw - 2 * var(--gutter));
+}
+
+/* --- Touch: every kit control reaches the 44px target on coarse pointers.
+ * The glyph stays the same size; the box grows. --- */
+@media (pointer: coarse) {
+  .af-gateway-signin button,
+  .af-gateway-signin input:not([type="checkbox"]),
+  .af-select-trigger,
+  .af-select-option,
+  .af-select-search-input,
+  .af-steer__send,
+  .af-steer__input,
+  .af-critical__actions button,
+  .af-critical__phrase input,
+  .af-tool-policy__seg-btn,
+  .af-tool-policy__bulk button,
+  .af-tool-policy__filter input,
+  .af-tool-row,
+  .af-pmp__seg-btn,
+  .af-voice-create input:not([type="file"]),
+  .af-appearance__close,
+  .af-topbar__pill,
+  .af-auto__btn,
+  .af-auto input:not([type="radio"]):not([type="checkbox"]),
+  .af-auto select,
+  .af-auto__revise input:not([type="radio"]):not([type="checkbox"]),
+  .af-auto__revise select,
+  .af-schedule input:not([type="radio"]):not([type="checkbox"]),
+  .af-schedule select,
+  .af-disclosure__row,
+  .af-phase-radio__btn {
+    min-height: var(--tap-min);
+  }
+
+  /* Selects: the panel variant pins 34px at higher specificity. */
+  .af-select-trigger,
+  .af-select--panel .af-select-trigger {
+    min-height: var(--control-h);
+  }
+
+  /* Pin selects live inside canvas nodes (Flow), which scale with zoom:
+   * canvas content is a documented exception to the touch minimum. */
+  .af-select--pin .af-select-trigger {
+    min-height: 0;
+  }
+
+  .af-topbar__btn,
+  .af-topbar__pill,
+  .af-drawer__close,
+  .af-select-clear-btn {
+    min-width: var(--tap-min);
+    min-height: var(--tap-min);
+  }
+
+  .af-topbar__pill {
+    justify-content: center;
+  }
+
+  /* Chips keep their pill geometry (a 44px-tall chip reads as an oval
+   * button). An INTERACTIVE chip or a chip's remove button grows an
+   * invisible hit area instead; non-interactive chips, badges, pills and
+   * facts get no touch minimum at all. */
+  .af-chip--button,
+  .af-chip__remove,
+  .af-disclosure__chevron:not(.af-disclosure__chevron--spacer) {
+    position: relative;
+  }
+
+  .af-chip--button::after,
+  .af-chip__remove::after,
+  .af-disclosure__chevron:not(.af-disclosure__chevron--spacer)::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, var(--tap-min));
+    height: max(100%, var(--tap-min));
+    transform: translate(-50%, -50%);
+  }
+
+  /* A disclosure row's content clips long labels on the INLINE axis only, so
+   * a chip's 44px ::after hit area can reach the row's full height (overflow:
+   * hidden clipped it: a tap just above the chip selected the row). `clip`
+   * does not force the other axis to scroll, unlike `hidden`. */
+  .af-disclosure__content {
+    overflow-x: clip;
+    overflow-y: visible;
+  }
+
+  /* Checkbox / radio rows: the whole label is the target. */
+  .af-gateway-signin__checkbox,
+  .af-email__check,
+  .af-auto label:has(> input[type="checkbox"]),
+  .af-auto label:has(> input[type="radio"]),
+  .af-schedule label:has(> input[type="checkbox"]),
+  .af-schedule label:has(> input[type="radio"]),
+  .af-tool-row__check {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: var(--tap-min);
+  }
+
+  /* The automations panel is READING text: on touch it opts into the role
+   * token (14px floor). An app that keeps dense touch text overrides
+   * --font-size-body on its own root and the panel follows (docs/responsive.md, Font sizes). */
+  .af-auto {
+    font-size: var(--font-size-body);
+  }
+
+  /* Primary reading lines of kit dialogs follow the same role token: the
+   * critical dialog's consequence / fallback statement and the About
+   * dialog's links (its main actions). Labels, facts and About values stay
+   * secondary (--font-size-sm). */
+  .af-critical__consequence,
+  .af-critical__fallback,
+  .af-about-card__link {
+    font-size: var(--font-size-body);
+  }
+
+  /* Link-styled buttons and the About dialog's links are the dialog's main
+   * actions on a phone: full 44px rows, not inline text links. */
+  .af-auto__linkbtn,
+  .af-about-card__link {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--tap-min);
+  }
+
+  .af-about-card__links {
+    gap: 0 18px;
+  }
+
+  .af-about-card__close {
+    width: var(--tap-min);
+    height: var(--tap-min);
+  }
+
+  .af-auto input:not([type="radio"]):not([type="checkbox"]),
+  .af-auto select,
+  .af-auto textarea,
+  .af-auto__revise input:not([type="radio"]):not([type="checkbox"]),
+  .af-auto__revise select,
+  .af-auto__revise textarea,
+  .af-schedule input:not([type="radio"]):not([type="checkbox"]),
+  .af-schedule select,
+  .af-schedule textarea,
+  .af-appearance select {
+    font-size: var(--font-size-input);
+  }
+
+  .af-auto input[type="radio"],
+  .af-auto input[type="checkbox"],
+  .af-schedule input[type="radio"],
+  .af-schedule input[type="checkbox"],
+  .af-gateway-signin input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+  }
+
+  .af-auto-occ__details > summary,
+  .af-schedule__advanced > summary,
+  .af-auto__definition > summary {
+    display: flex;
+    align-items: center;
+    min-height: var(--tap-min);
+  }
+}
+
+/* --- Native <select> on touch (kit round 3; WebKit / iOS Safari) ---
+ * WebKit ignores min-height/height on a native-appearance select (it stayed
+ * 23px on iPhone while Chromium honoured 44px). Dropping the native
+ * appearance on coarse pointers lets the 44px minimum and the 16px font
+ * apply; the chevron is redrawn as a background image. Scope: every
+ * single-choice select (the apps' bare selects included) at specificity
+ * (0,1,1): it beats the apps' element-level `input, textarea, select {
+ * background: … }` resets (which would erase the chevron) and ties with an
+ * app's class-scoped rule, which loads later and wins;
+ * list boxes (multiple, size > 1) keep their native look. Desktop (fine
+ * pointer) is untouched. An app rule that sets the `background` SHORTHAND
+ * on a select erases the chevron: use background-color, or re-assert
+ * `background-image: var(--af-select-chevron)` in that rule. */
+@media (pointer: coarse) {
+  select:not([multiple]):where(:not([size]), [size="1"]) {
+    -webkit-appearance: none;
+    appearance: none;
+    max-width: 100%;
+    min-height: var(--tap-min);
+    font-size: var(--font-size-input);
+    line-height: 1.25;
+    padding-left: 10px;
+    padding-right: 32px;
+    background-image: var(--af-select-chevron);
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 12px 8px;
+    text-overflow: ellipsis;
+  }
+
+  /* List boxes keep their native look but still must not trigger iOS
+   * focus zoom. */
+  select:where([multiple]),
+  select:where([size]:not([size="1"])) {
+    font-size: var(--font-size-input);
+  }
+
+  /* Kit selects restate the padding and image their own class rules reset. */
+  .af-auto select:not([multiple]),
+  .af-schedule select:not([multiple]),
+  .af-appearance select:not([multiple]),
+  .af-tool-policy select:not([multiple]),
+  .af-voice-settings select:not([multiple]) {
+    min-height: var(--tap-min);
+    font-size: var(--font-size-input);
+    padding-right: 32px;
+    background-image: var(--af-select-chevron);
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 12px 8px;
+  }
+}
+
+/* No hover on this device: nothing may hide behind :hover. */
+@media (hover: none) {
+  .af-topbar__btn:hover,
+  .af-topbar__pill:hover:not(:disabled) {
+    filter: none;
+  }
+}
+
+
+/* af-switch:begin
+ * SWITCH (ui-kit 0.3.3): the one control for a persistent on/off setting,
+ * labelled by the FEATURE, a true switch highlighted when ON (src/af_switch.tsx
+ * has the markup contract; docs/state-toggles.md the rule). ON reads without
+ * colour and in every theme: the thumb slides right and shows a check mark
+ * (position + shape), the track fills with the accent and glows (colour +
+ * light), the label turns bold (weight). Unavailable = aria-disabled (still
+ * focusable, reason via aria-describedby): hatched track, muted text, no
+ * pointer. The consoles copy this block verbatim (abstractgateway
+ * console_islands_sync, abstractcore console.theme_sync). */
+.af-switch {
+  --af-switch-w: 40px;
+  --af-switch-h: 22px;
+  --af-switch-pad: 3px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--control-h, 32px);
+  margin: 0;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-weight: 500;
+  line-height: 1.25;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.af-switch__track {
+  position: relative;
+  flex: none;
+  width: var(--af-switch-w);
+  height: var(--af-switch-h);
+  border-radius: 999px;
+  border: 1.5px solid var(--text-muted);
+  background: color-mix(in srgb, var(--text-muted) 14%, transparent);
+  box-sizing: border-box;
+  transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+.af-switch__thumb {
+  position: absolute;
+  top: calc(var(--af-switch-pad) - 1.5px);
+  left: calc(var(--af-switch-pad) - 1.5px);
+  width: calc(var(--af-switch-h) - 2 * var(--af-switch-pad));
+  height: calc(var(--af-switch-h) - 2 * var(--af-switch-pad));
+  border-radius: 999px;
+  background: var(--text-muted);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 160ms cubic-bezier(0.3, 0.7, 0.4, 1), background-color 160ms ease;
+}
+.af-switch__text {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.af-switch__label {
+  color: inherit;
+}
+.af-switch__desc {
+  color: var(--text-muted);
+  /* Helper text: >= 13 px desktop, >= 14 px touch (--af-helper-size). */
+  font-size: var(--af-helper-size);
+  font-weight: 400;
+  white-space: normal;
+}
+.af-switch:hover:not([aria-disabled="true"]) {
+  color: var(--text-primary);
+}
+.af-switch:hover:not([aria-disabled="true"]) .af-switch__track {
+  border-color: var(--text-secondary);
+}
+.af-switch:focus-visible {
+  outline: none;
+}
+.af-switch--native:has(> .af-switch__input:focus-visible) .af-switch__track,
+.af-switch:focus-visible .af-switch__track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* ON: accent fill + glow, thumb slides right, raised, with a check mark. */
+.af-switch--native:has(> .af-switch__input:checked),
+.af-switch[aria-checked="true"] {
+  color: var(--text-primary);
+}
+/* 600, not 700: the type-scale guard (checkLabelScale) caps every label at
+ * weight 600; 500 -> 600 plus secondary -> primary text still reads as bold
+ * next to the fill, glow and check mark. */
+.af-switch--native:has(> .af-switch__input:checked) .af-switch__label,
+.af-switch[aria-checked="true"] .af-switch__label {
+  font-weight: 600;
+}
+.af-switch--native:has(> .af-switch__input:checked) .af-switch__track,
+.af-switch[aria-checked="true"] .af-switch__track {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent), 0 0 10px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.af-switch--native:has(> .af-switch__input:checked) .af-switch__thumb,
+.af-switch[aria-checked="true"] .af-switch__thumb {
+  transform: translateX(calc(var(--af-switch-w) - var(--af-switch-h)));
+  background: var(--bg-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+/* The check mark: the non-colour cue that the setting is ON. */
+.af-switch--native:has(> .af-switch__input:checked) .af-switch__thumb::after,
+.af-switch[aria-checked="true"] .af-switch__thumb::after {
+  content: "";
+  position: absolute;
+  left: 34%;
+  top: 18%;
+  width: 22%;
+  height: 44%;
+  border: solid var(--accent);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.af-switch[aria-busy="true"] {
+  cursor: progress;
+}
+.af-switch[aria-busy="true"] .af-switch__track {
+  opacity: 0.7;
+}
+.af-switch--unavailable,
+.af-switch--native:has(> .af-switch__input:disabled),
+.af-switch[aria-disabled="true"] {
+  cursor: not-allowed;
+  color: var(--text-muted);
+}
+.af-switch--native:has(> .af-switch__input:disabled) .af-switch__label,
+.af-switch[aria-disabled="true"] .af-switch__label {
+  font-weight: 500;
+}
+.af-switch--native:has(> .af-switch__input:disabled) .af-switch__track,
+.af-switch[aria-disabled="true"] .af-switch__track {
+  border-style: dashed;
+  box-shadow: none;
+  background: repeating-linear-gradient(135deg, transparent 0 4px, color-mix(in srgb, var(--text-muted) 22%, transparent) 4px 6px);
+  opacity: 0.8;
+}
+.af-switch--native:has(> .af-switch__input:disabled:checked) .af-switch__track,
+.af-switch[aria-disabled="true"][aria-checked="true"] .af-switch__track {
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+/* Settings row: text left, switch right, full width. */
+.af-switch--row {
+  display: flex;
+  width: 100%;
+  flex-direction: row-reverse;
+  justify-content: space-between;
+  gap: 16px;
+  padding: var(--row-pad-y, 8px) 0;
+}
+.af-switch--sm {
+  --af-switch-w: 34px;
+  --af-switch-h: 18px;
+  --af-switch-pad: 2.5px;
+  gap: 8px;
+  font-size: var(--font-size-sm);
+}
+.af-switch-wrap {
+  /* The visually hidden reason (absolute) is placed inside the wrap, never against the document
+   * (it used to make the page scroll on phones). */
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.af-switch-wrap--row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+.af-switch__reason {
+  color: var(--text-muted);
+  font-size: var(--af-helper-size);
+}
+.af-switch__reason--hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@media (pointer: coarse) {
+  .af-switch,
+  .af-switch--sm {
+    min-height: var(--tap-min);
+    min-width: var(--tap-min);
+  }
+  .af-switch--sm {
+    --af-switch-w: 40px;
+    --af-switch-h: 22px;
+    --af-switch-pad: 3px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .af-switch,
+  .af-switch__track,
+  .af-switch__thumb,
+  .af-switch__thumb::after {
+    transition: none;
+    animation: none;
+  }
+}
+@media (forced-colors: active) {
+  .af-switch--native:has(> .af-switch__input:checked) .af-switch__track,
+  .af-switch[aria-checked="true"] .af-switch__track {
+    background: Highlight;
+    border-color: Highlight;
+  }
+  .af-switch--native:has(> .af-switch__input:checked) .af-switch__thumb,
+  .af-switch[aria-checked="true"] .af-switch__thumb {
+    background: Canvas;
+  }
+}
+/* Native variant (a form-state switch inside an uncontrolled form): <label class="af-switch af-switch--native">
+ * <input type="checkbox" role="switch" class="af-switch__input" name="…"> track + text </label>. The checkbox
+ * keeps the value for the form; it is visually hidden but focusable, and the rules above mirror :checked. */
+.af-switch--native { position: relative; }
+.af-switch__input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; pointer-events: none; }
+/* af-switch:end */
+
+/* af-filterbar:begin
+ * FILTER BAR (ui-kit after 0.9.8, operator design finding 2026-10-29): ONE compact, aligned bar
+ * (src/af_filter_bar.tsx; markup from src/af_filter_bar_core.ts; contract in
+ * docs/filter-bar.md). A first line: the optional scope switch, the search field with its
+ * on/off filters beside it (one line, they never wrap apart), the end slot (count,
+ * actions). Then one row per facet: the label in a FIXED column, the chips in the second
+ * column where they wrap (never under the label). Chips are the kit chip at one size, the
+ * count muted small text, the accent hue when pressed. `--sticky` keeps the first line at
+ * the top of the scroller while the facet rows scroll away. Consoles that vendor an older
+ * kit copy this block verbatim until their vendored kit carries it. */
+.af-filterbar {
+  --af-filterbar-label-w: 7.5rem;
+  --af-filterbar-chip-h: 28px;
+  --af-filterbar-pad-x: 16px;
+  --af-filterbar-top: 0px;
+  display: grid;
+  min-width: 0;
+}
+/* The two parts become items of the host's layout, so the first line sticks to the
+ * scroller rather than to this wrapper. */
+.af-filterbar--sticky {
+  display: contents;
+}
+.af-filterbar__lead,
+.af-filterbar__facets {
+  min-width: 0;
+  border: 1px solid var(--ui-border-1);
+  /* Opaque (the card tone laid over the page tone): content scrolls under the sticky line. */
+  background-color: var(--bg-primary);
+  background-image: linear-gradient(var(--bg-card, var(--bg-secondary)), var(--bg-card, var(--bg-secondary)));
+}
+.af-filterbar__lead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 12px var(--af-filterbar-pad-x);
+  border-bottom-color: transparent;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+.af-filterbar__lead:has(+ .af-filterbar__facets:empty) {
+  border-bottom-color: var(--ui-border-1);
+  border-radius: var(--radius-lg);
+}
+.af-filterbar--sticky > .af-filterbar__lead {
+  position: sticky;
+  top: var(--af-filterbar-top);
+  z-index: 6;
+}
+.af-filterbar--stuck > .af-filterbar__lead {
+  border-bottom-color: var(--ui-border-1);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  box-shadow: 0 10px 22px -16px rgba(0, 0, 0, 0.6);
+}
+/* Scope switch ("Catalog | Hugging Face"): a segmented pill, chip height. */
+.af-filterbar__scope {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--ui-border-2);
+  border-radius: 999px;
+  background: var(--ui-surface-1);
+}
+.af-filterbar__scope-btn {
+  display: inline-flex;
+  align-items: center;
+  height: var(--af-filterbar-chip-h);
+  min-height: var(--af-filterbar-chip-h);
+  margin: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: none;
+  cursor: pointer;
+}
+.af-filterbar__scope-btn:hover:not([aria-pressed="true"]) {
+  background: var(--ui-surface-2);
+  color: var(--text-primary);
+}
+.af-filterbar__scope-btn[aria-pressed="true"] {
+  background: var(--accent-subtle);
+  box-shadow: inset 0 0 0 1px var(--accent-border);
+  color: var(--text-primary);
+}
+/* The search field and its on/off filters: ONE line. */
+.af-filterbar__line {
+  display: flex;
+  flex: 1 1 26rem;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px 14px;
+  min-width: 0;
+}
+.af-filterbar__search {
+  flex: 1 1 auto;
+  box-sizing: border-box;
+  width: auto;
+  min-width: 4.5rem;
+  height: 36px;
+  min-height: 36px;
+  margin: 0;
+  padding: 0 12px;
+  border: 1px solid var(--ui-border-1);
+  border-radius: var(--radius-md);
+  background: var(--ui-surface-3);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-md);
+}
+.af-filterbar__search:focus {
+  outline: none;
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 3px var(--accent-subtle);
+}
+.af-filterbar__submit {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 36px;
+  min-height: 36px;
+  margin: 0;
+  padding: 0 14px;
+  border: 1px solid var(--ui-border-2);
+  border-radius: var(--radius-md);
+  background: var(--ui-surface-2);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: none;
+  cursor: pointer;
+}
+.af-filterbar__submit:hover {
+  border-color: var(--accent-border);
+}
+.af-filterbar__submit[hidden] {
+  display: none;
+}
+.af-filterbar__toggles {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px 14px;
+}
+.af-filterbar__toggles .af-switch,
+.af-filterbar__trailing .af-switch {
+  white-space: nowrap;
+}
+.af-filterbar__end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px 12px;
+  margin-left: auto;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+.af-filterbar__end:empty {
+  display: none;
+}
+.af-filterbar__scope-btn:focus-visible,
+.af-filterbar__submit:focus-visible {
+  outline: 2px solid var(--accent-border);
+  outline-offset: 2px;
+}
+/* One row per facet: label in the fixed column, chips wrap in the second. */
+.af-filterbar__facets {
+  display: grid;
+  gap: 8px;
+  padding: 0 var(--af-filterbar-pad-x) 14px;
+  border-top: 0;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+.af-filterbar__facets::before {
+  content: "";
+  height: 1px;
+  margin-bottom: 4px;
+  background: var(--ui-border-1);
+}
+.af-filterbar__facets:empty {
+  display: none;
+}
+.af-filterbar__facet {
+  display: grid;
+  grid-template-columns: var(--af-filterbar-label-w) minmax(0, 1fr);
+  align-items: start;
+  column-gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.af-filterbar__label {
+  grid-column: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  line-height: var(--af-filterbar-chip-h);
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.af-filterbar__chips {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.af-filterbar__chip {
+  box-sizing: border-box;
+  height: var(--af-filterbar-chip-h);
+  min-height: var(--af-filterbar-chip-h);
+  margin: 0;
+  padding: 0 11px;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: none;
+}
+.af-filterbar__chip[aria-pressed="true"] {
+  --af-chip-hue: var(--accent);
+}
+.af-filterbar__chip--zero:not([aria-pressed="true"]) {
+  --af-chip-hue: var(--text-muted);
+  border-style: dashed;
+}
+.af-filterbar__count {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.af-filterbar__chip[aria-pressed="true"] .af-filterbar__count {
+  color: var(--text-secondary);
+}
+/* A control that belongs to the facet (e.g. "Every quant"), after a divider. */
+.af-filterbar__trailing {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--af-filterbar-chip-h);
+  margin-left: 4px;
+  padding-left: 12px;
+  border-left: 1px solid var(--ui-border-1);
+}
+@media (pointer: coarse) {
+  /* Pill geometry stays; the hit area grows invisibly (the kit chip rule, for the scope). */
+  .af-filterbar__scope-btn {
+    position: relative;
+  }
+  .af-filterbar__scope-btn::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, var(--tap-min));
+    height: max(100%, var(--tap-min));
+    transform: translate(-50%, -50%);
+  }
+  .af-filterbar__search {
+    min-height: var(--tap-min);
+    font-size: var(--font-size-input);
+  }
+  .af-filterbar__submit {
+    min-height: var(--tap-min);
+  }
+  .af-filterbar__chips {
+    gap: 8px;
+  }
+  .af-filterbar__facets {
+    gap: 10px;
+  }
+}
+@media (max-width: 479.98px) {
+  .af-filterbar {
+    --af-filterbar-pad-x: 12px;
+  }
+  .af-filterbar__lead {
+    gap: 8px 10px;
+  }
+  .af-filterbar__line {
+    gap: 8px 10px;
+  }
+  .af-filterbar__facet {
+    column-gap: 8px;
+  }
+}
+/* Phones: the keyboard's search key submits (enterkeyhint="search"), so the field keeps
+ * the room beside its filters. */
+@media (max-width: 479.98px) and (pointer: coarse) {
+  .af-filterbar__submit {
+    display: none;
+  }
+}
+/* Several quick filters may wrap on compact screens; the single-toggle bar keeps its line. */
+@media (max-width: 767.98px) {
+  .af-filterbar__line:has(.af-filterbar__toggles > :nth-child(2)) { flex-wrap: wrap; }
+  .af-filterbar__line:has(.af-filterbar__toggles > :nth-child(2)) .af-filterbar__toggles { flex-basis: 100%; flex-wrap: wrap; min-width: 0; gap: 8px 14px; }
+}
+
+/* af-filterbar:end */
+
+/* af-form:begin
+ * FORM LAYOUT, CARD, TABS (ui-kit 0.3.3, docs/state-toggles.md "Forms, cards
+ * and tabs"). Settings forms: max 720px wide (--form-max), labels ABOVE
+ * fields at every width, short fields side by side in af-form__grid-2 from
+ * 768px up (one column below), helper text small and muted, 44px controls on
+ * touch, no input wider than its card. One type scale: labels at body size
+ * weight 500 (the checkLabelScale guard caps labels at 15px / 600). */
+.af-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, 16px);
+  width: 100%;
+  max-width: var(--form-max, 720px);
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.af-form *,
+.af-form *::before,
+.af-form *::after {
+  box-sizing: border-box;
+}
+
+.af-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.af-form__label {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.af-form__help {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--af-helper-size);
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.af-form__error {
+  margin: 0;
+  color: var(--error);
+  font-size: var(--font-size-base);
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.af-form input:not([type="checkbox"]):not([type="radio"]),
+.af-form select,
+.af-form textarea {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* Two short fields side by side (port + security, per hour + per day). */
+.af-form__grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4, 16px);
+  min-width: 0;
+}
+
+/* A field with its own inline action (the Email address row's "Save"). */
+.af-form__inline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  min-width: 0;
+}
+
+.af-form__inline > input,
+.af-form__inline > select {
+  flex: 1 1 auto;
+}
+
+.af-form__inline > button {
+  flex: none;
+}
+
+.af-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+@media (max-width: 767.98px) {
+  .af-form__grid-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* A grouped card with a heading (Email address, Mailbox, Notifications…). */
+.af-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+  min-width: 0;
+  max-width: 100%;
+  padding: var(--space-4, 16px) 18px;
+  border: 1px solid var(--ui-border-1);
+  border-radius: var(--radius-md);
+  background: var(--bg-card, var(--bg-secondary));
+  color: var(--text-primary);
+  box-sizing: border-box;
+}
+
+.af-card__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  min-width: 0;
+}
+
+.af-card__title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.af-card__desc {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+}
+
+/* Tabs: role=tablist / tab / tabpanel (AfTabs, or the same markup in a
+ * console). Underline style: the selected tab is accent-underlined, primary
+ * text, weight 600; others secondary. Arrow keys move between tabs. */
+.af-tabs {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.af-tabs__list {
+  display: flex;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--ui-border-1);
+}
+
+.af-tabs__list::-webkit-scrollbar {
+  display: none;
+}
+
+.af-tabs__tab {
+  appearance: none;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--control-h, 32px);
+  margin: 0 0 -1px;
+  padding: 6px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  line-height: 1.25;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease, background-color 120ms ease;
+}
+
+.af-tabs__tab:hover:not([aria-selected="true"]):not([aria-disabled="true"]) {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-muted) 10%, transparent);
+}
+
+.af-tabs__tab[aria-selected="true"] {
+  color: var(--text-primary);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+
+.af-tabs__tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.af-tabs__tab[aria-disabled="true"] {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.af-tabs__panel {
+  padding-top: var(--space-4, 16px);
+  min-width: 0;
+}
+
+.af-tabs__panel:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+@media (pointer: coarse) {
+  .af-tabs__tab {
+    min-height: var(--tap-min);
+  }
+
+  .af-form input:not([type="checkbox"]):not([type="radio"]),
+  .af-form select {
+    min-height: var(--tap-min);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .af-tabs__tab {
+    transition: none;
+  }
+}
+/* af-form:end */
+
+/* af-modal:begin
+ * AfModal (React) and plain-HTML hosts (the gateway console) share these
+ * classes; the markup contract is in docs/modal.md. A large dialog over a
+ * dimmed, blurred backdrop: min(960px, 100vw - 32px) wide (--narrow 560px,
+ * --wide 1120px), up to 90vh tall,
+ * header / scrolling body / footer. Below 768 px it is a full-screen sheet
+ * with ONE scroll (the sheet), header and footer pinned, safe-area padded. */
+.af-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal, 950);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(16px, var(--safe-top)) max(16px, var(--safe-right)) calc(max(16px, var(--safe-bottom)) + var(--keyboard-inset, 0px)) max(16px, var(--safe-left));
+  background: rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  overscroll-behavior: contain;
+}
+
+.af-modal-backdrop[hidden] {
+  display: none;
+}
+
+/* Reduced transparency: no blur, a solid (denser) dim instead. */
+@media (prefers-reduced-transparency: reduce) {
+  .af-modal-backdrop {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: rgba(0, 0, 0, 0.72);
+  }
+}
+
+/* The page behind an open modal does not scroll (AfModal and bindAfModal
+ * set this class on <html>). */
+html.af-modal-open,
+html.af-modal-open body {
+  overflow: hidden;
+}
+
+.af-modal {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: min(960px, calc(100vw - 32px));
+  max-width: 100%;
+  max-height: 90vh;
+  max-height: 90dvh;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--ui-border-2);
+  border-radius: var(--radius-lg);
+  /* Solid surface: the translucent --bg-card would show the blur through. */
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  box-shadow: var(--ui-shadow-1);
+  font-size: var(--font-size-base);
+  outline: none;
+}
+
+.af-modal--narrow {
+  width: min(560px, calc(100vw - 32px));
+}
+
+/* Wide: management surfaces with a table inside (entity Manage, Skills). */
+.af-modal--wide {
+  width: min(1120px, calc(100vw - 32px));
+}
+
+.af-modal__header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 14px 14px 20px;
+  border-bottom: 1px solid var(--ui-border-1);
+  background: var(--bg-secondary);
+}
+
+.af-modal__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+.af-modal__close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.af-modal__close:hover {
+  color: var(--text-primary);
+  background: var(--ui-overlay-bg-hover, rgba(255, 255, 255, 0.08));
+}
+
+.af-modal__close:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+}
+
+.af-modal__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 20px;
+}
+
+.af-modal__footer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--ui-border-1);
+  background: var(--bg-secondary);
+}
+
+.af-modal__footer-note {
+  margin: 0 auto 0 0;
+  color: var(--text-muted);
+  font-size: var(--af-helper-size);
+}
+
+/* Phones (< 768 px): a full-screen sheet. The sheet is the one scroller;
+ * header and footer stay pinned inside it; every edge clears the notch and
+ * the home indicator. */
+@media (max-width: 767.98px) {
+  .af-modal-backdrop {
+    padding: 0;
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  .af-modal,
+  .af-modal--narrow {
+    width: 100%;
+    height: var(--vh-full, 100vh);
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    overflow-y: auto;
+    padding-bottom: var(--keyboard-inset, 0px);
+  }
+
+  .af-modal--wide {
+    width: 100%;
+  }
+
+  .af-modal__header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: calc(10px + var(--safe-top)) calc(8px + var(--safe-right)) 10px calc(16px + var(--safe-left));
+  }
+
+  .af-modal__body {
+    flex: 1 0 auto;
+    overflow: visible;
+    padding: 16px calc(16px + var(--safe-right)) 16px calc(16px + var(--safe-left));
+  }
+
+  .af-modal__footer-note {
+    flex-basis: 100%;
+  }
+
+  .af-modal__footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    padding: 10px calc(16px + var(--safe-right)) calc(10px + var(--safe-bottom)) calc(16px + var(--safe-left));
+  }
+}
+
+@media (pointer: coarse) {
+  .af-modal__close {
+    width: var(--tap-min);
+    height: var(--tap-min);
+  }
+}
+/* af-modal:end */
+
+/* af-menu:begin
+ * AfMenu (React) and plain-HTML hosts (bindMenu in the console islands) share
+ * these classes; the markup contract is in docs/modal.md ("Menu"). A compact icon
+ * button and a popover list of actions. The list is position: fixed (placed
+ * by af_menu_core.afMenuPlacement), so a table cell's or a modal's overflow
+ * never clips it and it never widens the page; above modals (--z-popover).
+ * Items are full-width text buttons, 44 px tall on touch. No disabled items:
+ * an action that does not apply is not rendered. */
+.af-menu {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.af-menu__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--ui-border-2);
+  border-radius: var(--radius-md);
+  background: var(--ui-overlay-bg, transparent);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.af-menu__button:hover,
+.af-menu__button[aria-expanded="true"] {
+  background: var(--ui-overlay-bg-hover, rgba(255, 255, 255, 0.08));
+  border-color: var(--accent-border, var(--ui-border-2));
+}
+
+.af-menu__button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+}
+
+.af-menu__list {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: var(--z-popover, 1100);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  max-width: min(320px, calc(100vw - 16px));
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--ui-border-2);
+  border-radius: var(--radius-md);
+  /* Solid surface: a translucent card would show the page through. */
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  box-shadow: var(--ui-shadow-1);
+}
+
+.af-menu__list[hidden] {
+  display: none;
+}
+
+.af-menu__item {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-base);
+  line-height: 1.3;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.af-menu__item:hover,
+.af-menu__item:focus {
+  background: var(--ui-overlay-bg-hover, rgba(255, 255, 255, 0.08));
+  outline: none;
+}
+
+.af-menu__item:focus-visible {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+.af-menu__item--danger {
+  color: var(--error);
+}
+
+@media (pointer: coarse) {
+  .af-menu__button {
+    min-width: var(--tap-min);
+    height: var(--tap-min);
+  }
+
+  .af-menu__item {
+    min-height: var(--tap-min);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .af-menu__list {
+    box-shadow: none;
+  }
+}
+/* af-menu:end */
+
+/* af-rows:begin
+ * Account-kind rows (tokens --af-row-tint-* / --af-row-mark-* in the base
+ * :root and the light group block). Works on a <tr> (the tint paints the
+ * cells, the kind mark is an inset bar on the first cell) and on any stacked
+ * row block (a <div> row on phones: the bar is on the block itself). */
+.af-row--admin,
+.af-row--admin > td,
+.af-row--admin > th {
+  background-color: var(--af-row-tint-admin);
+}
+.af-row--user,
+.af-row--user > td,
+.af-row--user > th {
+  background-color: var(--af-row-tint-user);
+}
+.af-row--entity,
+.af-row--entity > td,
+.af-row--entity > th {
+  background-color: var(--af-row-tint-entity);
+}
+/* Text on a tinted row keeps 4.5:1: the row colour, and .af-row__muted for
+ * secondary text (NOT the host's own muted colour, which may be tuned for a
+ * bare surface). */
+.af-row--admin,
+.af-row--user,
+.af-row--entity {
+  color: var(--af-row-text);
+}
+.af-row__muted {
+  color: var(--af-row-text-muted);
+}
+/* A <tr>'s own background would double the wash under its cells. */
+tr.af-row--admin,
+tr.af-row--user,
+tr.af-row--entity {
+  background-color: transparent;
+}
+tr.af-row--admin > :first-child { box-shadow: inset 3px 0 0 var(--af-row-mark-admin); }
+tr.af-row--user > :first-child { box-shadow: inset 3px 0 0 var(--af-row-mark-user); }
+tr.af-row--entity > :first-child { box-shadow: inset 3px 0 0 var(--af-row-mark-entity); }
+.af-row--admin:not(tr) { box-shadow: inset 3px 0 0 var(--af-row-mark-admin); }
+.af-row--user:not(tr) { box-shadow: inset 3px 0 0 var(--af-row-mark-user); }
+.af-row--entity:not(tr) { box-shadow: inset 3px 0 0 var(--af-row-mark-entity); }
+
+/* Kind chip: "Admin" / "User" / "Entity" beside a name. Text is always
+ * --af-row-text (never the tint colour), so it keeps 4.5:1 over its wash. */
+.af-kind-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border: 1px solid var(--ui-border-2);
+  border-radius: 999px;
+  background: var(--ui-overlay-bg, transparent);
+  color: var(--af-row-text, var(--text-primary));
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.af-kind-chip--admin {
+  border-color: color-mix(in srgb, var(--af-row-mark-admin) 60%, transparent);
+  background: color-mix(in srgb, var(--af-row-mark-admin) 10%, transparent);
+}
+.af-kind-chip--user {
+  border-color: var(--ui-border-2);
+  background: var(--ui-overlay-bg, transparent);
+}
+.af-kind-chip--entity {
+  border-color: color-mix(in srgb, var(--af-row-mark-entity) 60%, transparent);
+  background: color-mix(in srgb, var(--af-row-mark-entity) 10%, transparent);
+}
+
+/* Tint legend under a tinted table: "Tint: [admin] [user] [entity]". */
+.af-row-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: var(--af-helper-size);
+}
+.af-row-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.af-row-legend__swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid var(--ui-border-2);
+}
+.af-row-legend__swatch--admin { background: var(--af-row-tint-admin); box-shadow: inset 3px 0 0 var(--af-row-mark-admin); }
+.af-row-legend__swatch--user { background: var(--af-row-tint-user); box-shadow: inset 3px 0 0 var(--af-row-mark-user); }
+.af-row-legend__swatch--entity { background: var(--af-row-tint-entity); box-shadow: inset 3px 0 0 var(--af-row-mark-entity); }
+/* af-rows:end */
+
+/* af-nav:begin
+ * Grouped sidebar navigation: a small uppercase muted caption above each
+ * group of items, and a footer slot pinned to the bottom of a flex-column
+ * sidebar (the Setup button). The items keep the host's own styles. */
+.af-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+}
+.af-nav-group + .af-nav-group {
+  margin-top: 14px;
+}
+.af-nav-group__caption {
+  margin: 0;
+  padding: 0 10px 4px;
+  /* Secondary, not --text-muted: 11 px text needs the stronger of the two
+   * to stay legible (muted sits near 3:1 in several dark themes). */
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  user-select: none;
+}
+.af-nav-footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0 max(4px, var(--safe-bottom));
+  border-top: 1px solid var(--ui-border-1);
+}
+.af-nav-footer__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: var(--control-h, 32px);
+  padding: 6px 12px;
+  border: 1px solid var(--ui-border-2);
+  border-radius: var(--radius-md);
+  background: var(--ui-overlay-bg, transparent);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  cursor: pointer;
+}
+.af-nav-footer__button:hover {
+  background: var(--ui-overlay-bg-hover, rgba(255, 255, 255, 0.08));
+}
+.af-nav-footer__button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+}
+@media (pointer: coarse) {
+  .af-nav-footer__button {
+    min-height: var(--tap-min);
+  }
+}
+/* af-nav:end */
+
+/* Generic helper text (the label-scale guard's .af-field-help): the same
+ * floor as the kit's own helper rules. */
+.af-field-help {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--af-helper-size);
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+/* af-sandbox-chat:begin — the console Sandbox chat island (islands
+ * mountSandboxChat): panel-chat's thread + composer fill the host's box;
+ * these rules cover only the island's own pieces (attachment chips with a
+ * remove button and an upload state, the empty state, the dictation state). */
+.af-sandbox-chat {
+  height: 100%;
+  min-height: 0;
+  border-radius: inherit;
+}
+.af-sandbox-chat__empty {
+  padding: 24px 8px;
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+  text-align: center;
+}
+.af-sandbox-chat__attachments {
+  margin: 0 0 6px;
+}
+.af-sandbox-chat__chip {
+  cursor: default;
+}
+.af-sandbox-chat__chip.is-failed {
+  border-color: var(--error-border);
+  color: var(--error);
+}
+.af-sandbox-chat__chip-note {
+  font-size: var(--af-helper-size, 13px);
+  color: inherit;
+}
+.af-sandbox-chat__chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: -4px -6px -4px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.af-sandbox-chat__chip-remove:hover {
+  background: var(--ui-overlay-bg-hover, rgba(255, 255, 255, 0.08));
+}
+.af-sandbox-chat__chip-remove:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 1px;
+}
+.af-sandbox-chat__mic.is-recording {
+  border-color: var(--error-border);
+  color: var(--error);
+}
+@media (pointer: coarse) {
+  .af-sandbox-chat__chip-remove {
+    width: var(--tap-min);
+    height: var(--tap-min);
+    margin: -10px -10px -10px 0;
+  }
+}
+/* af-sandbox-chat:end */
+
+/* af-workflow-picker:begin — WorkflowPicker (workflow_picker.tsx): the one
+ * workflow chooser of every client. Name + small version detail, groups
+ * "Shared" / "Mine", 44 px options on touch, fixed popover clamped to the
+ * viewport (the TSX computes left/top/width/max-height). */
+.af-workflow-picker {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+.af-workflow-picker__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 4px 10px;
+  border: 1px solid var(--ui-overlay-border, rgba(255, 255, 255, 0.14));
+  border-radius: var(--radius-md, 8px);
+  background: var(--ui-overlay-bg, rgba(0, 0, 0, 0.18));
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-base);
+  text-align: left;
+  cursor: pointer;
+}
+.af-workflow-picker__trigger:hover:not([aria-disabled="true"]) {
+  background: var(--ui-overlay-bg-hover, rgba(255, 255, 255, 0.08));
+}
+.af-workflow-picker__trigger:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+}
+.af-workflow-picker__trigger[aria-disabled="true"] {
+  cursor: not-allowed;
+  color: var(--text-secondary);
+}
+.af-workflow-picker__value {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+.af-workflow-picker__value .af-workflow-picker__name {
+  flex: 0 0 auto;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+/* In the trigger the detail gives way first (the name stays readable). */
+.af-workflow-picker__value .af-workflow-picker__detail {
+  flex: 0 100 auto;
+  min-width: 0;
+}
+.af-workflow-picker__detail {
+  color: var(--text-muted);
+  font-size: var(--af-helper-size, 13px);
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.af-workflow-picker__caret {
+  flex: none;
+  width: 12px;
+  height: 8px;
+  background: var(--af-select-chevron) center / 12px 8px no-repeat;
+}
+/* OPAQUE surface in every theme: --bg-card is translucent in light themes
+ * (rgba 0.88-0.92) and let the page text show through the list. --bg-secondary
+ * is a solid colour in every theme block. */
+.af-workflow-picker__list {
+  z-index: 10000;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--ui-border-2, var(--ui-overlay-border, rgba(127, 127, 127, 0.35)));
+  border-radius: 12px;
+  box-shadow: var(--ui-shadow-1, 0 10px 30px rgba(0, 0, 0, 0.35));
+}
+.af-workflow-picker__group {
+  padding: 10px 10px 4px;
+  color: var(--text-muted);
+  font-size: var(--af-helper-size, 13px);
+  font-weight: 700;
+}
+.af-workflow-picker__option {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: var(--font-size-base);
+  cursor: pointer;
+}
+.af-workflow-picker__option .af-workflow-picker__name,
+.af-workflow-picker__option .af-workflow-picker__detail {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.af-workflow-picker__option--highlighted {
+  background: var(--accent-subtle, rgba(233, 69, 96, 0.12));
+}
+.af-workflow-picker__option--selected .af-workflow-picker__name {
+  font-weight: 700;
+}
+.af-workflow-picker__option--selected {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.af-workflow-picker__empty {
+  margin: 0;
+  padding: 10px;
+  color: var(--text-secondary);
+  font-size: var(--af-helper-size, 13px);
+}
+.af-workflow-picker__error {
+  color: var(--error);
+  font-size: var(--af-helper-size, 13px);
+  overflow-wrap: anywhere;
+}
+@media (pointer: coarse) {
+  .af-workflow-picker__trigger,
+  .af-workflow-picker__option {
+    min-height: var(--tap-min, 44px);
+  }
+}
+/* Phones: the trigger shows the name only; the version and the default's
+ * target are in the open list. */
+@media (max-width: 767.98px) {
+  .af-workflow-picker__trigger .af-workflow-picker__detail {
+    display: none;
+  }
+}
+/* af-workflow-picker:end */
+
+/* Shared searchable multi-select, originally the Observer tools picker. */
+.af_multi_select {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.af_multi_select_row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.af_multi_select_row > .btn:first-child {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.af_multi_select_panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--ui-border-1);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
+}
+
+.af_multi_select_list {
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.af_multi_select_item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--radius-lg, 10px);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: color-mix(in srgb, var(--bg-primary) 35%, transparent);
+  cursor: pointer;
+  user-select: none;
+}
+
+.af_multi_select_item.checked {
+  border-color: var(--accent);
+  background: var(--ui-surface-2);
+}
+
+/* Selected items shown as chips */
+.af_multi_select_chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.af_multi_select_chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm, 4px);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  color: color-mix(in srgb, var(--accent) 95%, transparent);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.af_multi_select_chip:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.af_multi_select_chip_x {
+  font-size: calc(11px * var(--font-scale));
+  line-height: 1;
+  opacity: 0.6;
+  margin-left: 2px;
+}
+
+.af_multi_select_chip:hover .af_multi_select_chip_x {
+  opacity: 1;
+}
+
+.af_multi_select button { color: inherit; font: inherit; }
+.af_multi_select_row > button { background: var(--ui-surface-2); border: 1px solid var(--ui-border-1); border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+.af_multi_select_panel > input { width: 100%; box-sizing: border-box; }
+.af_multi_select_chip { max-width: 100%; overflow-wrap: anywhere; white-space: normal; }
+
+/* ------------------------------------------------------------------ */
+/* af-rail:begin — AfRailDrawer (ui-kit 0.6.0). An icon rail on the right
+ * edge of the host's content area; its panel opens beside it (docked in the
+ * flow ≥ 1024 px, floating over the content below). The HOST gives the
+ * container `position: relative` (overlay mode positions against it). */
+.af-rail {
+  --af-rail-w: 48px;
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  min-height: 0;
+  height: 100%;
+  max-width: 100%;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+.af-rail--overlay {
+  position: static;
+}
+.af-rail__rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: var(--af-rail-w);
+  flex: 0 0 var(--af-rail-w);
+  padding: 8px 0;
+  border-left: 1px solid var(--ui-border-1);
+  background: color-mix(in srgb, var(--bg-primary) 86%, var(--bg-secondary));
+  overflow-y: auto;
+  z-index: 3;
+}
+.af-rail__tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.af-rail__tab:hover {
+  background: var(--ui-surface-2);
+  color: var(--text-primary);
+}
+.af-rail__tab:focus-visible,
+.af-rail__icon-btn:focus-visible,
+.af-rail__resize:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.af-rail__tab.is-active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.af-rail__tab.is-active::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.af-rail__badge {
+  position: absolute;
+  top: 3px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--bg-primary);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+.af-rail__dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.af-rail__panel-wrap {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--ui-border-1);
+  background: var(--bg-card, var(--bg-secondary));
+}
+.af-rail__panel-wrap[hidden] {
+  display: none;
+}
+.af-rail__panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  outline: 0;
+}
+.af-rail__section {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.af-rail__section[hidden] {
+  display: none;
+}
+.af-rail__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 4px 6px 4px 14px;
+  border-bottom: 1px solid var(--ui-border-1);
+}
+.af-rail__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-base);
+  font-weight: 700;
+}
+.af-rail__head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.af-rail__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.af-rail__icon-btn:hover {
+  background: var(--ui-surface-2);
+  color: var(--text-primary);
+}
+.af-rail__body {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 12px 14px 16px;
+  overflow-wrap: anywhere;
+}
+.af-rail__resize {
+  position: absolute;
+  left: -4px;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 4;
+}
+.af-rail__resize:hover,
+.af-rail__resize:active {
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+@media (pointer: coarse) {
+  .af-rail__resize {
+    left: -11px;
+    width: 22px;
+  }
+  .af-rail__icon-btn {
+    width: var(--tap-min, 44px);
+    height: var(--tap-min, 44px);
+  }
+}
+/* Overlay: the panel floats over the host content beside the rail. */
+.af-rail--overlay .af-rail__panel-wrap {
+  /* Opaque: the overlay panel floats over the content (--bg-card is translucent). */
+  background: var(--bg-secondary);
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: var(--af-rail-w);
+  width: min(var(--af-rail-panel-width, 420px), calc(100% - var(--af-rail-w)));
+  z-index: 6;
+  box-shadow: var(--ui-shadow-1);
+}
+.af-rail__backdrop {
+  position: absolute;
+  inset: 0 var(--af-rail-w) 0 0;
+  z-index: 5;
+  background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
+}
+/* af-rail:end */
+
+/* af-settings:begin — AfSettingsGroup / AfSettingRow / AfOverrideRow (0.6.0). */
+.af-settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--ui-border-1);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg-card, var(--bg-secondary)) 70%, transparent);
+}
+.af-settings-group + .af-settings-group {
+  margin-top: 12px;
+}
+.af-settings-group--flat {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.af-settings-group--flat + .af-settings-group--flat {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--ui-border-1);
+}
+.af-settings-group--flat .af-settings-group__title {
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+.af-settings-group__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.af-settings-group__title {
+  flex: 1;
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-primary);
+}
+.af-settings-group__aside {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+.af-settings-group__help {
+  margin: 0 0 2px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+.af-settings-group__rows {
+  display: flex;
+  flex-direction: column;
+}
+.af-setting-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  min-height: 40px;
+  padding: 6px 0;
+  border-top: 1px solid color-mix(in srgb, var(--ui-border-1) 70%, transparent);
+}
+.af-settings-group__rows > :first-child,
+.af-settings-group__rows > :first-child > .af-setting-row {
+  border-top: 0;
+}
+.af-setting-row__label {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 140px;
+  min-width: 0;
+}
+.af-setting-row__name {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.af-setting-row__help {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+.af-setting-row__control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.af-setting-row__control > .af-select,
+.af-setting-row__control > select,
+.af-setting-row__control > input {
+  flex: 1 1 160px;
+  min-width: 0;
+  max-width: 100%;
+}
+.af-setting-row--stack .af-setting-row__control {
+  flex-basis: 100%;
+  justify-content: stretch;
+}
+.af-setting-row--switch {
+  padding: 0;
+}
+.af-setting-row--switch > .af-switch {
+  flex: 1 1 100%;
+}
+.af-setting-row__trailing {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.af-setting-btn {
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--ui-border-1);
+  border-radius: var(--radius-sm);
+  background: var(--ui-surface-2);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+.af-setting-btn:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--ui-border-1));
+}
+.af-setting-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.af-setting-btn--quiet {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-secondary);
+}
+@media (pointer: coarse) {
+  .af-setting-btn {
+    min-height: var(--tap-min, 44px);
+  }
+}
+.af-override__summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  text-align: right;
+}
+.af-override[data-overridden="true"] .af-override__summary {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.af-override__editor {
+  padding: 4px 0 10px;
+}
+.af-override__editor[hidden] {
+  display: none;
+}
+.af-voice-section .af-voice-settings > label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* 0.7.1: devices, tests, level meter, sliders. */
+/* The route names the gateway answered must be readable in a narrow rail: wrap, never ellipsis. */
+.af-voice-section .af-override__summary {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.af-voice-section .af-setting-row__control > .af-select {
+  flex-basis: 120px;
+}
+.af-voice-note {
+  margin: 0 0 6px;
+  padding: 2px 0 2px 8px;
+  border-left: 3px solid var(--ui-border-1);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+.af-voice-note--ok { border-left-color: var(--success); color: var(--text-primary); }
+.af-voice-note--error { border-left-color: var(--error); color: var(--text-primary); }
+.af-voice-meter {
+  position: relative;
+  height: 6px;
+  margin: 2px 0 8px;
+  border-radius: 3px;
+  background: var(--ui-surface-2);
+  overflow: hidden;
+}
+.af-voice-meter__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--success);
+  transition: width 60ms linear;
+}
+.af-voice-range {
+  flex: 1 1 120px;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+.af-voice-range__value {
+  flex: 0 0 auto;
+  min-width: 4ch;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.af-pmp__details { margin-top: 2px; }
+.af-pmp__details > summary { cursor: pointer; color: var(--text-muted); font-size: var(--font-size-xs); }
+.af-pmp__details > span { display: block; color: var(--text-muted); font-size: var(--font-size-xs); overflow-wrap: anywhere; }
+/* af-settings:end */
+
+/* af-workspace:begin — WorkspaceChooser (0.8.2, round 11): one chooser, four levels (gateway | account | session | run). */
+.af-workspace__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.af-workspace__gateway {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--info, var(--accent));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--info, var(--accent)) 8%, transparent);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.af-workspace__follow {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.af-workspace__posture {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+.af-workspace__badge {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 2px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 999px;
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.af-workspace__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.af-workspace__list > li + li {
+  border-top: 1px solid color-mix(in srgb, var(--ui-border-1) 70%, transparent);
+}
+.af-workspace__list > .af-workspace__caption {
+  padding: 10px 0 4px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.af-workspace__list > .af-workspace__caption + li {
+  border-top: 0;
+}
+.af-workspace__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 10px;
+  padding: 6px 0;
+  min-width: 0;
+}
+.af-workspace__path {
+  flex: 1 1 180px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.af-workspace__name {
+  flex: 1 1 180px;
+  min-width: 0;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.af-workspace__controls {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.af-workspace__row > .af-workspace__refusal,
+.af-workspace__row > .af-workspace__saved,
+.af-workspace__posture > .af-workspace__refusal,
+.af-workspace__posture > .af-workspace__saved {
+  flex-basis: 100%;
+}
+.af-workspace__access {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  max-width: 100%;
+}
+.af-workspace__access-btn {
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px solid var(--ui-border-1);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  cursor: pointer;
+}
+.af-workspace__access-btn + .af-workspace__access-btn {
+  border-left: 0;
+}
+.af-workspace__access-btn:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+.af-workspace__access-btn:last-child {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.af-workspace__access-btn[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.af-workspace__access-btn[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.af-workspace__access-btn:focus-visible,
+.af-workspace__icon-btn:focus-visible,
+.af-workspace__add-btn:focus-visible,
+.af-workspace__access-tag:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.af-workspace__access-tag {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--ui-surface-2);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.af-workspace__access-tag[data-access="deny"] {
+  background: var(--error-subtle, rgba(231, 76, 60, 0.12));
+  color: var(--text-primary);
+}
+.af-workspace__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.af-workspace__icon-btn:hover:not([aria-disabled="true"]) {
+  background: var(--ui-surface-2);
+  color: var(--text-primary);
+}
+.af-workspace__icon-btn[aria-disabled="true"],
+.af-workspace__add-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.af-workspace__add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 10px 0 2px;
+}
+.af-workspace__input {
+  flex: 1 1 200px;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--ui-border-1);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-size-sm);
+}
+.af-workspace__add-btn {
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px solid var(--ui-border-1);
+  border-radius: var(--radius-sm);
+  background: var(--ui-surface-2);
+  color: var(--text-primary);
+  font-weight: 600;
+  cursor: pointer;
+}
+.af-workspace__add > .af-workspace__refusal,
+.af-workspace__add > .af-workspace__saved {
+  flex-basis: 100%;
+}
+.af-workspace__effective {
+  margin: 2px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--ui-border-1) 70%, transparent);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.af-workspace__note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--af-helper-size, var(--font-size-xs));
+}
+.af-workspace__refusal {
+  display: block;
+  color: var(--error, #d14343);
+  font-size: var(--af-helper-size, var(--font-size-xs));
+  overflow-wrap: anywhere;
+}
+.af-workspace__saved {
+  display: block;
+  color: var(--text-secondary);
+  font-size: var(--af-helper-size, var(--font-size-xs));
+}
+@media (pointer: coarse) {
+  .af-workspace__access-btn,
+  .af-workspace__icon-btn,
+  .af-workspace__add-btn,
+  .af-workspace__input {
+    min-width: var(--tap-min, 44px);
+    min-height: var(--tap-min, 44px);
+  }
+}
+/* af-workspace:end */
+
+/* af-file-viewer:begin — AfFileViewer + AfCodeBlock (0.6.0). */
+.af-file-viewer {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--ui-border-1);
+  border-radius: var(--radius-md);
+  background: var(--bg-card, var(--bg-secondary));
+}
+.af-file-viewer__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 4px 6px 4px 10px;
+  border-bottom: 1px solid var(--ui-border-1);
+}
+.af-file-viewer__title {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.af-file-viewer__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+}
+.af-file-viewer__meta {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+.af-file-viewer__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.af-file-viewer__icon-btn:hover {
+  background: var(--ui-surface-2);
+  color: var(--text-primary);
+}
+.af-file-viewer__icon-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+@media (pointer: coarse) {
+  .af-file-viewer__icon-btn {
+    width: var(--tap-min, 44px);
+    height: var(--tap-min, 44px);
+  }
+}
+.af-file-viewer__body {
+  min-width: 0;
+  padding: 10px;
+  overflow-wrap: anywhere;
+}
+.af-file-viewer__muted {
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+.af-file-viewer__error {
+  margin: 0;
+  color: var(--error, #ef4444);
+  font-size: var(--font-size-sm);
+}
+.af-file-viewer__image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+  border-radius: var(--radius-sm);
+}
+.af-file-viewer__pdf {
+  display: block;
+  width: 100%;
+  height: min(70vh, 720px);
+  border: 0;
+}
+.af-file-viewer__markdown {
+  min-width: 0;
+}
+.af-code {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--ui-code-bg, color-mix(in srgb, var(--bg-primary) 80%, var(--bg-secondary)));
+  color: var(--text-primary);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: var(--font-size-code, 12px);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  tab-size: 2;
+}
+.af-code--numbered .af-code__line {
+  display: block;
+  position: relative;
+  padding-left: calc(var(--af-code-gutter, 3ch) + 10px);
+}
+.af-code--numbered .af-code__line::before {
+  content: attr(data-line);
+  position: absolute;
+  left: 0;
+  width: var(--af-code-gutter, 3ch);
+  color: var(--text-muted);
+  text-align: right;
+  user-select: none;
+}
+.af-code__comment {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.af-code__string {
+  color: var(--success, #16a34a);
+}
+.af-code__number {
+  color: var(--warning, #d97706);
+}
+.af-code__keyword {
+  color: var(--accent);
+  font-weight: 600;
+}
+/* af-file-viewer:end */
+
+/* af-tooltip:begin
+ * The kit tooltip (af_tooltip_core.bindAfTooltips; AfTooltip in React;
+ * AfConsoleIslands.bindTooltips in plain-HTML hosts). One element per
+ * document, position: fixed (placed by afTooltipPlacement inside the
+ * viewport, so no ancestor overflow clips it and it never widens the page),
+ * above popovers. Surface, text and border follow the active theme rather
+ * than inverting it. Plain text, wraps at 280 px. */
+.af-tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: var(--z-tooltip, 1200);
+  box-sizing: border-box;
+  max-width: min(280px, calc(100vw - 16px));
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--ui-border-2);
+  box-shadow: var(--ui-shadow-1);
+  font-family: var(--font-sans, inherit);
+  font-size: var(--font-size-md);
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  pointer-events: auto;
+}
+
+.af-tooltip[data-structured="true"] {
+  width: min(320px, calc(100vw - 16px));
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 12px;
+  border-radius: var(--radius-md);
+}
+.af-tooltip { max-height: calc(100dvh - 16px); overflow-y: auto; }
+.af-tooltip__title { font-size: var(--font-size-base); font-weight: 650; line-height: 1.35; }
+.af-tooltip__description { margin: 5px 0 0; font-weight: 400; }
+.af-tooltip__facts { display: grid; gap: 5px; margin: 10px 0 0; }
+.af-tooltip__fact { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: baseline; }
+.af-tooltip__label { color: var(--text-secondary); font-weight: 400; }
+.af-tooltip__value { margin: 0; max-width: 180px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+.af-tooltip__value[data-tone="muted"] { color: var(--text-secondary); }
+.af-tooltip__value[data-tone="success"] { color: var(--success); }
+.af-tooltip__value[data-tone="warning"] { color: var(--warning); }
+.af-tooltip__value[data-tone="danger"] { color: var(--error); }
+.af-tooltip__section { margin-top: 10px; }
+.af-tooltip__section-title { font-weight: 600; }
+.af-tooltip__list { margin: 4px 0 0; padding-left: 17px; font-weight: 400; }
+.af-tooltip__item + .af-tooltip__item { margin-top: 3px; }
+.af-tooltip__note { margin: 9px 0 0; color: var(--text-secondary); font-size: var(--font-size-sm); font-weight: 400; }
+.af-tooltip__paragraph { margin: 0; font-weight: 400; }
+.af-tooltip__paragraph + .af-tooltip__paragraph { margin-top: 6px; }
+
+.af-tooltip[hidden] {
+  display: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .af-tooltip:not([hidden]) {
+    animation: af-tooltip-in 90ms ease-out;
+  }
+}
+
+@keyframes af-tooltip-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* af-tooltip:end */
+/* --- ui-primitives (voice) --- */
+/* 0035: voice OUT / voice IN render alone (no section around them) with the section's row rules. */
+.af-voice-output .af-setting-row__control > .af-select,
+.af-voice-input .af-setting-row__control > .af-select {
+  flex-basis: 120px;
+}
+.af-voice-section__tts-slot {
+  padding: 2px 0 6px;
+}
+/* The voice row: the voice select and its play/stop toggle (choosing a voice plays it). */
+.af-voice-settings__voice-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.af-voice-settings__voice-row > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.af-voice-settings__sample {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+.af-voice-settings__sample:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.af-voice-settings__sample[data-state="loading"] > span {
+  display: none;
+}
+.af-voice-settings__sample[data-state="loading"]::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border-default);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: af-voice-sample-spin 0.8s linear infinite;
+}
+@keyframes af-voice-sample-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .af-voice-settings__sample[data-state="loading"]::before {
+    animation: none;
+    border-top-color: var(--border-default);
+  }
+}
+.af-voice-create__record {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.af-voice-create__record > .af-voice-meter {
+  flex: 1 1 120px;
+  margin: 0;
+}
+/* "Create a voice" and "Manage voices" (release-closing polish, 2026-10-28): the two
+ * fieldsets were left to the browser (grooved border, unstyled buttons, labels inline
+ * with their controls). A card per fieldset, the mode switch as the kit's segmented
+ * pill, stacked labels, themed fields and the accent-tinted primary action. */
+.af-voice-create,
+.af-voice-library {
+  margin: 0;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--ui-border-1);
+  border-radius: var(--radius-md);
+  background: var(--ui-surface-2);
+  min-width: 0;
+}
+.af-voice-create {
+  display: grid;
+  gap: 12px;
+}
+.af-voice-create > legend,
+.af-voice-library > legend {
+  padding: 0 6px;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+.af-voice-create__modes {
+  display: inline-flex;
+  justify-self: start;
+  max-width: 100%;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--ui-border-1);
+  border-radius: 999px;
+  background: var(--ui-overlay-bg, rgba(0, 0, 0, 0.18));
+}
+.af-voice-create__modes > button {
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.af-voice-create__modes > button:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+.af-voice-create__modes > button[aria-selected="true"] {
+  background: color-mix(in srgb, var(--accent) 22%, var(--ui-overlay-bg));
+  color: var(--text-primary);
+}
+.af-voice-create > label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+.af-voice-create input:not([type="file"]),
+.af-voice-create textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-input, var(--bg-primary));
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-input, var(--font-size-sm));
+}
+.af-voice-create textarea {
+  resize: vertical;
+  line-height: 1.45;
+}
+.af-voice-create input[type="file"] {
+  max-width: 100%;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+}
+.af-voice-create input[type="file"]::file-selector-button {
+  margin-right: 10px;
+  border: 1px solid var(--ui-border-1);
+  border-radius: var(--radius-md);
+  padding: 6px 12px;
+  background: var(--ui-overlay-bg, rgba(0, 0, 0, 0.18));
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.af-voice-create__record > button,
+.af-voice-create > [data-action="create-voice"] {
+  border: 1px solid var(--ui-border-1);
+  border-radius: var(--radius-md);
+  padding: 7px 14px;
+  background: var(--ui-overlay-bg, rgba(0, 0, 0, 0.18));
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.af-voice-create > [data-action="create-voice"] {
+  justify-self: start;
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 22%, var(--ui-overlay-bg));
+}
+.af-voice-create button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.af-voice-create button:focus-visible,
+.af-voice-create input:focus-visible,
+.af-voice-create textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.af-voice-library {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.af-voice-library__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.af-voice-library__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--ui-border-1);
+}
+.af-voice-library__name {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.af-voice-library__meta,
+.af-voice-library__empty {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+.af-voice-library__actions,
+.af-voice-library__confirm,
+.af-voice-library__edit {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.af-voice-mic {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.af-voice-mic__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-default);
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+.af-voice-mic__button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.af-voice-mic--recording .af-voice-mic__button {
+  border-color: var(--error);
+  color: var(--error);
+}
+.af-voice-mic__meter {
+  display: inline-block;
+  width: 56px;
+  margin: 0;
+}
+.af-voice-mic__status {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+@media (pointer: coarse) {
+  .af-voice-mic__button {
+    width: 44px;
+    height: 44px;
+  }
+  .af-voice-library button,
+  .af-voice-create button {
+    min-height: 44px;
+  }
+  .af-voice-settings__sample {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+/* --- ui-primitives (tools-models) --- */
+/* ToolModeEditor (backlog 0033): Off / Ask / Auto per tool, grouped by toolset. A query container,
+ * like .af-tool-policy: the row's segmented control wraps under the tool name in a narrow pane. */
+.af-tool-modes {
+  container: af-tool-modes / inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+.af-tool-modes__top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.af-tool-modes__search {
+  flex: 1 1 200px;
+  min-width: 0;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--ui-border-1);
+  background: var(--ui-overlay-bg);
+  color: var(--text-primary);
+  padding: 8px 10px;
+  font-family: var(--font-sans);
+  /* --font-size-input: floored at 16px on coarse pointers, so iOS never zooms on focus. */
+  font-size: var(--font-size-input);
+}
+
+.af-tool-modes__search::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+.af-tool-modes__count,
+.af-tool-modes__saved {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+.af-tool-modes__saved {
+  color: var(--text-muted);
+}
+
+.af-tool-modes__warnings {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--warning-border);
+  background: var(--warning-subtle);
+}
+
+.af-tool-modes__group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--ui-border-1);
+  background: var(--ui-surface-1);
+}
+
+.af-tool-modes__group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.af-tool-modes__group-name {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.af-tool-modes__group-state {
+  font-size: var(--font-size-xxs);
+  color: var(--text-muted);
+}
+
+.af-tool-modes__group-head .af-tool-modes__seg {
+  margin-left: auto;
+}
+
+.af-tool-modes__cap {
+  font-size: var(--font-size-xxs);
+  color: var(--text-muted);
+}
+
+.af-tool-modes__seg {
+  display: inline-flex;
+  flex: 0 0 auto;
+  background: var(--ui-overlay-bg);
+  border: 1px solid var(--ui-overlay-border);
+  border-radius: var(--radius-lg);
+  padding: 2px;
+  gap: 2px;
+}
+
+.af-tool-modes__seg-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 4px 10px;
+  font: inherit;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.af-tool-modes__seg-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.af-tool-modes__seg-btn.is-active {
+  background: color-mix(in srgb, var(--accent) 22%, var(--ui-surface-2));
+  color: var(--text-primary);
+}
+
+.af-tool-modes__seg-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.af-tool-mode-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--ui-border-1);
+  background: var(--ui-surface-2);
+}
+
+.af-tool-mode-row[data-overridden="true"] {
+  border-color: var(--accent-border);
+}
+
+.af-tool-mode-row.is-unavailable {
+  opacity: 0.75;
+}
+
+.af-tool-mode-row__meta {
+  min-width: 0;
+}
+
+.af-tool-mode-row__default {
+  padding: 1px 8px;
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--ui-chip-border);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xxs);
+  white-space: nowrap;
+}
+
+.af-tool-mode-row__why {
+  margin-top: 4px;
+  font-size: var(--font-size-xxs);
+  color: var(--text-muted);
+}
+
+@container af-tool-modes (max-width: 359.98px) {
+  .af-tool-mode-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .af-tool-modes__group-head .af-tool-modes__seg {
+    margin-left: 0;
+  }
+}
+
+@media (pointer: coarse) {
+  .af-tool-modes__seg-btn {
+    min-height: var(--tap-min);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .af-tool-modes__seg-btn {
+    transition: none;
+  }
+}
+
+/* ProviderModelPicker (backlog 0034): a named default may be long; pinned fields; set anyway. */
+.af-pmp__seg-btn {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The long named default ellipsizes first; the short "Custom" choice keeps its width
+ * ("Cus..." in a 400 px panel, release-closing polish). */
+.af-pmp__seg-btn:first-child {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.af-pmp__seg-btn:last-child {
+  flex: 0 0 auto;
+  /* a host's long customLabel still ellipsizes, at half the control */
+  max-width: 50%;
+}
+
+/* --- ui-primitives (shell) --- */
+/* af-shell:begin — the app shell (backlog 0036): identity in the top-right
+ * cluster, the drawer system (left side, vertical text tabs, canvas panels,
+ * panel failures), AfAppShell's layout. `--af-topbar-h` is published at run
+ * time by AfTopBarActions (no :root default: read it with a fallback). */
+.af-topbar__identity--badge,
+.af-topbar__identity--menu {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  max-width: var(--af-identity-max, 24ch);
+}
+.af-topbar__identity--menu {
+  border: 1px solid var(--ui-border-1);
+  border-radius: 999px;
+  background: var(--ui-overlay-bg, rgba(0, 0, 0, 0.18));
+  font: inherit;
+  font-size: var(--font-size-sm, 12px);
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.af-topbar__identity--menu:hover {
+  color: var(--text-primary);
+  border-color: var(--ui-border-2);
+}
+.af-topbar__identity-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-pmp__seg {
+  max-width: 100%;
+}
+
+.af-pmp__pinned {
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--ui-border-1);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.af-pmp__override {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.af-topbar__account-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.af-topbar__account-who {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.af-topbar__account-host {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 479.98px) {
+  .af-topbar__identity--menu .af-topbar__identity-label {
+    display: none;
+  }
+  .af-topbar__identity--menu {
+    display: inline-flex;
+    padding: 4px 8px;
+  }
+}
+.af-menu__header {
+  padding: 6px 10px 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--ui-border-1);
+  font-size: var(--font-size-sm, 12px);
+  color: var(--text-secondary);
+  max-width: 32ch;
+}
+.af-about-card__extra {
+  margin-top: 12px;
+}
+
+/* Drawer system: host content between the sides. */
+.af-drawers {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+.af-drawers__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* Left side: the rail on the left edge, the panel right of it. */
+.af-rail--left .af-rail__rail {
+  border-left: 0;
+  border-right: 1px solid var(--ui-border-1);
+}
+.af-rail--left .af-rail__panel-wrap {
+  border-left: 0;
+  border-right: 1px solid var(--ui-border-1);
+}
+.af-rail--left .af-rail__resize {
+  left: auto;
+  right: -4px;
+}
+.af-rail--left .af-rail__tab.is-active::before {
+  left: auto;
+  right: -3px;
+}
+.af-rail--left.af-rail--docked [data-action="collapse-panel"] svg {
+  transform: rotate(180deg);
+}
+.af-rail--left.af-rail--overlay .af-rail__panel-wrap {
+  right: auto;
+  left: var(--af-rail-w);
+}
+.af-rail--left .af-rail__backdrop {
+  inset: 0 0 0 var(--af-rail-w);
+}
+@media (pointer: coarse) {
+  .af-rail--left .af-rail__resize {
+    left: auto;
+    right: -11px;
+  }
+}
+/* A side with only drawer-mode panels has no rail. */
+.af-rail--no-rail {
+  --af-rail-w: 0px;
+}
+/* Overlay anchored to the viewport under the app header (topOffset). */
+.af-rail--anchored .af-rail__panel-wrap,
+.af-rail--anchored .af-rail__backdrop {
+  position: fixed;
+  top: var(--af-drawers-top, 0px);
+  bottom: 0;
+}
+.af-rail--anchored .af-rail__panel-wrap {
+  z-index: var(--z-drawer);
+}
+.af-rail--anchored .af-rail__backdrop {
+  z-index: calc(var(--z-drawer) - 1);
+}
+/* Vertical text tabs (AbstractEntity's side tabs, Continuum's team tabs). */
+.af-rail__tab--text {
+  height: auto;
+  min-height: 44px;
+  padding: 10px 0;
+}
+.af-rail__vlabel {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  white-space: nowrap;
+  font-size: var(--font-size-sm, 12px);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.af-rail--left .af-rail__vlabel {
+  transform: rotate(180deg);
+}
+/* A canvas panel owns its viewport: no padding, no scrolling. */
+.af-rail__body--fill {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.af-rail__body--fill > * {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.af-rail__head-slot {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.af-rail__head-slot:empty {
+  display: none;
+}
+.af-rail__error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--error-border, var(--ui-border-1));
+  border-radius: var(--radius-md);
+  background: var(--error-subtle, transparent);
+  color: var(--text-primary);
+}
+.af-rail__error-text {
+  margin: 0;
+}
+.af-rail__error-retry {
+  border: 1px solid var(--ui-border-1);
+  border-radius: var(--radius-sm);
+  background: var(--ui-surface-2);
+  color: var(--text-primary);
+  font: inherit;
+  padding: 4px 10px;
+  min-height: 32px;
+  cursor: pointer;
+}
+
+/* AfAppShell */
+.af-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+.af-shell__top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  padding-top: max(8px, var(--safe-top, 0px));
+  border-bottom: 1px solid var(--ui-border-1);
+  background: var(--bg-primary);
+}
+.af-shell__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: inherit;
+  text-decoration: none;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.af-shell__leading {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.af-shell__body {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.af-shell__nav {
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--ui-border-1);
+  background: var(--bg-secondary);
+}
+.af-shell__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+@media (max-width: 479.98px) {
+  .af-shell__brand-name {
+    display: none;
+  }
+}
+.af-rail__error-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  color: var(--error);
+}
+@media (pointer: coarse) {
+  .af-rail__error-retry {
+    min-height: var(--tap-min, 44px);
+    min-width: var(--tap-min, 44px);
+  }
+}
+.af-topbar__signout-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--error);
+  font-size: var(--font-size-sm, 12px);
+  white-space: nowrap;
+}
+@media (max-width: 479.98px) {
+  .af-topbar__signout-error-label {
+    display: none;
+  }
+}
+/* af-shell:end */
+
+/* --- ui-primitives (session-policy-kit) --- */
+/* ToolModeEditor: the conversation's policy as the gateway stores it (who set it, what it did not cover). */
+.af-tool-modes__policy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+/* Tool calls in words (tool_call_words_view.tsx): the verb chip, the key argument, muted options. */
+.af-toolwords { display: grid; gap: 4px; }
+.af-toolwords__group { margin: 0; color: var(--text-secondary); font-size: var(--font-size-sm); }
+.af-toolwords__heading { margin: 0 0 2px; color: var(--text-primary); }
+.af-toolwords__list { list-style: disc; margin: 0; padding-left: 18px; display: grid; gap: 4px; color: var(--text-primary); }
+.af-toolwords__call { line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.af-toolwords__verb { display: inline-block; padding: 0 8px; border-radius: 999px; font-size: var(--font-size-xs); font-weight: 650; color: var(--accent); background: var(--accent-subtle); border: 1px solid var(--accent-border, var(--ui-border-2)); }
+.af-toolwords__key { color: var(--text-primary); font-weight: 400; }
+.af-toolwords__muted { color: var(--text-muted); font-size: var(--font-size-sm); }
+.af-toolwords__fallback { display: inline-grid; gap: 2px; vertical-align: top; }
+.af-toolwords__line { display: block; }
+.af-toolresult { display: grid; gap: 2px; }
+.af-toolresult__sentence { margin: 0; color: var(--text-secondary); font-size: var(--font-size-sm); }
+.af-toolresult.is-failed .af-toolresult__sentence { color: var(--error, var(--text-secondary)); }
+.af-toolresult__items { margin: 0; padding-left: 18px; color: var(--text-muted); font-size: var(--font-size-sm); overflow-wrap: anywhere; }
+
+/* Brand marks (brand_icons.tsx): an engine's or provider's own logo, in its own colours, on a light
+ * tile in every theme (several brands forbid recolouring). A brand without a usable logo gets a
+ * readable text badge (accent tint, like the console's two-letter marks it replaces). */
+.af-brand-mark {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  box-sizing: border-box;
+  display: inline-grid;
+  place-items: center;
+  padding: 7px;
+  border-radius: var(--radius-lg, 10px);
+  background: #ffffff;
+  border: 1px solid var(--ui-border-2, var(--ui-border-1));
+  overflow: hidden;
+}
+.af-brand-mark svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.af-brand-mark:not(.af-brand-mark--text)[data-brand="ovh"],
+.af-brand-mark:not(.af-brand-mark--text)[data-brand="portkey"] { width: 96px; flex-basis: 96px; }
+.af-brand-mark:not(.af-brand-mark--text)[data-brand="portkey"] { background: #15151a; }
+/* A protocol, not a brand (System One): the kit's own neutral glyph, in the theme's text colour. */
+.af-brand-mark--glyph {
+  padding: 8px;
+  color: var(--text-secondary);
+  background: var(--ui-surface-2, var(--bg-secondary));
+}
+/* A brand's name instead of its logo (BRAND_LOGO_PERMITTED, backlog 1100): the slot's height, as wide
+ * as the name needs. */
+.af-brand-mark--text {
+  flex-basis: auto;
+  width: auto;
+  min-width: 40px;
+  padding: 0 8px;
+  color: var(--accent);
+  background: var(--accent-subtle);
+  border-color: var(--accent-border, var(--ui-border-2));
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* Cloud provider cards (cloud_provider_cards.tsx): one card per cloud provider AbstractCore lists. */
+.af-cloud-providers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+  min-width: 0;
+}
+.af-cloud-providers__head {
+  display: grid;
+  gap: 4px;
+}
+.af-cloud-providers__title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+.af-cloud-providers__lede,
+.af-cloud-providers__note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+}
+.af-cloud-providers__note.is-error {
+  color: var(--error);
+}
+.af-cloud-providers__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: var(--space-3, 12px);
+  min-width: 0;
+}
+.af-cloud-card {
+  gap: 10px;
+}
+.af-cloud-card__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.af-cloud-card__titles {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.af-cloud-card__name {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+/* ONE status line: quiet "Not connected", or a clear green badge with a dot when connected. */
+.af-cloud-card__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: start;
+  max-width: 100%;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.35;
+}
+.af-cloud-card__badge.is-on {
+  padding: 2px 10px 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--success) 45%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  color: var(--success);
+  font-weight: 600;
+}
+.af-cloud-card__dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+}
+.af-cloud-card__status {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.af-cloud-card__hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.af-cloud-card__hint code {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+.af-cloud-card__line {
+  margin: 0;
+  min-height: 1.4em;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.af-cloud-card__line.is-ok {
+  color: var(--success);
+  font-weight: 600;
+}
+.af-cloud-card__line.is-error {
+  color: var(--error);
+}
+.af-cloud-card__line:empty {
+  display: none;
+}
+.af-cloud-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.af-cloud-card__primary {
+  border-color: var(--accent-border, var(--accent));
+  background: var(--accent-subtle);
+  color: var(--accent);
+  font-weight: 600;
+}
+.af-cloud-card.is-connected .af-cloud-card__actions .af-cloud-card__primary {
+  border-color: var(--ui-border-1);
+  background: var(--ui-surface-2);
+  color: var(--text-primary);
+}
+.af-cloud-card__actions .af-cloud-card__primary {
+  min-width: 96px;
+}
+
+/* The Connect / Edit modal (AfModal, narrow; a full-screen sheet below 768 px). */
+.af-cloud-modal__form {
+  max-width: none;
+}
+.af-cloud-modal__form a {
+  color: var(--accent);
+}
+.af-cloud-modal__line {
+  min-height: 0;
+}
+.af-cloud-modal__actions {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.af-cloud-modal__main,
+.af-cloud-modal__confirm {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+.af-cloud-modal__confirm-text {
+  flex: 1 1 200px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+.af-cloud-modal__danger {
+  border-color: var(--error-border, var(--error));
+  color: var(--error);
+  background: transparent;
+}
+@media (max-width: 767.98px) {
+  .af-cloud-card__actions .af-setting-btn,
+  .af-cloud-modal .af-setting-btn,
+  .af-cloud-modal .af-form input,
+  .af-cloud-modal .af-form select {
+    min-height: 44px;
+  }
+  .af-cloud-modal__main .af-setting-btn {
+    flex: 1 1 auto;
+    white-space: nowrap;
+  }
+  .af-cloud-modal__disconnect {
+    flex: 1 1 100%;
+  }
+}
+
+/* Compact manufacturer mark beside a model title; original artwork stays unchanged. */
+.af-brand-mark.af-brand-mark--sm { width: 24px; height: 24px; flex-basis: 24px; padding: 2px; border-radius: var(--radius-sm); }
+.af-brand-mark--text.af-brand-mark--sm { width: auto; min-width: 24px; flex-basis: auto; padding: 0 6px; font-size: var(--font-size-xs); }
+
+/* Compact settings keep descriptions available through the shared tooltip. */
+.af-settings-help { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 26px; height: 26px; min-height: 26px; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-muted); cursor: help; }
+.af-settings-help:hover, .af-settings-help:focus-visible { color: var(--info); background: var(--ui-surface-2); }
+.af-settings-help:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+.af-tool-modes--compact .af-tool-modes__group { padding: 0; border-radius: var(--radius-md); }
+.af-tool-modes--compact .af-tool-modes__group-head { padding: 6px 8px; gap: 4px; flex-wrap: nowrap; }
+.af-tool-modes__toggle { display: inline-flex; align-items: center; gap: 6px; flex: 1; min-width: 0; min-height: 36px; padding: 0; border: 0; background: transparent; color: var(--text-primary); font: inherit; text-align: left; cursor: pointer; }
+.af-tool-modes--compact .af-tool-modes__group-name { font-size: var(--font-size-sm); text-transform: capitalize; letter-spacing: normal; color: var(--text-primary); }
+.af-tool-modes__group-count { color: var(--text-muted); font-size: var(--font-size-xs); }
+.af-tool-modes--compact .af-tool-modes__group-state { display: none; }
+.af-tool-modes--compact .af-tool-modes__group-head .af-tool-modes__seg { margin-left: auto; }
+.af-tool-modes--compact .af-tool-modes__items[hidden] { display: none; }
+.af-tool-modes--compact .af-tool-mode-row { display: flex; align-items: center; gap: 4px; border: 0; border-top: 1px solid var(--ui-border-1); border-radius: 0; padding: 8px; background: transparent; }
+.af-tool-modes--compact .af-tool-mode-row__meta { flex: 1; min-width: 0; }
+.af-tool-modes--compact .af-tool-row__name { font-size: var(--font-size-sm); font-weight: 500; overflow-wrap: anywhere; }
+.af-tool-modes--compact .af-tool-row__badge { display: none; }
+.af-tool-modes--compact .af-tool-modes__seg-btn { padding: 4px 8px; min-height: 30px; }
+.af-tool-modes--compact .af-tool-modes__count { font-size: var(--font-size-xs); }
+.af-pmp__options { margin-top: 10px; }
+.af-pmp__options > summary { min-height: 36px; display: flex; align-items: center; gap: 6px; color: var(--text-secondary); cursor: pointer; font-size: var(--font-size-sm); }
+.af-pmp__options > summary::before { content: "›"; }
+.af-pmp__options[open] > summary::before { transform: rotate(90deg); }
+.af-pmp__options[open] > summary { margin-bottom: 6px; }
+@media (pointer: coarse) { .af-tool-modes--compact .af-tool-modes__seg-btn, .af-tool-modes__toggle { min-height: 44px; } }
+
+.af-workspace--compact { border: 0; padding: 0; background: transparent; }
+.af-workspace--compact .af-settings-group__head { margin-bottom: 8px; }
+.af-workspace--compact .af-workspace__body { gap: 10px; }
+.af-workspace--compact .af-workspace__badge { border: 0; padding: 0; color: var(--text-secondary); font-size: var(--font-size-sm); font-weight: 500; }
+.af-workspace--compact .af-workspace__row { padding: 8px 0; }
+.af-workspace--compact .af-workspace__caption { font-size: var(--font-size-xs); }
+.af-workspace__blocked-folders { list-style: none; padding: 6px 0; }
+.af-workspace__blocked-folders summary { cursor: pointer; color: var(--text-secondary); font-size: var(--font-size-sm); }
+.af-workspace__blocked-folders summary span { color: var(--text-muted); margin-left: 6px; }
+.af-workspace__blocked-folders ul { list-style: none; margin: 4px 0 0; padding: 0; }
+
+.af-tool-modes--compact .af-tool-modes__group[hidden] { display: none; }
+.af-tool-modes--compact .af-tool-modes__group-state[data-group-state="mixed"] { display: inline; font-size: var(--font-size-xxs); color: var(--text-muted); }
+
+.af-tool-modes__items { display: flex; flex-direction: column; gap: 8px; }
+.af-tool-modes--compact .af-tool-modes__items { gap: 0; }
+
+/* Compact voice drawers: a readable route summary above full-width controls. */
+.af-voice-section--compact .af-settings-group { margin-bottom: 18px; }
+.af-voice-section--compact .af-settings-group__head { justify-content: space-between; }
+.af-voice-section--compact .af-setting-row { padding-block: 10px; gap: 8px; }
+.af-voice-section--compact .af-setting-row__label { display: flex; align-items: center; gap: 6px; }
+.af-voice-section--compact .af-setting-row__control { width: 100%; justify-content: flex-start; flex-wrap: nowrap; }
+.af-voice-section--compact .af-setting-row__control > .af-select { flex: 1; min-width: 0; }
+.af-voice-section--compact .af-setting-row__control > .af-voice-range { flex: 1; min-width: 0; }
+.af-override--compact { padding-block: 10px; }
+.af-override__toggle { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 6px 10px; width: 100%; padding: 0; border: 0; background: transparent; color: var(--text-primary); font: inherit; text-align: left; cursor: pointer; }
+.af-override__toggle .af-override__summary { grid-column: 1 / -1; font-size: var(--font-size-sm); font-weight: 400; text-align: left; color: var(--text-secondary); overflow-wrap: anywhere; }
+.af-override__toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.af-override--compact > [data-action="use-default"] { margin-top: 6px; padding: 0; font-size: var(--font-size-sm); }
+.af-voice-section--compact .af-setting-row { align-items: stretch; }
+.af-voice-section--compact .af-setting-row__label { flex: none; flex-direction: row; justify-content: flex-start; align-self: stretch; width: 100%; text-align: left; }
+.af-voice-section--compact .af-setting-row__name { text-align: left; }
+
+/* Session facts are controlled by the host; opening never clears attention. */
+.af-session-card { --af-session-bg: color-mix(in srgb, var(--bg-primary) 88%, #000); --af-session-fg: var(--text-primary); --af-session-muted: color-mix(in srgb, var(--text-secondary) 75%, var(--text-primary)); --af-session-new: #28c5dc; display: flex; align-items: center; gap: 2px; min-width: 0; width: 100%; box-sizing: border-box; border: 1px solid transparent; border-radius: 16px; background: var(--af-session-bg); color: var(--af-session-fg); }
+:root:is(.theme-light, .theme-solarized-light, .theme-catppuccin-latte, .theme-rose-pine-dawn, .theme-one-light, .theme-everforest-light) .af-session-card { --af-session-new: #087f94; --af-session-fg: color-mix(in srgb, var(--text-primary) 75%, #000); --af-session-muted: color-mix(in srgb, var(--text-secondary) 75%, #000); }
+.af-session-card[data-selected] { background: color-mix(in srgb, var(--accent) 4%, var(--af-session-bg)); box-shadow: inset 0 0 0 1px var(--ui-border-2); }
+.af-session-card[data-unread] { border-color: var(--af-session-new); background: color-mix(in srgb, var(--af-session-new) 6%, var(--af-session-bg)); }
+.af-session-card[data-attention] { border-color: var(--warning); background: color-mix(in srgb, var(--warning) 6%, var(--af-session-bg)); }
+.af-session-card__open { flex: 1; min-width: 0; min-height: 64px; padding: 9px 10px; border: 0; border-radius: inherit; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.af-session-card__open:focus-visible, .af-session-card__archive:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.af-session-card__heading { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.af-session-card__title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font-size: max(13px, var(--font-size-sm, 13px)); font-weight: 400; line-height: 1.35; }
+.af-session-card__marker { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--af-session-new); }
+.af-session-card__marker.is-attention { background: var(--warning); border-radius: 1px; transform: rotate(45deg); }
+.af-session-card__marker.is-failed { background: var(--error); }
+.af-session-card__marker.is-working { background: transparent; border: 2px solid var(--af-session-new); border-right-color: transparent; box-sizing: border-box; width: 9px; height: 9px; flex-basis: 9px; animation: af-session-working 1s linear infinite; }
+.af-session-card__meta { display: flex; align-items: center; gap: 9px; margin-top: 4px; color: var(--af-session-muted); font-size: var(--font-size-xs, 12px); line-height: 1.3; min-width: 0; }
+.af-session-card__meta > span { display: inline-flex; align-items: center; gap: 4px; min-width: 0; white-space: nowrap; }
+.af-session-card__meta svg { flex-shrink: 0; }
+.af-session-card__time { overflow: hidden; }
+.af-session-card__time > span { overflow: hidden; text-overflow: ellipsis; }
+.af-session-card__attention { color: color-mix(in srgb, var(--warning) 75%, var(--af-session-fg)); font-weight: 400; }
+.af-session-card__archive { display: grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px; border: 0; border-radius: 6px; margin-right: 6px; background: transparent; color: var(--error); cursor: pointer; opacity: 0; pointer-events: none; }
+.af-session-card:hover .af-session-card__archive, .af-session-card__open:focus-visible + .af-session-card__archive, .af-session-card__archive:focus-visible { opacity: 1; visibility: visible; pointer-events: auto; }
+.af-session-card__archive:hover { background: color-mix(in srgb, var(--error) 10%, transparent); }
+@media (hover: none), (pointer: coarse) { .af-session-card__archive { flex-basis: 44px; width: 44px; height: 44px; opacity: 1; visibility: visible; pointer-events: auto; } }
+.af-session-card button:disabled { opacity: .5; cursor: not-allowed; }
+.af-session-card .af-session-card__archive:disabled { opacity: 0; }
+.af-session-card:hover .af-session-card__archive:disabled, .af-session-card__open:focus-visible + .af-session-card__archive:disabled { opacity: .5; }
+@media (hover: none), (pointer: coarse) { .af-session-card .af-session-card__archive:disabled { opacity: .5; } }
+@keyframes af-session-working { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .af-session-card__marker.is-working { animation: none; } }
+
+@media (pointer: coarse) { .af-session-card__meta { font-size: max(14px, var(--font-size-xs, 12px)); } }
+:root .af-session-card.af-automation-card { --af-session-new: var(--warning); }
+.af-automation-card .af-session-card__meta { flex-wrap: wrap; row-gap: 4px; }
+.af-automation-card__schedule { flex-shrink: 1; overflow: hidden; }
+.af-automation-card__schedule > span { overflow: hidden; text-overflow: ellipsis; }
+.af-session-card__meta > .af-automation-card__unseen { margin-left: auto; justify-content: center; min-width: 18px; box-sizing: border-box; padding: 1px 5px; border-radius: 9px; background: color-mix(in srgb, var(--warning) 18%, transparent); color: var(--warning); font-weight: 400; }
+/* End shared session cards. */

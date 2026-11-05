@@ -179,8 +179,9 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 ## What's new
 
 0.18.0 ships the activity avatar with every install, folds paused automations under "Paused · N" and archived ones under "Archived · N" in
-the switcher, and the activity avatar looks toward the pointer only when its design has eyes. See
-the [0.18.0 release notes](CHANGELOG.md#0180---2026-11-03).
+the switcher, and the activity avatar looks toward the pointer only when its design has eyes. The
+desktop palettes are now the kit's current ones (ui-kit 0.9.14). See
+the [0.18.0 release notes](CHANGELOG.md#0180---2026-11-04).
 
 0.17.0 adds the optional desktop activity avatar (the `avatar` extra), automations that open as
 the chat with a sectioned editor, tool approvals in words, Off / Ask / Auto tool settings, and the
@@ -3285,10 +3286,12 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
-## [0.18.0] - 2026-11-03
+## [0.18.0] - 2026-11-04
 
 Avatars ship with every install. The switcher folds paused and archived automations into their own
 sections, and the activity avatar follows the pointer only with a design that has eyes. The web Assistant gets its first npm release.
+The "Paused · N" section needs AbstractGateway 0.20.0; an older gateway shows the list as before.
+The desktop palettes are now the kit's current ones (ui-kit 0.9.14); their colours were already the same, so the app looks as before.
 
 ### Added
 
@@ -5144,6 +5147,25 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
 
+### Added
+
+- **Entities look and sound like themselves everywhere (digital identity, AbstractGateway 0.20).**
+  On the watch, an entity's orb is drawn from its identity record: its own design and colour, the
+  same on every device. The Assistant keeps the design you chose, and the watch face still shows
+  the Assistant. In the avatar conversation view, when another identity speaks (another entity in a
+  dialogue, or the same entity after its look changed), its name and a small orb in its look show
+  above its words. On the iPhone, the entity list shows each entity in its colour.
+- **An entity's voice is its own.** Reading an entity's words aloud always uses the entity's voice
+  from its identity, never the voice you chose for the Assistant. When the gateway cannot speak
+  for it (for example "Castor has no voice yet: choose one in its Identity settings or set the
+  Gateway default voice"), the watch and the iPhone show that sentence; no other voice is used.
+
+### Changed
+
+- An entity's look is read only from its identity record. With a gateway older than 0.20, or while
+  an entity is closed for maintenance, the watch draws no orb for it (an empty grey ring) and shows the
+  gateway's sentence under the orb.
+
 ## [0.17.0] — 2026-11-03
 
 What testers get since build 39 (0.16.0). The watch app inside it carries the same version.
@@ -5596,7 +5618,10 @@ action can finish. Leaving the screen detaches it.
 
 `AssistantStore.completedReply` signals only a newly completed current turn. Automatic
 reading listens for this event while active, rather than message-list refreshes, so restored
-history and repeat polls remain silent. Entity speech retains its entity scope and voice.
+history and repeat polls remain silent. Entity speech keeps its entity scope and names no voice:
+the gateway speaks with the entity's identity voice (framework ADR 0052), whatever voice the person
+chose for the Assistant; a refusal ("Castor has no voice yet: …") is shown as the gateway's sentence,
+never replaced by another voice. The entity list tints each entity's icon with its identity colour.
 Per-request provider/model/voice overrides follow the newer Watch client contracts.
 
 ## Reading aloud
@@ -6787,6 +6812,23 @@ Since 0.16.0 the watch app shares the iPhone app's version (`MARKETING_VERSION` 
 iPhone app); the Python package's history is in
 [../../CHANGELOG.md](../../CHANGELOG.md).
 
+## [Unreleased]
+
+### Added
+
+- **An entity's orb is its digital identity (AbstractGateway 0.20).** Its design and colour come
+  from the entity's identity record, so it looks the same on every device; the Assistant keeps the
+  design chosen in Settings and the watch face still shows the Assistant. In the avatar conversation
+  view, the name and a small orb of whoever speaks show when the speaker changes.
+- **An entity speaks with its own voice.** When the gateway refuses to speak for an entity (for
+  example because it has no voice yet), the watch shows the gateway's sentence instead of "Voice
+  unavailable"; no other voice is used.
+
+### Changed
+
+- An entity's look is read only from its identity record: with a gateway older than 0.20, or while
+  an entity is closed for maintenance, it has no orb (an empty grey ring) and the gateway's sentence shows.
+
 ## [0.17.0] - 2026-11-03
 
 What testers get since build 39 (0.16.0), inside the iPhone app of the same version.
@@ -7543,7 +7585,7 @@ or live-result identity, and historical messages do not replay completion cues.
 | Allow / deny / answer | `POST /api/gateway/commands` `{type: "resume", payload: {wait_key, payload: {approved} or {response}}}`; the run is read again first, and a wait answered elsewhere is not answered twice |
 | Approve all (an approval) | for the run's owner, read from the run itself (`session_id`, `automation_id`, also on an agent's run below an occurrence): a conversation (its tools: the watch's defaults and its own changes) or an automation (its own tools: `input_data._runtime.allowed_tools` and `tool_policy`). It allows that owner's tools on Ask, up to the risk of the call approved (at least "makes changes"); Off tools stay off, sends and tools whose destination the assistant picks keep asking. Allowed tools stay on Ask in the run's `_runtime.tool_policy` (fixed when a run starts); the watch answers their approvals (`POST /api/gateway/commands` resume) when every call is allowed for that owner: while it follows the run, and in its regular check of what needs you (there only what Approve all allowed, never the watch's defaults). The shield, Ask again on the Tools page or on the automation's details clear them, so the next call asks |
 | Ask the Assistant | `POST /api/gateway/runs/start` `{flow_id: "@default", interface: "abstractcode.agent.v1", session_id, input_data: {prompt, use_session_history: true, system, tools, _runtime.allowed_tools}}`, then `GET /api/gateway/runs/{id}`; `tools` lists every tool `GET /api/gateway/discovery/tools` reports enabled and available (as the desktop assistant), and `system` is added after the agent's own loop and tool rules. With the Assistant's workflow (`interface: "abstractassistant.agent.v1"`), the conversation's newest image goes as `primary_image_artifact` (`{$artifact, run_id, content_type}`, also in `context`) with `has_primary_image_context`, as the iPhone and the menu-bar Assistant send it: an edit, an upscale or an image-to-video starts from it |
-| Ask an entity | `GET /api/gateway/entities`, `POST /api/gateway/entities/{name}/chat/open`, `POST .../chat/{id}/turn`; the entity row's `appearance` gives its orb |
+| Ask an entity | `GET /api/gateway/entities`, `POST /api/gateway/entities/{name}/chat/open`, `POST .../chat/{id}/turn`; its orb is its identity record (`identity` on the entity row, `GET /api/gateway/entities/{name}/identity` when its conversation opens, `?rev=N` for an earlier look a conversation names) |
 | Voice in | `POST /api/gateway/attachments/upload` (multipart, `session_id`), `POST /api/gateway/runs/{session owner}/audio/transcribe` |
 | Voice out | `POST /api/gateway/runs/{id}/voice/tts/stream` (an entity: `POST /api/gateway/entities/{name}/voice/tts/stream`); the whole text in one request, streamed as backend-dependent WAV chunks; playback starts once 1.5 s of speech is queued (or the stream completes), refills to 2 s after running dry, and plays at the speed chosen on the watch |
 | Voices | `GET /api/gateway/voice/voices` and `GET /api/gateway/audio/transcriptions/models`; voices grouped Your voices / Engine voices / Shared voices with their language (`VoiceCatalog.parse`, `VoiceLibrary`, shared with the iPhone) and a "Voices that speak" filter; Settings displays the saved catalog label, including offline, with "Selected voice" for an empty label or one that repeats an opaque identifier; no creation on the watch (the iPhone and the desktop create voices) |
@@ -7834,7 +7876,8 @@ sign-ins), `--test-known <url,url>` (gateways signed into, oldest first), `--tes
 (sign-ins kept on the default gateway), `--test-approve once|all`, `--test-action allow-first|deny-first`,
 `--test-ask "<prompt>"`, `--test-read "<markdown>"` or `--test-read <run id>` (that run's answer read
 aloud, its course — pieces, chunks, retries, how it ended — on the console: `xcrun devicectl device
-process launch --console`), `--piece-chars <n>` (speech requested in pieces of about n characters
+process launch --console`; with `--test-read-as <entity>` the text is read as that entity's, through its
+own speech lane), `--piece-chars <n>` (speech requested in pieces of about n characters
 instead of 600), `--stalled-voice` / `--stalled-voice-fatal` (the sample voice's second piece times
 out twice, or four times until a tap), `--stalled-voice-midpiece` (its first request sends half
 its sound, goes quiet while that half plays, then breaks), `--test-open <url>`, `--test-listen`,
