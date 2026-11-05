@@ -7,6 +7,9 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Changed
 
+- Speech playback no longer announces the output device and volume in a banner;
+  muted or very quiet output still gets an actionable warning. Rejected voice
+  selections show a brief default-voice retry notice, with diagnostics in logs.
 - The desktop assistant places its animated avatar beside the composer as the voice control, reclaiming conversation space. Typing stays available, Send
   appears for drafts and attachments, and Stop stays visible during a run.
   Transparent gaps separate the floating panels; Send has a neutral finish,

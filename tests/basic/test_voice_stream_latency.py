@@ -405,15 +405,17 @@ def test_unpinned_retry_tells_the_user_the_chosen_voice_was_not_used(monkeypatch
     notices: list[str] = []
     vm.on_speech_notice = notices.append
 
-    with pytest.warns(UserWarning):
+    with pytest.warns(UserWarning) as recorded:
         assert vm.speak("hello rejected pin") is True
         assert gateway.stream_done.wait(timeout=2.0)
         assert _wait_for(lambda: bool(notices))
 
     assert len(notices) == 1
     assert "default voice" in notices[0]
-    # The pin came from the environment here, not from Settings.
-    assert "environment variables" in notices[0] and "Settings" not in notices[0]
+    assert notices[0] == "Couldn't use your selected voice. Trying the default voice."
+    # Exact pins and errors stay in the warning log, not the conversation.
+    assert "unresolvable-model" not in notices[0]
+    assert any("The model `unresolvable-model` does not exist" in str(w.message) for w in recorded)
 
 
 class _SilentStartPlayer(_PlayerStub):

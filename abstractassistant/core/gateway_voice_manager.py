@@ -1003,8 +1003,7 @@ class GatewayVoiceManager:
                 f"{reason}; retrying the stream with gateway defaults"
             )
             self._report_speech_notice(
-                f"Reading in the gateway's default voice: {self._tts_pin_origin()} "
-                f"did not work ({str(reason or '').strip()[:200]})"
+                "Couldn't use your selected voice. Trying the default voice."
             )
             result = self._run_gateway_stream_playback(
                 stream_id=stream_id,
@@ -1181,7 +1180,7 @@ class GatewayVoiceManager:
                     # before conceding the whole-message artifact lane.
                     detail = str(event.get("error") or event.get("message") or event_type).strip()
                     return _artifact_fallback(
-                        f"stream reported {event_type}: {detail[:200]}",
+                        f"stream reported {event_type}: {detail}",
                         retry_unpinned=True,
                     )
             if stop_gate.is_set():

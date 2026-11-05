@@ -674,3 +674,33 @@ def test_an_async_failure_goes_to_the_callers_own_receiver_then_the_next_speak_r
         assert vm.speak("a reply", callback=lambda: completions.append(2)) is True
         assert _wait_for(lambda: completions == [1, 2])
     assert len(mine) == 1 and len(reported) == 1 and "gateway said 500" in reported[0]
+
+
+@pytest.mark.basic
+@pytest.mark.parametrize("volume, muted", [(44, False), (100, False), (None, None)])
+def test_ordinary_playback_does_not_show_output_device_or_volume_banner(volume, muted):
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._active_spoken_message_key = "message"
+    cards, banners = [], []
+    palette._set_message_voice_card_state = lambda *args: cards.append(args)
+    palette._set_banner = lambda *args, **kwargs: banners.append(args)
+    palette._controller = SimpleNamespace(voice_manager=SimpleNamespace(
+        is_paused=lambda: False, output_volume_state=lambda: (volume, muted)))
+    palette._on_message_speech_started("message")
+    assert cards == [("message", "speaking")]
+    assert not banners
+
+
+@pytest.mark.basic
+@pytest.mark.parametrize("volume, muted, expected", [(44, True, "muted"), (3, False, "very quiet")])
+def test_inaudible_output_has_only_an_actionable_warning(volume, muted, expected):
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._active_spoken_message_key = "message"
+    palette._set_message_voice_card_state = lambda *args: None
+    banners = []
+    palette._set_banner = lambda text, **kwargs: banners.append(text)
+    palette._controller = SimpleNamespace(voice_manager=SimpleNamespace(
+        is_paused=lambda: False, output_volume_state=lambda: (volume, muted)))
+    palette._on_message_speech_started("message")
+    assert len(banners) == 1 and expected in banners[0]
+    assert "Speaking on" not in banners[0]

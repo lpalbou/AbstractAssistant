@@ -11217,7 +11217,7 @@ class AssistantPalette(QMainWindow):
         """Speech plays, but not in the voice chosen in Settings: say so."""
         message = str(text or "").strip()
         if message:
-            self._set_banner(f"{message}.", tone="warning", key="voice-substitute")
+            self._set_banner(message if message.endswith((".", "!", "?")) else f"{message}.", tone="warning", key="voice-substitute")
 
     def _on_speech_request_finished(self, token: object, key: str) -> None:
         # A stopped output may finish closing after this same card is replayed.
@@ -11235,7 +11235,7 @@ class AssistantPalette(QMainWindow):
             self._active_spoken_message_key = ""
             self._active_spoken_message_phase = "idle"
         self._set_message_voice_card_state(str(key or ""), "idle")
-        # Clear the "Speaking on …" banner (and only that banner — another
+        # Clear temporary output warnings (and only those — another
         # notice shown meanwhile must survive).
         try:
             self._clear_banner("speech")
@@ -11269,34 +11269,19 @@ class AssistantPalette(QMainWindow):
             pass
         self._active_spoken_message_phase = "speaking"
         self._set_message_voice_card_state(str(key or ""), "speaking")
-        # Say WHERE the audio is going and HOW LOUD the system output is:
-        # playback follows the system default output, so a headset/AR-glasses
-        # sink or a near-zero output volume makes correct playback
-        # indistinguishable from a hang (2026-07-28: three-way audit cleared
-        # every software layer; the machine's output volume was 6/100).
-        device = ""
-        volume = None
-        muted = None
+        # Normal playback is represented by the card and orb. Interrupt the
+        # conversation only when output settings explain inaudible speech.
         try:
-            device = str(self._controller.voice_manager.output_device_label() or "").strip()
             volume, muted = self._controller.voice_manager.output_volume_state()
         except Exception:
-            device = ""
-        if not device:
             return
-        text = f"Speaking on \u201c{device}\u201d"
-        tone = "info"
         if muted is True:
-            text += " — the system output is MUTED; unmute to hear it."
-            tone = "warning"
+            text = "System audio is muted. Unmute it to hear the reply."
         elif isinstance(volume, int) and volume < 15:
-            text += f" — the system output volume is {volume}%; raise it to hear anything."
-            tone = "warning"
-        elif isinstance(volume, int):
-            text += f" (volume {volume}%)."
+            text = f"System audio is very quiet ({volume}%). Raise it to hear the reply."
         else:
-            text += " — if you can't hear it, check the Mac's sound output."
-        self._set_banner(text, tone=tone, key="speech")
+            return
+        self._set_banner(text, tone="warning", key="speech")
 
     # ------------------------------------------------------------ hold to talk
 
