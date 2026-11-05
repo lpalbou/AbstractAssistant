@@ -1223,7 +1223,7 @@ class GatewayVoiceManager:
         Returns True when the request was accepted and dispatched to a worker
         thread; the terminal outcome (played, failed, or cancelled) is
         signalled exactly once via `callback` and `on_speech_end`. Returns
-        False only for immediate refusals (empty text, TTS unsupported).
+        False only for immediate refusals (empty text, no local audio backend).
 
         Synthesis + artifact download can take tens of seconds for long
         texts, and speak() is routinely called from the Qt GUI thread — the
@@ -1245,37 +1245,46 @@ class GatewayVoiceManager:
                 on_failure,
             )
             return False
-        if not self.supports_tts():
-            # Capability cache is prefetched at startup; this check stays
-            # synchronous so callers get an immediate, honest refusal — and it
-            # names WHICH side is missing (an unavailable gateway route and a
-            # missing local audio backend need opposite user actions).
+        if not self._audio_player_available():
             self._refuse_speech(self._tts_unsupported_reason(), on_failure)
             return False
+        # Register the generation before returning to Qt: an immediate Stop
+        # must cancel it even if the worker has not been scheduled yet.
+        with self._dispatch_lock:
+            self.stop_speaking()
+            self._begin_speech_failure_tracking()
+            self._speech_sinks = (on_failure, on_notice)
+            control = self._start_stream_control()
         threading.Thread(
             target=self._speak_dispatch,
-            kwargs={"text": raw, "callback": callback, "sinks": (on_failure, on_notice)},
+            kwargs={"text": raw, "callback": callback, "control": control},
             daemon=True,
             name="gateway-tts-dispatch",
         ).start()
         return True
 
-    def _speak_dispatch(self, *, text: str, callback: Optional[Callable], sinks: tuple = (None, None)) -> None:
-        """Worker-thread body: stop previous speech, then stream-or-artifact."""
-        stream_id = ""
+    def _speak_dispatch(self, *, text: str, callback: Optional[Callable], control: tuple) -> None:
+        """Worker-thread body: discover voice support, then stream-or-artifact."""
+        stream_id, pause_gate, stop_gate = control
         try:
-            with self._dispatch_lock:
-                self.stop_speaking()
-                # stop_speaking() muted the SUPERSEDED generation's reporting;
-                # this dispatch owns the channel from here on (its own
-                # failure/notice receivers included).
-                self._begin_speech_failure_tracking()
-                self._speech_sinks = tuple(sinks or (None, None))
-                stream_id, pause_gate, stop_gate = self._start_stream_control()
-                # Resolve once per dispatch; speaks are single-active
-                # (stop_speaking above), so a per-instance value is race-free.
-                self._active_quality_preset = self._resolved_quality_preset()
+            if stop_gate.is_set():
+                self._finish_cancelled_preflight(stream_id, callback)
+                return
             gw = self._gateway_client()
+            # A failed startup probe is not a rejected Play request. Refresh
+            # here, off Qt, and continue this same generation after recovery.
+            # The voice cache is separate: its narrow response must never
+            # replace the full contract used by sessions/automations/settings.
+            get_cached_assistant_capabilities(gw, voice_only=True, retry_failure=True)
+            if stop_gate.is_set():
+                self._finish_cancelled_preflight(stream_id, callback)
+                return
+            if not self.supports_tts():
+                reason = self._tts_unsupported_reason()
+                if self._clear_stream_control(stream_id):
+                    self._fire_speech_completion(callback, reason=reason)
+                return
+            self._active_quality_preset = self._resolved_quality_preset()
             run_id = self._session_run_id()
             selected_provider = self._selected_tts_provider()
             selected_voice = self._selected_tts_voice()
@@ -1322,6 +1331,13 @@ class GatewayVoiceManager:
                 reason=self._speech_failure_reason
                 or f"the gateway speech request failed ({detail})",
             )
+
+    def _finish_cancelled_preflight(self, stream_id: str, callback: Optional[Callable]) -> None:
+        # A superseded request still completes its own callback, but must not
+        # announce that the newer generation's voice activity has ended.
+        with self._state_lock:
+            notify_activity = self._stream_id in ("", stream_id)
+        self._fire_speech_completion(callback, cancelled=True, notify_activity=notify_activity)
 
     @staticmethod
     def _exception_reason(exc: BaseException) -> str:
@@ -1501,6 +1517,7 @@ class GatewayVoiceManager:
         *,
         reason: str = "",
         cancelled: bool = False,
+        notify_activity: bool = True,
     ) -> None:
         """Signal the terminal outcome of a dispatched speak() exactly once.
 
@@ -1518,7 +1535,7 @@ class GatewayVoiceManager:
         if not cancelled:
             self._report_speech_failure(reason or self._speech_failure_reason)
         try:
-            if self.on_speech_end:
+            if notify_activity and self.on_speech_end:
                 self.on_speech_end()
         except Exception:
             pass
@@ -1726,10 +1743,19 @@ class GatewayVoiceManager:
         try:
             if proc.poll() is None:
                 proc.terminate()
-                try:
-                    proc.wait(timeout=1.5)
-                except Exception:
-                    proc.kill()
+                # Reap off Qt: speak() registers its cancellation control
+                # synchronously, so retiring the previous process must not
+                # hold a new Play click behind a slow player shutdown.
+                def reap() -> None:
+                    try:
+                        proc.wait(timeout=1.5)
+                    except Exception:
+                        try:
+                            proc.kill()
+                            proc.wait(timeout=1.5)
+                        except Exception:
+                            pass
+                threading.Thread(target=reap, name="gateway-audio-reap", daemon=True).start()
         except Exception:
             pass
         self._play_proc = None
@@ -2591,18 +2617,9 @@ class GatewayVoiceManager:
         return base / "gateway_audio"
 
     def _assistant_capabilities(self):
-        try:
-            fn = getattr(self._llm_manager, "gateway_capabilities", None)
-            if callable(fn):
-                try:
-                    caps = fn(stale_ok=True)
-                except TypeError:
-                    caps = fn()
-                if caps is not None:
-                    return caps
-        except Exception:
-            pass
-        return get_cached_assistant_capabilities(self._gateway_client(), stale_ok=True)
+        return get_cached_assistant_capabilities(
+            self._gateway_client(), stale_ok=True, voice_only=True,
+        )
 
     def _gateway_tts_available(self) -> bool:
         try:

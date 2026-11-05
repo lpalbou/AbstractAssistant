@@ -1124,6 +1124,14 @@ class GatewayClient:
             label="discovery_capabilities failed",
         )
 
+    def discovery_voice_capabilities(self) -> Dict[str, Any]:
+        # Older Gateways ignore this query and return the full compatible envelope.
+        return self._request_json(
+            method="GET",
+            url=self._url("/api/gateway/discovery/capabilities", query={"scope": "voice"}),
+            label="voice capabilities failed",
+        )
+
     def discovery_providers(self, *, include_models: bool = False) -> Dict[str, Any]:
         return self._request_json(
             method="GET",

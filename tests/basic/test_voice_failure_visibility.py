@@ -168,7 +168,8 @@ def test_speak_refusal_names_the_unreachable_gateway(
     monkeypatch.setattr(vm, "_audio_player_available", lambda: True)
 
     with pytest.warns(UserWarning):
-        assert vm.speak("hello") is False
+        assert vm.speak("hello") is True
+        assert _wait_for(lambda: bool(reported))
 
     assert len(reported) == 1
     assert "gateway could not be reached" in reported[0]

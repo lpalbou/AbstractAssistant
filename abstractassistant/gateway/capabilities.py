@@ -209,29 +209,32 @@ class AssistantCapabilities:
 # snapshot under stale_ok pinned "TTS unavailable" for the whole app lifetime
 # after one startup hiccup — voice went silently dead (2026-07-28).
 _FAILURE_RETRY_GRACE_S = 5.0
+_CACHE_COORDINATION = threading.Lock()
 
 
-def _spawn_capabilities_refresh(gateway: Any) -> None:
+def _spawn_capabilities_refresh(gateway: Any, *, voice_only: bool = False) -> None:
     """Refetch capabilities on a background thread (single-flight per client).
 
     stale_ok readers (voice support checks on the GUI thread) must never block
     on HTTP; when they see a failure snapshot, the refresh runs here so the
     NEXT check self-heals."""
-    if getattr(gateway, "_assistant_capabilities_refresh_inflight", False):
-        return
-    try:
-        setattr(gateway, "_assistant_capabilities_refresh_inflight", True)
-    except Exception:
-        return
+    refresh_key = "_voice_capabilities_refresh_inflight" if voice_only else "_assistant_capabilities_refresh_inflight"
+    with _CACHE_COORDINATION:
+        if getattr(gateway, refresh_key, False):
+            return
+        try:
+            setattr(gateway, refresh_key, True)
+        except Exception:
+            return
 
     def _worker() -> None:
         try:
-            get_cached_assistant_capabilities(gateway, force=True)
+            get_cached_assistant_capabilities(gateway, force=True, voice_only=voice_only)
         except Exception:
             pass
         finally:
             try:
-                setattr(gateway, "_assistant_capabilities_refresh_inflight", False)
+                setattr(gateway, refresh_key, False)
             except Exception:
                 pass
 
@@ -241,7 +244,7 @@ def _spawn_capabilities_refresh(gateway: Any) -> None:
         ).start()
     except Exception:
         try:
-            setattr(gateway, "_assistant_capabilities_refresh_inflight", False)
+            setattr(gateway, refresh_key, False)
         except Exception:
             pass
 
@@ -263,6 +266,8 @@ def get_cached_assistant_capabilities(
     ttl_s: float = 60.0,
     force: bool = False,
     stale_ok: bool = False,
+    voice_only: bool = False,
+    retry_failure: bool = False,
 ) -> AssistantCapabilities:
     """Return a short-lived cache of Gateway's assistant contract.
 
@@ -270,35 +275,61 @@ def get_cached_assistant_capabilities(
     rarely change; settings paths force-refresh). FAILURE snapshots do not:
     they are served only within a short grace window, after which stale_ok
     readers get the cached failure plus a background refresh (non-blocking
-    self-heal) and TTL readers refetch synchronously."""
+    self-heal) and TTL readers refetch synchronously. voice_only keeps the
+    narrow contract in a separate cache. retry_failure is for an explicit
+    action on a worker: retry even within the failure grace period, then
+    continue that action without requiring another click."""
 
     now = time.monotonic()
-    cached = getattr(gateway, "_assistant_capabilities_cache", None)
+    cache_key = "_voice_capabilities_cache" if voice_only else "_assistant_capabilities_cache"
+    cached = getattr(gateway, cache_key, None)
     if not force and isinstance(cached, AssistantCapabilities) and cached.fetched_at:
         age = now - float(cached.fetched_at)
         if cached.error:
-            if age < _FAILURE_RETRY_GRACE_S:
+            if not retry_failure and age < _FAILURE_RETRY_GRACE_S:
                 return cached
-            if stale_ok:
-                _spawn_capabilities_refresh(gateway)
+            if stale_ok and not retry_failure:
+                if voice_only:
+                    _spawn_capabilities_refresh(gateway, voice_only=True)
+                else:
+                    _spawn_capabilities_refresh(gateway)
                 return cached
             # TTL readers fall through to a synchronous refetch.
         elif bool(stale_ok) or age < float(ttl_s):
             return cached
 
-    try:
-        fn = getattr(gateway, "discovery_capabilities", None)
-        if not callable(fn):
-            raise RuntimeError("gateway client does not expose discovery_capabilities")
-        response = fn()
-        if not isinstance(response, dict):
-            raise RuntimeError("gateway capabilities response was not an object")
-        parsed = AssistantCapabilities.from_discovery_response(response, fetched_at=now)
-    except Exception as e:
-        parsed = AssistantCapabilities.unavailable(error=str(e))
+    if voice_only and stale_ok and cached is None:
+        _spawn_capabilities_refresh(gateway, voice_only=True)
+        return AssistantCapabilities.unavailable(error="speech support is still being checked")
 
-    try:
-        setattr(gateway, "_assistant_capabilities_cache", parsed)
-    except Exception:
-        pass
-    return parsed
+    # Serialize refreshes for this scope. GUI readers return cached/pending
+    # state above; only background workers may wait here. A late failed probe
+    # must not overwrite a newer successful Play refresh.
+    with _CACHE_COORDINATION:
+        lock_key = cache_key + "_lock"
+        fetch_lock = getattr(gateway, lock_key, None)
+        if fetch_lock is None:
+            fetch_lock = threading.Lock()
+            setattr(gateway, lock_key, fetch_lock)
+    with fetch_lock:
+        latest = getattr(gateway, cache_key, None)
+        if latest is not cached and isinstance(latest, AssistantCapabilities) and not latest.error:
+            return latest
+        try:
+            fn = getattr(gateway, "discovery_voice_capabilities", None) if voice_only else None
+            if not callable(fn):
+                fn = getattr(gateway, "discovery_capabilities", None)
+            if not callable(fn):
+                raise RuntimeError("gateway client does not expose discovery_capabilities")
+            response = fn()
+            if not isinstance(response, dict):
+                raise RuntimeError("gateway capabilities response was not an object")
+            parsed = AssistantCapabilities.from_discovery_response(response, fetched_at=now)
+        except Exception as e:
+            parsed = AssistantCapabilities.unavailable(error=str(e))
+
+        try:
+            setattr(gateway, cache_key, parsed)
+        except Exception:
+            pass
+        return parsed

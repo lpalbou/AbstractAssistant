@@ -297,6 +297,8 @@ def test_gateway_voice_manager_uses_advertised_tts_format_and_voice(monkeypatch:
     monkeypatch.setattr(vm, "_audio_player_available", lambda: True)
     monkeypatch.setattr(vm, "_play_audio_bytes", lambda audio_bytes, content_type, callback=None: True)
 
+    from abstractassistant.gateway.capabilities import get_cached_assistant_capabilities
+    get_cached_assistant_capabilities(gateway, voice_only=True)
     assert vm.supports_tts() is True
     assert vm.supports_stt() is False
     assert vm.speak("hello from caps") is True
@@ -848,3 +850,96 @@ def test_single_shot_playback_announces_its_start_once_even_if_the_player_does_n
     player.on_audio_start()  # the player's own hook, late: no second start
     assert starts == [1]
     vm.stop_speaking()
+
+
+@pytest.mark.basic
+@pytest.mark.parametrize("cancel", [False, True])
+def test_play_refreshes_failed_capabilities_without_losing_click(monkeypatch, cancel):
+    from abstractassistant.gateway.capabilities import AssistantCapabilities
+
+    gateway = _CapabilityGatewayStub()
+    gateway._voice_capabilities_cache = AssistantCapabilities.unavailable(error="timed out")
+    entered, release, played = threading.Event(), threading.Event(), threading.Event()
+    discovery = gateway.discovery_capabilities
+
+    def blocked_discovery():
+        entered.set()
+        assert release.wait(2)
+        return discovery()
+
+    gateway.discovery_voice_capabilities = blocked_discovery
+    vm = GatewayVoiceManager(llm_manager=_ManagerStub(gateway))
+    monkeypatch.setattr(vm, "_audio_player_available", lambda: True)
+    monkeypatch.setattr(vm, "_play_audio_bytes", lambda *a, **kw: played.set() or True)
+    errors, completed = [], []
+    vm.on_speech_error = errors.append
+    try:
+        # Must return while discovery is still blocked, not freeze Qt.
+        assert vm.speak("keep this Play request", callback=lambda: completed.append(True)) is True
+        assert entered.wait(1)
+        assert not played.is_set()
+        if cancel:
+            vm.stop_speaking()
+    finally:
+        release.set()
+    assert _wait_for(lambda: not gateway._voice_capabilities_cache.error)
+    if cancel:
+        assert not played.wait(0.1)
+        assert not gateway.calls
+        assert _wait_for(lambda: completed == [True])
+    else:
+        assert played.wait(1)
+        assert [c[0] for c in gateway.calls] == ["voice_tts", "download"]
+    assert errors == []
+
+
+@pytest.mark.basic
+@pytest.mark.parametrize("action", ["stop", "replace"])
+def test_stop_before_worker_starts_cancels_queued_play(monkeypatch, action):
+    gateway = _CapabilityGatewayStub()
+    vm = GatewayVoiceManager(llm_manager=_ManagerStub(gateway))
+    monkeypatch.setattr(vm, "_audio_player_available", lambda: True)
+    monkeypatch.setattr(vm, "_play_audio_bytes", lambda *a, **kw: True)
+    queued, completed, activity_ended = [], [], []
+    vm.on_speech_end = lambda: activity_ended.append(True)
+
+    class DeferredThread:
+        def __init__(self, *, target, kwargs, **ignored):
+            self.run = lambda: target(**kwargs)
+        def start(self):
+            queued.append(self.run)
+
+    monkeypatch.setattr(threading, "Thread", DeferredThread)
+    assert vm.speak("old request", callback=lambda: completed.append(True))
+    if action == "stop":
+        vm.stop_speaking()
+    else:
+        assert vm.speak("replacement request")
+    queued[0]()
+    assert not gateway.calls
+    assert completed == [True]
+    assert activity_ended == ([True] if action == "stop" else [])
+    if action == "replace":
+        queued[1]()
+        assert [c[0] for c in gateway.calls] == ["voice_tts", "download"]
+
+
+@pytest.mark.basic
+def test_stop_does_not_wait_for_external_audio_process():
+    vm = GatewayVoiceManager(llm_manager=_ManagerStub(_CapabilityGatewayStub()))
+    entered, release = threading.Event(), threading.Event()
+
+    class Process:
+        def poll(self): return None
+        def terminate(self): pass
+        def wait(self, timeout):
+            entered.set()
+            assert release.wait(2)
+
+    vm._play_proc = Process()
+    try:
+        vm.stop_speaking()
+        assert entered.wait(1)
+        assert vm._play_proc is None
+    finally:
+        release.set()

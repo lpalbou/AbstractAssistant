@@ -178,3 +178,83 @@ def test_assistant_capabilities_failed_ttl_read_refetches_synchronously() -> Non
     assert gateway.discovery_calls == 2
 
 
+
+
+def test_voice_discovery_does_not_replace_full_contract():
+    gateway = _GatewayStub()
+    full = get_cached_assistant_capabilities(gateway)
+    voice = _discovery_response()
+    del voice["capabilities"]["contracts"]["assistant"]["media"]
+    gateway.discovery_voice_capabilities = lambda: voice
+    narrow = get_cached_assistant_capabilities(gateway, voice_only=True)
+    assert narrow.tts_available()
+    assert "media" not in narrow.assistant
+    assert get_cached_assistant_capabilities(gateway) is full
+    assert "media" in full.assistant
+    assert gateway.discovery_calls == 1
+
+
+def test_cold_voice_status_never_waits_for_network():
+    import threading
+    gateway = _GatewayStub()
+    entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+
+    def probe():
+        entered.set()
+        assert release.wait(2)
+        finished.set()
+        return _discovery_response()
+
+    gateway.discovery_voice_capabilities = probe
+    try:
+        pending = get_cached_assistant_capabilities(gateway, voice_only=True, stale_ok=True)
+        assert pending.error
+        assert entered.wait(1)
+        assert not finished.is_set()
+    finally:
+        release.set()
+    assert finished.wait(1)
+    assert get_cached_assistant_capabilities(gateway, voice_only=True).tts_available()
+
+
+def test_play_waits_for_inflight_probe_then_recovers_its_failure():
+    import threading
+    from abstractassistant.gateway.capabilities import AssistantCapabilities
+    gateway = _GatewayStub()
+    gateway._voice_capabilities_cache = AssistantCapabilities.unavailable(error="old timeout")
+    entered, release = threading.Event(), threading.Event()
+    results, calls = [], []
+
+    def probe():
+        calls.append(1)
+        if len(calls) == 1:
+            entered.set()
+            assert release.wait(2)
+            raise TimeoutError("slow background probe")
+        return _discovery_response()
+
+    gateway.discovery_voice_capabilities = probe
+    background = threading.Thread(target=lambda: get_cached_assistant_capabilities(gateway, voice_only=True, force=True))
+    play = threading.Thread(target=lambda: results.append(get_cached_assistant_capabilities(gateway, voice_only=True, retry_failure=True)))
+    background.start()
+    try:
+        assert entered.wait(1)
+        play.start()
+        assert len(calls) == 1
+    finally:
+        release.set()
+        background.join(2)
+        if play.ident is not None:
+            play.join(2)
+    assert len(calls) == 2
+    assert results[0].tts_available()
+    assert gateway._voice_capabilities_cache is results[0]
+
+
+def test_voice_client_requests_scoped_contract(monkeypatch):
+    from abstractassistant.gateway.client import GatewayClient, GatewayClientConfig
+    client = GatewayClient(GatewayClientConfig(base_url="http://localhost:9999"))
+    requests = []
+    monkeypatch.setattr(client, "_request_json", lambda **kw: requests.append(kw) or {})
+    client.discovery_voice_capabilities()
+    assert requests[0]["url"] == "http://localhost:9999/api/gateway/discovery/capabilities?scope=voice"

@@ -5,6 +5,16 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+### Fixed
+
+- Read-aloud refreshes a failed speech-support check in the background and continues
+  the original Play request. Stop cancels playback while discovery is pending.
+  Voice discovery uses a separate, narrow Gateway contract so unrelated media
+  probes do not delay speech; older Gateways remain compatible.
+- Read-aloud pronounces filesystem path separators and comparison symbols as
+  words. This prevents the reproduced Qwen cloned-voice repetition on a folder
+  listing reply without weakening the voice-identity check or altering the transcript.
+
 ## [0.18.0] - 2026-11-04
 
 Avatars ship with every install. The switcher folds paused and archived automations into their own

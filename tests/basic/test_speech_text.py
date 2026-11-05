@@ -72,3 +72,30 @@ def test_speech_text_keeps_existing_terminal_punctuation() -> None:
 def test_speech_text_empty_and_whitespace() -> None:
     assert speech_plain_text("") == ""
     assert speech_plain_text("   \n  ") == ""
+
+
+@pytest.mark.basic
+def test_speech_text_pronounces_paths_and_comparisons_without_changing_names():
+    text = "Folders in /Users/albou/ that are ≥ 2 GB. Try ~/Library, ~/Documents or ~/Downloads."
+    assert speech_plain_text(text) == (
+        "Folders in slash Users slash albou slash that are greater than or equal to 2 GB. "
+        "Try home slash Library, home slash Documents or home slash Downloads."
+    )
+    assert speech_plain_text("Use `/tmp/report.txt`, `./notes` or `../cache`. x≤3 and y≠4.") == (
+        "Use slash tmp slash report.txt, current directory slash notes or parent directory slash cache. "
+        "x less than or equal to 3 and y not equal to 4."
+    )
+
+
+@pytest.mark.basic
+def test_speech_path_conversion_preserves_fractions_dates_and_prose():
+    text = "Use 1/2 or 1 /2 of it on 2026/11/05 or 2026 /11 /05 and/or tomorrow. Voici le résumé."
+    assert speech_plain_text(text) == text
+    assert speech_plain_text("See https://example.com/path then /tmp/results.") == "See link then slash tmp slash results."
+
+
+@pytest.mark.basic
+def test_speech_paths_keep_dot_directory_components():
+    assert speech_plain_text("Use /tmp/. or ../../cache.") == (
+        "Use slash tmp slash current directory or parent directory slash parent directory slash cache."
+    )

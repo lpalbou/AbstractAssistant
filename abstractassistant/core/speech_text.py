@@ -40,6 +40,11 @@ _EMOJI_RE = re.compile(
     "\U000020E3"             # combining keycap
     "]+"
 )
+# Recognize rooted/home/relative POSIX paths, not fractions, dates or "and/or".
+# Literal slashes made Qwen3-TTS repeat words and lose the cloned voice while
+# reading a filesystem answer. Spell separators without dropping path names.
+_PATH_RE = re.compile(r"(?<![\w:/])(?:~|\.{1,2})?/(?:[\w.-]+/)*[\w.-]+/?")
+_COMPARISON_WORDS = {"≥": "greater than or equal to", "≤": "less than or equal to", "≠": "not equal to"}
 _SENTENCE_END = (".", "!", "?", ":", ";", ",", "…")
 
 
@@ -57,6 +62,21 @@ def _table_row_to_prose(line: str) -> str:
     cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
     cells = [cell for cell in cells if cell]
     return ", ".join(cells)
+
+
+def _speak_path(match: re.Match) -> str:
+    path = match.group(0)
+    # Leave ambiguous numeric forms alone ("1 /2", "2026 /11 /05").
+    if path.startswith("/") and path.strip("/.").replace("/", "").isdigit():
+        return path
+    # Sentence punctuation is not part of the final path component, but
+    # standalone . and .. components have filesystem meaning.
+    last = path.rsplit("/", 1)[-1]
+    suffix = "." if last.endswith(".") and last not in {".", ".."} else ""
+    if suffix:
+        path = path[:-1]
+    words = {"~": "home", ".": "current directory", "..": "parent directory"}
+    return " slash ".join(words.get(part, part) for part in path.split("/")).strip() + suffix
 
 
 def speech_plain_text(markdown: str) -> str:
@@ -92,6 +112,9 @@ def speech_plain_text(markdown: str) -> str:
             is_block = True
         line = _strip_emphasis(line)
         line = _EMOJI_RE.sub("", line)
+        line = _PATH_RE.sub(_speak_path, line)
+        for symbol, words in _COMPARISON_WORDS.items():
+            line = line.replace(symbol, " " + words + " ")
         line = re.sub(r"[ \t]+", " ", line).strip()
         if not line:
             lines_out.append("")

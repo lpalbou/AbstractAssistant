@@ -17,7 +17,7 @@ from abstractassistant.config import BUILTIN_GATEWAY_URL, Config, default_gatewa
 from abstractassistant.core.tool_policy import ToolApprovalPolicy
 from abstractassistant.core.gateway_voice_manager import GatewayVoiceManager
 from abstractassistant.core.llm_manager import LLMManager
-from abstractassistant.gateway import GatewayClient, GatewayClientConfig, session_memory_run_id
+from abstractassistant.gateway import GatewayClient, GatewayClientConfig, session_memory_run_id, get_cached_assistant_capabilities
 from abstractassistant.gateway.automations import AutomationsClient
 from abstractassistant.gateway.me_events import MeEventsClient
 from abstractassistant.gateway.client import wait_answer_payload
@@ -401,6 +401,7 @@ class AssistantController:
         except Exception:
             pass
         try:
+            get_cached_assistant_capabilities(self.llm_manager.gateway_client(), voice_only=True, force=True)
             self.llm_manager.gateway_capabilities(force=True)
         except Exception:
             pass
@@ -1494,6 +1495,7 @@ class AssistantController:
         return bool(self.voice_manager.supports_stt())
 
     def refresh_gateway_capabilities(self) -> None:
+        get_cached_assistant_capabilities(self.llm_manager.gateway_client(), voice_only=True, force=True)
         self.llm_manager.gateway_capabilities(force=True)
         self._sync_gateway_voice_defaults()
 
