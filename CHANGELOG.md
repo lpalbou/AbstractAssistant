@@ -7,8 +7,9 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Changed
 
-- Desktop voice turns in the default listening mode end after approximately
-  0.5 seconds of silence, down from 1.5 seconds, before transcription starts.
+- Desktop voice turns in the default listening mode require at least 1 second
+  of silence (1.02 seconds at 30 ms frame resolution), down from 1.5 seconds,
+  before transcription starts.
 - A rejected cloned or selected voice no longer triggers automatic generation
   with the default voice or a whole-reply artifact retry. Play explicitly retries
   using the same voice selection; server-side voice checks remain unchanged.

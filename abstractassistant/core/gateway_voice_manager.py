@@ -429,9 +429,9 @@ class GatewayVoiceManager:
         rec = VoiceRecognizer(
             transcription_callback=_on_transcription,
             stop_callback=_on_stop,
-            # End continuous voice turns after ~0.5 s of silence instead of
-            # the recognizer's 1.5 s default; keep this desktop preference local.
-            silence_timeout=500,
+            # Require at least 1 s of silence. The recognizer floors to 30 ms
+            # frames, so 1020 ms avoids rounding 1000 ms down to 990 ms.
+            silence_timeout=1020,
             debug_mode=self.debug_mode,
             stt_adapter=adapter,
             language=lang,
