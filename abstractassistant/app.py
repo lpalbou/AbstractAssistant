@@ -90,7 +90,6 @@ from PyQt5.QtWidgets import (
     QTabWidget,
     QTextBrowser,
     QTextEdit,
-    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -228,6 +227,7 @@ from .ui.dialogs import AskUserDialog
 from .ui.settings import SettingsDialog, ToolSettingsDialog
 from .ui.styles import chat_stylesheet, dialog_stylesheet, scope_stylesheet
 from .ui.voice_strip import VOICE_STRIP_HEIGHT, VoiceStrip
+from .ui.tooltips import delayed_tooltip, install_tooltip_timing
 from .ui.avatar import AvatarVoiceButton, AvatarPresentation, presentation as avatar_presentation
 
 logger = logging.getLogger(__name__)
@@ -2187,16 +2187,16 @@ class AutoSizingTextBrowser(QTextBrowser):
         except Exception as exc:  # a slot must never raise: Qt aborts the process
             problem = f"Could not open this link: {exc}"
         if problem:
-            QToolTip.showText(QCursor.pos(), problem, self)
+            delayed_tooltip(self, problem)
 
     def _on_anchor_hovered(self, url: QUrl) -> None:
         href = bytes(url.toEncoded()).decode("utf-8", "replace") if not url.isEmpty() else ""
         if href:
             # Escaped: Qt renders a tooltip that LOOKS like HTML as HTML, and the
             # href is model-written — `<img src=…>` in a path would be fetched.
-            QToolTip.showText(QCursor.pos(), _tooltip_html(describe_link(href).split("\n")), self)
+            delayed_tooltip(self, _tooltip_html(describe_link(href).split("\n")), key=href)
         else:
-            QToolTip.hideText()
+            delayed_tooltip(self, "")
 
     def register_inline_image(self, url: str, image: "QImage") -> None:
         """Serve ``image`` for ``url`` (an ``aa-image:`` name the card chose)."""
@@ -2246,7 +2246,7 @@ class AutoSizingTextBrowser(QTextBrowser):
             return
         problem = activate_message_link(href, force_reveal=chosen is reveal_action)
         if problem:
-            QToolTip.showText(event.globalPos(), problem, self)
+            delayed_tooltip(self, problem)
 
     def refresh_height(self, width: Optional[int] = None) -> None:
         if width is None:
@@ -5276,7 +5276,7 @@ class FileOperationCard(QFrame):
             def _open(_checked: bool = False, path: str = target, b=button) -> None:
                 problem = on_open(path)
                 if problem:
-                    QToolTip.showText(QCursor.pos(), problem, b)
+                    delayed_tooltip(b, problem)
 
             button.clicked.connect(_open)
             root.addWidget(button, 0, Qt.AlignLeft)
@@ -5773,6 +5773,7 @@ class AssistantPalette(QMainWindow):
         self, *, controller: AssistantController, debug: bool = False
     ) -> None:
         super().__init__()
+        install_tooltip_timing(QApplication.instance())
         self._controller = controller
         # The saved theme must be live before ANY widget is built:
         # a widget that reads THEME in its constructor (the voice strip did)
@@ -12843,7 +12844,7 @@ class AssistantPalette(QMainWindow):
                 padding: 0px; border: 1px solid transparent;
                 border-radius: 24px; background: transparent;
             }
-            QPushButton#avatarVoiceButton:hover { background: rgba(166, 187, 214, 0.06); }
+            QPushButton#avatarVoiceButton:hover, QPushButton#avatarVoiceButton:pressed { background: transparent; border: 1px solid transparent; }
             QPushButton#avatarVoiceButton[keyboardFocus="true"] { border: 1px dashed rgba(200, 210, 225, 0.65); }
             QPushButton#avatarVoiceButton:checked { background: transparent; }
             QLabel#avatarVoiceCaption { color: #dde6f0; background: rgba(16, 22, 31, 0.92); border: none; border-radius: 6px; font-size: 11px; font-weight: 600; }
@@ -13876,6 +13877,7 @@ def launch_tray_app(
     gateway_handover_file: str = "",
 ) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
+    install_tooltip_timing(app)
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("AbstractAssistant")
     # Use the real macOS system font (San Francisco) rather than QSS

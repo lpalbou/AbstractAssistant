@@ -183,6 +183,7 @@ class _ChipHover(QObject):
         super().__init__()
         self._open = QTimer(self)
         self._open.setSingleShot(True)
+        self._open.setTimerType(Qt.PreciseTimer)
         self._open.timeout.connect(self._show_pending)
         self._close = QTimer(self)
         self._close.setSingleShot(True)
@@ -199,11 +200,14 @@ class _ChipHover(QObject):
             self._open.stop()
             self._close.start(_CLOSE_DELAY_MS)
         elif kind == QEvent.FocusIn:
-            show_stat_detail(obj)
+            self._pending = obj
+            self._open.start(_OPEN_DELAY_MS)
         elif kind in (QEvent.FocusOut, QEvent.MouseButtonPress, QEvent.Hide):
             self._open.stop()
             _dismiss_for(obj)
         elif kind == QEvent.KeyPress and event.key() == Qt.Key_Escape:
+            self._open.stop()
+            self._pending = None
             _dismiss_for(obj)
         elif kind == QEvent.ToolTip:
             return True  # the card is the tooltip
@@ -215,7 +219,7 @@ class _ChipHover(QObject):
         if chip is None:
             return
         try:
-            if chip.underMouse():
+            if chip.underMouse() or chip.hasFocus():
                 show_stat_detail(chip)
         except RuntimeError:
             return
@@ -260,7 +264,7 @@ def attach_stat_detail(chip: QWidget, detail: StatDetail) -> None:
     chip.setAttribute(Qt.WA_Hover, True)
     if chip.focusPolicy() == Qt.NoFocus:
         # Reachable from the keyboard like the kit's chip (tabIndex 0): focus
-        # opens the card, Escape or leaving closes it.
+        # opens the card after its dwell delay, Escape or leaving closes it.
         chip.setFocusPolicy(Qt.TabFocus)
     chip.installEventFilter(_hover())
 

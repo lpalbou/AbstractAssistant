@@ -21,6 +21,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Fixed
 
+- Orb hover leaves its border and background unchanged. All desktop tooltip
+  paths wait at least 200 ms, including links, detail cards and movement between
+  items; Escape cancels a pending tooltip.
+
 - Read-aloud refreshes a failed speech-support check in the background and continues
   the original Play request. Stop cancels playback while discovery is pending.
   Voice discovery uses a separate, narrow Gateway contract so unrelated media

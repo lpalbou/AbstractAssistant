@@ -438,7 +438,7 @@ def test_the_click_slot_never_raises(acts, monkeypatch) -> None:
 
     _qapp = QApplication.instance() or QApplication([])
     monkeypatch.setattr(app, "activate_message_link", lambda *a, **k: (_ for _ in ()).throw(ValueError("boom")))
-    monkeypatch.setattr(app.QToolTip, "showText", lambda *a, **k: None)
+    monkeypatch.setattr(app, "delayed_tooltip", lambda *a, **k: None)
     app.AutoSizingTextBrowser()._on_anchor_clicked(QUrl("file:///tmp/x.mp4"))  # must not raise
 
 
