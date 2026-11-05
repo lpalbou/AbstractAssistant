@@ -35,7 +35,9 @@ def test_long_draft_grows_without_clipping_orb_and_header(width, orb_palette):
     _SMOKE["_app"]().processEvents()
     assert window.composer_card.height() > before
     assert window.prompt_edit.height() <= 144
-    assert window.composer_card.rect().contains(window.conversation_button.geometry())
+    assert window.conversation_button.x() - window.composer_card.geometry().right() >= 12
+    assert window.conversation_button.geometry().bottom() == window.composer_card.geometry().bottom()
+    assert window.rect().contains(window.conversation_button.geometry())
     assert window.header_card.rect().contains(window.session_picker.geometry())
     assert window.header_card.geometry().bottom() < window.history_card.geometry().top()
     window.prompt_edit.clear()
@@ -62,3 +64,20 @@ def test_escape_ends_voice_before_hiding_and_speech_labels_follow_player(orb_pal
     assert not window._voice_conversation_active
     assert window.isVisible()
     assert "click Talk" in window.prompt_edit.placeholderText()
+
+
+@pytest.mark.basic
+def test_floating_orb_gap_is_transparent_and_focus_is_keyboard_only(orb_palette):
+    from PyQt5.QtCore import QEvent, Qt
+    from PyQt5.QtGui import QFocusEvent
+    window, _ = orb_palette
+    button = window.conversation_button
+    button.focusInEvent(QFocusEvent(QEvent.FocusIn, Qt.TabFocusReason))
+    assert button.property("keyboardFocus") == "true"
+    button.focusInEvent(QFocusEvent(QEvent.FocusIn, Qt.MouseFocusReason))
+    assert button.property("keyboardFocus") == "false"
+    image = window.grab().toImage()
+    ratio = image.devicePixelRatio()
+    x = (window.composer_card.geometry().right() + button.x()) // 2
+    y = button.geometry().center().y()
+    assert image.pixelColor(int(x * ratio), int(y * ratio)).alpha() == 0

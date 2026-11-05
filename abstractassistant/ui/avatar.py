@@ -283,6 +283,7 @@ class AvatarVoiceButton(QPushButton):
         self.avatar.setFixedWidth(60)
         self.avatar.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.fallback = QLabel(self)
+        self.fallback.setObjectName("avatarVoiceFallback")
         self.fallback.setAlignment(Qt.AlignCenter)
         self.fallback.setFixedSize(60, 60)
         self.fallback.setAttribute(Qt.WA_TransparentForMouseEvents, True)
@@ -291,11 +292,12 @@ class AvatarVoiceButton(QPushButton):
         self.caption.setAlignment(Qt.AlignCenter)
         self.caption.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         row = QVBoxLayout(self)
-        row.setContentsMargins(4, 0, 4, 4)
+        row.setContentsMargins(4, 0, 4, 0)
         row.setSpacing(0)
         row.addWidget(self.avatar)
         row.addWidget(self.fallback)
-        row.addWidget(self.caption)
+        self.caption.setFixedHeight(18)
+        row.addWidget(self.caption, 0, Qt.AlignHCenter)
         self.avatar.failed.connect(self.update_presentation)
         self.update_presentation()
 
@@ -309,10 +311,29 @@ class AvatarVoiceButton(QPushButton):
             self.fallback.setPixmap(symbol_icon("audio-lines", color=THEME.text_primary, size=24).pixmap(24, 24))
         active = self.isChecked()
         self.caption.setText("End voice" if active else "Talk")
+        self.caption.setFixedWidth(min(60, self.caption.sizeHint().width() + 6))
         state = self.avatar._state_provider().state.capitalize()
         action = "End voice conversation" if active else "Start voice conversation"
         self.setAccessibleName(action)
         self.setAccessibleDescription(f"Assistant: {state}. {self.toolTip()} {self.avatar.error}")
+
+    def focusInEvent(self, event) -> None:  # noqa: N802
+        self._set_keyboard_focus(event.reason() in (Qt.TabFocusReason, Qt.BacktabFocusReason, Qt.ShortcutFocusReason))
+        super().focusInEvent(event)
+
+    def focusOutEvent(self, event) -> None:  # noqa: N802
+        self._set_keyboard_focus(False)
+        super().focusOutEvent(event)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        self._set_keyboard_focus(False)
+        super().mousePressEvent(event)
+
+    def _set_keyboard_focus(self, visible: bool) -> None:
+        self.setProperty("keyboardFocus", "true" if visible else "false")
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
         if self.avatar._looks and self.avatar._animated:

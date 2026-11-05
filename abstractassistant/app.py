@@ -2450,7 +2450,7 @@ class AttachmentTextEdit(QTextEdit):
         super().dropEvent(event)
 
 
-_COMPOSER_BASE_HEIGHT = 96
+_COMPOSER_BASE_HEIGHT = 80
 _ATTACHMENT_CHIP_SIZE = 36
 _ATTACHMENT_TRAY_SPACING = 6
 _ATTACHMENT_TRAY_MAX_ROWS = 3
@@ -6233,7 +6233,7 @@ class AssistantPalette(QMainWindow):
         )
         self.attach_button.clicked.connect(self._pick_attachments)
         self.attach_button.setAccessibleName("Attach files")
-        composer.addWidget(self.attach_button, 0, Qt.AlignBottom)
+        composer.addWidget(self.attach_button, 0, Qt.AlignVCenter)
 
         # Keep the legacy dictation state sink for recording recovery; the
         # visible voice control is the animated orb below.
@@ -6275,15 +6275,15 @@ class AssistantPalette(QMainWindow):
         # offers pause/resume/stop (click alone stops; typed text steers).
         self.send_button.setContextMenuPolicy(Qt.CustomContextMenu)
         self.send_button.customContextMenuRequested.connect(self._show_run_control_menu)
-        composer.addWidget(self.send_button, 0, Qt.AlignBottom)
+        composer.addWidget(self.send_button, 0, Qt.AlignVCenter)
 
-        self.conversation_button = AvatarVoiceButton(self._avatar_presentation, self.composer_card)
+        self.conversation_button = AvatarVoiceButton(self._avatar_presentation, central)
         self.conversation_button.setToolTip("Start a voice conversation (⌘⇧V)")
         self.conversation_button.clicked.connect(self._on_orb_clicked)
         self.conversation_button.setContextMenuPolicy(Qt.CustomContextMenu)
         self.conversation_button.customContextMenuRequested.connect(self._show_mic_menu)
         self.activity_avatar = self.conversation_button.avatar
-        composer.addWidget(self.conversation_button, 0, Qt.AlignBottom)
+        # A sibling floating control: the gap beside the composer stays transparent.
         self._configure_avatar()
         self.prompt_edit.textChanged.connect(self._on_composer_changed)
         self.prompt_edit.document().documentLayout().documentSizeChanged.connect(self._resize_composer_prompt)
@@ -9045,7 +9045,7 @@ class AssistantPalette(QMainWindow):
             self.composer_card.height() or self.composer_card.sizeHint().height() or 80
         )
         side_gap = 8
-        card_gap = 4
+        card_gap = 12
         top_gap = 4
         bottom_gap = 4
         if self._zoomed:
@@ -9075,9 +9075,7 @@ class AssistantPalette(QMainWindow):
                 side_gap, history_y, card_width, history_height
             )
             composer_y = history_y + history_height + card_gap
-            self.composer_card.setGeometry(
-                side_gap, composer_y, card_width, composer_height
-            )
+            self._place_composer(side_gap, composer_y, card_width, composer_height)
             x = int(screen_geom.x() + max(0, (screen_geom.width() - width) / 2))
             y = int(
                 screen_geom.y() + max(0, (screen_geom.height() - target_height) / 2)
@@ -9105,9 +9103,7 @@ class AssistantPalette(QMainWindow):
         history_y = top_gap + header_height + card_gap
         self.history_card.setGeometry(side_gap, history_y, card_width, history_height)
         composer_y = history_y + history_height + card_gap
-        self.composer_card.setGeometry(
-            side_gap, composer_y, card_width, composer_height
-        )
+        self._place_composer(side_gap, composer_y, card_width, composer_height)
         target_height = int(composer_y + composer_height + bottom_gap)
         previous = self.geometry()
         self.resize(width, target_height)
@@ -9130,6 +9126,13 @@ class AssistantPalette(QMainWindow):
             except Exception:
                 pass
         QTimer.singleShot(0, self._sync_native_traffic_lights)
+
+    def _place_composer(self, x: int, y: int, width: int, height: int) -> None:
+        """Float the voice control beside the text panel, with a clear desktop gap."""
+        orb = self.conversation_button
+        panel_width = width - orb.width() - 12
+        self.composer_card.setGeometry(x, y, panel_width, height)
+        orb.move(x + width - orb.width(), y + height - orb.height())
 
     def _toggle_zoom(self) -> None:
         self._zoomed = not bool(self._zoomed)
@@ -9339,7 +9342,7 @@ class AssistantPalette(QMainWindow):
         title.setObjectName("historyEmptyTitle")
         title.setAlignment(Qt.AlignCenter)
         col.addWidget(title, 0, Qt.AlignCenter)
-        sub = QLabel("Type, drop files, or use the mic to dictate · ⌘⇧V talks")
+        sub = QLabel("Type a message, drop files, or click Talk")
         sub.setObjectName("historyEmptySubtitle")
         sub.setAlignment(Qt.AlignCenter)
         # No word wrap: Qt's wrap heuristic folds this line even with room to
@@ -9649,7 +9652,7 @@ class AssistantPalette(QMainWindow):
         """Height of the optional composer rows (voice strip) above the prompt."""
         strip = getattr(self, "__dict__", {}).get("voice_strip")
         try:
-            return (VOICE_STRIP_HEIGHT if strip is not None and strip.isVisible() else 0) + max(0, self.prompt_edit.height() - 80)
+            return (VOICE_STRIP_HEIGHT if strip is not None and strip.isVisible() else 0) + max(0, self.prompt_edit.height() - 64)
         except RuntimeError:
             return 0
 
@@ -12816,13 +12819,14 @@ class AssistantPalette(QMainWindow):
             QFrame#composerCard { border-radius: 22px; }
             QPushButton#avatarVoiceButton {
                 min-height: 78px; max-height: 78px; min-width: 66px; max-width: 66px;
-                padding: 0px; border: 1px solid rgba(166, 187, 214, 0.20);
-                border-radius: 24px; background: rgba(255, 255, 255, 0.035);
+                padding: 0px; border: 1px solid transparent;
+                border-radius: 24px; background: transparent;
             }
-            QPushButton#avatarVoiceButton:hover { background: rgba(255, 255, 255, 0.08); }
-            QPushButton#avatarVoiceButton:focus { border: 2px solid #5fd39b; }
-            QPushButton#avatarVoiceButton:checked { border: 2px solid #5fd39b; background: rgba(83, 198, 145, 0.12); }
-            QLabel#avatarVoiceCaption { color: #b9c7d7; background: transparent; border: none; font-size: 11px; font-weight: 600; }
+            QPushButton#avatarVoiceButton:hover { background: rgba(166, 187, 214, 0.06); }
+            QPushButton#avatarVoiceButton[keyboardFocus="true"] { border: 1px dashed rgba(200, 210, 225, 0.65); }
+            QPushButton#avatarVoiceButton:checked { background: transparent; }
+            QLabel#avatarVoiceCaption { color: #dde6f0; background: rgba(16, 22, 31, 0.92); border: none; border-radius: 6px; font-size: 11px; font-weight: 600; }
+            QLabel#avatarVoiceFallback { background: rgba(16, 22, 31, 0.92); border: none; border-radius: 30px; }
             QFrame#composerCard[dropActive="true"] {
                 background: rgba(19, 31, 28, 0.98);
                 border-color: rgba(95, 211, 155, 0.52);
@@ -13326,12 +13330,12 @@ class AssistantPalette(QMainWindow):
                 max-width: 38px;
                 padding: 0px;
                 border-radius: 12px;
-                background: #2e8b63;
+                background: rgba(166, 187, 214, 0.10);
                 color: #f9fffc;
-                border-color: #2e8b63;
+                border-color: rgba(166, 187, 214, 0.18);
             }
-            QPushButton#sendButton:hover { background: #37a272; }
-            QPushButton#sendButton:pressed { background: #236749; }
+            QPushButton#sendButton:hover { background: rgba(166, 187, 214, 0.20); }
+            QPushButton#sendButton:pressed { background: rgba(166, 187, 214, 0.14); }
             QPushButton#sendButton[busy="true"] {
                 background: rgba(145, 39, 39, 0.55);
                 border-color: rgba(255, 121, 121, 0.45);
