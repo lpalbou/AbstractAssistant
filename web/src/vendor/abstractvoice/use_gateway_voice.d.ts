@@ -99,6 +99,8 @@ export declare function streamTtsJsonl(opts: {
 }): AsyncGenerator<ArrayBuffer>;
 export type GatewayVoice = {
     tts_supported: boolean;
+    /** Audio is scheduled on a running context with nonzero output gain (false while buffering). */
+    tts_speaking: boolean;
     tts_playback: {
         key: string;
         status: TtsPlaybackStatus;

@@ -76,8 +76,6 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
 .aa-chat .pc-chat-avatar { display: none; }
 .aa-chat .pc-chat-role { font-size: 12px; font-weight: 600; }
 .aa-chat .pc-chat-time { font-size: 10px; font-family: var(--aa-font-sans); }
-.aa-chat .pc-chat-header-actions { gap: 2px; }
-.aa-chat .pc-chat-icon-btn { width: 30px; height: 30px; border-radius: 50%; }
 .aa-chat .pc-chat-content { font-size: 15px; line-height: 1.7; }
 .aa-chat .pc-chat-content p:first-child { margin-top: 0; }
 .aa-chat .pc-chat-content p:last-child { margin-bottom: 0; }

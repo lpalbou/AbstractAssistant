@@ -41,7 +41,7 @@
     "dist/session_reads_remote.js": "4add9cbecba6970b62c0a7595318b46cf147ff3e3a2086c54f34b1fa6ed235ba",
     "dist/session_reads.js": "c05c38663f578a7f13185b05b5a1df54cc3fee1bf0bb3660c568c42a7cf6cd4c",
     "dist/session_cards.js": "8f5a10250512619f3ccb3887d12a4444cbeeb97af8f523463659d2233a94bea9",
-    "src/theme.css": "83fe3a16b95177d39f7d5394c1d62fe127960b843d53c5deae143fa86a5745f7"
+    "src/theme.css": "6cb421968eb5a1026985eefc4de60e278c9b786a73e88de1639687cbe1633803"
   },
   "artifacts": {
     "session_cards.js": "1af1446d72156deb4d78943763edfc11a46053911f788ae71560edc9abb60a0b",
@@ -53,6 +53,6 @@
     "session_reads.d.ts": "d819f47c887c15ef68c149934fa87ae3ddbcb2a62f940ba67280af929355ad72",
     "session_read_client.d.ts": "f41d7c0c0ead197d6436ca3181633c76313508ad3b53162412c2efabc457639e",
     "automation_card.d.ts": "0153b7b0322fada0563eebb3b203138920d08f4a131e26104e002c724b5644a1",
-    "session_cards.css": "0520271603f9d68d5147cbd5fd4c0ff45ebb0572cb7edcaa406a4ba546aa061d"
+    "session_cards.css": "a1ddb66830edddd220a923c8e8375c10911ee0795feb219752dc4221f96eff29"
   }
 }

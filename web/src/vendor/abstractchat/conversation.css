@@ -1183,6 +1183,7 @@
 
 .pc-chat-icon-btn svg {
   display: block;
+  flex-shrink: 0;
 }
 
 .pc-chat-icon-btn:hover {
@@ -2817,7 +2818,6 @@ button.pc-ws__name:hover {
 /* The answer: a normal message, once; it scrolls in place when long. */
 .pc-avatar-conversation__answer { flex: 0 1 auto; min-height: 0; width: min(100%, 46rem); margin: 0 auto; overflow-y: auto; overscroll-behavior: contain; }
 .pc-avatar-conversation__answer .pc-chat-item { max-width: none; margin: 0; }
-.pc-avatar-conversation__answer[data-attention="completion"] .pc-chat-item { border-inline-start: 3px solid var(--accent-border, #7189c0); }
 /* Findings: compact cards, newest last, each opening to its full text and sources. */
 .pc-avatar-conversation__findings {
   position: absolute;
@@ -2855,7 +2855,7 @@ button.pc-ws__name:hover {
 .pc-avatar-conversation__actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .5rem; }
 /* Host-supplied control groups (voiceControl, playbackControl) wrap and space like the row itself. */
 .pc-avatar-conversation__actions > span { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .5rem; }
-.pc-avatar-conversation button { font: inherit; color: inherit; background: transparent; border: 1px solid var(--ui-border-1, #7776); border-radius: .4rem; padding: .4rem .65rem; cursor: pointer; }
+.pc-avatar-conversation :is(.pc-avatar-conversation__line-actions, .pc-avatar-conversation__findings-head, .pc-avatar-conversation__actions) > button { font: inherit; color: inherit; background: transparent; border: 1px solid var(--ui-border-1, #7776); border-radius: .4rem; padding: .4rem .65rem; cursor: pointer; }
 .pc-avatar-conversation__actions button { min-height: 44px; min-width: 44px; }
 .pc-avatar-conversation button:disabled { opacity: .5; cursor: default; }
 .pc-avatar-conversation button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }

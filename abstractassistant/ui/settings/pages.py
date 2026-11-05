@@ -2240,7 +2240,7 @@ class WindowPage(SettingsPage):
                 self.avatar_style.addItem(row["name"], row["id"])
                 self.avatar_style.setItemData(self.avatar_style.count() - 1,
                                               row["description"], Qt.ToolTipRole)
-            style = str(safe_attr(prefs, "avatar_style", "halo") or "halo")
+            style = str(safe_attr(prefs, "avatar_style", "watch-hover") or "watch-hover")
             index = self.avatar_style.findData(style)
             if index < 0:
                 self.avatar_style.addItem(f"Unavailable design ({style})", style)
@@ -2264,7 +2264,7 @@ class WindowPage(SettingsPage):
             self.say(self.avatar_note.text(), tone="error")
             return
         ok = _update_prefs(self.controller, avatar_enabled=enabled,
-                           avatar_style=str(self.avatar_style.currentData() or "halo"),
+                           avatar_style=str(self.avatar_style.currentData() or "watch-hover"),
                            avatar_animated=self.avatar_animated.isChecked())
         if not ok:
             self._load_avatar_controls(_prefs(self.controller))

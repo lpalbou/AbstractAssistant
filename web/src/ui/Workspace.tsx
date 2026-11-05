@@ -340,7 +340,7 @@ export function Workspace(props: {
   const listWords = pending && !answeredElsewhere ? "Needs you" : "";
   const outcome = turnOutcome(props.runId, snapshot.status, snapshot.run, snapshot.messages);
   const presence = assistantPresence({ recording: voice.voice_ptt_recording, transcribing: voice.voice_ptt_busy,
-    playback: voice.tts_playback.status, pending: Boolean(pending && !answeredElsewhere), busy,
+    playback: voice.tts_playback.status === "playing" && !voice.tts_speaking ? "loading" : voice.tts_playback.status, pending: Boolean(pending && !answeredElsewhere), busy,
     working: messages.some((m) => m.toolActivity?.status === "running"), failed: snapshot.status === "failed", loading: snapshot.loading });
   const focusComposer = () => root.current?.querySelector<HTMLTextAreaElement>("textarea")?.focus();
   const transcript = (said: string) => {
@@ -371,10 +371,10 @@ export function Workspace(props: {
       avatarConversation={avatarMode ? {
         onTechnicalView: () => { voice.stop_tts(); avatarPreferences.setMode("chat"); },
         sessionKey: `${props.readScope}:${props.sessionId || "new"}`,
-        avatar: <Orb voice={voice} prefs={props.appearance} pose={voice.voice_ptt_recording ? "listening" : voice.tts_playback.status === "playing" ? "speaking" : snapshot.run?.paused === true && !TERMINAL.has(snapshot.status) ? "waiting" : presence.pose} size={320} onError={() => setNotice("The avatar could not load. Voice and messages still work.")} />,
+        avatar: <Orb voice={voice} prefs={props.appearance} pose={voice.voice_ptt_recording ? "listening" : voice.tts_speaking ? "speaking" : snapshot.run?.paused === true && !TERMINAL.has(snapshot.status) ? "waiting" : presence.pose} size={320} onError={() => setNotice("The avatar could not load. Voice and messages still work.")} />,
         ...conversationSnapshot(snapshot),
         listening: voice.voice_ptt_recording,
-        speaking: voice.tts_playback.status === "playing",
+        speaking: voice.tts_speaking,
         preferences: avatarPreferences.preferences,
         onPreferencesChange: avatarPreferences.setPreferences,
         onCue: (cue) => { void playConversationCue(cue).catch((reason) => setNotice(reason instanceof Error ? reason.message : String(reason))); },
@@ -382,12 +382,7 @@ export function Workspace(props: {
         onReplyContext: setReplyContext,
         onAttendedChange: setAvatarAttended,
         narrate: props.voicePrefs.read_aloud === true && !props.voicePrefs.reply_muted,
-        onNarrate: (message) => { if (voice.tts_supported) void voice.toggle_tts(`brief:${message.id}`, message.content); },
-        voiceControl: <span onPointerDown={() => voice.stop_tts()}><AfVoiceMicButton voice={voice} mode={props.captureMode} label="Talk" onTranscript={transcript} unavailableReason={host.capabilities.microphone.available ? null : host.capabilities.microphone.reason} /></span>,
-        playbackControl: <span role="group" aria-label="Voice controls">
-          {voice.tts_supported && <button type="button" aria-pressed={props.voicePrefs.read_aloud === true} onClick={() => { voice.stop_tts(); props.onVoicePrefsChange({ ...props.voicePrefs, read_aloud: !props.voicePrefs.read_aloud }); }}>Read new replies aloud</button>}
-          {["playing", "paused"].includes(voice.tts_playback.status) && <><button type="button" onClick={playback}>{voice.tts_playback.status === "paused" ? "Resume voice" : "Pause voice"}</button><button type="button" onClick={() => voice.stop_tts()}>Silence voice</button></>}
-        </span>,
+        onNarrate: (message) => { if (voice.tts_supported) void voice.toggle_tts(message.id || message.content, message.content); },
       } : undefined}
                 artifactFetch={client.fetchGateway}
                 attachmentScope={JSON.stringify([props.readScope,props.sessionId])}

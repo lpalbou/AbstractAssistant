@@ -12372,7 +12372,7 @@ class AssistantPalette(QMainWindow):
             return
         prefs = self._controller.preferences
         widget.configure(enabled=getattr(prefs, "avatar_enabled", False),
-                         style=getattr(prefs, "avatar_style", "halo"),
+                         style=getattr(prefs, "avatar_style", "watch-hover"),
                          animated=getattr(prefs, "avatar_animated", True))
 
     def _refresh_avatar(self) -> None:

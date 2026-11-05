@@ -50,6 +50,7 @@ class Renderer:
 def test_avatar_preference_is_opt_in_and_never_enters_run_scope():
     prefs = AssistantPreferences.from_dict({})
     assert prefs.avatar_enabled is False
+    assert prefs.avatar_style == "watch-hover"
     assert prefs.avatar_animated is True
     prefs = AssistantPreferences.from_dict({"avatar_enabled": True, "avatar_style": "watch-membrane",
                                              "avatar_animated": False, "auto_speak": True})
@@ -59,7 +60,7 @@ def test_avatar_preference_is_opt_in_and_never_enters_run_scope():
     assert restored.auto_speak
     assert not any(key.startswith("avatar") for key in restored.run_scope())
     assert not AssistantPreferences.from_dict({"avatar_enabled": "false"}).avatar_enabled
-    assert AssistantPreferences.from_dict({"avatar_style": "../../outside"}).avatar_style == "halo"
+    assert AssistantPreferences.from_dict({"avatar_style": "../../outside"}).avatar_style == "watch-hover"
 
 
 @pytest.mark.basic
@@ -143,6 +144,11 @@ def test_meter_bursts_cannot_exceed_frame_budget_and_motion_off_is_static(monkey
         current[0] = AvatarPresentation("speaking", i / 30)
         widget.refresh()
     assert len(renderer.calls) == before
+    # A scheduled callback slightly before the elapsed budget still paints; only
+    # unsolicited meter/pointer updates are throttled. Otherwise timers lose frames.
+    widget._timer.timeout.emit()
+    assert len(renderer.calls) == before + 1
+    before += 1
     clock[0] += 0.1
     widget.refresh()
     assert len(renderer.calls) == before + 1
@@ -308,3 +314,24 @@ def test_real_palette_integrates_optional_avatar_without_changing_tray_controls(
     window.hide()
     assert widget._renderer is None and not widget._timer.isActive()
     window.deleteLater()
+
+
+@pytest.mark.basic
+@pytest.mark.parametrize("state", ["ready", "waiting", "speaking"])
+def test_visible_avatar_has_smooth_timer_cadence(state):
+    from PyQt5.QtTest import QTest
+    from PyQt5.QtCore import Qt
+
+    _app()
+    widget = ActivityAvatar(lambda: AvatarPresentation(state), renderer_factory=Renderer)
+    widget.configure(enabled=True, style="halo", animated=True)
+    renderer = widget._renderer
+    before = len(renderer.calls)
+    QTest.qWait(400)
+    assert widget._timer.timerType() == Qt.PreciseTimer
+    assert len(renderer.calls) - before >= 8  # At least 20 fps; old ready/waiting caps fail.
+    widget.hide()
+    after = len(renderer.calls)
+    QTest.qWait(80)
+    assert len(renderer.calls) == after
+    widget.deleteLater()

@@ -2,13 +2,13 @@ import { useCallback, useEffect, useState } from "react";
 
 export type AssistantPreferences = { design: string; animated: boolean };
 const KEY = "abstractassistant.companion";
-export const DEFAULT_PREFERENCES: AssistantPreferences = { design: "watch-halo", animated: true };
+export const DEFAULT_PREFERENCES: AssistantPreferences = { design: "watch-hover", animated: true };
 
 export function parseAssistantPreferences(raw: string | null): AssistantPreferences {
   try {
     const value = JSON.parse(raw || "null");
     return {
-      design: typeof value?.design === "string" && /^[a-z][a-z0-9_-]{0,63}$/.test(value.design) ? value.design : "watch-halo",
+      design: typeof value?.design === "string" && /^[a-z][a-z0-9_-]{0,63}$/.test(value.design) ? value.design : "watch-hover",
       animated: typeof value?.animated === "boolean" ? value.animated : true,
     };
   } catch { return DEFAULT_PREFERENCES; }

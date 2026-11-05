@@ -2,16 +2,16 @@
   "schema_version": 1,
   "owner": "@abstractframework/ui-kit",
   "sources": {
-    "dist/use_gateway_voice.d.ts": "84b4fa2b652a2fcaea36897d4e69040e6867e020365a1880f0fd1db16a37a3e5",
+    "dist/use_gateway_voice.d.ts": "1840667053838bdf0bbe524ec8d5330e0f18fe55a1c3e7b0a64c0f2e4adbb4a6",
     "dist/random_id.js": "f2712445bdf59fc488f2165ba2ef62f358f528abb900857ae24ddec0631dd4ee",
     "dist/voice_devices.js": "abbe9a2bc67f70bed443ea0e5a0d917f1552644ecf00d4a0999bb59e3b4c8f59",
-    "dist/use_gateway_voice.js": "79ae89aa65dcfee5b3bb718aa33d19e7733c34a9ad0915c2a93b1b548d8ee715",
+    "dist/use_gateway_voice.js": "2034b2bfbbec6383e1a99553afbd64371999928f0cd94f3a72ca3fef8ea4573d",
     "dist/af_voice_level_meter.d.ts": "70d5d8dd4ef79f9bdce3aa03f7203ef4969db724b7ad7e8c2158cca53ef5da5f",
     "dist/af_voice_level_meter.js": "5710e0d9a82a01791a9f2a781ec75c9a5c95aea76eb5c3e3cabf7f70b617c666"
   },
   "artifacts": {
-    "use_gateway_voice.js": "95b4e20b4f811bcb24eb5c784015c01ad38132dfc1f4d0fa12e7e288d81981e7",
-    "use_gateway_voice.d.ts": "84b4fa2b652a2fcaea36897d4e69040e6867e020365a1880f0fd1db16a37a3e5",
+    "use_gateway_voice.js": "296ced3aca3e881f86a9e04652fcfabf0d1e1ab3d8438c9cce4330b8d7e67a4a",
+    "use_gateway_voice.d.ts": "1840667053838bdf0bbe524ec8d5330e0f18fe55a1c3e7b0a64c0f2e4adbb4a6",
     "af_voice_level_meter.js": "667d81b076f4b23f4c34ae4b6164320e7b29f75eb7a5ce48b9e211ab5568c538",
     "af_voice_level_meter.d.ts": "70d5d8dd4ef79f9bdce3aa03f7203ef4969db724b7ad7e8c2158cca53ef5da5f"
   }

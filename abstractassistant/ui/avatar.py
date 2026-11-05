@@ -75,6 +75,7 @@ class ActivityAvatar(QWidget):
     """One bounded native handle, owned and clocked only while this widget is visible."""
 
     FRAME_SIZE = 96
+    FRAME_INTERVAL_MS = 33  # Smooth 30 fps for every visible animated state.
 
     def __init__(self, state: Callable[[], AvatarPresentation], parent: Optional[QWidget] = None,
                  *, renderer_factory: Optional[Callable[..., Any]] = None) -> None:
@@ -87,7 +88,7 @@ class ActivityAvatar(QWidget):
         self._renderer = None
         self._enabled = False
         self._animated = True
-        self._style = "halo"
+        self._style = "watch-hover"
         self._error = ""
         self._last_frame = None
         self._last_draw_at = 0.0
@@ -96,7 +97,8 @@ class ActivityAvatar(QWidget):
         self._looks = False
         self._started = time.monotonic()
         self._timer = QTimer(self)
-        self._timer.timeout.connect(self.refresh)
+        self._timer.setTimerType(Qt.PreciseTimer)
+        self._timer.timeout.connect(self._on_frame)
         self._image = QLabel(self)
         self._image.setAlignment(Qt.AlignCenter)
         self._image.setWordWrap(True)
@@ -167,7 +169,12 @@ class ActivityAvatar(QWidget):
         self._image.setToolTip(self._error)
         self._image.setAccessibleName(self._error)
 
-    def refresh(self) -> None:
+    def _on_frame(self) -> None:
+        # Timer delivery can jitter around its deadline. Never discard a scheduled frame:
+        # applying the meter-event throttle here can halve the animation's frame rate.
+        self.refresh(scheduled=True)
+
+    def refresh(self, *, scheduled: bool = False) -> None:
         if not self._enabled or not self.isVisible() or not self._ensure_renderer():
             self._timer.stop()
             return
@@ -176,7 +183,7 @@ class ActivityAvatar(QWidget):
             if current.state not in _STATES:
                 raise ValueError(f"Unknown avatar state: {current.state}")
             animated = self._animated and current.state != "error"
-            interval = 500 if current.state == "ready" else 167 if current.state == "waiting" else 84
+            interval = self.FRAME_INTERVAL_MS
             if animated:
                 if self._timer.interval() != interval:
                     self._timer.setInterval(interval)
@@ -185,7 +192,7 @@ class ActivityAvatar(QWidget):
             else:
                 self._timer.stop()
             now = time.monotonic()
-            if (animated and self._last_frame is not None
+            if (animated and not scheduled and self._last_frame is not None
                     and self._last_frame[:2] == (self._style, current.state)
                     and now - self._last_draw_at < interval / 1000):
                 return  # Meter and pointer events cannot bypass the host frame budget.

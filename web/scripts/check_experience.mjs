@@ -52,6 +52,7 @@ function view(id) {
 }
 async function checkAvatar({page, runs, calls, report, shots}) {
   await page.getByRole("heading", { name: "Ready when you are" }).waitFor();
+  await page.getByRole("button", {name:"Read new replies aloud",exact:true}).click();
   await page.locator(".aa-session").click();
   await page.getByText("An earlier answer", {exact:true}).waitFor();
   const composer = page.getByRole("textbox", {name:"Message",exact:true});
@@ -61,6 +62,13 @@ async function checkAvatar({page, runs, calls, report, shots}) {
   assert.equal(await composer.inputValue(),"Keep this draft while switching views");
   assert.equal(calls.speech,0);
   await page.locator(".pc-avatar-conversation__answer").getByText("An earlier answer",{exact:true}).waitFor();
+  const controls = await page.locator('.pc-avatar-conversation__answer .pc-chat-icon-btn').evaluateAll(buttons => buttons.map(b => {
+    const css = getComputedStyle(b), svg = b.querySelector('svg');
+    return { width: b.getBoundingClientRect().width, padding: css.padding, radius: css.borderRadius, icon: svg?.getBoundingClientRect().width };
+  }));
+  assert.equal(controls.length, 2);
+  for (const c of controls) { assert.ok(c.width >= 36); assert.equal(c.padding, '0px'); assert.equal(c.radius, '10px'); assert.equal(c.icon, 22); }
+  if(shots) await page.screenshot({path:`${shots}/avatar-answer-controls.png`});
   report.defaultHistoryAndDraftPreserved = true;
   await page.locator('[data-toolbar="new"]').click();
   await composer.fill("Find a place for lunch");
@@ -77,19 +85,20 @@ async function checkAvatar({page, runs, calls, report, shots}) {
   const line = page.locator(".pc-avatar-conversation__line");
   await line.getByText("I found a quiet restaurant near the park.",{exact:true}).waitFor();
   assert.equal(calls.speech,0,"Restoring an existing update stays silent");
-  await page.getByRole("button", {name:"Read new replies aloud",exact:true}).click();
+  assert.equal(await page.getByRole("button", {name:"Read new replies aloud",exact:true}).count(), 0);
+  assert.equal(await page.locator('.pc-avatar-conversation .af-voice-mic').count(), 0);
+  assert.equal(await page.locator('.aa-chat .pc-composer .af-voice-mic').count(), 1);
   live.public_updates.push({id:"new-1:public:2",run_id:"actor-child-1",kind:"finding",text:"The riverside restaurant has step-free access."});
-  await page.getByRole("button",{name:"Pause voice",exact:true}).waitFor();
+  await page.getByRole("button",{name:"Pause",exact:true}).waitFor();
   const synthesisCount = calls.speech;
   assert.equal(synthesisCount,1);
-  await page.getByRole("button",{name:"Pause voice",exact:true}).click();
-  await page.getByRole("button",{name:"Resume voice",exact:true}).waitFor();
-  await page.getByRole("button",{name:"Resume voice",exact:true}).click();
-  await page.getByRole("button",{name:"Pause voice",exact:true}).waitFor();
+  await page.getByRole("button",{name:"Pause",exact:true}).click();
+  await page.getByRole("button",{name:"Resume",exact:true}).waitFor();
+  await page.getByRole("button",{name:"Resume",exact:true}).click();
+  await page.getByRole("button",{name:"Pause",exact:true}).waitFor();
   assert.equal(calls.speech,synthesisCount,"Resuming a narrated brève reuses its active speech key/audio");
   await page.waitForFunction(()=>window.__avatarFrames.some(f=>f.pose===4 && f.level>.2));
-  await page.getByRole("button",{name:"Silence voice",exact:true}).click();
-  await page.getByRole("button",{name:"Read new replies aloud",exact:true}).click();
+  await page.getByRole("button",{name:"Pause",exact:true}).click();
   report.busyPublicNarrationPauseResumeAndSpeakingPose = true;
   await line.getByText("The riverside restaurant has step-free access.",{exact:true}).waitFor();
   await page.getByRole("complementary",{name:"Findings",exact:true}).getByText("The riverside restaurant has step-free access.",{exact:true}).waitFor();
@@ -225,7 +234,7 @@ try {
   await page.getByRole("heading", { name: "Ready when you are" }).waitFor();
   await page.waitForFunction(() => document.querySelector(".aa-orb")?.width > 0);
   if (shots) await page.screenshot({ path: `${shots}/home-desktop.png` });
-  // The orb (watch-halo, no eyes) never follows the pointer: not the element, not the drawing.
+  // The Watch Hover body stays in place; only its eyes follow the pointer.
   const orbPlacement = () => page.locator(".aa-orb").evaluate((c) => { const r = c.getBoundingClientRect(); return [r.x, r.y, r.width, r.height, getComputedStyle(c).transform, getComputedStyle(c.parentElement).transform].join(); });
   const orbAt = await orbPlacement();
   await page.evaluate(() => { window.__avatarFrames = []; });
@@ -233,8 +242,8 @@ try {
   await page.waitForTimeout(300);
   assert.equal(await orbPlacement(), orbAt, "the orb is never translated, rotated or tilted toward the pointer");
   const orbFrames = await page.evaluate(() => window.__avatarFrames);
-  assert.ok(orbFrames.some((f) => f.design === "watch-halo"), "the orb kept drawing while the pointer moved");
-  assert.deepEqual(orbFrames.filter((f) => f.gaze[0] || f.gaze[1]), [], "a design without eyes receives no gaze target");
+  assert.ok(orbFrames.some((f) => f.design === "watch-hover"), "the default Watch Hover kept drawing while the pointer moved");
+  assert.ok(orbFrames.some((f) => f.gaze[0] || f.gaze[1]), "the default Watch Hover eyes follow the pointer");
   report.orbIgnoresPointer = true;
   // Opening history remains silent, even with Read aloud on.
   await page.getByRole("button", { name: "Read new replies aloud" }).click();

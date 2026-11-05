@@ -17,8 +17,8 @@ from abstractassistant.speculation import normalize_speculation
 
 def normalize_avatar_style(value: Any) -> str:
     """Preserve stable renderer keys without loading native code to read preferences."""
-    key = str(value or "halo").strip().lower()
-    return key if re.fullmatch(r"[a-z][a-z0-9-]{0,79}", key) else "halo"
+    key = str(value or "watch-hover").strip().lower()
+    return key if re.fullmatch(r"[a-z][a-z0-9-]{0,79}", key) else "watch-hover"
 
 
 def _load_speculation(value: Any) -> Any:
@@ -357,7 +357,7 @@ class AssistantPreferences:
     ui_theme: str = "abstract-glass"
     # Optional local procedural portrait; the shared renderer runs only while visible.
     avatar_enabled: bool = False
-    avatar_style: str = "halo"
+    avatar_style: str = "watch-hover"
     avatar_animated: bool = True
     # Reading comfort in the transcript. Sizes are px, line height is a
     # multiplier; the gaps are the space after a paragraph and between list

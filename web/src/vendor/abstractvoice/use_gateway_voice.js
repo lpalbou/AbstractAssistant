@@ -309,12 +309,15 @@ function useGatewayVoice(opts) {
     stop?.();
     publish_playback_level(0);
   }, [publish_playback_level]);
+  const [tts_speaking, set_tts_speaking] = useState(false);
   const [tts_playback, set_tts_playback] = useState({ key: "", status: "idle" });
   const tts_playback_ref = useRef(tts_playback);
   const apply_tts_playback = useCallback((next) => {
     tts_playback_ref.current = next;
-    if (next.status !== "playing")
+    if (next.status !== "playing") {
       stop_playback_meter();
+      set_tts_speaking(false);
+    }
     set_tts_playback((prev) => prev.key === next.key && prev.status === next.status ? prev : next);
   }, [stop_playback_meter]);
   const tts_key_ref = useRef("");
@@ -354,9 +357,50 @@ function useGatewayVoice(opts) {
   const tts_stream_done_ref = useRef(true);
   const tts_paused_ref = useRef(false);
   const tts_audio_id_ref = useRef("");
+  const tts_resume_attempt_ref = useRef(0);
+  const tts_resume_error_ref = useRef(false);
   const tts_audio_id = (key, text) => {
     const voice = ttsVoiceKey(opts_ref.current.tts_voice);
     return voice ? `${key}${text}${voice}` : "";
+  };
+  const sync_tts_playback = () => {
+    const key = tts_key_ref.current;
+    if (!key)
+      return;
+    const hasAudio = Boolean(tts_source_ref.current || tts_sched_ref.current.length);
+    const status = tts_paused_ref.current ? "paused" : hasAudio ? tts_ctx_ref.current?.state === "running" ? "playing" : "paused" : tts_stream_done_ref.current ? "idle" : tts_segments_ref.current.length ? "playing" : "loading";
+    apply_tts_playback({ key: status === "idle" ? "" : key, status });
+    const audible = status === "playing" && hasAudio && tts_ctx_ref.current?.state === "running" && Boolean(tts_gain_ref.current?.gain.value);
+    set_tts_speaking(audible);
+    if (audible)
+      start_playback_meter();
+    else
+      stop_playback_meter();
+  };
+  const request_tts_resume = (ctx) => {
+    if (ctx.state === "running")
+      return;
+    const attempt = tts_resume_attempt_ref.current;
+    const failed = () => {
+      if (attempt === tts_resume_attempt_ref.current && tts_ctx_ref.current === ctx && tts_key_ref.current) {
+        sync_tts_playback();
+        tts_resume_error_ref.current = true;
+        set_error?.("Audio playback is paused by the browser. Press Play to try again.");
+      }
+    };
+    try {
+      void ctx.resume().then(() => {
+        if (attempt !== tts_resume_attempt_ref.current)
+          return;
+        sync_tts_playback();
+        if (ctx.state === "running" && tts_resume_error_ref.current) {
+          tts_resume_error_ref.current = false;
+          set_error?.("");
+        }
+      }, failed);
+    } catch {
+      failed();
+    }
   };
   const ensure_tts_webaudio = () => {
     try {
@@ -371,6 +415,7 @@ function useGatewayVoice(opts) {
         gain2.connect(ctx2.destination);
         tts_ctx_ref.current = ctx2;
         tts_gain_ref.current = gain2;
+        ctx2.onstatechange = sync_tts_playback;
       }
       const ctx = tts_ctx_ref.current;
       const gain = tts_gain_ref.current;
@@ -378,11 +423,6 @@ function useGatewayVoice(opts) {
         return null;
       apply_sink(ctx, opts_ref.current.output_device_id || "");
       gain.gain.value = clampVolume(opts_ref.current.volume) * (opts_ref.current.muted ? 0 : 1);
-      try {
-        if (ctx.state === "suspended")
-          void ctx.resume();
-      } catch {
-      }
       return { ctx, gain };
     } catch {
       return null;
@@ -390,8 +430,10 @@ function useGatewayVoice(opts) {
   };
   useEffect(() => {
     const gain = tts_gain_ref.current;
-    if (gain)
+    if (gain) {
       gain.gain.value = clampVolume(opts.volume) * (opts.muted ? 0 : 1);
+      sync_tts_playback();
+    }
   }, [opts.volume, opts.muted]);
   const stop_tts_source = useCallback(() => {
     stop_playback_meter();
@@ -429,6 +471,7 @@ function useGatewayVoice(opts) {
     }
   }, [stop_playback_meter]);
   const stop_tts = useCallback(() => {
+    tts_resume_attempt_ref.current += 1;
     stop_tts_source();
     tts_stream_gen_ref.current += 1;
     tts_stream_abort_ref.current?.abort();
@@ -476,11 +519,6 @@ function useGatewayVoice(opts) {
     if (!engine)
       throw new Error("TTS playback is not supported in this browser");
     const { ctx, gain } = engine;
-    try {
-      if (ctx.state === "suspended")
-        await ctx.resume();
-    } catch {
-    }
     if (generation !== tts_stream_gen_ref.current)
       return;
     stop_tts_source();
@@ -503,8 +541,7 @@ function useGatewayVoice(opts) {
       apply_tts_playback({ key: "", status: "idle" });
     };
     source.start(0, off);
-    apply_tts_playback({ key, status: "playing" });
-    start_playback_meter();
+    sync_tts_playback();
   };
   const start_stream_segment = (key, gen) => {
     if (gen !== tts_stream_gen_ref.current || tts_paused_ref.current)
@@ -522,15 +559,12 @@ function useGatewayVoice(opts) {
         tts_offset_ref.current = 0;
         tts_started_at_ref.current = 0;
         apply_tts_playback({ key: "", status: "idle" });
+      } else {
+        sync_tts_playback();
       }
       return;
     }
     const { ctx, gain } = engine;
-    try {
-      if (ctx.state === "suspended")
-        void ctx.resume();
-    } catch {
-    }
     const now = Number(ctx.currentTime || 0);
     let when = last ? Math.max(last.at + last.dur, now) : now + 0.02;
     for (; idx < segs.length; idx++) {
@@ -560,8 +594,7 @@ function useGatewayVoice(opts) {
     }
     tts_started_at_ref.current = tts_sched_ref.current.length ? tts_sched_ref.current[0].at - tts_sched_ref.current[0].off : 0;
     tts_key_ref.current = key;
-    apply_tts_playback({ key, status: "playing" });
-    start_playback_meter();
+    sync_tts_playback();
   };
   const stream_position = (now) => {
     const sched = tts_sched_ref.current;
@@ -647,6 +680,7 @@ function useGatewayVoice(opts) {
     }
   };
   const toggle_tts = useCallback(async (msg_key, text) => {
+    tts_resume_attempt_ref.current += 1;
     const key = String(msg_key || "").trim();
     const t = String(text || "").trim();
     if (!key || !t)
@@ -663,7 +697,13 @@ function useGatewayVoice(opts) {
       return;
     }
     const playback = tts_playback_ref.current;
+    if (playback.status !== "playing")
+      request_tts_resume(engine.ctx);
     const is_same = playback.key === key;
+    if (is_same && playback.status === "paused" && !tts_paused_ref.current && tts_audio_id_ref.current !== "" && tts_audio_id_ref.current === tts_audio_id(key, t) && (tts_source_ref.current || tts_sched_ref.current.length)) {
+      sync_tts_playback();
+      return;
+    }
     if (is_same && playback.status === "playing") {
       if (tts_sched_ref.current.length) {
         const pos = stream_position(Number(engine.ctx.currentTime || 0));
@@ -687,7 +727,6 @@ function useGatewayVoice(opts) {
       if (tts_segments_ref.current.length > 0) {
         set_error?.("");
         tts_paused_ref.current = false;
-        apply_tts_playback({ key, status: "playing" });
         start_stream_segment(key, tts_stream_gen_ref.current);
         return;
       }
@@ -1010,6 +1049,7 @@ function useGatewayVoice(opts) {
   return {
     tts_supported,
     tts_playback,
+    tts_speaking,
     toggle_tts,
     stop_tts,
     voice_ptt_supported,
