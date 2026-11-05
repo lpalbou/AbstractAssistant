@@ -5,6 +5,15 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+### Changed
+
+- The desktop assistant places its animated avatar in the composer as the Talk /
+  End voice control, reclaiming conversation space. Typing stays available, Send
+  appears for drafts and attachments, and Stop stays visible during a run.
+- Compact windows wrap header controls into a second row, and longer drafts grow
+  the composer. Voice preserves unfinished drafts; Escape ends voice before
+  hiding the window. Speech preparation and paused playback are labeled accurately.
+
 ### Fixed
 
 - Read-aloud refreshes a failed speech-support check in the background and continues

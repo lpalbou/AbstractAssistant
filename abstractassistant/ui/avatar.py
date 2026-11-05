@@ -7,9 +7,9 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
-from PyQt5.QtCore import QEvent, Qt, QTimer
+from PyQt5.QtCore import QEvent, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QImage, QPixmap
-from PyQt5.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QWidget
+from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QSizePolicy, QWidget
 
 from ..theme import THEME
 
@@ -74,12 +74,17 @@ def looks_at_pointer(style: str) -> bool:
 class ActivityAvatar(QWidget):
     """One bounded native handle, owned and clocked only while this widget is visible."""
 
+    failed = pyqtSignal()
+
     FRAME_SIZE = 96
     FRAME_INTERVAL_MS = 33  # Smooth 30 fps for every visible animated state.
 
     def __init__(self, state: Callable[[], AvatarPresentation], parent: Optional[QWidget] = None,
-                 *, renderer_factory: Optional[Callable[..., Any]] = None) -> None:
+                 *, renderer_factory: Optional[Callable[..., Any]] = None, frame_size: int = 96) -> None:
         super().__init__(parent)
+        self.FRAME_SIZE = max(32, int(frame_size))
+        self._pixel_ratio = max(1.0, self.devicePixelRatioF())
+        self._render_size = round(self.FRAME_SIZE * self._pixel_ratio)
         self.setObjectName("activityAvatar")
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setFixedHeight(self.FRAME_SIZE)
@@ -145,7 +150,7 @@ class ActivityAvatar(QWidget):
                 from abstractavatar import Renderer
 
                 factory = Renderer
-            renderer = factory(width=self.FRAME_SIZE, height=self.FRAME_SIZE)
+            renderer = factory(width=self._render_size, height=self._render_size)
             self._renderer = renderer
             def rgb(token):
                 color = QColor(token)
@@ -168,6 +173,7 @@ class ActivityAvatar(QWidget):
         self._image.setText("Avatar unavailable\nReinstall AbstractAssistant to restore it.")
         self._image.setToolTip(self._error)
         self._image.setAccessibleName(self._error)
+        self.failed.emit()
 
     def _on_frame(self) -> None:
         # Timer delivery can jitter around its deadline. Never discard a scheduled frame:
@@ -206,10 +212,11 @@ class ActivityAvatar(QWidget):
             pixels = self._renderer.render(style=self._style, state=current.state,
                                            level=level, time=seconds,
                                            gaze=gaze, transparent=True)
-            if len(pixels) != self.FRAME_SIZE * self.FRAME_SIZE * 4:
+            if len(pixels) != self._render_size * self._render_size * 4:
                 raise ValueError("The avatar renderer returned an invalid frame size.")
-            image = QImage(pixels, self.FRAME_SIZE, self.FRAME_SIZE,
-                           self.FRAME_SIZE * 4, QImage.Format_RGBA8888).copy()
+            image = QImage(pixels, self._render_size, self._render_size,
+                           self._render_size * 4, QImage.Format_RGBA8888).copy()
+            image.setDevicePixelRatio(self._pixel_ratio)
             self._image.setPixmap(QPixmap.fromImage(image))
             label = f"Assistant avatar — {current.state.capitalize()}"
             self._image.setAccessibleName(label)
@@ -258,3 +265,65 @@ class ActivityAvatar(QWidget):
                 self._gaze_at = 0.0
                 self.refresh()
         return super().eventFilter(watched, event)
+
+
+class AvatarVoiceButton(QPushButton):
+    """One voice action with an animated, state-driven avatar as its face."""
+
+    def __init__(self, state: Callable[[], AvatarPresentation], parent=None):
+        super().__init__(parent)
+        self.setObjectName("avatarVoiceButton")
+        self.setFixedSize(68, 80)
+        self.setCheckable(True)
+        self.setAutoDefault(False)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setMouseTracking(True)
+        self.avatar = ActivityAvatar(state, self, frame_size=60)
+        self.avatar.setFixedWidth(60)
+        self.avatar.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.fallback = QLabel(self)
+        self.fallback.setAlignment(Qt.AlignCenter)
+        self.fallback.setFixedSize(60, 60)
+        self.fallback.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.caption = QLabel("Talk", self)
+        self.caption.setObjectName("avatarVoiceCaption")
+        self.caption.setAlignment(Qt.AlignCenter)
+        self.caption.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        row = QVBoxLayout(self)
+        row.setContentsMargins(4, 0, 4, 4)
+        row.setSpacing(0)
+        row.addWidget(self.avatar)
+        row.addWidget(self.fallback)
+        row.addWidget(self.caption)
+        self.avatar.failed.connect(self.update_presentation)
+        self.update_presentation()
+
+    def update_presentation(self) -> None:
+        from ..icons import symbol_icon
+
+        use_avatar = self.avatar._enabled and not self.avatar.error
+        self.avatar.setVisible(use_avatar)
+        self.fallback.setVisible(not use_avatar)
+        if not use_avatar:
+            self.fallback.setPixmap(symbol_icon("audio-lines", color=THEME.text_primary, size=24).pixmap(24, 24))
+        active = self.isChecked()
+        self.caption.setText("End voice" if active else "Talk")
+        state = self.avatar._state_provider().state.capitalize()
+        action = "End voice conversation" if active else "Start voice conversation"
+        self.setAccessibleName(action)
+        self.setAccessibleDescription(f"Assistant: {state}. {self.toolTip()} {self.avatar.error}")
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if self.avatar._looks and self.avatar._animated:
+            point = self.avatar.mapFrom(self, event.pos())
+            half = self.avatar.FRAME_SIZE / 2
+            self.avatar._gaze = (max(-1.0, min(1.0, (point.x() - half) / half)),
+                                 max(-1.0, min(1.0, (point.y() - half) / half)))
+            self.avatar._gaze_at = time.monotonic()
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        self.avatar._gaze = (0.0, 0.0)
+        self.avatar._gaze_at = 0.0
+        super().leaveEvent(event)

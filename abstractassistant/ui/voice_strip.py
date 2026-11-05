@@ -1,6 +1,6 @@
 """The composer's voice strip: what the hands-free conversation is doing.
 
-One 30 px row above the prompt so typing keeps working while the conversation
+One 36 px row above the prompt so typing keeps working while the conversation
 runs. Everything it shows comes from the ``VoiceConversation`` state machine
 (`core/voice_conversation.py`) plus the live microphone / playback level; it
 never infers a state on its own.
@@ -25,7 +25,7 @@ from abstractassistant.theme import METRICS, THEME
 from .styles import alpha, refresh_style
 
 
-VOICE_STRIP_HEIGHT = 30
+VOICE_STRIP_HEIGHT = 36
 
 def _state_view() -> dict:
     """state -> (glyph, glyph tone, default text).
@@ -38,7 +38,7 @@ def _state_view() -> dict:
         "listening": ("mic", THEME.positive, "Listening…"),
         "heard": ("loader", THEME.accent, "Heard you — sending in a moment…"),
         "thinking": ("spark", THEME.accent, "Thinking… (mic paused)"),
-        "speaking": ("speaker", THEME.positive, "Speaking… press Esc to stop"),
+        "speaking": ("speaker", THEME.positive, "Speaking… Esc ends voice"),
         "paused": ("mic-off", THEME.text_muted, "Microphone paused"),
         "error": ("alert", THEME.danger, "Voice conversation stopped"),
         "off": ("mic-off", THEME.text_muted, ""),
@@ -76,7 +76,7 @@ def _build_strip_qss() -> str:
         QLabel#voiceStripStatus[state="paused"], QLabel#voiceStripStatus[state="starting"] {{ color: {t.text_secondary}; }}
         QLabel#voiceStripGlyph {{ background: transparent; border: none; }}
         QPushButton#voiceStripButton {{
-            min-height: 22px; max-height: 22px; min-width: 22px; max-width: 22px;
+            min-height: 26px; max-height: 26px; min-width: 26px; max-width: 26px;
             padding: 0px;
             border-radius: {m.radius_chip}px;
             border: 1px solid transparent;
@@ -86,6 +86,7 @@ def _build_strip_qss() -> str:
             background: {t.overlay_hover};
             border-color: {t.border_subtle};
         }}
+        QPushButton#voiceStripButton:focus {{ border: 2px solid {t.accent}; }}
         QPushButton#voiceStripButton:pressed {{ background: {t.overlay_active}; }}
     """
 
@@ -179,16 +180,17 @@ class VoiceStrip(QFrame):
             button.setProperty("action", name)
             button.setIcon(symbol_icon(icon, color=THEME.text_secondary, size=14))
             button.setIconSize(QSize(14, 14))
-            button.setFixedSize(22, 22)
+            button.setFixedSize(28, 28)
             button.setToolTip(tooltip)
-            button.setFocusPolicy(Qt.NoFocus)
+            button.setAccessibleName(tooltip)
+            button.setFocusPolicy(Qt.StrongFocus)
             button.setCursor(Qt.PointingHandCursor)
             row.addWidget(button, 0, Qt.AlignVCenter)
             return button
 
         self.pause_button = _button("pause", "pause", "Pause the microphone")
         self.pause_button.clicked.connect(self.pause_toggled.emit)
-        self.stop_button = _button("stop", "stop", "Stop speaking (Esc)")
+        self.stop_button = _button("stop", "stop", "Stop speaking")
         self.stop_button.clicked.connect(self.stop_speech_requested.emit)
         self.interrupt_button = _button("interrupt", "hand", "Stop the run (⌘.)")
         self.interrupt_button.clicked.connect(self.interrupt_requested.emit)
