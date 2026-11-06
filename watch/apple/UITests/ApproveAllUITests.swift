@@ -42,7 +42,8 @@ final class ApproveAllUITests: XCTestCase {
         // Its details say what the watch now approves for its runs (and the conversation's tools are untouched).
         XCTAssertTrue(app.staticTexts["screen.title"].firstMatch.waitForExistence(timeout: 10))
         app.buttons["Back"].firstMatch.tap(); sleep(1)
-        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Automations'")).firstMatch.tap()
+        let automations = app.buttons["home.automations"]
+        app.bring(automations); automations.tap()
         let digest = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Morning digest'")).firstMatch
         XCTAssertTrue(digest.waitForExistence(timeout: 15), app.debugDescription)
         digest.tap()

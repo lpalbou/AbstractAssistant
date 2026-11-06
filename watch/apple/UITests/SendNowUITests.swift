@@ -1,10 +1,10 @@
 import XCTest
 
-/// Home and a conversation share one stage, but only the conversation owns a microphone.
+/// One persistent root owns the orb and conversation; browsing changes only its lower section.
 final class DirectHomeConversationUITests: XCTestCase {
     private func launch(_ extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--mock", "--no-notification-prompt", "--silent-mic", "--orb-design", "A"] + extra
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--silent-mic", "--orb-design", "A", "--test-home-identity", "-ask.conversation", "NO"] + extra
         app.launch()
         XCTAssertTrue(app.buttons["home.orb"].waitForExistence(timeout: 15), app.debugDescription)
         return app
@@ -15,28 +15,31 @@ final class DirectHomeConversationUITests: XCTestCase {
         attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
     }
 
-    func testOneTapStartsListeningAndBackReturnsToFreshHome() {
+    func testOneTapListensInPlaceAndBrowsingKeepsTheSameRoot() {
         let app = launch()
         XCTAssertTrue(app.buttons["Type or dictate"].exists)
         XCTAssertTrue(app.buttons["ask.tools"].exists)
         XCTAssertTrue(app.buttons["Settings"].exists)
         XCTAssertFalse(app.buttons["Back"].exists)
+        let identity = app.staticTexts["debug.home"].label
         let keyboard = app.buttons["Type or dictate"].frame
         capture("home-ready")
         app.buttons["home.orb"].tap()
         let listening = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Listening'")).firstMatch
         XCTAssertTrue(listening.waitForExistence(timeout: 5), app.debugDescription)
         capture("home-first-tap-listening")
-        XCTAssertTrue(app.buttons["Back"].exists)
+        XCTAssertFalse(app.buttons["Back"].exists)
+        XCTAssertTrue(app.buttons["Settings"].exists)
+        XCTAssertEqual(app.staticTexts["debug.home"].label, identity)
         XCTAssertFalse(app.buttons["home.sessions"].exists)
         app.buttons["ask.stop"].tap()
         XCTAssertTrue(app.buttons["Type or dictate"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.buttons["Type or dictate"].frame.minY, keyboard.minY, accuracy: 1)
-        app.buttons["Back"].firstMatch.tap()
-        XCTAssertTrue(app.buttons["home.orb"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Settings"].exists)
-        XCTAssertEqual(app.staticTexts["home.status"].label, "Tap to talk")
-        capture("home-after-exit")
+        let browse = app.buttons["home.browse"]
+        app.bring(browse); browse.tap()
+        XCTAssertTrue(app.buttons["home.sessions"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["debug.home"].label, identity)
+        capture("home-browser-in-place")
     }
 
     func testHomeToolsSurviveSettingsAndTheFirstVoiceTurn() {
@@ -59,13 +62,17 @@ final class DirectHomeConversationUITests: XCTestCase {
         app.buttons["ask.stop"].tap()
         XCTAssertTrue(app.buttons["ask.tools"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.buttons["ask.tools"].label, "Tools, changed for this conversation")
-        app.buttons["Back"].firstMatch.tap()
-        XCTAssertTrue(app.buttons["home.orb"].waitForExistence(timeout: 5))
-        XCTAssertEqual(app.buttons["ask.tools"].label, "Tools", "a fresh Home must not inherit the previous session override")
+        let browse = app.buttons["home.browse"]
+        app.bring(browse); browse.tap()
+        let fresh = app.buttons["home.new"]
+        app.bring(fresh); fresh.tap()
+        XCTAssertTrue(app.buttons["ask.tools"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons["ask.tools"].label, "Tools", "New conversation must use the defaults")
     }
 
     func testTypingOnHomeSendsWithoutAnotherComposer() {
-        let app = launch()
+        let app = launch(["-ask.speak", "NO"])
+        let identity = app.staticTexts["debug.home"].label
         app.buttons["Type or dictate"].tap()
         XCTAssertTrue(app.textViews.firstMatch.waitForExistence(timeout: 5), app.debugDescription)
         app.typeText("Hello from Home")
@@ -74,6 +81,26 @@ final class DirectHomeConversationUITests: XCTestCase {
         XCTAssertFalse(app.buttons["home.sessions"].exists)
         let prompt = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Hello from Home'")).firstMatch
         XCTAssertTrue(prompt.waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertEqual(app.staticTexts["debug.home"].label, identity)
+        let browse = app.buttons["home.browse"]
+        app.bring(browse); browse.tap()
+        let resume = app.buttons["home.conversation"]
+        XCTAssertTrue(resume.waitForExistence(timeout: 5)); app.bring(resume); resume.tap()
+        XCTAssertTrue(prompt.exists)
+        XCTAssertEqual(app.staticTexts["debug.home"].label, identity)
+        // Detail pages may restart SwiftUI tasks; they must not reset the root conversation.
+        let tools = app.buttons["ask.tools"]
+        XCTAssertTrue(tools.waitForExistence(timeout: 40), app.debugDescription)
+        app.bring(tools)
+        XCTAssertTrue(tools.isHittable, app.debugDescription)
+        tools.tap()
+        XCTAssertTrue(app.buttons["Back"].firstMatch.waitForExistence(timeout: 5), app.debugDescription)
+        app.buttons["Back"].firstMatch.tap()
+        XCTAssertEqual(app.staticTexts["debug.home"].label, identity)
+        XCTAssertTrue(prompt.exists, "Tools cleared the current turn")
+        app.buttons["Settings"].tap(); app.buttons["Back"].firstMatch.tap()
+        XCTAssertEqual(app.staticTexts["debug.home"].label, identity)
+        XCTAssertTrue(prompt.exists, "Settings cleared the current turn")
         capture("home-typed-conversation")
     }
 
@@ -81,6 +108,7 @@ final class DirectHomeConversationUITests: XCTestCase {
         // The general mock has a pending question on its completed QC run.
         // Use the existing completed-history fixture for this resume scenario.
         let app = launch(["--test-public-history"])
+        let rootID = app.staticTexts["debug.home"].label.components(separatedBy: "|").first
         let keyboardY = app.buttons["Type or dictate"].frame.minY
         let sessions = app.buttons["home.sessions"]
         app.bring(sessions); sessions.tap()
@@ -90,9 +118,20 @@ final class DirectHomeConversationUITests: XCTestCase {
         XCTAssertTrue(app.buttons["voice.button"].waitForExistence(timeout: 20), app.debugDescription)
         XCTAssertEqual(app.buttons["Type or dictate"].frame.minY, keyboardY, accuracy: 1)
         XCTAssertFalse(app.buttons["home.sessions"].exists)
+        XCTAssertFalse(app.buttons["Back"].exists)
+        let identity = app.staticTexts["debug.home"].label
+        XCTAssertEqual(identity.components(separatedBy: "|").first, rootID)
+        XCTAssertTrue(identity.hasSuffix("|0"))
         capture("loaded-conversation-stage")
         app.nudgeUp(); app.nudgeUp()
         capture("loaded-conversation-history")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] 'assay QC'")).firstMatch.exists)
+        let browse = app.buttons["home.browse"]
+        app.bring(browse); browse.tap()
+        capture("session-browser")
+        let resume = app.buttons["home.conversation"]
+        app.bring(resume); resume.tap()
+        XCTAssertEqual(app.staticTexts["debug.home"].label, identity)
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] 'assay QC'")).firstMatch.exists)
     }
 
@@ -135,26 +174,31 @@ final class SendNowUITests: XCTestCase {
     }
 }
 
-/// Home's orb starts a new conversation every time; an earlier one continues from Sessions.
+/// Starting fresh is explicit; browsing alone keeps the current conversation.
 final class HomeOrbNewConversationUITests: XCTestCase {
-    func testTheHomeOrbOpensAnEmptyConversation() throws {
+    func testNewConversationClearsThePreviousSessionInPlace() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["--mock", "--no-notification-prompt"]
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--test-public-history", "--test-home-identity", "-ask.conversation", "NO"]
         app.launch()
         XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 15))
         // Continue a conversation with messages, then back Home.
-        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Sessions'")).firstMatch.tap()
+        let sessions = app.buttons["home.sessions"]
+        app.bring(sessions); sessions.tap()
         XCTAssertTrue(app.buttons["New conversation"].waitForExistence(timeout: 10))
         let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "QC")).firstMatch
         app.bring(row)
         row.tap()
         XCTAssertTrue(app.buttons["voice.button"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "assay QC")).firstMatch.waitForExistence(timeout: 10))
-        app.buttons["Back"].firstMatch.tap(); sleep(1)
-        app.buttons["Back"].firstMatch.tap(); sleep(1)
-        XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 5))
-        // Home's orb: an empty conversation, not the one just left.
-        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Talk to'")).firstMatch.tap()
+        let previous = app.staticTexts["debug.home"].label.components(separatedBy: "|")
+        let browse = app.buttons["home.browse"]
+        app.bring(browse); browse.tap()
+        let fresh = app.buttons["home.new"]
+        app.bring(fresh); fresh.tap()
+        let current = app.staticTexts["debug.home"].label.components(separatedBy: "|")
+        XCTAssertEqual(previous.first, current.first, "New must keep the same root view")
+        XCTAssertNotEqual(previous[1], current[1], "New must use a new session")
+        XCTAssertEqual(current.last, "0")
         XCTAssertTrue(app.staticTexts["ask.status"].waitForExistence(timeout: 10))
         sleep(2)
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "assay QC")).firstMatch.exists, "Home's orb reopened the earlier conversation")

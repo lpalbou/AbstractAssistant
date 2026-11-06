@@ -83,7 +83,7 @@ final class AppModel: ObservableObject {
     /// Called only once this answer is displayed. A notification or an older exchange consumes
     /// that exact revision only; the refreshed session listing is not proof its other answers were read.
     func markSeen(session: String, run: String, status: String? = nil) {
-        guard onScreen, !needsSignIn else { return }
+        guard onScreen, !needsSignIn, !(path.isEmpty && homeBrowsing) else { return }
         if let top = activeTop, top.isOrbPage {
             guard session == askSessionId else { return }
         } else if let top = activeTop {
@@ -279,7 +279,7 @@ final class AppModel: ObservableObject {
                 // with the app in front (Settings → Notifications), unless its own page is on screen.
                 let finished = AutomationNotices.finished(in: list)
                 if AutomationNotices.on, !client.isMock || UITestHooks.on {
-                    for a in finished where !path.contains(where: { if case .automation(let p) = $0 { p.id == a.id } else { false } }) {
+                    for a in finished where !isShowingAutomation(a.id) {
                         Task { await AnswerNotifier.shared.postFinished(a) }
                     }
                 }
@@ -304,11 +304,25 @@ final class AppModel: ObservableObject {
     /// swipe forward (the finger moving left) opens them again; opening something else forgets them.
     @Published var path: [Route] = [] {
         didSet {
-            if !path.contains(where: \.isOrbPage) { homeIntent = nil }
+            // Orb routes select the conversation on Home; they never push a second orb page.
+            // Keep any detail/approval route above it (including notification/deep-link launches).
+            if let index = path.lastIndex(where: \.isOrbPage) {
+                homeRoute = path[index]
+                homeBrowsing = false
+                homeRevision += 1
+                path = Array(path.dropFirst(index + 1))
+                forward = []
+                forwarding = false
+                return
+            }
             if forwarding { forwarding = false; return }   // goForward has used up its page itself
             forward = Self.forward(after: oldValue, now: path, kept: forward)
         }
     }
+    @Published private(set) var homeRoute: Route = .ask(.idle)
+    @Published private(set) var homeRevision = 0
+    @Published var homeBrowsing = true
+    private var homePrepared = false
     private var forwarding = false
     /// The last moment a finger moved sideways (a swipe under way, or one that just ended).
     private var swipedAt: Date?
@@ -346,7 +360,11 @@ final class AppModel: ObservableObject {
         else { path.removeLast(min(n, path.count)) }
     }
     /// The page on top of whatever is open.
-    var activeTop: Route? { settingsPath != nil ? settingsPath?.last : path.last }
+    var activeTop: Route? { settingsPath != nil ? settingsPath?.last : (path.last ?? homeRoute) }
+    private func isShowingAutomation(_ id: String) -> Bool {
+        if case .automation(let shown) = activeTop { return shown.id == id }
+        return false
+    }
     /// Shows these pages (a notification's, a launch option's), closing Settings if open; pages
     /// starting at Settings open in its stack.
     func show(_ routes: [Route]) {
@@ -402,7 +420,7 @@ final class AppModel: ObservableObject {
             } else { closeSettings() }
             return
         }
-        guard let top = path.last else { return }
+        guard let top = path.last else { homeBrowsing = true; return }
         if let g = backGuard, g.route == top { g.ask(); return }
         path.removeLast()
     }
@@ -412,7 +430,7 @@ final class AppModel: ObservableObject {
     /// nothing happens.
     func goForward() {
         guard settingsPath == nil else { return }
-        switch path.last {
+        switch path.last ?? (homeBrowsing ? nil : homeRoute) {
         case .automation(let a) where forward.isEmpty:
             forwarding = true
             // Gone on as a conversation about it: that conversation's page; else its details (as a
@@ -645,6 +663,7 @@ final class AppModel: ObservableObject {
         forgetTools()                                    // each account has its own tools (email, …)
         workflows = []; workflowsReadAt = nil; MediaStore.shared.clear()
         needsSignIn = false; signInNotice = nil; path = []; forward = []
+        homePrepared = false; homeRoute = .ask(.idle); homeBrowsing = true; homeRevision = 0
         startPolling()
     }
 
@@ -684,6 +703,7 @@ final class AppModel: ObservableObject {
         forgetTools()
         workflows = []; workflowsReadAt = nil; MediaStore.shared.clear()
         path = []; forward = []; signInNotice = notice; needsSignIn = true
+        homePrepared = false; homeRoute = .ask(.idle); homeBrowsing = true; homeRevision = 0
     }
 
     /// A fresher row for one automation (its page knows first that it runs or has finished).
@@ -1138,8 +1158,9 @@ final class AppModel: ObservableObject {
 
     /// Opened from Ask (the orb is underneath): answering returns to it.
     var approvalFromAsk: Bool {
-        guard path.count >= 2 else { return false }
-        switch path[path.count - 2] {
+        guard !path.isEmpty, path.count >= 2 || !homeBrowsing else { return false }
+        let underneath = path.count >= 2 ? path[path.count - 2] : homeRoute
+        switch underneath {
         case .ask, .answer: return true
         // An automation's page only once it goes on as a conversation (its trust is that conversation's).
         case .automation(let a): return discussion?.automation == a.id && discussion?.session == askSessionId
@@ -1302,44 +1323,14 @@ final class AppModel: ObservableObject {
         openOrb()
     }
 
-    /// The orb page, opened on top of the page it is opened from (Back returns there, as in a
-    /// browser). An orb page already open further down is closed first: there is one conversation.
-    func openOrb() {
-        if let i = path.firstIndex(where: { if case .ask = $0 { true } else if case .answer = $0 { true } else { false } }) {
-            path.removeSubrange(i...)
-        }
-        path.append(.ask(.idle))
-    }
+    /// Selecting a session replaces Home's content; it never adds another orb page.
+    func openOrb() { path = [.ask(.idle)] }
 
-    enum HomeIntent { case listen, text(String) }
-    private var homeDraft: (session: String, connection: String)?
-    private var homeIntent: (session: String, connection: String, action: HomeIntent)?
-
-    /// A fresh draft belongs to Home. Returning from tools/settings keeps its overrides;
-    /// returning from a started or loaded conversation gets a new draft instead.
+    /// Make one fresh draft at launch, retaining its tools while browsing or visiting Settings.
     func prepareHomeConversation() {
-        guard path.isEmpty, settingsPath == nil else { return }
-        if let draft = homeDraft, draft.session == askSessionId,
-           draft.connection == recordingConnectionKey { return }
-        newAskSession()
-        homeDraft = (askSessionId, recordingConnectionKey)
-    }
-
-    func startHomeConversation(_ action: HomeIntent) {
-        guard path.isEmpty, settingsPath == nil else { return }
-        prepareHomeConversation()
-        homeIntent = (askSessionId, recordingConnectionKey, action)
-        homeDraft = nil
-        openOrb()
-    }
-
-    /// Only the newly opened conversation may consume this one-shot action.
-    func takeHomeIntent() -> HomeIntent? {
-        guard let intent = homeIntent else { return nil }
-        homeIntent = nil
-        guard intent.session == askSessionId, intent.connection == recordingConnectionKey,
-              path.last == .ask(.idle) else { return nil }
-        return intent.action
+        guard !homePrepared else { return }
+        homePrepared = true
+        if homeRevision == 0 { newAskSession() }
     }
 
     /// The page on screen moves into this conversation (a notification's answer, or a
@@ -1372,6 +1363,7 @@ final class AppModel: ObservableObject {
     func newAskSession() {
         resuming = nil                                   // a pending Continue never lands in a new conversation
         entityChats = [:]                                // an entity's new conversation is new too
+        discussion = nil
         askSessionId = Self.newSessionId()
         UserDefaults.standard.set(askSessionId, forKey: "ask.session")
     }

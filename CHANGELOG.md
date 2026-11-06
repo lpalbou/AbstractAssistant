@@ -7,10 +7,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Changed
 
-- Watch Home uses the same full-size animated orb, keyboard and tools as a
-  conversation. One tap starts listening; typing sends directly. Sessions and
-  Automations sit below the stage, and Back from a conversation returns to a fresh
-  Home draft. Tool choices made on Home carry into its first turn.
+- Watch Home is the conversation screen: tapping its animated orb starts listening
+  in place. The area below switches between the current conversation and Sessions /
+  Automations without losing the current turn. Loaded sessions and automations reuse
+  this same screen; New conversation explicitly starts a fresh draft.
 - Desktop voice turns in the default listening mode require at least 1 second
   of silence (1.02 seconds at 30 ms frame resolution), down from 1.5 seconds,
   before transcription starts.

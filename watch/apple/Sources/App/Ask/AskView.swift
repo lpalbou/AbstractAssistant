@@ -77,7 +77,7 @@ struct AskView: View {
     @State private var pendingWait: Wait?
     /// Bumped by Cancel, Back, New and every new turn: a late result from an older turn is dropped.
     @State private var turn = 0
-    private let opening: AnswerRef?
+    @State private var opening: AnswerRef?
     /// What it talks in (an automation becomes a chat once you talk about it).
     @State private var conversation: Conversation
     /// The automation's runs, run in progress, Stop and Seen (nil for a chat).
@@ -87,6 +87,9 @@ struct AskView: View {
     @State private var adopted: String?
     /// The page has opened (a later appearance is a return to it).
     @State private var opened = false
+    @State private var loadedScope = ""
+    @State private var loadedSelectionKey: String?
+    @State private var rootIdentity = UUID().uuidString
     /// An automation's runs have been read once (or the read failed): its spinner goes.
     @State private var runsRead = false
     /// Each time the page comes to the front (an automation's page checks its runs again then).
@@ -107,7 +110,7 @@ struct AskView: View {
     private static let demoPrompt = "Compare overall survival by treatment arm in the ADTTE I sent you"
 
     init(initialPhase: Phase = .idle, opening: AnswerRef? = nil, automation: AutomationSummary? = nil) {
-        self.opening = opening
+        _opening = State(initialValue: opening)
         _phase = State(initialValue: initialPhase)
         _conversation = State(initialValue: automation.map { .automation($0) } ?? .chat)
         _feed = State(initialValue: automation.map(AutomationFeed.init))
@@ -151,6 +154,7 @@ struct AskView: View {
                                 .animation(.easeOut(duration: 0.25), value: loadingConversation)
                                 .accessibilityAddTraits(.isButton)
                                 .accessibilityLabel(orbHint)
+                                .accessibilityIdentifier("home.orb")
                                 .accessibilityAction(named: busy ? "Stop" : "Read aloud") { holdDone() }
                         } bottom: {
                             VStack(spacing: 4) {
@@ -173,11 +177,48 @@ struct AskView: View {
                             else if phase == .listening { sendNow }
                         }
                         .id("orb")
-                        below
+                        VStack(spacing: 8) {
+                            if model.homeBrowsing {
+                                if hasBelow || busy || automationFeed != nil {
+                                    Button("Return to conversation") {
+                                        model.homeBrowsing = false
+                                        withAnimation { proxy.scrollTo("home.lower", anchor: .top) }
+                                    }
+                                        .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.cyan)
+                                        .buttonStyle(.tap).accessibilityIdentifier("home.conversation")
+                                }
+                                Button {
+                                    model.newAskSession()
+                                    model.openOrb()
+                                } label: { Label("New conversation", systemImage: "plus") }
+                                    .font(.rounded(.footnote)).foregroundStyle(Theme.text2)
+                                    .buttonStyle(.tap).accessibilityIdentifier("home.new")
+                                HomeBrowser()
+                            } else {
+                                Button {
+                                    model.homeBrowsing = true
+                                    withAnimation { proxy.scrollTo("home.lower", anchor: .top) }
+                                } label: {
+                                    Label("Sessions & Automations", systemImage: "square.grid.2x2")
+                                        .font(.rounded(.caption2, weight: .semibold)).foregroundStyle(Theme.text2)
+                                        .lineLimit(1).frame(maxWidth: .infinity, minHeight: 36).contentShape(Rectangle())
+                                }
+                                    .buttonStyle(.tap).accessibilityIdentifier("home.browse")
+                                below
+                            }
+                        }.id("home.lower")
                     }
                 }
-                // Nothing below the orb yet (no question, no answer): the page does not move.
-                .scrollDisabled(!hasBelow)
+                // Browsing and messages share the scroll area below the unchanged orb.
+                .refreshable { await model.refresh() }
+                .onChange(of: model.homeRevision) { _, _ in proxy.scrollTo("orb", anchor: .top) }
+                #if DEBUG
+                .task {
+                    if ProcessInfo.processInfo.arguments.contains("--home-bottom") {
+                        try? await Task.sleep(for: .seconds(1)); proxy.scrollTo("bottom", anchor: .bottom)
+                    }
+                }
+                #endif
                 .onChange(of: phase) { _, _ in if !conversationView { withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo("orb", anchor: .top) } } }
             }
         }
@@ -186,6 +227,10 @@ struct AskView: View {
         #if DEBUG
         // UI tests read the voice's position here (a rewind must move it back).
         .overlay(alignment: .bottomLeading) {
+            if ProcessInfo.processInfo.arguments.contains("--test-home-identity") {
+                Text("\(rootIdentity)|\(model.askSessionId)|\(model.path.count)")
+                    .font(.system(size: 1)).opacity(0.01).accessibilityIdentifier("debug.home")
+            }
             if UITestHooks.on { TimelineView(.periodic(from: .now, by: 0.25)) { _ in
                 Text(String(format: "%.1f", speaker.position())).font(.system(size: 1)).opacity(0.01)
                     .accessibilityIdentifier("debug.position")
@@ -219,7 +264,7 @@ struct AskView: View {
                 VoiceButton(speaker: speaker, isCurrent: readingId == e.id) { read(e) }
             }
         }
-        .task { await onOpen() }
+        .task(id: homeSelectionKey) { await loadHomeSelection() }
         // The entity's look is its identity record, read when its conversation opens.
         .task(id: pageEntity) { if let name = pageEntity { await model.loadIdentity(of: name) } }
         .sheet(item: $expandedBrief) { brief in
@@ -260,18 +305,25 @@ struct AskView: View {
         .onChange(of: keptScope) { _, scope in
             error = nil; note = nil
             kept = KeptQuestion.url(for: scope)
-            if conversationView {
+            if scope != loadedScope, model.resuming == nil, opened {
                 clearConversation()
                 kept = KeptQuestion.url(for: scope)
+                loadedScope = scope
             }
         }
-        .task(id: automationFeed.map { "\($0.id)#\(appearances)" }) { await watchAutomation() }
+        .task(id: automationFeed.map { "\($0.id)#\(appearances)#\(model.path.isEmpty)#\(model.settingsIn)" }) {
+            if model.path.isEmpty && !model.settingsIn { await watchAutomation() }
+        }
         // A message of the Assistant's conversation on screen: a swipe forward opens its stats page
         // (an entity's exchanges, or an answer opened from a notification, may be another conversation's).
         .onChange(of: exchanges.last?.id, initial: true) { _, run in
             if run != nil, opening == nil, conversation == .chat, model.responder == .assistant { model.noteMessages(in: model.askSessionId, runId: run) }
         }
         .onChange(of: model.path) { _, path in pathChanged(path) }
+        .onChange(of: model.settingsIn) { _, covered in
+            activity.paused = covered || !model.path.isEmpty || scenePhase != .active
+            AnswerNotifier.shared.setShowing(!covered && model.path.isEmpty && !model.homeBrowsing ? runId : nil)
+        }
         // "New conversation" (in the Assistant ⌄ choice): this screen starts empty.
         // A new conversation, or another session: this screen starts over, unless it is the
         // session being resumed (its exchange is about to show).
@@ -280,11 +332,15 @@ struct AskView: View {
             if model.resuming?.sessionId != id { model.resuming = nil; clearConversation() }
         }
         // The run on screen (followed or answered) is never also posted as a notification while active.
-        .onChange(of: runId) { _, id in AnswerNotifier.shared.setShowing(id) }
+        .onChange(of: runId) { _, id in AnswerNotifier.shared.setShowing(model.path.isEmpty && !model.homeBrowsing ? id : nil) }
+        .onChange(of: model.homeBrowsing) { _, browsing in
+            AnswerNotifier.shared.setShowing(browsing ? nil : runId)
+            if !browsing, let id = runId, automationFeed == nil { model.markSeen(session: model.askSessionId, run: id) }
+        }
         // Screen off or app not in front: the steps are not read (the answer still is). Leaving the
         // app with a run still working: its end is followed in the background, to be posted.
         .onChange(of: scenePhase) { _, p in
-            activity.paused = p != .active
+            activity.paused = p != .active || !model.path.isEmpty || model.settingsIn
             if p == .active, phase == .answer, automationFeed == nil, answerEntity == nil,
                !answer.isEmpty, let id = runId {
                 let owner = model.recordingConnectionKey, session = model.askSessionId
@@ -540,7 +596,7 @@ struct AskView: View {
     }
 
     private func conversationCue(_ cue: ConversationCue, key: String, text: String) {
-        guard conversationView, scenePhase == .active, model.path.last?.isOrbPage == true,
+        guard conversationView, scenePhase == .active, model.activeTop?.isOrbPage == true,
               cueKeys.insert("\(cue.rawValue):\(key)").inserted else { return }
         if cue.enabled("visual", default: true) { note = text }
         if cue.enabled("haptic", default: true) { WKInterfaceDevice.current().play(cue == .completion ? .success : .notification) }
@@ -973,17 +1029,11 @@ struct AskView: View {
     }
 
     private func pathChanged(_ path: [Route]) {
-        let stillHere = path.contains(where: \.isOrbPage)
-        if !stillHere {
-            // Leaving Ask (Back): nothing from this screen may keep running, speaking or pushing screens.
-            turn += 1
-            listener.cancel(); speaker.stop(); activity.reset(); AnswerNotifier.shared.setShowing(nil)
-            RuntimeKeeper.shared.release("ask")
-            // The run goes on without this screen: the notification at its end still matters only
-            // once the app itself is left (then scenePhase starts the stream, from the orb page).
-            return
-        }
-        guard let last = path.last, last.isOrbPage, let w = pendingWait else { return }
+        // Home remains the owner while tools, lists and approvals cover it. A different
+        // conversation is reset only by loadHomeSelection, never by an ordinary navigation pop.
+        activity.paused = !path.isEmpty || scenePhase != .active
+        AnswerNotifier.shared.setShowing(path.isEmpty && !model.homeBrowsing ? runId : nil)
+        guard path.isEmpty, let w = pendingWait else { return }
         // Back on the orb from the approval or question: follow again only if it was decided.
         if model.decidedWaits.contains(w.id), let id = runId {
             pendingWait = nil
@@ -997,6 +1047,7 @@ struct AskView: View {
     }
 
     private func startListening() {
+        model.homeBrowsing = false
         RuntimeKeeper.shared.hold("ask")
         speaker.stop()
         turn += 1
@@ -1090,6 +1141,7 @@ struct AskView: View {
     }
 
     private func send(_ text: String) {
+        model.homeBrowsing = false
         RuntimeKeeper.shared.hold("ask")
         turn += 1
         let mine = turn
@@ -1363,21 +1415,61 @@ struct AskView: View {
         phase = .idle
     }
 
+    /// A load changes the conversation in this same view. Browsing never runs this task,
+    /// so the orb, microphone, speech and current turn retain their identity.
+    private var homeSelectionKey: String { "\(model.recordingConnectionKey)#\(model.homeRevision)" }
+
+    private func loadHomeSelection() async {
+        guard !Task.isCancelled else { return }
+        let key = homeSelectionKey
+        if loadedSelectionKey == key {
+            guard !opened else { return }
+            // Covered while history was loading: retain the visible exchange and live turn,
+            // finishing just the interrupted read. Never replay notification speech.
+            if let a = automationFeed { await finishAutomation(a) }
+            else if let id = runId, exchanges.contains(where: { $0.id == id }) {
+                if let name = answerEntity, conversationView { await restoreVisit(name, id: id, quiet: true) }
+                else if answerEntity == nil { await loadHistory(model.askSessionId, latestRun: id) }
+            } else { await onOpen() }
+            if !Task.isCancelled, key == homeSelectionKey { opened = true }
+            return
+        }
+        model.prepareHomeConversation()
+        loadedSelectionKey = key
+        clearConversation()
+        opened = false; adopted = model.askSessionId
+        opening = nil; conversation = .chat; feed = nil
+        runsRead = false; automationRead = false; stoppedRun = nil; liveRuns = []; liveWhen = nil
+        loadingOlder = false; transcribing = false; listenSince = nil
+        voiceSession = AppModel.newSessionId()
+        switch model.homeRoute {
+        case .automation(let automation):
+            conversation = .automation(automation); feed = AutomationFeed(automation)
+        case .answer(let ref): opening = ref
+        case .ask(let initial):
+            phase = initial
+            #if DEBUG
+            if initial == .thinking { prompt = Self.demoPrompt }
+            if initial == .answer { prompt = Self.demoPrompt; answer = MockGatewayClient.markdownAnswer; runId = "7c1e02aa" }
+            #endif
+        default: break
+        }
+        loadedScope = keptScope
+        kept = KeptQuestion.url(for: keptScope)
+        await onOpen()
+        if Task.isCancelled || key != homeSelectionKey { return }
+        loadedSelectionKey = key
+        opened = true
+    }
+
     /// Opened from a notification (an answer to show and speak), from "Continue" on a session,
     /// or by a device test hook.
     private func onOpen() async {
         guard !opened else { return }                       // back from a page above: as it was left
-        let owner = model.recordingConnectionKey
-        defer { opened = true }
-        if let intent = model.takeHomeIntent() {
-            switch intent {
-            case .listen: startListening()
-            case .text(let text): send(text)
-            }
-            return
-        }
+        let owner = model.recordingConnectionKey, selection = homeSelectionKey
         if let a = automationFeed {
             await openAutomation(a)
+            guard !Task.isCancelled, selection == homeSelectionKey else { return }
             #if DEBUG
             if let t = model.testAsk { model.testAsk = nil; send(t) }   // talking about it (tests)
             #endif
@@ -1416,10 +1508,11 @@ struct AskView: View {
                 // The answer's own conversation: its tools, its next question and its history are
                 // that conversation's (never the one that happened to be current).
                 // An automation's run: its own page (talking there never writes into its conversation).
-                if !run.isConversation, let last = model.path.indices.last,
-                   let a = await model.automation(of: run) {
-                    model.path[last] = .automation(a); return
+                if !run.isConversation, let a = await model.automation(of: run) {
+                    guard !Task.isCancelled, selection == homeSelectionKey else { return }
+                    model.show([.automation(a)]); return
                 }
+                guard !Task.isCancelled, selection == homeSelectionKey else { return }
                 if ref.entity == nil, let session = run.sessionId, run.isConversation, session != model.askSessionId { adopt(session) }
                 let media = MediaItem.of(output: run.output, runId: id)
                 if let out = run.outputText, !out.isEmpty { show(out, media: media) } else { error = "No answer." }
@@ -1447,23 +1540,23 @@ struct AskView: View {
     }
 
     /// Remember only the canonical visit reference; all restored words come from its screened state.
-    private func restoreVisit(_ name: String, id: String) async {
+    private func restoreVisit(_ name: String, id: String, quiet: Bool = false) async {
         let mine = turn, owner = keptScope, client = model.client
         do {
             let state = try await client.entitySession(name: name, runID: id)
-            guard mine == turn, owner == keptScope else { return }
+            guard !Task.isCancelled, mine == turn, owner == keptScope else { return }
             mergeVisitHistory(state, current: false)
             runId = id; answerEntity = name
             if !["completed", "failed", "cancelled"].contains(state.status) {
                 entityVisitName = name; entityVisitId = id
             }
-            if let text = state.reply, !text.isEmpty { show(text) }
+            if let text = state.reply, !text.isEmpty, !quiet || answer.isEmpty { show(text) }
             if !state.finishedTurn {
                 phase = .thinking
                 try await followVisit(name, id: id, turn: mine)
             }
         } catch {
-            guard mine == turn, owner == keptScope else { return }
+            guard !Task.isCancelled, mine == turn, owner == keptScope else { return }
             note = "Conversation history is unavailable. Reopen to retry."
         }
     }
@@ -1493,6 +1586,7 @@ struct AskView: View {
         adopted = session
         model.adopt(session, about: automationFeed?.id)
         conversation = .chat
+        loadedScope = keptScope
     }
 
     // MARK: - An automation
@@ -1517,6 +1611,7 @@ struct AskView: View {
         guard !Task.isCancelled, historyFailed == nil else { return }
         // The latest run's images and recordings (an automation's runs may each have a session of their own).
         if let last = exchanges.last, last.media.isEmpty, last.scope != nil, let run = try? await model.client.run(id: last.id) {
+            guard !Task.isCancelled, automationFeed === a else { return }
             let media = MediaItem.of(output: run.output, runId: last.id)
             if !media.isEmpty, let i = exchanges.firstIndex(where: { $0.id == last.id }) { exchanges[i].media = media }
         }
@@ -1529,8 +1624,9 @@ struct AskView: View {
     /// and not listed yet. A read cut short (the page covered, left) is no failure: the page reads
     /// them again when it is back.
     private func readRuns(_ a: AutomationFeed) async {
+        let mine = turn
         loadingOlder = true
-        defer { loadingOlder = false; runsRead = true }
+        defer { if mine == turn, automationFeed === a { loadingOlder = false; runsRead = true } }
         do {
             let fresh = try await a.exchanges(model)
             guard !Task.isCancelled, automationFeed === a else { return }
@@ -1539,7 +1635,7 @@ struct AskView: View {
             exchanges = fresh + exchanges.filter { !ids.contains($0.id) && liveRuns.contains($0.id) }
             showLatestQuietly()
         } catch {
-            if !Task.isCancelled, !(error is CancellationError), (error as? URLError)?.code != .cancelled { historyFailed = ("", "") }
+            if !Task.isCancelled, mine == turn, automationFeed === a, !(error is CancellationError), (error as? URLError)?.code != .cancelled { historyFailed = ("", "") }
         }
     }
 
@@ -1615,24 +1711,25 @@ struct AskView: View {
     /// The whole conversation below the orb, from the gateway's replay of the session (one
     /// request; "Show older" then pages through it without the network).
     private func loadHistory(_ session: String, latestRun: String) async {
+        let mine = turn
         loadingOlder = true
         historyFailed = nil
-        defer { loadingOlder = false }
+        defer { if mine == turn { loadingOlder = false } }
         // The turns' media come from the session's artifacts (the replay's turns do not list them).
         async let media = loadMedia(session)
         do {
             let turns = try await model.client.sessionHistory(latestRun: latestRun, limit: 1000)
-            guard model.askSessionId == session else { return }
+            guard !Task.isCancelled, mine == turn, model.askSessionId == session else { return }
             // Before the exchanges on screen (read fresh, or asked meanwhile), which stay as they are.
             let known = Set(exchanges.map(\.id))
             exchanges = turns.filter { !known.contains($0.runId) && ($0.prompt?.isEmpty == false || $0.answer?.isEmpty == false) }
                 .map { Exchange(id: $0.runId, prompt: $0.prompt ?? "", answer: $0.answer ?? "", scope: .run($0.runId)) } + exchanges
             if conversationView { await restoreGuidanceHistory(extraRun: latestRun) }
         } catch {
-            guard model.askSessionId == session else { _ = await media; return }
+            guard !Task.isCancelled, mine == turn, model.askSessionId == session else { _ = await media; return }
             historyFailed = (session, latestRun)
         }
-        if let byRun = await media { attach(byRun) }
+        if let byRun = await media, !Task.isCancelled, mine == turn { attach(byRun) }
     }
 
     /// Only screened public replay is read, for the visible turns. Older turns load on Show older.
@@ -1656,13 +1753,14 @@ struct AskView: View {
     /// The conversation's media, by turn; nil when it could not be read (Retry offers it again).
     @discardableResult private func loadMedia(_ session: String) async -> [String: [MediaItem]]? {
         mediaFailed = nil
+        let mine = turn
         do {
             let byRun = try await model.client.sessionMedia(sessionId: session)
-            guard model.askSessionId == session else { return nil }
+            guard !Task.isCancelled, mine == turn, model.askSessionId == session else { return nil }
             attach(byRun)
             return byRun
         } catch {
-            if model.askSessionId == session { mediaFailed = session }
+            if !Task.isCancelled, mine == turn, model.askSessionId == session { mediaFailed = session }
             return nil
         }
     }

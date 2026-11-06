@@ -73,7 +73,7 @@ final class AutomationConversationUITests: XCTestCase {
 final class NewConversationToolsUITests: XCTestCase {
     func testANewConversationTakesTheDefaults() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["--mock", "--no-notification-prompt", "--reset-tools", "--screen", "settings"]
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--reset-tools", "--silent-mic", "--screen", "settings"]
         app.launch()
         func element(_ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
         // Defaults: Web off.
@@ -98,16 +98,22 @@ final class NewConversationToolsUITests: XCTestCase {
             XCTAssertTrue(element("tools.summary").waitForExistence(timeout: 10))
             XCTAssertEqual(element("tools.summary").label, "3 auto · 3 ask · 3 off", "\(what): not the defaults")
         }
-        newConversationTools({ app.buttons["Talk to Assistant"].firstMatch.tap() }, "Home orb")
+        newConversationTools({
+            app.buttons["home.orb"].tap()
+            XCTAssertTrue(app.buttons["ask.stop"].waitForExistence(timeout: 5))
+            app.buttons["ask.stop"].tap()
+        }, "Home orb")
         // Changed for this conversation only.
         element("tools.group.files").tap(); sleep(1)
         element("tools.all.files.off").tap()
         app.buttons["Back"].firstMatch.tap(); sleep(1)
         app.buttons["Back"].firstMatch.tap(); sleep(1)
         XCTAssertEqual(app.buttons["ask.tools"].label, "Tools, changed for this conversation")
-        app.buttons["Back"].firstMatch.tap(); sleep(1)
         // Sessions → New: the defaults again.
-        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Sessions'")).firstMatch.tap()
+        let browse = app.buttons["home.browse"]
+        app.bring(browse); browse.tap()
+        let sessions = app.buttons["home.sessions"]
+        app.bring(sessions); sessions.tap()
         newConversationTools({ app.buttons["New conversation"].firstMatch.tap() }, "Sessions → New")
     }
 }

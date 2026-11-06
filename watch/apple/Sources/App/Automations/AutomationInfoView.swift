@@ -128,7 +128,7 @@ struct AutomationInfoView: View {
                 if let run = await startedRun(after: before, tapped: tapped) { model.startedRuns[automation.id] = .init(runId: run, since: tapped) }
                 // Back to its orb page, unless the person has already left these details.
                 if case .automationInfo(let i)? = model.path.last, i.id == automation.id,
-                   case .automation(let a)? = model.path.dropLast().last, a.id == automation.id { model.goBack() }
+                   case .automation(let a) = model.homeRoute, a.id == automation.id { model.goBack() }
             } catch GatewayError.http(let status, let body) where status == 409 && body.contains("automation_busy") {
                 // A run is already on its way: it is shown, with Stop.
                 self.error = "It is already running."

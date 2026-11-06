@@ -24,7 +24,7 @@ struct AbstractAssistantWatchApp: App {
         // just come back to it; a second Ask page would show a still orb over the live one.
         AnswerNotifier.shared.open = { [weak model] ref in
             guard let model else { return }
-            switch model.path.last { case .ask, .answer: return; default: model.show([.answer(ref)]) }
+            model.show([.answer(ref)])
         }
         AnswerNotifier.shared.openAutomation = { [weak model] id in model?.openAutomation(id: id) }
         AnswerNotifier.shared.openWait = { [weak model] w in model?.show([w.kind == .askUser ? .askUser(w) : .approval(w)]) }
@@ -150,6 +150,7 @@ struct AbstractAssistantWatchApp: App {
 
 /// The page a route opens (the same on both stacks).
 struct RoutePage: View {
+    @EnvironmentObject private var model: AppModel
     let route: Route
     var body: some View {
         switch route {
@@ -157,13 +158,12 @@ struct RoutePage: View {
         case .askUser(let w): AskUserView(wait: w)
         case .draft(let w): DraftView(wait: w)
         case .waits: WaitsView()
-        case .automation(let a): AskView(automation: a)
+        case .automation, .ask, .answer: Color.clear.task { model.show([route]) }
         case .automationInfo(let a): AutomationInfoView(automation: a)
         case .automationSearch(let q): AutomationSearchView(query: q)
         case .automationEdit(let a): AutomationEditView(automation: a)
         case .newAutomation: NewAutomationView()
         case .message(let title, let e): MessageView(title: title, exchange: e)
-        case .ask(let phase): AskView(initialPhase: phase)
         case .picker: ResponderPickerView()
         case .sessions: SessionsView()
         case .session(let s): SessionDetailView(session: s)
@@ -183,7 +183,6 @@ struct RoutePage: View {
         case .pausedAutomations: PausedAutomationsView()
         case .toolGroup(let scope, let id): ToolGroupView(scope: scope, groupId: id)
         case .link(let url): LinkView(url: url)
-        case .answer(let ref): AskView(initialPhase: .idle, opening: ref)
         case .conversation(let id): ConversationInfoView(sessionId: id)
         case .filePreview(let files, let i): FilePreviewView(files: files, index: i)
         case .orbStyle: OrbStylePicker()

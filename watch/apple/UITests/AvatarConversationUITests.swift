@@ -34,13 +34,17 @@ final class AvatarConversationUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--mock", "--no-notification-prompt", "--test-public-history", "-ask.conversation", "YES", "-ask.speak", "YES", "-conversation.cue.completion.audio", "YES", "-conversation.cue.question.audio", "YES"]
         app.launch()
-        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Sessions'")).firstMatch.tap()
+        let sessions = app.buttons["home.sessions"]
+        app.bring(sessions); sessions.tap()
         let qc = app.buttons.matching(NSPredicate(format: "label CONTAINS 'QC'")).firstMatch
         app.bring(qc); qc.tap()
         let receipt = app.staticTexts["ask.guidance.3e9a10c4:guidance:1"]
         XCTAssertTrue(receipt.waitForExistence(timeout: 20), app.debugDescription)
         XCTAssertEqual(receipt.label, "You: Keep the flagged plates in the report.")
-        app.buttons["Back"].firstMatch.tap()
+        let browse = app.buttons["home.browse"]
+        app.bring(browse); browse.tap()
+        app.bring(sessions); sessions.tap()
+        app.bring(qc)
         XCTAssertTrue(qc.waitForExistence(timeout: 10), app.debugDescription)
         app.bring(qc); qc.tap()
         XCTAssertTrue(receipt.waitForExistence(timeout: 20), app.debugDescription)
