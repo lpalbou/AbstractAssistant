@@ -2,6 +2,7 @@ import AbstractGatewayClient
 import AssistantPush
 import SwiftUI
 import WatchKit
+import CryptoKit
 
 /// The watch's sign-in: the gateway, the account, and either its token or a 30-day session from an
 /// emailed code. A Keychain item shared through the app group (`SharedSignInStore`) so the
@@ -65,10 +66,9 @@ struct SavedSignIn {
     /// False when a sign-in is still there afterwards (the Keychain refused to delete it).
     @discardableResult
     static func clear(_ d: UserDefaults = .standard) -> Bool {
-        SharedSignInStore.clear()
+        do { try SharedSignInStore.clearVerified() } catch { return false }
         for k in legacyKeys { d.removeObject(forKey: k) }
-        if SharedSignInStore.load() != nil { SharedSignInStore.clear() }   // once more before saying so
-        return SharedSignInStore.load() == nil
+        return true
     }
 
 
@@ -102,7 +102,13 @@ struct KeptSignIn: Codable, Equatable, Identifiable {
     var csrf: String?
     var keptAt: Date
 
-    var id: String { user.lowercased() }
+    var id: String {
+        if !user.isEmpty { return user.lowercased() }
+        // Unidentified offline credentials stay distinct without inventing an account name.
+        let data = try! JSONEncoder().encode([tenant ?? "", token ?? "", session ?? "", csrf ?? ""])
+        return "credential:" + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+    var label: String { user.isEmpty ? "Use saved sign-in" : "Sign in as \(user)" }
 
     init(_ s: SavedSignIn, user: String, at date: Date = Date()) {
         gateway = s.gateway.absoluteString; self.user = user; tenant = s.tenant; keptAt = date
@@ -155,11 +161,15 @@ enum GatewayBook {
 
     /// The book, most recently used gateway first.
     static func entries(_ store: SecretStore = SharedSignInStore.store, _ d: UserDefaults = .standard) -> [GatewayEntry] {
-        if let data = try? SharedSignInStore.read(named: itemName, from: store),
-           let book = try? JSONDecoder().decode([GatewayEntry].self, from: data) {
-            return book.sorted { $0.usedAt > $1.usedAt }
+        (try? readEntries(store, d)) ?? []
+    }
+
+    /// Never replace an unreadable/corrupt credential book with an empty one.
+    private static func readEntries(_ store: SecretStore, _ d: UserDefaults = .standard) throws -> [GatewayEntry] {
+        if let data = try SharedSignInStore.read(named: itemName, from: store) {
+            return try JSONDecoder().decode([GatewayEntry].self, from: data).sorted { $0.usedAt > $1.usedAt }
         }
-        return migrate(store, d)
+        return try migrate(store, d)
     }
 
     /// The gateways, most recent first.
@@ -190,16 +200,26 @@ enum GatewayBook {
         try update(s.gateway, at: new.keptAt, store) { accounts in
             accounts = Array(([new] + accounts.filter { $0.id != new.id }).prefix(accountLimit))
         }
-        guard account(on: s.gateway, user: user, store)?.signIn?.credential == s.credential else { throw KeepError() }
+        guard accounts(on: s.gateway, store).first(where: { $0.id == new.id })?.signIn?.credential == s.credential else { throw KeepError() }
     }
 
     struct KeepError: Error {}
+
+    /// Match the local credential even when /me has never supplied a username.
+    static func forget(_ current: SavedSignIn, _ store: SecretStore = SharedSignInStore.store) throws {
+        try update(current.gateway, at: Date(), store) { accounts in
+            accounts.removeAll {
+                $0.signIn?.credential == current.credential ||
+                (!(current.user ?? "").isEmpty && $0.user.lowercased() == current.user?.lowercased())
+            }
+        }
+    }
 
     /// Forgets `user`'s account on this gateway (the gateway itself stays in the chooser).
     static func forget(gateway: URL, user: String, _ store: SecretStore = SharedSignInStore.store) {
         guard account(on: gateway, user: user, store) != nil else { return }
         let k = key(gateway)
-        var book = entries(store)
+        guard var book = try? readEntries(store) else { return }
         if let i = book.firstIndex(where: { $0.gateway.lowercased() == k }) {
             book[i].accounts.removeAll { $0.id == user.lowercased() }
         }
@@ -214,7 +234,7 @@ enum GatewayBook {
 
     private static func update(_ gateway: URL, at date: Date, _ store: SecretStore, _ change: (inout [KeptSignIn]) -> Void) throws {
         let k = key(gateway)
-        var book = entries(store)
+        var book = try readEntries(store)
         var entry = book.first { $0.gateway.lowercased() == k }
             ?? GatewayEntry(gateway: (SavedSignIn.normalize(gateway.absoluteString) ?? gateway).absoluteString, usedAt: date, accounts: [])
         entry.usedAt = max(entry.usedAt, date)
@@ -232,16 +252,18 @@ enum GatewayBook {
             bare += 1
             return bare <= gatewayLimit
         }
-        try SharedSignInStore.write(named: itemName, JSONEncoder().encode(kept), to: store)
+        let data = try JSONEncoder().encode(kept)
+        try SharedSignInStore.write(named: itemName, data, to: store)
+        guard try store.read(itemName) == data else { throw KeepError() }
     }
 
     /// The first read of a watch upgraded from an earlier build: the flat kept list and the known
     /// addresses become the book (the known order kept), then the old ones are deleted, only once
     /// the book is written.
-    private static func migrate(_ store: SecretStore, _ d: UserDefaults) -> [GatewayEntry] {
+    private static func migrate(_ store: SecretStore, _ d: UserDefaults) throws -> [GatewayEntry] {
         let known = (d.stringArray(forKey: legacyKnownKey) ?? []).compactMap(SavedSignIn.normalize)
-        let kept = (try? SharedSignInStore.read(named: legacyKeptName, from: store))
-            .flatMap { try? JSONDecoder().decode([KeptSignIn].self, from: $0) } ?? []
+        let legacy = try SharedSignInStore.read(named: legacyKeptName, from: store)
+        let kept = try legacy.map { try JSONDecoder().decode([KeptSignIn].self, from: $0) } ?? []
         guard !known.isEmpty || !kept.isEmpty else { return [] }
         var book: [GatewayEntry] = []
         let now = Date()
@@ -257,7 +279,7 @@ enum GatewayBook {
                 book.append(GatewayEntry(gateway: url.absoluteString, usedAt: account.keptAt, accounts: [account]))
             }
         }
-        do { try write(book, store) } catch { return book.sorted { $0.usedAt > $1.usedAt } }
+        try write(book, store)
         SharedSignInStore.remove(named: legacyKeptName, from: store)
         d.removeObject(forKey: legacyKnownKey)
         return book.sorted { $0.usedAt > $1.usedAt }
@@ -410,14 +432,14 @@ struct SignInView: View {
     /// gateway no longer accepts is forgotten on its first 401 (`AppModel.signOut`).
     private func keptRow(_ kept: KeptSignIn) -> some View {
         Button { quickSignIn(kept) } label: {
-            CapsuleRow(symbol: "person.crop.circle.fill", text: "Sign in as \(kept.user)", color: Theme.text) {
+            CapsuleRow(symbol: "person.crop.circle.fill", text: kept.label, color: Theme.text) {
                 Image(systemName: "arrow.up.circle.fill").font(.system(size: 24)).foregroundStyle(Theme.cyan)
             }
         }
         .buttonStyle(.tap)
         .disabled(working)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Sign in as \(kept.user)")
+        .accessibilityLabel(kept.label)
         .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("signin.kept")
     }

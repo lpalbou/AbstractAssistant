@@ -54,7 +54,12 @@ struct PhoneRoot: View {
         .task {
             // Push (backlog 1049): this iPhone's device id.
             PhonePush.deviceID = store.attention.deviceID
-            store.onUnauthorized = { do { try ConnectionVault.remove() } catch { storageError = error.localizedDescription } }
+            store.onUnauthorized = {
+                do {
+                    if let current = try ConnectionVault.currentVerified() { try ConnectionVault.signOut(current, keep: false) }
+                    else { try ConnectionVault.remove() }
+                } catch { storageError = error.localizedDescription }
+            }
             // The person's event stream: a local notification per new item; a tap opens its tab.
             PhoneNotifier.shared.activate()
             PhoneNotifier.shared.open = { tab = $0 }
@@ -66,6 +71,14 @@ struct PhoneRoot: View {
             }
             #if DEBUG
             let arguments = ProcessInfo.processInfo.arguments
+            if arguments.contains("--ui-test"), arguments.contains("--offline-signout-fixture") {
+                UserDefaults.standard.set(true, forKey: "phone.notify.asked")
+                let credential: GatewayCredential = arguments.contains("--session-fixture")
+                    ? .session(id: "offline-ui-session", csrf: "offline-ui-csrf") : .token("offline-ui-token")
+                connect(SavedConnection(gateway: URL(string: "http://127.0.0.1:9")!, user: "", credential: credential))
+                settings = true
+                return
+            }
             if arguments.contains("--dump-trace") { PhoneTrace.dump() }
             if arguments.contains("--demo") { demo(); return }
             // Development-device provisioning from the Mac (scripts/deploy-phone.sh): launch arguments
@@ -179,14 +192,19 @@ struct PhoneRoot: View {
         }
         #endif
     }
-    private func disconnect() {
+    private func disconnect(keep: Bool) {
         let connection = store.connection
-        let signIn = store.isDemo ? nil : ConnectionVault.current()
-        do { if !store.isDemo { try ConnectionVault.remove() } }
+        let signIn: SharedSignIn?
+        do {
+            signIn = store.isDemo ? nil : try ConnectionVault.currentVerified()
+            if keep && signIn == nil { throw ConnectionVault.VaultError() }
+            if let signIn { try ConnectionVault.signOut(signIn, keep: keep) }
+            else if !store.isDemo { try ConnectionVault.remove() }
+        }
         catch { storageError = error.localizedDescription; return }
         PhonePush.signedOut(signIn)
         settings = false; store.disconnect(); tab = 0
-        if let connection, connection.session != nil {
+        if !keep, let connection, connection.session != nil {
             Task {
                 var request = URLRequest(url: connection.gateway.appending(path: "api/gateway/session/logout"))
                 request.httpMethod = "POST"; connection.credential.apply(to: &request, write: true)

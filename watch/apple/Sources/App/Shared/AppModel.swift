@@ -1,4 +1,5 @@
 import AbstractGatewayClient
+import AssistantPush
 import SwiftUI
 import WatchKit
 
@@ -673,29 +674,28 @@ final class AppModel: ObservableObject {
     /// page. Otherwise an account kept for this user on this gateway is forgotten with it: "Sign out
     /// and forget", or the gateway rejecting the credential (a 401), so its row does not come back.
     func signOut(keep: Bool = false, notice: String? = nil) {
+        let active: SharedSignIn?
+        // Keeping/forgetting is local. Never depend on /me or gateway availability.
+        do {
+            active = try SharedSignInStore.loadVerified()
+            if keep && active?.hasCredential != true { throw GatewayBook.KeepError() }
+            if let active, let current = SavedSignIn(active) {
+                if keep { try GatewayBook.keep(current, user: current.user ?? principal?.userId ?? "") }
+                else { try GatewayBook.forget(current) }
+            }
+        } catch {
+            lastError = "Your sign-in could not be \(keep ? "kept" : "forgotten") on this watch. Please try again."
+            return // Keep the active credential intact if the requested storage operation failed.
+        }
+        guard SavedSignIn.clear() else {
+            lastError = "The sign-in could not be removed from this watch's Keychain. Please try again."
+            return
+        }
+        if !keep && notice == nil { UserDefaults.standard.removeObject(forKey: "gateway.user") }
+        if notice == nil { WatchPush.signedOut(active) } // best effort; never revokes the kept credential
         connectionRevision += 1; approvalRevision += 1
         sessionReads = SessionReadState(); sessionReadError = nil; sessionReadsInFlight = []; pendingSessionReads = []
         approvalRuns = []; decidedWaits = []; approving = []
-        var notice = notice
-        // The person signing out: the gateway forgets this watch's push token. A credential the
-        // gateway rejected (401, `notice`) sends nothing more (it locks out an address after failures).
-        if notice == nil { WatchPush.signedOut(SavedSignIn.current()) }
-        if let current = SavedSignIn.load() {
-            // The gateway stays in the chooser, whatever signed the watch in there (a launch
-            // argument, a build before the chooser).
-            GatewayBook.touch(current.gateway)
-            if let user = current.user ?? principal?.userId {
-                if keep {
-                    do { try GatewayBook.keep(current, user: user) }
-                    catch { notice = "Your sign-in could not be kept on this watch." }
-                } else {
-                    GatewayBook.forget(gateway: current.gateway, user: user)
-                }
-            }
-        }
-        // Forgotten by hand: the name goes too (the field would offer it again).
-        if !keep && notice == nil { UserDefaults.standard.removeObject(forKey: "gateway.user") }
-        if !SavedSignIn.clear() { notice = "The sign-in could not be removed from this watch's Keychain." }
         stopPolling()
         client = MockGatewayClient(world: .watch); gatewayHost = "—"; recordingConnectionKey = "signed-out"
         waits = []; waitsReadState = .checking; runs = []; automations = []; principal = nil; lastError = nil; failures = 0; failingSince = nil; unreachable = false; seenWaitIDs = []; entities = []; identities = [:]; identityRevisions = [:]; identityProblems = [:]; automationsLoaded = false; automationsPausedCount = nil; automationsArchivedCount = nil; automationsError = nil; automationsTask?.cancel(); automationsTask = nil; automationsLoading = false; automationsReadAt = nil
@@ -1459,6 +1459,9 @@ struct LaunchOptions {
             for user in users.split(separator: ",").map(String.init) {
                 try? GatewayBook.keep(SavedSignIn(gateway: gw, user: user, credential: .token("test-kept-token")), user: user)
             }
+        }
+        if args.contains("--ui-test"), args.contains("--test-corrupt-signin-book") {
+            try? SharedSignInStore.write(named: GatewayBook.itemName, Data("invalid-test-book".utf8))
         }
         // (after the kept ones: the known gateways are the more recent)
         if let list = value("--test-known") {

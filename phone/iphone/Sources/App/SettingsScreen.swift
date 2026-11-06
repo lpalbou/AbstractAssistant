@@ -2,7 +2,7 @@ import SwiftUI
 import AssistantKit
 
 struct SettingsScreen: View {
-    var onDisconnect: () -> Void
+    var onDisconnect: (Bool) -> Void
     var notice: String?
     @Environment(AssistantStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -43,13 +43,17 @@ struct SettingsScreen: View {
                     Link("Source & community", destination: URL(string: "https://github.com/lpalbou/AbstractAssistant")!)
                     Link("Get in touch", destination: URL(string: "mailto:contact@abstractframework.ai")!)
                 }
-                Section { Button(store.isDemo ? "Leave demo" : "Disconnect this iPhone", role: .destructive) { confirm = true } }
+                Section { Button(store.isDemo ? "Leave demo" : "Disconnect this iPhone", role: .destructive) { confirm = true }.accessibilityIdentifier("settings.signout") }
             }.scrollContentBackground(.hidden).background(PhoneTheme.ground).navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
                 .sheet(isPresented: $tools) { ConversationToolsScreen(scope: .settings) }
                 .confirmationDialog(store.isDemo ? "Leave the demo?" : "Disconnect this iPhone?", isPresented: $confirm, titleVisibility: .visible) {
-                    Button("Disconnect", role: .destructive, action: onDisconnect)
-                } message: { Text("Your gateway conversations and automations are kept.") }
+                    if !store.isDemo {
+                        Button("Keep my sign-in") { onDisconnect(true) }.accessibilityIdentifier("signout.keep")
+                    }
+                    Button(store.isDemo ? "Leave demo" : "Sign out and forget", role: .destructive) { onDisconnect(false) }
+                        .accessibilityIdentifier("signout.forget")
+                } message: { Text("Keep your sign-in on this iPhone to reconnect later. Your gateway conversations and automations are kept.") }
         }
     }
 }

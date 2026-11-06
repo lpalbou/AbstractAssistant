@@ -1420,3 +1420,39 @@ final class PhoneUITests: XCTestCase {
         attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
     }
 }
+
+final class OfflineSignOutPhoneUITests: XCTestCase {
+    @MainActor func testOfflineSessionKeepSurvivesRelaunchAndForgetRemovesIt() { exerciseOfflineSignOut(session: true) }
+    @MainActor func testOfflineTokenKeepSurvivesRelaunchAndForgetRemovesIt() { exerciseOfflineSignOut(session: false) }
+    @MainActor private func exerciseOfflineSignOut(session: Bool) {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-test", "--offline-signout-fixture"] + (session ? ["--session-fixture"] : [])
+        app.launch()
+        signOut(app, keep: true)
+        XCTAssertTrue(app.buttons["signin.kept"].firstMatch.waitForExistence(timeout: 10))
+        app.terminate()
+        app.launchArguments = ["--ui-test"]
+        app.launch()
+        let kept = app.buttons["signin.kept"].firstMatch
+        XCTAssertTrue(kept.waitForExistence(timeout: 10), "Keep should survive relaunch without signing back in")
+        kept.tap()
+        XCTAssertTrue(app.buttons["Settings"].firstMatch.waitForExistence(timeout: 15))
+        app.buttons["Settings"].firstMatch.tap()
+        signOut(app, keep: false)
+        XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["signin.kept"].exists)
+        app.terminate(); app.launch()
+        XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["signin.kept"].exists)
+    }
+    @MainActor private func signOut(_ app: XCUIApplication, keep: Bool) {
+        let button = app.buttons["settings.signout"]
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
+        for _ in 0..<7 where !button.exists || !button.isHittable { app.swipeUp() }
+        XCTAssertTrue(button.exists && button.isHittable)
+        button.tap()
+        let choice = app.buttons[keep ? "Keep my sign-in" : "Sign out and forget"].firstMatch
+        XCTAssertTrue(choice.waitForExistence(timeout: 5))
+        choice.tap()
+    }
+}

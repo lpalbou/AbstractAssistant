@@ -98,6 +98,7 @@ struct SignOutConfirm: View {
     enum Choice { case keep, forget, cancel }
     let user: String?
     let gateway: String
+    let canKeep: Bool
     let done: (Choice) -> Void
     var body: some View {
         ScrollView {
@@ -106,7 +107,7 @@ struct SignOutConfirm: View {
                 Text("Sign out?").font(.rounded(.headline)).multilineTextAlignment(.center)
                 Text([user, gateway].compactMap { $0 }.joined(separator: " · "))
                     .font(.rounded(.footnote)).foregroundStyle(Theme.text2).lineLimit(2).multilineTextAlignment(.center)
-                if user != nil {
+                if canKeep {
                     Text("Keep your sign-in to come back with one tap from the sign-in page.")
                         .font(.rounded(.caption2)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
                     Button("Keep my sign-in") { done(.keep) }
@@ -134,16 +135,21 @@ extension View {
 private struct SignOutConfirmation: ViewModifier {
     @EnvironmentObject private var model: AppModel
     @Binding var isPresented: Bool
+    @State private var storageError: String?
     func body(content: Content) -> some View {
         content.sheet(isPresented: $isPresented) {
-            SignOutConfirm(user: SavedSignIn.load()?.user ?? model.principal?.userId, gateway: model.gatewayHost) { choice in
+            SignOutConfirm(user: SavedSignIn.load()?.user ?? model.principal?.userId, gateway: model.gatewayHost, canKeep: SavedSignIn.load() != nil) { choice in
                 isPresented = false
                 switch choice {
                 case .keep: model.signOut(keep: true)
                 case .forget: model.signOut()
                 case .cancel: break
                 }
+                if choice != .cancel && !model.needsSignIn { storageError = model.lastError }
             }
         }
+        .alert("Couldn’t sign out", isPresented: Binding(get: { storageError != nil }, set: { if !$0 { storageError = nil } })) {
+            Button("OK") { storageError = nil }
+        } message: { Text(storageError ?? "Please try again.") }
     }
 }

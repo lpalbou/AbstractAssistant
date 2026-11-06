@@ -24,11 +24,11 @@ final class SignOutUITests: XCTestCase {
     }
 
     /// A watch that never signed in, then signed in as alice: Home.
-    private func signedIn() -> XCUIApplication {
+    private func signedIn(identified: Bool = true) -> XCUIApplication {
         let fresh = launch(["--mock", "--screen", "signin", "--reset-signins"])
         XCTAssertTrue(element(fresh, "signin.identify").waitForExistence(timeout: 15), fresh.debugDescription)
         fresh.terminate()
-        let app = launch(["--gateway", Self.gateway, "--token", "alice-token", "--user", "alice"])
+        let app = launch(["--gateway", Self.gateway, "--token", "alice-token"] + (identified ? ["--user", "alice"] : []))
         XCTAssertTrue(app.buttons["Settings"].firstMatch.waitForExistence(timeout: 20), app.debugDescription)
         return app
     }
@@ -45,6 +45,46 @@ final class SignOutUITests: XCTestCase {
         XCTAssertTrue(choice.waitForExistence(timeout: 5), app.debugDescription)
         choice.tap()
         XCTAssertTrue(element(app, "signin.identify").waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    func testOfflineUnidentifiedCredentialCanBeKeptRestoredAndForgotten() {
+        let app = signedIn(identified: false)
+        signOut(app, keep: true)
+        XCTAssertEqual(element(app, "signin.kept").label, "Use saved sign-in")
+        app.terminate()
+        let again = launch([])
+        let saved = element(again, "signin.kept")
+        XCTAssertTrue(saved.waitForExistence(timeout: 15))
+        XCTAssertFalse(again.buttons["Settings"].exists, "Keeping must not automatically sign back in")
+        saved.tap()
+        XCTAssertTrue(again.buttons["Settings"].firstMatch.waitForExistence(timeout: 15))
+        signOut(again, keep: false)
+        XCTAssertFalse(element(again, "signin.kept").exists)
+        again.terminate()
+        let last = launch([])
+        XCTAssertTrue(element(last, "signin.identify").waitForExistence(timeout: 15))
+        XCTAssertFalse(element(last, "signin.kept").exists)
+    }
+
+    func testUnreadableKeptBookDoesNotDiscardActiveSignIn() {
+        let first = signedIn(identified: false)
+        first.terminate()
+        let app = launch(["--ui-test", "--test-corrupt-signin-book"])
+        XCTAssertTrue(app.buttons["Settings"].firstMatch.waitForExistence(timeout: 15))
+        app.buttons["Settings"].firstMatch.tap()
+        let button = element(app, "settings.signout")
+        XCTAssertTrue(button.waitForExistence(timeout: 10))
+        for _ in 0..<8 where !button.isHittable { XCUIDevice.shared.rotateDigitalCrown(delta: 1.0) }
+        button.tap()
+        let keep = element(app, "signout.keep")
+        XCTAssertTrue(keep.waitForExistence(timeout: 5))
+        keep.tap()
+        XCTAssertTrue(app.buttons["OK"].waitForExistence(timeout: 8), app.debugDescription)
+        app.buttons["OK"].tap()
+        XCTAssertFalse(element(app, "signin.identify").exists)
+        app.terminate()
+        let again = launch([])
+        XCTAssertTrue(again.buttons["Settings"].firstMatch.waitForExistence(timeout: 15), "Storage failure lost the active sign-in")
     }
 
     /// Signed out, then relaunched (twice): the sign-in page, and it stays.

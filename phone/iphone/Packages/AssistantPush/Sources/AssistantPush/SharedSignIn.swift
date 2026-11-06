@@ -87,8 +87,13 @@ public enum SharedSignInStore {
     }
 
     public static func load(from store: SecretStore = store, legacy dir: URL = directory()) -> SharedSignIn? {
-        guard let data = try? read(named: signInName, from: store, legacy: dir) else { return nil }
-        return try? JSONDecoder().decode(SharedSignIn.self, from: data)
+        try? loadVerified(from: store, legacy: dir)
+    }
+
+    /// Mutations must distinguish an absent sign-in from an unreadable one.
+    public static func loadVerified(from store: SecretStore = store, legacy dir: URL = directory()) throws -> SharedSignIn? {
+        guard let data = try read(named: signInName, from: store, legacy: dir) else { return nil }
+        return try JSONDecoder().decode(SharedSignIn.self, from: data)
     }
 
     public static func save(_ signIn: SharedSignIn, to store: SecretStore = store) throws {
@@ -98,6 +103,15 @@ public enum SharedSignInStore {
     public static func clear(_ store: SecretStore = store, legacy dir: URL = directory()) {
         try? store.remove(signInName)
         ProtectedFile(directory: dir, name: signInName).remove()
+    }
+
+    /// Local sign-out must report storage failures rather than pretending the device is signed out.
+    public static func clearVerified(_ store: SecretStore = store, legacy dir: URL = directory()) throws {
+        try store.remove(signInName)
+        ProtectedFile(directory: dir, name: signInName).remove()
+        guard try read(named: signInName, from: store, legacy: dir) == nil else {
+            throw CocoaError(.fileWriteUnknown)
+        }
     }
 
     /// A named secret beside the sign-in (the watch's kept sign-ins): what the store holds, else

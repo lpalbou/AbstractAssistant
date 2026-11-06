@@ -246,3 +246,53 @@ extension Network {
     }
 }
 }
+
+private final class RefusingDeleteStore: SecretStore, @unchecked Sendable {
+    let base = MemorySecretStore()
+    let throwsOnDelete: Bool
+    init(throwsOnDelete: Bool) { self.throwsOnDelete = throwsOnDelete }
+    func read(_ name: String) throws -> Data? { try base.read(name) }
+    func write(_ name: String, _ data: Data) throws { try base.write(name, data) }
+    func remove(_ name: String) throws {
+        if throwsOnDelete { throw CocoaError(.fileWriteNoPermission) }
+        // A storage provider that reports success but retains the record.
+    }
+}
+
+@Suite struct VerifiedSignOutTests {
+    @Test func clearIsLocalAndLeavesDormantSecretsAlone() throws {
+        let store = MemorySecretStore(), dir = scratch()
+        let s = SharedSignIn(gateway: gateway, user: nil, token: "offline-token")
+        try SharedSignInStore.save(s, to: store)
+        try store.write("kept", JSONEncoder().encode(s))
+        try SharedSignInStore.clearVerified(store, legacy: dir)
+        #expect(try store.read("signin") == nil)
+        #expect(try store.read("kept") != nil)
+    }
+    @Test(arguments: [true, false]) func deletionFailureIsReported(throwsOnDelete: Bool) throws {
+        let store = RefusingDeleteStore(throwsOnDelete: throwsOnDelete), dir = scratch()
+        let s = SharedSignIn(gateway: gateway, user: nil, token: "offline-token")
+        try SharedSignInStore.save(s, to: store)
+        #expect(throws: (any Error).self) { try SharedSignInStore.clearVerified(store, legacy: dir) }
+        #expect(SharedSignInStore.load(from: store, legacy: dir) == s)
+    }
+}
+
+private struct UnreadableSecretStore: SecretStore {
+    func read(_ name: String) throws -> Data? { throw CocoaError(.fileReadNoPermission) }
+    func write(_ name: String, _ data: Data) throws { throw CocoaError(.fileWriteNoPermission) }
+    func remove(_ name: String) throws { throw CocoaError(.fileWriteNoPermission) }
+}
+
+@Suite struct VerifiedSignInReadTests {
+    @Test func readFailureIsNotAnAbsentSignIn() {
+        #expect(throws: (any Error).self) { try SharedSignInStore.loadVerified(from: UnreadableSecretStore(), legacy: scratch()) }
+    }
+    @Test func malformedCredentialIsNotAnAbsentSignIn() throws {
+        let store = MemorySecretStore()
+        let data = Data("malformed".utf8)
+        try store.write("signin", data)
+        #expect(throws: (any Error).self) { try SharedSignInStore.loadVerified(from: store, legacy: scratch()) }
+        #expect(try store.read("signin") == data)
+    }
+}

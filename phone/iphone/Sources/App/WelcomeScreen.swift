@@ -1,6 +1,7 @@
 import SwiftUI
 import AssistantKit
 import AbstractGatewayClient
+import AssistantPush
 
 struct WelcomeScreen: View {
     var onConnect: (SavedConnection) -> Void
@@ -14,6 +15,7 @@ struct WelcomeScreen: View {
     @State private var message: String?
     @State private var error: String?
     @State private var attempt = 0
+    @State private var remembered: [SharedSignIn] = []
     @FocusState private var focused: Bool
     private var email: Bool { GatewaySignIn.isEmail(identifier) }
     var body: some View {
@@ -25,6 +27,31 @@ struct WelcomeScreen: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("A little space.\nFor big ideas.").font(.system(.largeTitle, design: .rounded, weight: .semibold)).tracking(-1)
                         Text("Your assistant, your conversations, your gateway. Pick up wherever you left off.").foregroundStyle(PhoneTheme.secondary).lineSpacing(4)
+                    }
+                    if !remembered.isEmpty {
+                        PhoneCard {
+                            VStack(alignment: .leading, spacing: 14) {
+                                QuietLabel(text: "Saved sign-ins")
+                                ForEach(remembered, id: \.reg) { signIn in
+                                    HStack {
+                                        Button { onConnect(ConnectionVault.connection(signIn)) } label: {
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                Text((signIn.user ?? "").isEmpty ? "Use saved sign-in" : "Sign in as \(signIn.user!)")
+                                                Text(signIn.gateway.absoluteString).font(.caption).foregroundStyle(PhoneTheme.secondary)
+                                            }
+                                        }.accessibilityIdentifier("signin.kept").disabled(busy)
+                                        Spacer()
+                                        Button(role: .destructive) {
+                                            do {
+                                                try ConnectionVault.forgetKept(signIn)
+                                                remembered = try ConnectionVault.kept()
+                                            } catch { self.error = error.localizedDescription }
+                                        } label: { Image(systemName: "trash") }
+                                            .accessibilityLabel("Forget saved sign-in").disabled(busy)
+                                    }
+                                }
+                            }
+                        }
                     }
                     PhoneCard {
                         VStack(alignment: .leading, spacing: 18) {
@@ -51,10 +78,13 @@ struct WelcomeScreen: View {
                         }
                     }
                     VStack(spacing: 14) {
-                        Label("Your sign-in stays in the Keychain of this iPhone and your Apple Watch.", systemImage: "lock.shield").font(.footnote).foregroundStyle(PhoneTheme.secondary)
+                        Label("Your sign-in stays in this iPhone’s Keychain. Your Apple Watch signs in separately.", systemImage: "lock.shield").font(.footnote).foregroundStyle(PhoneTheme.secondary)
                         Button("Take a look around", action: onDemo).font(.subheadline.weight(.medium)).disabled(busy)
                     }.frame(maxWidth: .infinity)
                 }.padding(24)
+            }.task {
+                do { remembered = try ConnectionVault.kept() }
+                catch { self.error = error.localizedDescription }
             }.background(PhoneTheme.ground).scrollDismissesKeyboard(.interactively)
         }
     }
