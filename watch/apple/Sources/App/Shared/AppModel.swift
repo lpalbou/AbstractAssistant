@@ -304,6 +304,7 @@ final class AppModel: ObservableObject {
     /// swipe forward (the finger moving left) opens them again; opening something else forgets them.
     @Published var path: [Route] = [] {
         didSet {
+            if !path.contains(where: \.isOrbPage) { homeIntent = nil }
             if forwarding { forwarding = false; return }   // goForward has used up its page itself
             forward = Self.forward(after: oldValue, now: path, kept: forward)
         }
@@ -1308,6 +1309,37 @@ final class AppModel: ObservableObject {
             path.removeSubrange(i...)
         }
         path.append(.ask(.idle))
+    }
+
+    enum HomeIntent { case listen, text(String) }
+    private var homeDraft: (session: String, connection: String)?
+    private var homeIntent: (session: String, connection: String, action: HomeIntent)?
+
+    /// A fresh draft belongs to Home. Returning from tools/settings keeps its overrides;
+    /// returning from a started or loaded conversation gets a new draft instead.
+    func prepareHomeConversation() {
+        guard path.isEmpty, settingsPath == nil else { return }
+        if let draft = homeDraft, draft.session == askSessionId,
+           draft.connection == recordingConnectionKey { return }
+        newAskSession()
+        homeDraft = (askSessionId, recordingConnectionKey)
+    }
+
+    func startHomeConversation(_ action: HomeIntent) {
+        guard path.isEmpty, settingsPath == nil else { return }
+        prepareHomeConversation()
+        homeIntent = (askSessionId, recordingConnectionKey, action)
+        homeDraft = nil
+        openOrb()
+    }
+
+    /// Only the newly opened conversation may consume this one-shot action.
+    func takeHomeIntent() -> HomeIntent? {
+        guard let intent = homeIntent else { return nil }
+        homeIntent = nil
+        guard intent.session == askSessionId, intent.connection == recordingConnectionKey,
+              path.last == .ask(.idle) else { return nil }
+        return intent.action
     }
 
     /// The page on screen moves into this conversation (a notification's answer, or a

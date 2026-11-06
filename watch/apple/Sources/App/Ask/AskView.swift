@@ -129,7 +129,7 @@ struct AskView: View {
                 ScrollView {
                     VStack(spacing: 6) {
                         // The orb fills the screen, centred on it; everything else is below.
-                        ScreenCentered(width: geo.size.width, top: geo.frame(in: .global).minY) { side in
+                        AssistantStage(width: geo.size.width, top: geo.frame(in: .global).minY) { side in
                             Orb(mode: orbMode, size: side * (conversationView ? 0.72 : 0.9), voice: orbVoice, countdown: orbCountdown, since: listenSince, look: orbLook,
                                 work: phase == .thinking && activity.isFollowing ? { @MainActor @Sendable t in activity.orb(at: t) } : nil)
                                 .contentShape(Circle())
@@ -165,28 +165,12 @@ struct AskView: View {
                                 if keptShown { keptActions }
                             }
                             .padding(.bottom, 8)   // low, clear of the orb and the round corners
-                        }
-                        // The keyboard, top right under the time: only while the orb is at rest (the
-                        // same moments as who answers).
-                        .overlay(alignment: .topTrailing) {
-                            if controlsShown || conversationView && phase == .thinking {
-                                keyboardLink.buttonStyle(GlassPress()).padding(.trailing, 6 - Self.reach).padding(.top, 2 - Self.reach)
-                            }
-                        }
-                        // The tools of this conversation, bottom right, mirroring the keyboard (as far
-                        // above the bottom as the keyboard is below the top: the row's band and 2 pt); shown with the keyboard
-                        // (the Assistant's tools; an entity brings its own).
-                        // While it listens, Send sits there instead: what was said goes now (a noise
-                        // that starts would otherwise keep the silence that sends from coming).
-                        .overlay(alignment: .bottomTrailing) {
-                            if controlsShown, let a = automationFeed {
-                                // An automation's tools are in its details (Edit), with when it runs.
-                                infoLink(a).padding(.trailing, 6 - Self.reach).padding(.bottom, CornerButton.band + 2 - Self.reach)
-                            } else if controlsShown, model.responder == .assistant {
-                                toolsLink.padding(.trailing, 6 - Self.reach).padding(.bottom, CornerButton.band + 2 - Self.reach)
-                            } else if phase == .listening {
-                                sendNow.padding(.trailing, 6 - Self.reach).padding(.bottom, CornerButton.band + 2 - Self.reach)
-                            }
+                        } keyboard: {
+                            if controlsShown || conversationView && phase == .thinking { keyboardLink }
+                        } accessory: {
+                            if controlsShown, let a = automationFeed { infoLink(a) }
+                            else if controlsShown, model.responder == .assistant { toolsLink }
+                            else if phase == .listening { sendNow }
                         }
                         .id("orb")
                         below
@@ -730,36 +714,12 @@ struct AskView: View {
 
     /// Who answers, below the orb: "Assistant ⌄", one tap opens the choice.
     private var responderSwitch: some View {
-        NavigationLink(value: Route.picker) {
-            HStack(spacing: 3) {
-                Text(model.responder.title).font(.rounded(.headline, weight: .semibold))
-                    .lineLimit(1).minimumScaleFactor(0.7)
-                    .shadow(color: .black, radius: 3)
-                Image(systemName: "chevron.down").font(.rounded(.caption2, weight: .bold))
-            }
-            .foregroundStyle(Theme.text)
-        }
-        .buttonStyle(.tap)
-        .disabled(phase == .thinking || phase == .listening)
-        .accessibilityLabel("Talking to \(model.responder.title). Choose who answers")
+        AssistantResponderSwitch()
+            .disabled(phase == .thinking || phase == .listening)
     }
 
-    /// The tools this conversation may use (Off · Auto · Ask each); a dot when they differ from the
-    /// defaults of Settings → Tools.
-    private var toolsLink: some View {
-        NavigationLink(value: Route.tools(.session)) {
-            GlassIcon(symbol: "wrench.and.screwdriver")
-                .overlay(alignment: .topTrailing) {
-                    if model.sessionDiffers {
-                        Circle().fill(Theme.amber).frame(width: 8, height: 8).offset(x: 1, y: -1)
-                    }
-                }
-                .padding(Self.reach).contentShape(Rectangle())
-        }
-        .buttonStyle(GlassPress())
-        .accessibilityLabel(model.sessionDiffers ? "Tools, changed for this conversation" : "Tools")
-        .accessibilityIdentifier("ask.tools")
-    }
+    /// The same session-scoped tools control as the Home draft.
+    private var toolsLink: some View { AssistantToolsLink() }
 
     /// An automation's details (when it runs, Edit, Run now), where a conversation has its tools; a
     /// swipe forward opens them too.
@@ -1409,6 +1369,13 @@ struct AskView: View {
         guard !opened else { return }                       // back from a page above: as it was left
         let owner = model.recordingConnectionKey
         defer { opened = true }
+        if let intent = model.takeHomeIntent() {
+            switch intent {
+            case .listen: startListening()
+            case .text(let text): send(text)
+            }
+            return
+        }
         if let a = automationFeed {
             await openAutomation(a)
             #if DEBUG

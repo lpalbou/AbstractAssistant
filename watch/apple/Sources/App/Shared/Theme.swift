@@ -88,6 +88,61 @@ struct ScreenCentered<Content: View, Bottom: View>: View {
     }
 }
 
+/// Home and a conversation share one stage: identical orb geometry and corner controls.
+struct AssistantStage<Content: View, Bottom: View, Keyboard: View, Accessory: View>: View {
+    let width: CGFloat
+    let top: CGFloat
+    @ViewBuilder let content: (CGFloat) -> Content
+    @ViewBuilder let bottom: () -> Bottom
+    @ViewBuilder let keyboard: () -> Keyboard
+    @ViewBuilder let accessory: () -> Accessory
+
+    var body: some View {
+        ScreenCentered(width: width, top: top, content: content, bottom: bottom)
+            .overlay(alignment: .topTrailing) {
+                keyboard().buttonStyle(GlassPress())
+                    .padding(.trailing, 6 - AskView.reach).padding(.top, 2 - AskView.reach)
+            }
+            .overlay(alignment: .bottomTrailing) {
+                accessory().padding(.trailing, 6 - AskView.reach)
+                    .padding(.bottom, CornerButton.band + 2 - AskView.reach)
+            }
+    }
+}
+
+struct AssistantResponderSwitch: View {
+    @EnvironmentObject private var model: AppModel
+    var body: some View {
+        NavigationLink(value: Route.picker) {
+            HStack(spacing: 3) {
+                Text(model.responder.title).font(.rounded(.headline, weight: .semibold))
+                    .lineLimit(1).minimumScaleFactor(0.7).shadow(color: .black, radius: 3)
+                Image(systemName: "chevron.down").font(.rounded(.caption2, weight: .bold))
+            }.foregroundStyle(Theme.text)
+        }
+        .buttonStyle(.tap)
+        .accessibilityLabel("Talking to \(model.responder.title). Choose who answers")
+    }
+}
+
+struct AssistantToolsLink: View {
+    @EnvironmentObject private var model: AppModel
+    var body: some View {
+        NavigationLink(value: Route.tools(.session)) {
+            GlassIcon(symbol: "wrench.and.screwdriver")
+                .overlay(alignment: .topTrailing) {
+                    if model.sessionDiffers {
+                        Circle().fill(Theme.amber).frame(width: 8, height: 8).offset(x: 1, y: -1)
+                    }
+                }
+                .padding(AskView.reach).contentShape(Rectangle())
+        }
+        .buttonStyle(GlassPress())
+        .accessibilityLabel(model.sessionDiffers ? "Tools, changed for this conversation" : "Tools")
+        .accessibilityIdentifier("ask.tools")
+    }
+}
+
 /// Shares a text or a link from the watch through the system share sheet (Messages, Mail, …), as a
 /// round icon like Back. watchOS has no clipboard (`UIPasteboard` is unavailable there), so sending
 /// it on is how a text leaves the watch. Any `Transferable` item: a `URL`, a `String`.

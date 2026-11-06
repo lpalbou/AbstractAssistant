@@ -1,5 +1,119 @@
 import XCTest
 
+/// Home and a conversation share one stage, but only the conversation owns a microphone.
+final class DirectHomeConversationUITests: XCTestCase {
+    private func launch(_ extra: [String] = []) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--silent-mic", "--orb-design", "A"] + extra
+        app.launch()
+        XCTAssertTrue(app.buttons["home.orb"].waitForExistence(timeout: 15), app.debugDescription)
+        return app
+    }
+
+    private func capture(_ name: String) {
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+    }
+
+    func testOneTapStartsListeningAndBackReturnsToFreshHome() {
+        let app = launch()
+        XCTAssertTrue(app.buttons["Type or dictate"].exists)
+        XCTAssertTrue(app.buttons["ask.tools"].exists)
+        XCTAssertTrue(app.buttons["Settings"].exists)
+        XCTAssertFalse(app.buttons["Back"].exists)
+        let keyboard = app.buttons["Type or dictate"].frame
+        capture("home-ready")
+        app.buttons["home.orb"].tap()
+        let listening = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Listening'")).firstMatch
+        XCTAssertTrue(listening.waitForExistence(timeout: 5), app.debugDescription)
+        capture("home-first-tap-listening")
+        XCTAssertTrue(app.buttons["Back"].exists)
+        XCTAssertFalse(app.buttons["home.sessions"].exists)
+        app.buttons["ask.stop"].tap()
+        XCTAssertTrue(app.buttons["Type or dictate"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons["Type or dictate"].frame.minY, keyboard.minY, accuracy: 1)
+        app.buttons["Back"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["home.orb"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Settings"].exists)
+        XCTAssertEqual(app.staticTexts["home.status"].label, "Tap to talk")
+        capture("home-after-exit")
+    }
+
+    func testHomeToolsSurviveSettingsAndTheFirstVoiceTurn() {
+        let app = launch()
+        func element(_ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
+        app.buttons["ask.tools"].tap()
+        let files = element("tools.group.files")
+        app.bring(files); files.tap()
+        let off = element("tools.all.files.off")
+        XCTAssertTrue(off.waitForExistence(timeout: 5)); off.tap()
+        app.buttons["Back"].firstMatch.tap()
+        app.buttons["Back"].firstMatch.tap()
+        XCTAssertEqual(app.buttons["ask.tools"].label, "Tools, changed for this conversation")
+        app.buttons["Settings"].tap()
+        app.buttons["Back"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["home.orb"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons["ask.tools"].label, "Tools, changed for this conversation")
+        app.buttons["home.orb"].tap()
+        XCTAssertTrue(app.buttons["ask.stop"].waitForExistence(timeout: 5))
+        app.buttons["ask.stop"].tap()
+        XCTAssertTrue(app.buttons["ask.tools"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons["ask.tools"].label, "Tools, changed for this conversation")
+        app.buttons["Back"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["home.orb"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons["ask.tools"].label, "Tools", "a fresh Home must not inherit the previous session override")
+    }
+
+    func testTypingOnHomeSendsWithoutAnotherComposer() {
+        let app = launch()
+        app.buttons["Type or dictate"].tap()
+        XCTAssertTrue(app.textViews.firstMatch.waitForExistence(timeout: 5), app.debugDescription)
+        app.typeText("Hello from Home")
+        app.buttons["Done"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["ask.status"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.buttons["home.sessions"].exists)
+        let prompt = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Hello from Home'")).firstMatch
+        XCTAssertTrue(prompt.waitForExistence(timeout: 15), app.debugDescription)
+        capture("home-typed-conversation")
+    }
+
+    func testLoadedSessionKeepsTheStageAndShowsItsConversation() {
+        // The general mock has a pending question on its completed QC run.
+        // Use the existing completed-history fixture for this resume scenario.
+        let app = launch(["--test-public-history"])
+        let keyboardY = app.buttons["Type or dictate"].frame.minY
+        let sessions = app.buttons["home.sessions"]
+        app.bring(sessions); sessions.tap()
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS 'QC'")).firstMatch
+        app.bring(row)
+        XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription); row.tap()
+        XCTAssertTrue(app.buttons["voice.button"].waitForExistence(timeout: 20), app.debugDescription)
+        XCTAssertEqual(app.buttons["Type or dictate"].frame.minY, keyboardY, accuracy: 1)
+        XCTAssertFalse(app.buttons["home.sessions"].exists)
+        capture("loaded-conversation-stage")
+        app.nudgeUp(); app.nudgeUp()
+        capture("loaded-conversation-history")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] 'assay QC'")).firstMatch.exists)
+    }
+
+    func testHomeBrowsesSessionsAndAutomationsBelowTheStage() {
+        let app = launch()
+        let sessions = app.buttons["home.sessions"]
+        app.bring(sessions)
+        XCTAssertTrue(sessions.isHittable)
+        capture("home-browse")
+        sessions.tap()
+        XCTAssertTrue(app.buttons["New conversation"].waitForExistence(timeout: 10))
+        app.buttons["Back"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["home.orb"].waitForExistence(timeout: 5))
+        let automations = app.buttons["home.automations"]
+        app.bring(automations)
+        XCTAssertTrue(automations.isHittable)
+        automations.tap()
+        XCTAssertTrue(app.staticTexts.matching(identifier: "screen.title").matching(NSPredicate(format: "label == 'Automations'")).firstMatch.waitForExistence(timeout: 10))
+    }
+}
+
 /// While the orb listens, Send (where the tools icon sits at rest) ends the listening at once: in
 /// the simulator's silence it says "I didn't hear anything" right away rather than after the 5 s
 /// it waits for speech. Sample data.

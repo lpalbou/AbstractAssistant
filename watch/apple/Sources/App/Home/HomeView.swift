@@ -1,61 +1,88 @@
 import AbstractGatewayClient
 import SwiftUI
 
-/// Home: the orb first (one tap starts a new conversation), then only what needs you, then your
-/// conversations and automations. Settings is the gear at the top; the gateway's state shows only when it matters.
+/// Home is the ready-to-talk conversation stage. Browsing lives below it;
+/// beginning a turn opens the identical stage with session content in its place.
 struct HomeView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.openURL) private var openURL
+    @AppStorage("ask.conversation") private var conversationView = false
 
     var body: some View {
-        ScrollViewReader { proxy in
-        ScrollView {
-            VStack(spacing: 8) {
-                // A new conversation every time (an earlier one continues from Sessions).
-                Button { model.newAskSession(); model.openOrb() } label: {
-                    VStack(spacing: 2) {
-                        // Smaller when something needs you, so that card stays on the first screen.
-                        Orb(mode: .idle, size: model.waits.isEmpty ? 115 : 82, fps: 24, look: model.responderLook)
-                        Text("Talk to \(model.responder.title)").font(.rounded(.footnote, weight: .medium)).foregroundStyle(Theme.text2)
+        GeometryReader { geo in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 6) {
+                        AssistantStage(width: geo.size.width, top: geo.frame(in: .global).minY) { side in
+                            Orb(mode: .idle, size: side * (conversationView ? 0.72 : 0.9), look: model.responderLook)
+                                .contentShape(Circle())
+                                .onTapGesture { model.startHomeConversation(.listen) }
+                                .accessibilityAddTraits(.isButton)
+                                .accessibilityLabel("Talk to \(model.responder.title)")
+                                .accessibilityIdentifier("home.orb")
+                        } bottom: {
+                            VStack(spacing: 4) {
+                                AssistantResponderSwitch()
+                                Text("Tap to talk").font(.rounded(.footnote)).foregroundStyle(Theme.muted)
+                                    .accessibilityIdentifier("home.status")
+                            }.padding(.bottom, 8)
+                        } keyboard: {
+                            TextFieldLink(prompt: Text("Ask \(model.responder.title)")) {
+                                GlassIcon(symbol: "keyboard").padding(AskView.reach).contentShape(Rectangle())
+                            } onSubmit: { text in
+                                let draft = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !draft.isEmpty { model.startHomeConversation(.text(draft)) }
+                            }
+                            .accessibilityLabel("Type or dictate")
+                        } accessory: {
+                            if model.responder == .assistant { AssistantToolsLink() }
+                        }
+                        .id("orb")
+                        VStack(spacing: 8) {
+                            if model.connecting {
+                                LoadingText(text: "Connecting").font(.rounded(.caption2)).foregroundStyle(Theme.amber)
+                                    .accessibilityIdentifier("gateway.connecting")
+                            } else if let err = gatewayError {
+                                Text(err).font(.rounded(.caption2)).foregroundStyle(Theme.red)
+                                    .multilineTextAlignment(.center).lineLimit(2)
+                                    .accessibilityIdentifier("gateway.error")
+                            }
+                            if !model.waits.isEmpty { waitingCard }
+                            NavigationLink(value: Route.sessions) {
+                                row("Sessions", symbol: "bubble.left.and.bubble.right", detail: sessionsDetail,
+                                    badge: nil, badgeColor: Theme.cyan, count: model.newSessionCount, countLabel: "new", total: model.sessions.count,
+                                    loading: !model.sessionsLoaded)
+                            }.buttonStyle(.tap).accessibilityIdentifier("home.sessions")
+                            NavigationLink(value: Route.automations) {
+                                row("Automations", symbol: "clock.arrow.circlepath", detail: automationDetail,
+                                    badge: nil, badgeColor: Theme.amber, count: unseenCount, countLabel: "new", total: model.automations.count,
+                                    loading: !model.automationsLoaded)
+                            }.buttonStyle(.tap).accessibilityIdentifier("home.automations")
+                                .id("bottom")
+                        }.padding(.horizontal, 10)
                     }
-                    .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.tap)
-                .accessibilityLabel("Talk to \(model.responder.title)")
-                if model.connecting {
-                    LoadingText(text: "Connecting").font(.rounded(.caption2)).foregroundStyle(Theme.amber)
-                        .accessibilityIdentifier("gateway.connecting")
-                } else if let err = gatewayError {
-                    Text(err).font(.rounded(.caption2)).foregroundStyle(Theme.red)
-                        .multilineTextAlignment(.center).lineLimit(2)
-                        .accessibilityIdentifier("gateway.error")
+                .refreshable { await model.refresh() }
+                .onChange(of: model.path) { _, path in
+                    if path.isEmpty {
+                        model.prepareHomeConversation()
+                        proxy.scrollTo("orb", anchor: .top)
+                    }
                 }
-                // Only when something needs you: an empty "0 nothing waiting" card is noise.
-                if !model.waits.isEmpty { waitingCard }
-                NavigationLink(value: Route.sessions) {
-                    row("Sessions", symbol: "bubble.left.and.bubble.right", detail: sessionsDetail,
-                        badge: nil, badgeColor: Theme.cyan, count: model.newSessionCount, countLabel: "new", total: model.sessions.count,
-                        loading: !model.sessionsLoaded)
+                #if DEBUG
+                .task {
+                    if ProcessInfo.processInfo.arguments.contains("--home-bottom") {
+                        try? await Task.sleep(for: .seconds(1)); proxy.scrollTo("bottom", anchor: .bottom)
+                    }
                 }
-                .buttonStyle(.tap)
-                NavigationLink(value: Route.automations) {
-                    row("Automations", symbol: "clock.arrow.circlepath", detail: automationDetail,
-                        badge: nil, badgeColor: Theme.amber, count: unseenCount, countLabel: "new", total: model.automations.count,
-                        loading: !model.automationsLoaded)
-                }
-                .buttonStyle(.tap)
-                .id("bottom")
+                #endif
             }
         }
-        #if DEBUG
-        .task {   // screenshots of the lower rows: --home-bottom
-            guard ProcessInfo.processInfo.arguments.contains("--home-bottom") else { return }
-            try? await Task.sleep(for: .seconds(1)); proxy.scrollTo("bottom", anchor: .bottom)
+        .besideBack { EmptyView() }
+        .onAppear { model.prepareHomeConversation() }
+        .task(id: model.responder) {
+            if case .entity(let name) = model.responder { await model.loadIdentity(of: name) }
         }
-        #endif
-        }
-        .screen("Assistant")
-        .refreshable { await model.refresh() }
         .task {
             #if DEBUG
             if let url = model.testOpen { model.testOpen = nil; try? await Task.sleep(for: .seconds(2)); openURL(url) }
