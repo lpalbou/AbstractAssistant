@@ -171,6 +171,16 @@ public actor MockGatewayClient: GatewayClient {
     }
 
     private var pending: [Wait]
+    private var capturedNotes: [String: NoteCaptureRequest] = [:]
+    public func startNoteCapture(_ capture: NoteCaptureRequest) async throws -> String {
+        let id = "note-" + capture.idempotencyKey
+        let alreadySaved = capturedNotes[id] != nil
+        capturedNotes[id] = capture
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--note-save-fail-once"), !alreadySaved { throw URLError(.networkConnectionLost) }
+        #endif
+        return id
+    }
     private var started: [String: (Date, String)] = [:]
     private var cancelledRunIDs: Set<String> = []
     private let wordInterval: TimeInterval
@@ -1406,6 +1416,10 @@ public actor MockGatewayClient: GatewayClient {
 
     /// A started mock run "streams": each poll reveals the words due by now, then completes.
     public func run(id: String) async throws -> RunSummary {
+        if let capture = capturedNotes[id] {
+            return RunSummary(runId: id, workflowId: "note-capture", status: "completed", sessionId: capture.sessionID,
+                              output: .object(["note_id": .string("nt_" + capture.idempotencyKey), "response": .string("Saved to your notebook."), "status": .string("new")]))
+        }
         #if DEBUG
         if ["delayed", "stale-gate"].contains(waitsReadScenario ?? ""), id == "sequential-approval-leaf" { return sequentialRun() }
         if sequentialApprovalFixture, id == "sequential-approval-leaf" {

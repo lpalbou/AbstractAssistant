@@ -63,6 +63,8 @@ public protocol GatewayClient: Sendable {
     func startRun(prompt: String, sessionId: String?, attachments: [JSONValue]) async throws -> String
     func startRun(prompt: String, sessionId: String?, attachments: [JSONValue], tools: ConversationTools?) async throws -> String
     func startRun(prompt: String, sessionId: String?, attachments: [JSONValue], tools: ConversationTools?, primaryImage: JSONValue?) async throws -> String
+    /// Starts AbstractNote capture using this client’s existing authentication.
+    func startNoteCapture(_ capture: NoteCaptureRequest) async throws -> String
     /// `GET /sessions/{id}/artifacts`: the media a conversation's turns made, by run.
     func sessionMedia(sessionId: String) async throws -> [String: [MediaItem]]
     /// `GET /runs/{run}/artifacts/{id}/content`: one media item's bytes (at most `MediaItem.byteLimit`).
@@ -212,6 +214,9 @@ public protocol GatewayClient: Sendable {
 
 /// What a test double that does not answer a route gives: what a gateway without it would.
 public extension GatewayClient {
+    func startNoteCapture(_ capture: NoteCaptureRequest) async throws -> String {
+        throw GatewayError.http(status: 404, body: "")
+    }
     /// A double's speech has no segments, like a gateway whose engine reports none.
     nonisolated func speechParts(text: String, scope: SpeechScope, voice: VoiceChoice?) -> AsyncThrowingStream<SpeechPart, Error> {
         let audio = speech(text: text, scope: scope, voice: voice)
@@ -566,6 +571,9 @@ public actor LiveGatewayClient: GatewayClient {
     }
     public func startRun(prompt: String, sessionId: String?, attachments: [JSONValue], tools: ConversationTools?, primaryImage: JSONValue?) async throws -> String {
         try await startAssistantRun(prompt: prompt, sessionId: sessionId, attachments: attachments, selection: tools, toolPolicy: tools?.policy, primaryImage: primaryImage)
+    }
+    public func startNoteCapture(_ capture: NoteCaptureRequest) async throws -> String {
+        try JSONDecoder().decode(StartRunResponse.self, from: await request("POST", "api/gateway/runs/start", body: capture)).runId
     }
     public func startRun(_ body: StartRunRequest) async throws -> String {
         try JSONDecoder().decode(StartRunResponse.self, from: await request("POST", "api/gateway/runs/start", body: body)).runId

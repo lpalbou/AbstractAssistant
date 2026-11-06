@@ -11,7 +11,7 @@ enum Route: Hashable {
         switch self {
         case .ask, .sessions, .session, .automations, .automation, .automationInfo, .automationSearch, .conversation, .settings, .voiceSettings,
              .orbStyle, .about, .tools, .toolGroup, .connection, .archivedSessions, .sessionSearch,
-             .archivedAutomations, .pausedAutomations: true
+             .archivedAutomations, .pausedAutomations, .notes: true
         // `.answer`: a notification's answer (it would be read aloud again); `.waits`: refresh it on a new tap.
         case .approval, .askUser, .draft, .waits, .answer, .picker, .automationEdit, .newAutomation, .message,
              .read, .link, .orbStylePreview, .workflow, .media, .activity, .filePreview: false
@@ -22,6 +22,7 @@ enum Route: Hashable {
     case read(ReadItem), link(URL), answer(AnswerRef), orbStyle, orbStylePreview(String), about, conversation(String)
     case tools(AppModel.ToolScope), toolGroup(AppModel.ToolScope, String), connection
     case workflow(AppModel.ToolScope), media(MediaItem), activity(String), archivedSessions, sessionSearch(String), archivedAutomations, pausedAutomations
+    case notes
     case filePreview([SessionFile], Int)
     /// An automation's details (behind (i) on its orb page): when it runs, Edit, Run.
     case automationInfo(AutomationSummary)
@@ -499,7 +500,10 @@ final class AppModel: ObservableObject {
 
     @Published private(set) var client: any GatewayClient
     @Published private(set) var gatewayHost: String
-    @Published private(set) var recordingConnectionKey: String
+    let notes = WatchNotes()
+    @Published private(set) var recordingConnectionKey: String {
+        didSet { notes.bind(to: recordingConnectionKey) }
+    }
     private var seenWaitIDs: Set<String> = []
     private var pollTask: Task<Void, Never>?
     private var approvalPollTask: Task<Void, Never>?

@@ -166,6 +166,7 @@ struct RoutePage: View {
         case .message(let title, let e): MessageView(title: title, exchange: e)
         case .picker: ResponderPickerView()
         case .sessions: SessionsView()
+        case .notes: NotesView(notes: model.notes)
         case .session(let s): SessionDetailView(session: s)
         case .automations: AutomationsView()
         case .settings: SettingsView()

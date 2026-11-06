@@ -42,6 +42,9 @@ struct HomeBrowser: View {
                     badge: nil, badgeColor: Theme.amber, count: unseenCount, countLabel: "new", total: model.automations.count,
                     loading: !model.automationsLoaded)
             }.buttonStyle(.tap).accessibilityIdentifier("home.automations")
+            NavigationLink(value: Route.notes) {
+                row("Notes", symbol: "note.text", detail: "Capture a thought", badge: nil, badgeColor: Theme.cyan)
+            }.buttonStyle(.tap).accessibilityIdentifier("home.notes")
                 .id("bottom")
         }.padding(.horizontal, 10)
     }
