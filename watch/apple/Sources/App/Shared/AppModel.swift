@@ -421,7 +421,7 @@ final class AppModel: ObservableObject {
             } else { closeSettings() }
             return
         }
-        guard let top = path.last else { homeBrowsing = true; return }
+        guard let top = path.last else { if !homeBrowsing { showFreshHome() }; return }
         if let g = backGuard, g.route == top { g.ask(); return }
         path.removeLast()
     }
@@ -1325,6 +1325,14 @@ final class AppModel: ObservableObject {
 
     /// Selecting a session replaces Home's content; it never adds another orb page.
     func openOrb() { path = [.ask(.idle)] }
+
+    /// Home always means a new topic. Existing conversations remain in Sessions; an automation
+    /// selection must not leak into the next tap on the home orb.
+    func showFreshHome() {
+        newAskSession()
+        openOrb()
+        homeBrowsing = true
+    }
 
     /// Make one fresh draft at launch, retaining its tools while browsing or visiting Settings.
     func prepareHomeConversation() {

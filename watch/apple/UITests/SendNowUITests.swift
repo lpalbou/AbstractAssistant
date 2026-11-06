@@ -36,9 +36,15 @@ final class DirectHomeConversationUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Type or dictate"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.buttons["Type or dictate"].frame.minY, keyboard.minY, accuracy: 1)
         let browse = app.buttons["home.browse"]
-        app.bring(browse); browse.tap()
+        app.bring(browse)
+        XCTAssertEqual(browse.label, "Discuss something else")
+        browse.tap()
         XCTAssertTrue(app.buttons["home.sessions"].waitForExistence(timeout: 5))
-        XCTAssertEqual(app.staticTexts["debug.home"].label, identity)
+        let fresh = app.staticTexts["debug.home"].label.components(separatedBy: "|")
+        XCTAssertEqual(fresh.first, identity.components(separatedBy: "|").first)
+        XCTAssertNotEqual(fresh[1], identity.components(separatedBy: "|")[1])
+        XCTAssertFalse(app.buttons["home.new"].exists)
+        XCTAssertFalse(app.buttons["home.conversation"].exists)
         capture("home-browser-in-place")
     }
 
@@ -63,9 +69,9 @@ final class DirectHomeConversationUITests: XCTestCase {
         XCTAssertTrue(app.buttons["ask.tools"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.buttons["ask.tools"].label, "Tools, changed for this conversation")
         let browse = app.buttons["home.browse"]
-        app.bring(browse); browse.tap()
-        let fresh = app.buttons["home.new"]
-        app.bring(fresh); fresh.tap()
+        app.bring(browse)
+        XCTAssertEqual(browse.label, "Discuss something else")
+        browse.tap()
         XCTAssertTrue(app.buttons["ask.tools"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.buttons["ask.tools"].label, "Tools", "New conversation must use the defaults")
     }
@@ -81,12 +87,6 @@ final class DirectHomeConversationUITests: XCTestCase {
         XCTAssertFalse(app.buttons["home.sessions"].exists)
         let prompt = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Hello from Home'")).firstMatch
         XCTAssertTrue(prompt.waitForExistence(timeout: 15), app.debugDescription)
-        XCTAssertEqual(app.staticTexts["debug.home"].label, identity)
-        let browse = app.buttons["home.browse"]
-        app.bring(browse); browse.tap()
-        let resume = app.buttons["home.conversation"]
-        XCTAssertTrue(resume.waitForExistence(timeout: 5)); app.bring(resume); resume.tap()
-        XCTAssertTrue(prompt.exists)
         XCTAssertEqual(app.staticTexts["debug.home"].label, identity)
         // Detail pages may restart SwiftUI tasks; they must not reset the root conversation.
         let tools = app.buttons["ask.tools"]
@@ -127,10 +127,15 @@ final class DirectHomeConversationUITests: XCTestCase {
         capture("loaded-conversation-history")
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] 'assay QC'")).firstMatch.exists)
         let browse = app.buttons["home.browse"]
-        app.bring(browse); browse.tap()
+        app.bring(browse)
+        XCTAssertEqual(browse.label, "Discuss something else")
+        browse.tap()
         capture("session-browser")
-        let resume = app.buttons["home.conversation"]
-        app.bring(resume); resume.tap()
+        XCTAssertFalse(app.buttons["home.conversation"].exists)
+        XCTAssertFalse(app.buttons["home.new"].exists)
+        app.bring(sessions); sessions.tap()
+        app.bring(row); row.tap()
+        XCTAssertTrue(app.buttons["voice.button"].waitForExistence(timeout: 20))
         XCTAssertEqual(app.staticTexts["debug.home"].label, identity)
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] 'assay QC'")).firstMatch.exists)
     }
@@ -174,11 +179,11 @@ final class SendNowUITests: XCTestCase {
     }
 }
 
-/// Starting fresh is explicit; browsing alone keeps the current conversation.
+/// Discuss something else returns to a fresh home draft in the same root view.
 final class HomeOrbNewConversationUITests: XCTestCase {
     func testNewConversationClearsThePreviousSessionInPlace() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["--mock", "--no-notification-prompt", "--test-public-history", "--test-home-identity", "-ask.conversation", "NO"]
+        app.launchArguments = ["--mock", "--silent-mic", "--no-notification-prompt", "--test-public-history", "--test-home-identity", "-ask.conversation", "NO"]
         app.launch()
         XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 15))
         // Continue a conversation with messages, then back Home.
@@ -192,9 +197,12 @@ final class HomeOrbNewConversationUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "assay QC")).firstMatch.waitForExistence(timeout: 10))
         let previous = app.staticTexts["debug.home"].label.components(separatedBy: "|")
         let browse = app.buttons["home.browse"]
-        app.bring(browse); browse.tap()
-        let fresh = app.buttons["home.new"]
-        app.bring(fresh); fresh.tap()
+        app.bring(browse)
+        XCTAssertEqual(browse.label, "Discuss something else")
+        browse.tap()
+        XCTAssertFalse(app.buttons["home.new"].exists)
+        XCTAssertFalse(app.buttons["home.conversation"].exists)
+        XCTAssertTrue(app.buttons["home.sessions"].exists)
         let current = app.staticTexts["debug.home"].label.components(separatedBy: "|")
         XCTAssertEqual(previous.first, current.first, "New must keep the same root view")
         XCTAssertNotEqual(previous[1], current[1], "New must use a new session")
@@ -203,6 +211,10 @@ final class HomeOrbNewConversationUITests: XCTestCase {
         sleep(2)
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "assay QC")).firstMatch.exists, "Home's orb reopened the earlier conversation")
         XCTAssertFalse(app.buttons["voice.button"].exists, "an answer to read: not a new conversation")
+        let orb = app.buttons["home.orb"]
+        app.bring(orb); orb.tap()
+        XCTAssertTrue(app.buttons["ask.stop"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["debug.home"].label.components(separatedBy: "|")[1], current[1])
     }
 }
 
@@ -316,5 +328,40 @@ final class KeptQuestionUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["ask.status"].waitForExistence(timeout: 20))
         sleep(2)
         XCTAssertFalse(app.buttons["ask.retry"].exists, "a discarded recording came back after a relaunch")
+    }
+}
+
+/// Leaving an automation must make the home orb a normal, fresh conversation.
+final class FreshHomeFromAutomationUITests: XCTestCase {
+    func testDiscussSomethingElseLeavesAutomationContext() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--silent-mic", "--screen", "automation", "--test-home-identity", "-ask.conversation", "NO", "-ask.speak", "NO"]
+        app.launch()
+        XCTAssertTrue(app.buttons["ask.info"].waitForExistence(timeout: 15))
+        let old = app.staticTexts["debug.home"].label.components(separatedBy: "|")
+        let link = app.buttons["home.browse"]
+        app.bring(link)
+        XCTAssertEqual(link.label, "Discuss something else")
+        capture("conversation-discuss-something-else")
+        link.tap()
+        XCTAssertTrue(app.buttons["ask.tools"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["ask.info"].exists)
+        XCTAssertFalse(app.staticTexts["ask.automation"].exists)
+        XCTAssertFalse(app.buttons["home.new"].exists)
+        XCTAssertFalse(app.buttons["home.conversation"].exists)
+        XCTAssertFalse(app.buttons["home.browse"].exists)
+        let fresh = app.staticTexts["debug.home"].label.components(separatedBy: "|")
+        XCTAssertEqual(old.first, fresh.first)
+        XCTAssertNotEqual(old[1], fresh[1])
+        capture("fresh-home-orb")
+        app.bring(app.buttons["home.sessions"])
+        capture("fresh-home-lists")
+        app.bring(app.buttons["home.orb"]); app.buttons["home.orb"].tap()
+        XCTAssertTrue(app.buttons["ask.stop"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["debug.home"].label.components(separatedBy: "|")[1], fresh[1])
+    }
+    private func capture(_ name: String) {
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
     }
 }

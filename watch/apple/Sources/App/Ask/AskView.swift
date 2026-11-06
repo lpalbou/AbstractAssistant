@@ -179,30 +179,13 @@ struct AskView: View {
                         .id("orb")
                         VStack(spacing: 8) {
                             if model.homeBrowsing {
-                                if hasBelow || busy || automationFeed != nil {
-                                    Button("Return to conversation") {
-                                        model.homeBrowsing = false
-                                        withAnimation { proxy.scrollTo("home.lower", anchor: .top) }
-                                    }
-                                        .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.cyan)
-                                        .buttonStyle(.tap).accessibilityIdentifier("home.conversation")
-                                }
-                                Button {
-                                    model.newAskSession()
-                                    model.openOrb()
-                                } label: { Label("New conversation", systemImage: "plus") }
-                                    .font(.rounded(.footnote)).foregroundStyle(Theme.text2)
-                                    .buttonStyle(.tap).accessibilityIdentifier("home.new")
                                 HomeBrowser()
                             } else {
-                                Button {
-                                    model.homeBrowsing = true
-                                    withAnimation { proxy.scrollTo("home.lower", anchor: .top) }
-                                } label: {
-                                    Label("Sessions & Automations", systemImage: "square.grid.2x2")
-                                        .font(.rounded(.caption2, weight: .semibold)).foregroundStyle(Theme.text2)
-                                        .lineLimit(1).frame(maxWidth: .infinity, minHeight: 36).contentShape(Rectangle())
+                                Button("Discuss something else") {
+                                    model.showFreshHome()
                                 }
+                                    .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.cyan)
+                                    .frame(maxWidth: .infinity, minHeight: 36).contentShape(Rectangle())
                                     .buttonStyle(.tap).accessibilityIdentifier("home.browse")
                                 below
                             }
@@ -1415,8 +1398,8 @@ struct AskView: View {
         phase = .idle
     }
 
-    /// A load changes the conversation in this same view. Browsing never runs this task,
-    /// so the orb, microphone, speech and current turn retain their identity.
+    /// A selection changes the conversation in this same view. Returning to the main screen
+    /// prepares a fresh draft; visiting Settings or tools retains the current conversation.
     private var homeSelectionKey: String { "\(model.recordingConnectionKey)#\(model.homeRevision)" }
 
     private func loadHomeSelection() async {

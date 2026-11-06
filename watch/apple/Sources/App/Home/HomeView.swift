@@ -18,7 +18,7 @@ struct HomeView: View {
     }
 }
 
-/// The browser replaces only the content below the orb, never the conversation itself.
+/// Sessions and automations below the home orb, ready to start a fresh conversation.
 struct HomeBrowser: View {
     @EnvironmentObject private var model: AppModel
     var body: some View {
