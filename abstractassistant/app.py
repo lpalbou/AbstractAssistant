@@ -11560,6 +11560,7 @@ class AssistantPalette(QMainWindow):
             on_state=self._on_voice_state,
             on_level=self.speech_level_received.emit,
             auto_send=bool(getattr(prefs, "voice_auto_send", True)),
+            schedule=lambda delay, fn: QTimer.singleShot(int(delay * 1000), fn),
         )
         self._voice_conversation = conversation
         self._voice_conversation_active = True

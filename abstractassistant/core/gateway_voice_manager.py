@@ -506,7 +506,8 @@ class GatewayVoiceManager:
         `UtteranceEndpoint`; when the utterance is over (about one second of
         silence after speech, nothing said in time, or the longest turn) the
         callback fires ONCE, from the audio thread, with the reason. Later
-        frames are not kept. The caller then ends the recording with
+        frames are not kept. The limits are wall-clock: ``poll_hold_endpoint``
+        ends a turn whose microphone stopped delivering frames. The caller then ends the recording with
         ``end_hold`` (``hold_heard_speech()`` says whether anything was said)
         or drops it with ``cancel_hold``.
         """
@@ -594,6 +595,15 @@ class GatewayVoiceManager:
 
     def is_holding(self) -> bool:
         return self._hold_stream is not None
+
+    def poll_hold_endpoint(self) -> Optional[str]:
+        """Check the one-turn recording's wall-clock limits now (frames or not).
+        Returns the end reason when THIS call ends it (the ``on_utterance_end``
+        callback does not fire for it), None otherwise."""
+        endpoint = getattr(self, "_hold_endpoint", None)
+        if self._hold_stream is None or endpoint is None:
+            return None
+        return endpoint.poll()
 
     def hold_heard_speech(self) -> bool:
         """The one-turn recording (``on_utterance_end``) has heard speech: ending

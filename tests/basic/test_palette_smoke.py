@@ -81,6 +81,11 @@ class _Voice:
     def hold_heard_speech(self) -> bool:
         return self.listening and self.heard
 
+    stalled_reason = None
+
+    def poll_hold_endpoint(self):
+        return self.stalled_reason if self.listening else None
+
     def end_hold(self, **kwargs) -> bool:
         self.listening = False
         self.transcribe_kwargs = kwargs

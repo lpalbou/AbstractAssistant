@@ -292,3 +292,20 @@ def test_escape_after_the_words_were_sent_ends_the_turn_not_the_run(orb_palette)
     changelog = (root / "CHANGELOG.md").read_text()
     section = changelog[changelog.index("## [0.18.2]"):changelog.index("## [0.18.1]")]
     assert "Esc while it\n  listens cancels the question" in section
+
+
+@pytest.mark.basic
+def test_the_palette_ends_a_turn_whose_microphone_delivers_nothing(orb_palette):
+    """Review A6: no frame, no endpoint callback: the palette's timer still ends the turn."""
+    import time as _time
+
+    window, controller = orb_palette
+    voice = controller.voice_manager
+    window._start_voice_conversation()
+    voice.stalled_reason = "no_speech"  # what the wall-clock limit says after 5 s
+    deadline = _time.time() + 3.0
+    while window._voice_conversation_active and _time.time() < deadline:
+        _SMOKE["_app"]().processEvents()
+        _time.sleep(0.02)
+    assert not window._voice_conversation_active and not voice.listening
+    assert window.title_label.text() == "I didn't hear anything"

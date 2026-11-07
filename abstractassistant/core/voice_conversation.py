@@ -81,12 +81,18 @@ class VoiceConversation:
         on_state: Optional[Callable[[str], None]] = None,
         on_level: Optional[Callable[[float], None]] = None,
         auto_send: bool = True,
+        schedule: Optional[Callable[[float, Callable[[], None]], None]] = None,
+        poll_s: float = 0.25,
     ) -> None:
         self._voice = voice_manager
         self._on_send = on_send
         self._on_state = on_state
         self._on_level = on_level
         self.auto_send = bool(auto_send)
+        # A timer (QTimer in the app, a manual scheduler in tests) that checks the
+        # recording's wall-clock limits while listening, frames or not.
+        self._schedule = schedule
+        self._poll_s = max(0.05, float(poll_s))
         self.state = "off"
         self.error = ""
         self.outcome = ""
@@ -155,7 +161,22 @@ class VoiceConversation:
             self._set_state("error", error="the microphone did not start")
             return False
         self._set_state("listening")
+        self._arm_watch()
         return True
+
+    def _arm_watch(self) -> None:
+        if self._schedule is not None:
+            self._schedule(self._poll_s, self._watch)
+
+    def _watch(self) -> None:
+        """While listening: end the turn when a wall-clock limit is reached, even
+        if the microphone stopped delivering frames (a stalled or lost device)."""
+        if self.state != "listening":
+            return
+        if self._call("poll_hold_endpoint"):
+            self.finish_listening()
+            return
+        self._arm_watch()
 
     def detach(self) -> None:
         """Drop the UI callbacks (the palette is tearing the turn down and

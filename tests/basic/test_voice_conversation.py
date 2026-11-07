@@ -269,3 +269,32 @@ def test_spoken_style_prompt_forbids_markup_and_asks_for_brevity() -> None:
     assert "markdown" in text
     assert "short" in text or "brief" in text
     assert "voice mode" in text  # the "do not mention" rule
+
+
+@pytest.mark.basic
+def test_a_silent_or_stalled_microphone_still_ends_the_turn() -> None:
+    """Review A6: the turn polls the recording's wall-clock limits on a timer, so a
+    microphone that delivers no frames (no endpoint callback ever) still ends it."""
+    jobs: list = []
+    voice = _Voice()
+    reasons = [None, None, "no_speech"]
+    voice.poll_hold_endpoint = lambda: reasons.pop(0) if reasons else None
+    conv = VoiceConversation(voice_manager=voice, on_send=lambda t: None,
+                             schedule=lambda delay, fn: jobs.append((delay, fn)))
+    _start(conv)
+    assert len(jobs) == 1 and jobs[0][0] <= 0.5
+    for _ in range(3):
+        _delay, fn = jobs.pop(0)
+        fn()
+    assert conv.state == "off" and conv.outcome == "nothing_heard"
+    assert jobs == []  # the watch stops with the turn
+
+    jobs.clear()
+    voice2 = _Voice()
+    voice2.heard = True
+    voice2.poll_hold_endpoint = lambda: "silence"
+    conv2 = VoiceConversation(voice_manager=voice2, on_send=lambda t: None,
+                              schedule=lambda delay, fn: jobs.append((delay, fn)))
+    _start(conv2)
+    jobs.pop(0)[1]()
+    assert conv2.state == "transcribing" and "end_hold" in voice2.calls
