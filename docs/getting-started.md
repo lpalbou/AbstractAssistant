@@ -136,8 +136,9 @@ The full reference is [settings.md](settings.md).
 
 ## 7. Voice
 
-Click a reply's speaker button to hear it, use the microphone button to dictate, or press ⌘⇧V for
-a hands-free conversation. Details and failure handling are in [voice.md](voice.md).
+Click a reply's speaker button to hear it. The orb beside the composer is the voice control: click
+it (or press ⌘⇧V) for a hands-free conversation, or right-click it to dictate into the message box.
+Details and failure handling are in [voice.md](voice.md).
 
 ## 8. Files and workspace
 

@@ -146,12 +146,13 @@ while the gateway is unreachable, the stream resumes where it stopped once it is
 The gateway has turned that tool off (the reason it serves follows the colon); the assistant cannot
 enable it. Ask the gateway operator.
 
-## The microphone button is disabled
+## Voice conversation or dictation is unavailable
 
 The gateway is not advertising a speech-input route, or local capture is unavailable. Install the
 `voice` extra (`pip install "abstractassistant[voice]"`) and allow microphone access in macOS:
-System Settings → Privacy & Security → Microphone → your Python or the app bundle. The button's
-tooltip names the missing side.
+System Settings → Privacy & Security → Microphone → your Python or the app bundle. A click on the
+orb shows a banner naming the missing side, and the unavailable choices in its right-click menu
+are greyed out.
 
 ## The voice conversation stops with "Microphone unavailable"
 
@@ -162,9 +163,9 @@ exclusively. Start the conversation again with ⌘⇧V.
 ## Replies are spoken but I hear nothing
 
 Playback uses the device chosen in Settings → Voice → Output device, or the Mac's default output
-when that is `System default` or the chosen device is not connected. The notice shown when speech
-starts names the device and the system volume; a headset or a muted or very low output is the
-usual cause. Use **Test** next to Output device to check the device.
+when that is `System default` or the chosen device is not connected. A notice appears when speech
+starts on a muted or very low output; a headset or a muted or very low output is the usual
+cause. Use **Test** next to Output device to check the device.
 
 ## A spoken reply fails with a banner
 

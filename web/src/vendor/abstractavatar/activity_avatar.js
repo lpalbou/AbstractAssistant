@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { AvatarRenderer, avatarGazeTarget, avatarPaletteFromCss } from "./avatar_renderer.js";
 import { avatarFrameInterval, avatarResolution } from "./avatar_quality.js";
 /** Presentation only; a host can wrap this in its own accessible activation control. */
-export function ActivityAvatar({ design = "halo", pose = "ready", level = 0, bands, size = 128, quality = "balanced", animated = true, active = true, followCursor = false, palette, className, label, onError }) {
+export function ActivityAvatar({ design = "watch-hover", pose = "ready", level = 0, bands, size = 128, quality = "balanced", animated = true, active = true, followCursor = false, palette, className, label, onError }) {
     const canvas = useRef(null), latest = useRef({ design, pose, level, bands });
     latest.current = { design, pose, level, bands };
     const [error, setError] = useState(false), errorHandler = useRef(onError);

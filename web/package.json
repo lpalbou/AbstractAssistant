@@ -1,6 +1,6 @@
 {
   "name": "@abstractframework/assistant",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "AbstractAssistant for the web: chat or talk with the Assistant in a browser, with live answers, approvals, dictation and read aloud. A thin client of AbstractGateway, served at /apps/assistant-web/.",
   "keywords": [
     "abstractframework",
