@@ -5,6 +5,38 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+## [0.18.2] - 2026-11-07
+
+A press of the orb now asks one question by voice and then stops listening, like the Apple Watch
+app. The orb stays readable over any window, and a failed run says why in plain words.
+
+### Changed
+
+- **One question per press.** Click the orb (or press ⌘⇧V) and speak: about one second of silence
+  ends your question, it is sent, the reply is read aloud, and the microphone stays closed until
+  your next press. Before, the voice conversation listened again after every reply, so a quiet room
+  could be turned into messages such as "Thank you." that were sent on their own. Click the orb
+  while it listens to send what you said right away; if you have not spoken yet, or say nothing for
+  about five seconds, nothing is sent and the orb says "I didn't hear anything". Esc ends a
+  question without sending it.
+- **Simpler voice menu and settings.** The orb's right-click menu no longer has a **Microphone**
+  item, and Settings → Voice no longer has the **Barge-in** choice: the microphone is closed while
+  a reply is read, so there is nothing to pause or keep open. **Voice conversation (⌘⇧V)** is ticked
+  while a question is in progress and unticks by itself when it is over. Your other voice settings
+  are unchanged.
+- **The orb is readable on any background.** It sits on its own slightly transparent panel in your
+  theme's colour, so the orb and its "Listening", "Thinking" or "Speaking" label stay clear over a
+  white web page as well as over a dark desktop.
+
+### Fixed
+
+- **A failed run says why.** Instead of only "The run failed before it wrote a reply.", the
+  conversation names the cause and what to do when the Assistant recognises it. For example, when
+  the chosen chat model cannot use the MTP speed-up selected in Settings → Models: "This model
+  can't use the MTP speed-up (speculative decoding) chosen in Settings. In Settings → Models, set
+  MTP depth to Off or Gateway default, or choose a model that supports it." For any other cause,
+  hover over the line to read what the gateway reported.
+
 ## [0.18.1] - 2026-11-07
 
 The desktop voice control moves into the composer: the animated orb beside the message box starts

@@ -67,12 +67,11 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 
 ## What's new
 
-0.18.1 moves the voice control into the composer: the animated orb beside the message box starts
-and ends a voice conversation and shows whether the assistant is listening, thinking or speaking.
-Read aloud recovers by itself after a failed check and reads folder paths and the signs ≥, ≤ and ≠ as words. On
-Apple Watch, Home is the conversation screen and captures Notes, and Watch and iPhone can keep their
-sign-in when you disconnect (next TestFlight build). See the
-[0.18.1 release notes](CHANGELOG.md#0181---2026-11-07).
+0.18.2 makes a press of the orb one question by voice: it listens until you pause, sends what you
+said, reads the reply aloud, then stops listening until your next press. The orb sits on its own
+slightly transparent panel so it stays readable over any window, and a failed run now says why in
+plain words, with what to do. See the
+[0.18.2 release notes](CHANGELOG.md#0182---2026-11-07).
 
 0.18.0 ships the activity avatar with every install, folds paused automations under "Paused · N" and archived ones under "Archived · N" in
 the switcher, and the activity avatar looks toward the pointer only when its design has eyes. The

@@ -83,7 +83,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 
 ## Topic Deep Dives
 - [docs/settings.md](docs/settings.md): every setting (the Workflow page with Open in AbstractFlow and the account Time zone, Stream replies, MTP depth, the account and chat workspaces, tool categories sorted and collapsed, the global shortcut's Accessibility state and Configure, appearance, About), its source (gateway default vs. this app) and its storage in preferences.json
-- [docs/voice.md](docs/voice.md): spoken replies, dictation, the hands-free conversation loop and its failure handling
+- [docs/voice.md](docs/voice.md): spoken replies, dictation, voice questions (one per press of the orb) and their failure handling
 - [docs/automations.md](docs/automations.md): configurable growing-context budgets and result email; scheduled tasks on the gateway as the Assistant shows them: the Conversations | Automations tabs, New automation and Schedule this conversation (Gateway default first; When = Repeat / Daily / Weekly / Monthly / Once at / email, the gateway's schedule-preview sentence and the account time-zone line; stop after / stop at), served schedule and next run, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications from your event stream (the attention badge, the menu-bar badge, one notification per item on a Mac), the capability gate, limits
 
 - [phone/iphone/README.md](phone/iphone/README.md): AbstractAssistant for iPhone (0.17.0), the container of the watch app (one product, two independent devices: each signs in on its own, the sign-in a Keychain item shared with that device's notification extension; Apple push with notification service extensions, [phone/iphone/BUILD.md](phone/iphone/BUILD.md) lists the five targets and bundle ids), native iPhone assistant, scoped tools and automations, notifications and tab badges from your event stream, generated images and voice attached to restored messages, long answers read aloud in pieces that resume from where the sound stopped and go on with the iPhone locked; [phone/iphone/CHANGELOG.md](phone/iphone/CHANGELOG.md) records native release history; [phone/iphone/docs/architecture.md](phone/iphone/docs/architecture.md) covers authenticated artifact previews, session restoration and reading aloud (pieces, retry, background audio, Now Playing); [phone/iphone/BUILD.md](phone/iphone/BUILD.md) covers isolated builds; [phone/iphone/docs/distribution.md](phone/iphone/docs/distribution.md) explains combined iPhone + independent Watch delivery in one Store listing, credential-free CI, human-approved uploads and TestFlight-to-Store promotion
@@ -114,7 +114,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 # AbstractAssistant
 
 AbstractAssistant is a gateway-native desktop assistant for the AbstractFramework ecosystem: a
-macOS menu-bar app with a compact palette, a hands-free voice conversation mode, and a small CLI.
+macOS menu-bar app with a compact palette, voice questions from one press of the orb, and a small CLI.
 
 The desktop client stays thin. AbstractGateway owns workflow discovery, durable runs, provider
 connections, tool execution and policy, workspace policy, and multimodal defaults. The assistant
@@ -152,9 +152,10 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   the finished answer replaces the live text.
 - Tool approvals in a modeless sheet that shows the gateway's risk tier for each call and never
   blocks the palette; "always allow on this Mac" and per-chat trust for low-risk tools.
-- Voice from the orb beside the composer: click it (or press ⌘⇧V) for a voice conversation —
-  listen, send, speak, listen again — with Listening, Thinking or Speaking shown above it; right-click
-  it to dictate into the message box. Spoken replies stream from the gateway.
+- Voice from the orb beside the composer: click it (or press ⌘⇧V) to ask one question by voice —
+  it listens until you pause, sends, reads the reply aloud, then stops — with Listening, Thinking or
+  Speaking shown above it; right-click it to dictate into the message box. Spoken replies stream
+  from the gateway.
 - A Settings window with seven sections: Connection, Models & reasoning (workflow, reasoning
   effort, reply streaming), Voice, Workspace (my default workspaces, this chat), Tools & permissions,
   Appearance & window, About. Every value says whether it is the gateway default or this app's
@@ -179,12 +180,11 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 
 ## What's new
 
-0.18.1 moves the voice control into the composer: the animated orb beside the message box starts
-and ends a voice conversation and shows whether the assistant is listening, thinking or speaking.
-Read aloud recovers by itself after a failed check and reads folder paths and the signs ≥, ≤ and ≠ as words. On
-Apple Watch, Home is the conversation screen and captures Notes, and Watch and iPhone can keep their
-sign-in when you disconnect (next TestFlight build). See the
-[0.18.1 release notes](CHANGELOG.md#0181---2026-11-07).
+0.18.2 makes a press of the orb one question by voice: it listens until you pause, sends what you
+said, reads the reply aloud, then stops listening until your next press. The orb sits on its own
+slightly transparent panel so it stays readable over any window, and a failed run now says why in
+plain words, with what to do. See the
+[0.18.2 release notes](CHANGELOG.md#0182---2026-11-07).
 
 0.18.0 ships the activity avatar with every install, folds paused automations under "Paused · N" and archived ones under "Archived · N" in
 the switcher, and the activity avatar looks toward the pointer only when its design has eyes. The
@@ -326,7 +326,7 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 ## Topic deep dives
 
 - [settings.md](settings.md) — every setting, where its value comes from (gateway default vs. this app) and where it is stored, including the workflow choice, Stream replies, appearance and About
-- [voice.md](voice.md) — speaking replies, dictation, and the hands-free voice conversation loop
+- [voice.md](voice.md) — speaking replies, dictation, and voice questions (one question per press of the orb)
 - [automations.md](automations.md) — scheduled tasks on the gateway: the Conversations | Automations tabs, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and your event stream (the attention badge, the menu-bar badge, one notification per item on a Mac), the capability gate, offline behavior, limits
 - [macos-signing.md](macos-signing.md) — signing and notarizing the macOS app bundle (`build-macos-app --sign`, `--notarize`, `--dmg`, `--local-test`): one-time Apple setup, credentials, verification and the failures you can meet
 
@@ -612,7 +612,8 @@ The full reference is [settings.md](settings.md).
 ## 7. Voice
 
 Click a reply's speaker button to hear it. The orb beside the composer is the voice control: click
-it (or press ⌘⇧V) for a hands-free conversation, or right-click it to dictate into the message box.
+it (or press ⌘⇧V) to ask one question by voice — it listens until you pause, sends, reads the reply
+aloud, then stops — or right-click it to dictate into the message box.
 Details and failure handling are in [voice.md](voice.md).
 
 ## 8. Files and workspace
@@ -775,12 +776,13 @@ gateway did not serve a time zone (needs gateway ≥ the round-16 build)."
 | Output device | Which speaker replies play on. A list of the devices this Mac can play to, rebuilt each time it is opened, with `System default` first; `Test` plays a tone on the selected one. AirPlay targets are not offered to apps by macOS — pick them in the Sound menu and leave this on `System default` | this app `audio_output_device` (a CoreAudio UID) |
 | Speak replies automatically | Switch: auto-speak final answers (also the speaker toggle in the header); applies at once | this app `auto_speak` |
 | Voice latency | Balanced / Faster / Higher quality, applied only when the gateway advertises the TTS quality control | this app `voice_quality` |
-| Send what you say automatically | Switch, conversation mode: send what you say as a turn; off, words land in the message box; applies at once | this app `voice_auto_send` |
-| Ask for short, spoken-style replies | Switch: adds a voice-style instruction to each request while a conversation runs; applies at once | this app `voice_spoken_replies` |
-| Barge-in | A list: pause the mic while the assistant speaks (speakers) or keep it open so "stop" interrupts (headphones) | this app `voice_mode` (`wait` / `full`) |
+| Send what you say automatically | Switch, voice questions: send what you say as soon as it is transcribed; off, words land in the message box; applies at once | this app `voice_auto_send` |
+| Ask for short, spoken-style replies | Switch: adds a voice-style instruction to each voice question; applies at once | this app `voice_spoken_replies` |
 
 The speech engines are not on this page: they are chosen in one place, Models → Voice output
-(TTS) / Voice input (STT). See [voice.md](voice.md) for how the conversation loop behaves.
+(TTS) / Voice input (STT). See [voice.md](voice.md) for how a voice question behaves. (Earlier
+versions had a Barge-in choice; a voice question closes the microphone once you have spoken, so
+there is nothing left to choose. A saved `voice_mode` value is kept and ignored.)
 
 ## Workspace
 
@@ -909,19 +911,19 @@ file (they live in the gateway). Each session's cached `session.json` may also c
 # Voice
 
 Microphone capture and audio playback happen on your Mac; speech-to-text and text-to-speech run
-on the gateway. The assistant offers three voice features: reading replies aloud, dictation and a
-hands-free voice conversation. Dictation and conversations need the `voice` extra for microphone
+on the gateway. The assistant offers three voice features: reading replies aloud, dictation and
+voice questions (the voice conversation: one question per press of the orb). Dictation and voice questions need the `voice` extra for microphone
 capture (`pip install "abstractassistant[voice]"`), and each feature needs a gateway that
 advertises the matching voice route.
 
 The voice control is the orb beside the composer: your activity avatar when it is turned on in
 Settings → Appearance, a simple sound icon otherwise. "Listening", "Thinking" or "Speaking" appears
-above it while that is happening; it shows nothing when idle. Click it to start or end a voice
-conversation; click it while a reply is being read to stop reading. Right-click it for the other
-choices, each ticked while it is on: **Voice conversation (⌘⇧V)**; **Microphone** (during a
-conversation: ticked while it listens; untick it to pause listening and tick it to listen again.
-While the assistant works or speaks, the microphone is closed and the item is greyed out with the
-reason); **Dictate into the message box**; and **Read new replies aloud**.
+above it while that is happening; it shows nothing when idle. The orb sits on its own slightly
+transparent panel, so it and its label stay readable over any window behind the palette. Click it
+to ask a question by voice; click it while it listens to send what you said straight away; click it
+while a reply is being read to stop reading. Right-click it for the other choices, each ticked while
+it is on: **Voice conversation (⌘⇧V)** (ticked while a voice question is in progress);
+**Dictate into the message box**; and **Read new replies aloud**.
 
 Speech uses the gateway's default engines (its **Text To Speech** and **Speech To Text** routes,
 `output.voice` and `input.voice`) unless you choose another provider and model for this app under
@@ -966,59 +968,55 @@ silence the gateway transcribes what you said and adds it to the message box, wh
 and press Return to send. Click the orb again, press Esc or untick **Dictate into the message box** to
 stop listening.
 
-## Voice conversation (hands-free)
+## Voice conversation: one question per press
 
 Start with a click on the orb, ⌘⇧V, **Voice conversation** in the orb's right-click menu, or the
-tray menu. The loop:
+tray menu. Each press is one question, like the orb of the Apple Watch app:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> starting: ⌘⇧V
-    starting --> listening: microphone open
-    starting --> error: microphone or gateway STT unavailable
-    listening --> heard: utterance transcribed
-    heard --> thinking: sent as a turn (after a short debounce)
-    thinking --> speaking: final reply
-    thinking --> listening: no spoken reply / run stopped / run failed
-    speaking --> listening: playback finished, failed, or interrupted
-    listening --> paused: Microphone unticked
-    paused --> listening: Microphone ticked
-    listening --> [*]: end (orb, ⌘⇧V, Esc, or the header speaker toggle)
+    [*] --> listening: press (orb, ⌘⇧V, menu)
+    listening --> sending: about one second of silence after you speak, or a press
+    listening --> [*]: nothing said, a press before you speak, or Esc
+    sending --> thinking: your words are sent
+    sending --> [*]: transcription failed (the recording is kept)
+    thinking --> speaking: the reply
+    thinking --> [*]: no spoken reply, run stopped or failed
+    speaking --> [*]: the reply has been spoken (or stopped)
 ```
 
-What you see: the orb shows "Listening", "Thinking" or "Speaking" above it and moves with your
-microphone level and with the reply's sound. To pause listening, untick **Microphone** in its right-click menu; the
-composer's Stop button stops a run. The header title mirrors the state. An unfinished draft in the
-message box is kept: the conversation does not send it or replace it. What you say while a draft
-is open is added to it, and the conversation stops sending on its own until it ends; a notice says
-so, and Return sends the draft.
+1. **Listening**: speak your question. About one second of silence after you speak ends it. To
+   send right away, click the orb. If you say nothing for about five seconds, or click the orb
+   before speaking, it stops with "I didn't hear anything" and nothing is sent.
+2. **Sending and thinking**: the microphone is closed; the gateway transcribes what you said and it
+   is sent like a typed message.
+3. **Speaking**: the reply is read aloud. Then the orb is idle again; the microphone stays closed
+   until your next press.
+
+Esc ends a question at any point without sending it; during the reply, it stops the reading.
 
 Behavior details:
 
-- **Auto-send** (default on): each utterance becomes a turn after about one second of silence;
-  closely spaced utterances are merged. With auto-send off, words land in the message box and Return sends them.
-- **While the assistant works**, speech is not transcribed (the microphone is paused) so side
-  conversation never steers the run. Speech that arrives between the reply and the next listen is
-  kept for the next turn.
-- **Spoken-style replies** (default on): each request carries an instruction to answer briefly, in
-  natural spoken language, without markdown. The workflow's own system prompt is kept in front of
-  it.
-- **Stopping a reply**: a spoken "stop" in barge-in mode returns the loop to listening. Esc or a
-  click on the orb ends the whole conversation. Words heard while the previous run is still
-  closing wait for the next listening window; they are never injected into the closing run.
-- **Barge-in** depends on the Voice setting. "Pause the mic while the assistant speaks" (default,
-  for speakers) never transcribes the assistant's own voice, so the reply cannot be interrupted by
-  speaking; use Esc or the orb to end the conversation. "Keep the mic open" (for headphones) lets a
-  spoken "stop" interrupt the reply.
-- **Questions and approvals** pause the microphone while their window is open and resume it after
-  your decision.
-- **Typing still works** during a conversation; a typed send behaves like a spoken one.
-- Auto-speak is on for the duration of the conversation and returns to your saved preference when
-  it ends.
+- **Auto-send** (default on): what you said is sent as soon as it is transcribed. With auto-send
+  off, the words land in the message box and Return sends them.
+- **An unfinished draft** in the message box is kept: a voice question never sends it or replaces
+  it. What you say is added to the draft, a notice says so, and Return sends it. The same happens
+  while a previous reply is still finishing.
+- **Spoken-style replies** (default on): each voice question carries an instruction to answer
+  briefly, in natural spoken language, without markdown. The workflow's own system prompt is kept
+  in front of it.
+- **Questions and approvals** that appear while the orb is listening end that question without
+  sending it, so nothing said near your screen is sent while you decide.
+- **Typing** a message while the orb listens or speaks ends the voice question; the typed message
+  is sent as usual.
+- If the gateway cannot transcribe what you said, nothing is sent and the recording is kept:
+  **Retry** sends the same recording again, **Discard** forgets it.
+- Replies to a voice question are always read aloud; **Read new replies aloud** keeps its saved
+  setting for typed messages.
 
 Failures name their cause in a banner: a microphone that cannot start (macOS:
 System Settings → Privacy & Security → Microphone), gateway speech input that is unavailable, a
-reply that could not be spoken (the loop resumes listening), or a run that failed.
+reply that could not be spoken, or a run that failed.
 
 ## Audio output
 
@@ -2093,9 +2091,12 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
 - `ui/settings/` — the settings window (sidebar, pages, extracted route editor). The About page
   builds its application rows and its gateway version rows with AbstractCore's framework identity
   helpers (`abstractcore.utils.identity`), so they match every other AbstractFramework About screen.
-- `core/voice_conversation.py`, `ui/avatar.py`, `core/gateway_voice_manager.py` — the
-  hands-free loop, the orb beside the composer that controls it and shows its state
-  (`AvatarVoiceButton`), and the local capture/playback layer over gateway speech routes.
+- `core/voice_conversation.py`, `core/utterance_endpoint.py`, `ui/avatar.py`,
+  `core/gateway_voice_manager.py` — one voice question per press (listen to one utterance, send,
+  speak the reply, stop), the rule that ends an utterance (about one second of silence after
+  speech), the orb beside the composer that controls it and shows its state on its own
+  translucent panel (`AvatarVoiceButton`), and the local capture/playback layer over gateway
+  speech routes.
   The former status strip, `ui/voice_strip.py`, stays in the code but is no longer shown.
 - `gateway/automations.py`, `core/automations.py`, `ui/automations.py` — the Automations API
   client, its Qt-free presentation rules (labels, enabled controls, chat pairs, the create body,
@@ -2339,14 +2340,15 @@ choice cannot run, sending is blocked and the palette says why. See
 ## How does voice work?
 
 Microphone audio is captured locally and played locally; STT and TTS run on the gateway. Replies
-stream progressively when the gateway advertises streaming TTS. A hands-free conversation mode
-(⌘⇧V) listens, sends, speaks and listens again. See [voice.md](voice.md).
+stream progressively when the gateway advertises streaming TTS. A press of the orb (or ⌘⇧V) asks
+one question by voice: it listens until you pause, sends what you said, reads the reply aloud, then
+stops listening. See [voice.md](voice.md).
 
-## Why can't I interrupt the assistant by talking?
+## Why doesn't the orb keep listening after a reply?
 
-With the default barge-in setting the microphone is paused while the assistant speaks, so it
-never transcribes itself through your speakers. Use Esc, the stop button, or switch Barge-in to
-"Keep the mic open" when you use headphones.
+Each press is one question, so nothing near your Mac is ever sent without a press: the microphone
+closes once you have spoken and stays closed while the reply is read. Press the orb again for the
+next question. To cut a reply short, press the orb or Esc.
 
 ## What does the activity card show?
 
@@ -2533,6 +2535,15 @@ The gateway refused to start the run and the palette restored your message. The 
 the gateway's reason. A workspace the gateway no longer allows is one cause: open Settings →
 Workspace and check **This chat** and **My default workspaces** against the **Gateway:** line (or
 switch on **Use my default** / **Follow the gateway policy**). See [settings.md](settings.md#workspace).
+
+## A reply ends with "The run failed…"
+
+The line under the conversation says why the run stopped, in plain words, when the reason is one
+the Assistant recognises, and says what to do. For example, "This model can't use the MTP
+speed-up (speculative decoding) chosen in Settings" means the chat model or provider cannot run
+the MTP depth chosen under Settings → Models: set MTP depth to Off or Gateway default, or choose a
+model that supports it. For any other reason the line reads "The run failed before it wrote a
+reply."; hover over it to read what the gateway reported.
 
 ## The prompt ignores spaces after opening from the menu bar
 
@@ -3315,6 +3326,38 @@ All notable changes to AbstractAssistant are documented in this file. Entries de
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
 ## [Unreleased]
+
+## [0.18.2] - 2026-11-07
+
+A press of the orb now asks one question by voice and then stops listening, like the Apple Watch
+app. The orb stays readable over any window, and a failed run says why in plain words.
+
+### Changed
+
+- **One question per press.** Click the orb (or press ⌘⇧V) and speak: about one second of silence
+  ends your question, it is sent, the reply is read aloud, and the microphone stays closed until
+  your next press. Before, the voice conversation listened again after every reply, so a quiet room
+  could be turned into messages such as "Thank you." that were sent on their own. Click the orb
+  while it listens to send what you said right away; if you have not spoken yet, or say nothing for
+  about five seconds, nothing is sent and the orb says "I didn't hear anything". Esc ends a
+  question without sending it.
+- **Simpler voice menu and settings.** The orb's right-click menu no longer has a **Microphone**
+  item, and Settings → Voice no longer has the **Barge-in** choice: the microphone is closed while
+  a reply is read, so there is nothing to pause or keep open. **Voice conversation (⌘⇧V)** is ticked
+  while a question is in progress and unticks by itself when it is over. Your other voice settings
+  are unchanged.
+- **The orb is readable on any background.** It sits on its own slightly transparent panel in your
+  theme's colour, so the orb and its "Listening", "Thinking" or "Speaking" label stay clear over a
+  white web page as well as over a dark desktop.
+
+### Fixed
+
+- **A failed run says why.** Instead of only "The run failed before it wrote a reply.", the
+  conversation names the cause and what to do when the Assistant recognises it. For example, when
+  the chosen chat model cannot use the MTP speed-up selected in Settings → Models: "This model
+  can't use the MTP speed-up (speculative decoding) chosen in Settings. In Settings → Models, set
+  MTP depth to Off or Gateway default, or choose a model that supports it." For any other cause,
+  hover over the line to read what the gateway reported.
 
 ## [0.18.1] - 2026-11-07
 
@@ -8330,7 +8373,12 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 
 ## [Unreleased]
 
-## [0.1.1] - 2026-11-07
+## [0.1.2] - 2026-11-07
+
+The 0.1.1 contents below, published. The `web-v0.1.1` tag exists but 0.1.1 never reached npm: the
+release workflow passed the package path without `./`, so npm read it as a GitHub repository.
+
+## [0.1.1] - 2026-11-07 (tagged, not published)
 
 Voice in the browser is easier to trust: the avatar says it is speaking only while you can hear
 it, and the Avatar conversation view has one set of voice controls. Built on AbstractUIC ui-kit
@@ -8420,8 +8468,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.18.1"
-description = "A gateway-native macOS menu-bar assistant for AbstractFramework: a compact palette, hands-free voice conversations, automations and a small CLI over AbstractGateway"
+version = "0.18.2"
+description = "A gateway-native macOS menu-bar assistant for AbstractFramework: a compact palette, voice questions, automations and a small CLI over AbstractGateway"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -17464,51 +17512,68 @@ class GatewayWorker(QThread):
             self.error_occurred.emit(str(e))
 
 --- abstractassistant/core/voice_conversation.py ---
-"""Hands-free voice conversation: the listen → send → speak → listen loop.
+"""One voice turn: listen once → send → speak the reply → stop.
 
-This is the Qt-free state machine behind the palette's "Voice conversation"
-mode. It owns no widgets and no threads: the palette marshals recognizer
-callbacks onto the GUI thread and calls the methods below; a `schedule`
-callable (a QTimer wrapper in the app, a manual scheduler in tests) provides
-the short debounce that merges closely spaced utterances into one turn.
+This is the Qt-free state machine behind the orb and the menu's "Voice
+conversation". It owns no widgets and no threads: the palette marshals the
+voice manager's callbacks onto the GUI thread and calls the methods below.
+
+A press is ONE turn, like the Apple Watch's orb (0.18.2; before, the mode was a
+hands-free loop that listened again after every reply, and in a quiet room the
+speech-to-text model turned the silence into "Thank you." four times, each sent
+as a message):
+
+- the microphone records ONE utterance (``GatewayVoiceManager.begin_hold`` with
+  ``on_utterance_end``): about one second of silence after speech ends it;
+  nothing said for a few seconds ends it with nothing sent;
+- pressing the orb while it listens ends the turn now: what was said is sent,
+  and nothing is sent when nothing was said (``finish_listening``);
+- the gateway transcribes the recording, the words are sent like typed text,
+  the reply is spoken, and the turn is over (state ``off``): the microphone is
+  never reopened by itself. The next press starts the next turn.
 
 States (``VoiceConversation.state``):
 
-- ``off``       — not running.
-- ``starting``  — microphone + gateway STT are being brought up.
-- ``listening`` — mic open, waiting for speech.
-- ``heard``     — an utterance was transcribed; more may follow within the
-                  debounce window before it is sent as one prompt.
-- ``thinking``  — the prompt was sent; a run is in flight.
-- ``speaking``  — the reply is being spoken (the microphone is paused by the
-                  voice manager's ``wait`` gate so the assistant never
-                  transcribes itself).
-- ``paused``    — the user muted the microphone without leaving the mode.
-- ``error``     — the loop stopped because something failed; ``error`` says what.
+- ``off``           — no turn (or the turn just ended; ``outcome`` says how).
+- ``starting``      — the microphone is being opened.
+- ``listening``     — the microphone records the one utterance.
+- ``transcribing``  — the microphone is closed; the gateway transcribes.
+- ``thinking``      — the words were sent; a run is in flight.
+- ``speaking``      — the reply is being spoken.
+- ``error``         — the turn stopped because something failed; ``error`` says what.
 
-Everything the palette shows for the mode derives from ``state`` plus the
-``last_transcript`` / ``error`` fields, so the UI can never claim a state the
-loop is not in.
+Everything the palette shows for the turn derives from ``state`` plus the
+``last_transcript`` / ``error`` / ``outcome`` fields, so the UI can never claim a
+state the turn is not in.
 """
 
 from __future__ import annotations
 
-from typing import Callable, List, Optional
+from typing import Callable, Optional
 
 
 VOICE_CONVERSATION_STATES = (
     "off",
     "starting",
     "listening",
-    "heard",
+    "transcribing",
     "thinking",
     "speaking",
-    "paused",
     "error",
 )
 
-# Model guidance while the conversation is on: spoken replies must be short
-# and free of markup, or the TTS reads tables and headings aloud.
+# How a turn ended (``VoiceConversation.outcome`` once the state is ``off``).
+TURN_OUTCOMES = (
+    "answered",       # the reply was spoken, or the run ended with nothing to speak
+    "nothing_heard",  # no speech before the turn ended (silence, or a press)
+    "not_sent",       # the transcription failed: the recording is kept (Retry / Discard)
+    "failed",         # the run failed or could not start
+    "handed_over",    # the words went to the message box instead of being sent
+    "cancelled",      # Esc, the menu, or a press after listening
+)
+
+# Model guidance while a voice turn runs: spoken replies must be short and free
+# of markup, or the TTS reads tables and headings aloud.
 VOICE_CONVERSATION_SYSTEM_PROMPT = (
     "You are in a spoken voice conversation.\n"
     "- Reply as natural spoken conversation, discussion-style.\n"
@@ -17520,7 +17585,7 @@ VOICE_CONVERSATION_SYSTEM_PROMPT = (
 
 
 class VoiceConversation:
-    """The hands-free loop. See the module docstring for the states."""
+    """One voice turn. See the module docstring for the states."""
 
     def __init__(
         self,
@@ -17529,41 +17594,25 @@ class VoiceConversation:
         on_send: Callable[[str], None],
         on_state: Optional[Callable[[str], None]] = None,
         on_level: Optional[Callable[[float], None]] = None,
-        schedule: Optional[Callable[[float, Callable[[], None]], None]] = None,
-        debounce_s: float = 0.8,
         auto_send: bool = True,
-        voice_mode: str = "wait",
     ) -> None:
         self._voice = voice_manager
         self._on_send = on_send
         self._on_state = on_state
         self._on_level = on_level
-        self._schedule = schedule
-        self._debounce_s = max(0.0, float(debounce_s))
         self.auto_send = bool(auto_send)
-        # "wait": the mic pauses while the reply plays (speakers, no barge-in).
-        # "full": the mic stays open so the spoken "stop" interrupts (headphones).
-        self.voice_mode = "full" if str(voice_mode or "").strip().lower() == "full" else "wait"
         self.state = "off"
         self.error = ""
+        self.outcome = ""
         self.last_transcript = ""
         self.turns = 0
-        self._pending: List[str] = []
-        self._queued: List[str] = []
-        self._flush_token = 0
-        self._speak_pending = False
+        self._transcribe_kwargs: dict = {}
 
     # ------------------------------------------------------------------ helpers
 
     @property
     def active(self) -> bool:
         return self.state not in {"off", "error"}
-
-    def pending_text(self) -> str:
-        return " ".join(part for part in self._pending if part).strip()
-
-    def queued_text(self) -> str:
-        return " ".join(part for part in self._queued if part).strip()
 
     def _set_state(self, state: str, *, error: str = "") -> None:
         if state not in VOICE_CONVERSATION_STATES:
@@ -17576,26 +17625,43 @@ class VoiceConversation:
             except Exception:
                 pass
 
+    def _call(self, name: str, *args, **kwargs):
+        fn = getattr(self._voice, name, None)
+        if not callable(fn):
+            return None
+        try:
+            return fn(*args, **kwargs)
+        except Exception:
+            return None
+
+    def _finish(self, outcome: str) -> None:
+        """The turn is over: the microphone is closed and stays closed."""
+        self.outcome = outcome if outcome in TURN_OUTCOMES else "answered"
+        self._call("cancel_hold")
+        self._set_state("off")
+
     # ------------------------------------------------------------------ lifecycle
 
-    def start(self, *, listen_kwargs: Optional[dict] = None) -> bool:
-        """Open the microphone. Returns False (state ``error``) when it cannot."""
+    def start(self, *, capture_kwargs: Optional[dict] = None, transcribe_kwargs: Optional[dict] = None) -> bool:
+        """Open the microphone for one utterance. Returns False (state
+        ``error``) when it cannot.
+
+        ``capture_kwargs`` go to ``begin_hold`` (``on_audio_level``,
+        ``on_utterance_end``); ``transcribe_kwargs`` to ``end_hold``
+        (``on_transcription``, ``on_error``). Both carry callbacks the palette
+        marshals onto the GUI thread.
+        """
         if self.active:
             return True
-        self._pending = []
-        self._queued = []
-        self._speak_pending = False
+        self.outcome = ""
+        self.last_transcript = ""
+        self._transcribe_kwargs = dict(transcribe_kwargs or {})
         self._set_state("starting")
         try:
-            setter = getattr(self._voice, "set_voice_mode", None)
-            if callable(setter):
-                # `wait`: the recognizer is paused while the reply plays, so
-                # the assistant never transcribes its own voice on speakers.
-                setter(self.voice_mode)
             meter = getattr(self._voice, "set_audio_meter_callback", None)
             if callable(meter) and self._on_level is not None:
                 meter(self._on_level)
-            started = self._voice.listen(**(listen_kwargs or {}))
+            started = self._voice.begin_hold(**(capture_kwargs or {}))
         except Exception as exc:
             self._set_state("error", error=str(exc) or exc.__class__.__name__)
             return False
@@ -17606,24 +17672,17 @@ class VoiceConversation:
         return True
 
     def detach(self) -> None:
-        """Drop the UI callbacks (the palette is tearing the mode down and
+        """Drop the UI callbacks (the palette is tearing the turn down and
         must not be re-entered by the state change ``stop`` produces)."""
         self._on_state = None
         self._on_level = None
 
     def stop(self, *, reason: str = "") -> None:
-        """Leave the mode: close the microphone and stop any speech."""
-        self._flush_token += 1
-        self._pending = []
-        self._queued = []
-        self._speak_pending = False
-        for name in ("stop_listening", "stop_speaking"):
-            fn = getattr(self._voice, name, None)
-            if callable(fn):
-                try:
-                    fn()
-                except Exception:
-                    pass
+        """End the turn now: close the microphone (nothing recorded is sent)
+        and stop any speech."""
+        was = self.state
+        self._call("cancel_hold")
+        self._call("stop_speaking")
         meter = getattr(self._voice, "set_audio_meter_callback", None)
         if callable(meter):
             try:
@@ -17633,174 +17692,96 @@ class VoiceConversation:
         if reason:
             self._set_state("error", error=reason)
         else:
+            if was not in {"off", "error"}:
+                self.outcome = "cancelled"
             self._set_state("off")
 
-    def pause(self) -> bool:
-        """Mute the microphone without leaving the mode."""
-        if self.state not in {"listening", "heard"}:
+    # ------------------------------------------------------------------ listening
+
+    def finish_listening(self) -> bool:
+        """End the listening now (the silence after speech, or a press on the
+        orb). What was said is transcribed and sent; when nothing was said the
+        turn ends with nothing sent. Returns True when a recording went to the
+        gateway."""
+        if self.state != "listening":
             return False
-        fn = getattr(self._voice, "pause_listening", None)
-        ok = bool(fn()) if callable(fn) else False
-        if ok:
-            self._flush_token += 1
-            self._set_state("paused")
-        return ok
-
-    def resume(self) -> bool:
-        if self.state != "paused":
+        heard = bool(self._call("hold_heard_speech"))
+        if not heard:
+            self._finish("nothing_heard")
             return False
-        fn = getattr(self._voice, "resume_listening", None)
-        ok = bool(fn()) if callable(fn) else False
-        if ok:
-            self._set_state("listening")
-            self._flush_queued()
-        return ok
+        started = False
+        try:
+            started = bool(self._voice.end_hold(**self._transcribe_kwargs))
+        except Exception as exc:
+            self._call("cancel_hold")
+            self._set_state("error", error=str(exc) or exc.__class__.__name__)
+            return False
+        if not started:
+            # Too short to be speech: nothing goes to the gateway.
+            self._finish("nothing_heard")
+            return False
+        self._set_state("transcribing")
+        return True
 
-    # ------------------------------------------------------------------ events
+    def utterance_ended(self) -> None:
+        """The voice manager's endpoint fired (silence after speech, nothing
+        said in time, or the longest utterance): end the listening."""
+        self.finish_listening()
 
-    def heard(self, text: str) -> None:
-        """A transcription arrived (call on the GUI thread)."""
+    def transcribed(self, text: str) -> None:
+        """The gateway's transcript of the one utterance (GUI thread)."""
+        if self.state != "transcribing":
+            return
         utterance = " ".join(str(text or "").split()).strip()
-        if not utterance or not self.active:
+        if not utterance:
+            self._finish("nothing_heard")
             return
         self.last_transcript = utterance
-        if self.state in {"thinking", "speaking"}:
-            # The user kept talking while the assistant works: keep it for the
-            # next turn instead of steering a run with a half sentence.
-            self._queued.append(utterance)
-            return
-        if self.state == "paused":
-            return
-        self._pending.append(utterance)
-        self._set_state("heard")
-        if not self.auto_send:
-            return
-        self._flush_token += 1
-        token = self._flush_token
-        if self._schedule is None or self._debounce_s <= 0:
-            self._flush(token)
-            return
-        self._schedule(self._debounce_s, lambda: self._flush(token))
-
-    def send_now(self) -> str:
-        """Send whatever was heard so far (the composer's Enter in manual mode)."""
-        self._flush_token += 1
-        return self._flush(self._flush_token)
-
-    def _flush(self, token: int) -> str:
-        if token != self._flush_token or not self.active:
-            return ""
-        text = self.pending_text()
-        self._pending = []
-        if not text or self.state not in {"heard", "listening"}:
-            return ""
         self.turns += 1
-        self._enter_thinking()
+        self._set_state("thinking")
         try:
-            self._on_send(text)
+            self._on_send(utterance)
         except Exception as exc:
             self._set_state("error", error=str(exc) or exc.__class__.__name__)
-            return ""
-        return text
 
-    def _enter_thinking(self) -> None:
-        """The run is working: mute the microphone so side talk is never
-        transcribed or queued behind the user's back (the strip says
-        "mic paused" — this is what makes that true)."""
-        self._set_state("thinking")
-        fn = getattr(self._voice, "pause_listening", None)
-        if callable(fn):
-            try:
-                fn()
-            except Exception:
-                pass
+    def transcription_failed(self, reason: str = "") -> None:
+        """The gateway could not transcribe it: the voice manager keeps the
+        recording for Retry / Discard; the turn ends with nothing sent."""
+        if self.state == "transcribing":
+            self._finish("not_sent")
 
-    def _enter_listening(self) -> None:
-        fn = getattr(self._voice, "resume_listening", None)
-        if callable(fn):
-            try:
-                fn()
-            except Exception:
-                pass
-        self._set_state("listening")
+    def hand_over(self) -> None:
+        """The words were put in the message box instead of being sent (a
+        draft is open, a reply is still finishing, or sending is manual)."""
+        if self.active:
+            self._finish("handed_over")
 
-    def mark_sent(self) -> str:
-        """The user sent the pending words themselves (manual mode, Return):
-        account for the turn without re-sending it."""
-        if not self.active:
-            return ""
-        text = self.pending_text()
-        self._flush_token += 1
-        self._pending = []
-        if self.state in {"heard", "listening", "speaking", "paused"}:
-            self._speak_pending = False
-            self.turns += 1
-            self._enter_thinking()
-        return text
-
-    def requeue(self, text: str) -> None:
-        """A turn could not be sent right now (a run is still finishing):
-        keep it for the next listening window instead of steering."""
-        utterance = " ".join(str(text or "").split()).strip()
-        if utterance and self.active:
-            self._queued.append(utterance)
-            if self.state != "thinking":
-                self._enter_thinking()
+    # ------------------------------------------------------------------ the reply
 
     def run_finished(self, *, will_speak: bool) -> None:
-        """The run ended. ``will_speak`` is True when a reply is about to be
-        spoken (the palette then calls ``speech_started``/``speech_finished``)."""
-        if not self.active:
+        """The run ended. ``will_speak``: its reply is about to be spoken (the
+        palette then calls ``speech_finished``); otherwise the turn is over."""
+        if self.state != "thinking":
             return
         if will_speak:
-            self._speak_pending = True
-            # The voice manager's own gate keeps the mic closed while the
-            # reply plays in `wait` mode; `full` mode reopens it for barge-in.
-            if self.voice_mode == "full":
-                fn = getattr(self._voice, "resume_listening", None)
-                if callable(fn):
-                    try:
-                        fn()
-                    except Exception:
-                        pass
             self._set_state("speaking")
             return
-        self._speak_pending = False
-        self._enter_listening()
-        self._flush_queued()
-
-    def speech_started(self) -> None:
-        if self.active and self.state != "paused":
-            self._speak_pending = False
-            self._set_state("speaking")
+        self._finish("answered")
 
     def speech_finished(self) -> None:
-        """The reply finished (or failed) playing: listen again."""
-        if not self.active or self.state != "speaking":
-            return
-        self._speak_pending = False
-        self._enter_listening()
-        self._flush_queued()
+        """The reply finished (or failed, or was stopped): the turn is over."""
+        if self.state == "speaking":
+            self._finish("answered")
 
     def run_failed(self, reason: str = "") -> None:
-        """The run errored: stay in the mode, say so, and keep listening."""
-        if not self.active:
-            return
-        self._enter_listening()
-        self._flush_queued()
-
-    def _flush_queued(self) -> None:
-        if not self._queued or self.state != "listening":
-            return
-        self._pending = list(self._queued)
-        self._queued = []
-        self._set_state("heard")
-        if self.auto_send:
-            self._flush_token += 1
-            self._flush(self._flush_token)
+        """The run errored or could not start: the turn is over (the palette
+        shows why)."""
+        if self.active:
+            self._finish("failed")
 
 
 __all__ = [
+    "TURN_OUTCOMES",
     "VOICE_CONVERSATION_STATES",
     "VOICE_CONVERSATION_SYSTEM_PROMPT",
     "VoiceConversation",
@@ -18389,13 +18370,27 @@ class GatewayVoiceManager:
     _failed_hold_retrying = False
     _failed_hold_lock = threading.Lock()
 
-    def begin_hold(self, on_audio_level: Callable[[float], None] | None = None) -> bool:
+    def begin_hold(
+        self,
+        on_audio_level: Callable[[float], None] | None = None,
+        *,
+        on_utterance_end: Callable[[str], None] | None = None,
+    ) -> bool:
         """Start recording from the microphone for as long as the user holds.
 
         The Code TUI's principle (operator 2026-10-10 and 2026-10-17: "we press,
         it records, we unpress, it sends"): no voice-activity detection, no stop
         phrase — the press and the release ARE the utterance's boundaries. The
         continuous recognizer (`listen`) and a hold never run together.
+
+        ``on_utterance_end`` makes it ONE spoken turn instead (the orb, 0.18.2):
+        every 30 ms frame goes through the voice-activity detector and an
+        `UtteranceEndpoint`; when the utterance is over (about one second of
+        silence after speech, nothing said in time, or the longest turn) the
+        callback fires ONCE, from the audio thread, with the reason. Later
+        frames are not kept. The caller then ends the recording with
+        ``end_hold`` (``hold_heard_speech()`` says whether anything was said)
+        or drops it with ``cancel_hold``.
         """
         if not self.supports_stt():
             raise RuntimeError("Gateway STT unavailable (microphone not available)")
@@ -18411,11 +18406,47 @@ class GatewayVoiceManager:
 
         chunks: list = []
         lock = threading.Lock()
+        endpoint = None
+        detector = None
+        normalizer = None
+        if on_utterance_end is not None:
+            from abstractvoice.audio.levels import VoiceLevelNormalizer
+            from abstractvoice.vad import VoiceDetector
+
+            from .utterance_endpoint import UtteranceEndpoint
+
+            # The continuous recognizer's detector and aggressiveness (1), so
+            # what counts as speech did not change with the one-turn rule.
+            detector = VoiceDetector(aggressiveness=1, sample_rate=self.HOLD_SAMPLE_RATE)
+            endpoint = UtteranceEndpoint(frame_ms=30)
+            normalizer = VoiceLevelNormalizer()
+        self._hold_endpoint = endpoint
 
         def _callback(indata, frames, time_info, status) -> None:  # noqa: ARG001
             try:
                 block = np.asarray(indata, dtype=np.int16).reshape(-1).copy()
             except Exception:
+                return
+            if endpoint is not None:
+                if endpoint.ended is not None:
+                    return
+                speech = bool(detector.is_speech(block.tobytes())) if block.size else False
+                with lock:
+                    chunks.append(block)
+                if on_audio_level is not None and block.size:
+                    try:
+                        samples = block.astype(np.float32) / 32768.0
+                        on_audio_level(normalizer.push(
+                            float(np.sqrt(np.mean(samples ** 2))), peak=float(np.max(np.abs(samples))),
+                            seconds=block.size / float(self.HOLD_SAMPLE_RATE), speech=speech))
+                    except Exception:
+                        pass
+                reason = endpoint.push(speech)
+                if reason is not None:
+                    try:
+                        on_utterance_end(reason)
+                    except Exception:
+                        pass
                 return
             with lock:
                 chunks.append(block)
@@ -18445,6 +18476,12 @@ class GatewayVoiceManager:
 
     def is_holding(self) -> bool:
         return self._hold_stream is not None
+
+    def hold_heard_speech(self) -> bool:
+        """The one-turn recording (``on_utterance_end``) has heard speech: ending
+        it now sends something. False for a plain hold, which has no detector."""
+        endpoint = getattr(self, "_hold_endpoint", None)
+        return bool(self._hold_stream is not None and endpoint is not None and endpoint.heard)
 
     def cancel_hold(self) -> None:
         """Drop a hold without transcribing (window closed, conversation started…)."""
