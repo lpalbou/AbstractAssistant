@@ -25,9 +25,10 @@ app. The orb stays readable over any window, and a failed run says why in plain 
   a reply is read, so there is nothing to pause or keep open. **Voice conversation (⌘⇧V)** is ticked
   while a question is in progress and unticks by itself when it is over. Your other voice settings
   are unchanged.
-- **The orb is readable on any background.** It sits on its own slightly transparent panel in your
-  theme's colour, so the orb and its "Listening", "Thinking" or "Speaking" label stay clear over a
-  white web page as well as over a dark desktop.
+- **The orb is readable on any background.** It sits on its own slightly transparent panel with a
+  fine edge, in a tone of your theme that stands out from both white and black, so the orb and its
+  "Listening", "Thinking" or "Speaking" label stay clear over a white web page as well as over a
+  dark desktop, in light and dark themes alike.
 
 ### Fixed
 

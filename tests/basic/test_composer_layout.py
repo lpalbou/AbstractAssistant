@@ -258,7 +258,9 @@ def test_the_floating_orb_has_its_own_translucent_backdrop_in_every_theme(orb_pa
     button = window.conversation_button
     try:
         image = window.grab().toImage()
-        (r, g, b), _alpha = parse_color(THEME.surface_card)
+        _rgb, _alpha = parse_color(THEME.surface_card)
+        wanted = button.backdrop_color()
+        r, g, b = wanted.red(), wanted.green(), wanted.blue()
     finally:
         activate(DEFAULT_THEME)  # the palette is process-global; leave it as found
     ratio = image.devicePixelRatio()
@@ -296,3 +298,46 @@ def test_the_orb_tooltip_describes_one_question_per_press():
     """Review A3: a click while the orb listens SENDS (it no longer "stops" a conversation)."""
     assert "one question" in ORB_TOOLTIP and "send it now" in ORB_TOOLTIP
     assert "start or stop" not in ORB_TOOLTIP
+
+
+def _luminance(rgb):
+    def channel(v):
+        v /= 255.0
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+    r, g, b = rgb
+    return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+
+
+def _contrast(a, b):
+    low, high = sorted((_luminance(a), _luminance(b)))
+    return (high + 0.05) / (low + 0.05)
+
+
+def _over(color, background):
+    alpha = color.alphaF()
+    return tuple(round(alpha * c + (1 - alpha) * bg)
+                 for c, bg in zip((color.red(), color.green(), color.blue()), background))
+
+
+@pytest.mark.basic
+def test_the_orb_backdrop_stands_out_over_white_and_black_in_every_theme():
+    """Review A8: in the light themes the card surface is itself near white, so a backdrop
+    in that colour vanished over a white page. In EVERY theme, over a white page and over a
+    black desktop, the panel's tone differs from the page and its edge is clearly visible."""
+    from abstractassistant import ui_themes
+    from abstractassistant.theme import DEFAULT_THEME, activate
+    from abstractassistant.ui.avatar import AvatarPresentation, AvatarVoiceButton
+
+    _SMOKE["_app"]()
+    button = AvatarVoiceButton(lambda: AvatarPresentation())
+    try:
+        for theme_id in ["abstract-glass", *ui_themes.THEME_SPECS]:
+            activate(ui_themes.build_theme(theme_id) or DEFAULT_THEME)
+            for page in ((255, 255, 255), (0, 0, 0)):
+                fill = _over(button.backdrop_color(), page)
+                edge = _over(button.backdrop_edge_color(), fill)
+                assert _contrast(fill, page) >= 1.2, (theme_id, page, fill)
+                assert _contrast(edge, page) >= 1.8, (theme_id, page, edge)
+    finally:
+        activate(DEFAULT_THEME)
+        button.deleteLater()
