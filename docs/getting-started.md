@@ -96,10 +96,11 @@ Summon it from the menu-bar icon or with the global shortcut (default `cmd+shift
   line (tokens, tools, files, duration, model); the tools and files segments open detail views.
   While a run works, an activity card at the bottom shows the current step, the elapsed time and
   the latest steps; it can pause, resume or stop the run and open the full run log.
-- **Composer**: attach files (button or drag and drop), hold the microphone to talk (release
-  sends), start a voice conversation (⌘⇧V or the microphone's right-click menu), type, and send
-  with Return (Shift+Return adds a line). During a run the
-  send button becomes Stop (⌘.) and typed text steers the run.
+- **Composer**: attach files (button or drag and drop), type, and send with Return (Shift+Return
+  adds a line); Send appears once there is a draft or an attachment. During a run the send button
+  becomes Stop (⌘.) and typed text steers the run. Beside the composer, the orb is the voice
+  control: click it (or press ⌘⇧V) for a voice conversation, right-click it to dictate into the
+  message box or for its other voice switches (see [voice.md](voice.md)).
 
 ## 5. Approvals and questions
 
