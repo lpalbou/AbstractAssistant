@@ -320,14 +320,35 @@ class AvatarVoiceButton(QPushButton):
         self.setAccessibleName("Voice")
         self.setAccessibleDescription(f"Assistant: {state}. {self.toolTip()} {self.avatar.error}".strip())
 
+    # The floating orb's own backdrop: the theme's card surface (what the
+    # composer panel is painted with) at this opacity, so the orb and its state
+    # label read over a white web page as well as over a dark desktop, while
+    # staying lighter than the panel beside it. Inside the button's own rect
+    # only, so it never covers the composer.
+    BACKDROP_OPACITY = 0.8
+    BACKDROP_RADIUS = 22.0
+
+    def backdrop_color(self) -> QColor:
+        from ..retint import parse_color
+
+        parsed = parse_color(str(THEME.surface_card or "")) or parse_color(str(THEME.surface_raised or ""))
+        r, g, b = parsed[0] if parsed else (16, 22, 31)
+        color = QColor(int(r), int(g), int(b))
+        color.setAlphaF(self.BACKDROP_OPACITY)
+        return color
+
     def paintEvent(self, event) -> None:  # noqa: N802
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(self.backdrop_color())
+        painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5),
+                                self.BACKDROP_RADIUS, self.BACKDROP_RADIUS)
+        painter.end()
         super().paintEvent(event)
         # macOS uses window alpha for native hit testing. A wire avatar's
         # transparent center otherwise sends physical clicks to the window below.
-        painter = QPainter(self)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(16, 22, 31, 28))
-        painter.drawEllipse(QRectF(8, 14, 68, 68))
+        # (The backdrop above already makes the whole button opaque enough.)
 
     def focusInEvent(self, event) -> None:  # noqa: N802
         self._set_keyboard_focus(event.reason() in (Qt.TabFocusReason, Qt.BacktabFocusReason, Qt.ShortcutFocusReason))

@@ -8,7 +8,8 @@ advertises the matching voice route.
 
 The voice control is the orb beside the composer: your activity avatar when it is turned on in
 Settings → Appearance, a simple sound icon otherwise. "Listening", "Thinking" or "Speaking" appears
-above it while that is happening; it shows nothing when idle. Click it
+above it while that is happening; it shows nothing when idle. The orb sits on its own slightly
+transparent panel, so it and its label stay readable over any window behind the palette. Click it
 to ask a question by voice; click it while it listens to send what you said straight away; click it
 while a reply is being read to stop reading. Right-click it for the other choices, each ticked while
 it is on: **Voice conversation (⌘⇧V)** (ticked while a voice question is in progress);

@@ -240,3 +240,35 @@ def test_voice_conversation_is_one_checkable_item_and_the_orb_keeps_one_name(orb
     controller.voice_manager.is_speaking = lambda: True  # reading a reply aloud
     assert orb() == ("Voice", ORB_TOOLTIP)
 
+
+@pytest.mark.basic
+@pytest.mark.parametrize("theme_id", ["dark", "light", "observer-night", "solarized-light"])
+def test_the_floating_orb_has_its_own_translucent_backdrop_in_every_theme(orb_palette, theme_id):
+    """Operator 2026-11-07: the orb and its "Listening" label sat straight on whatever was
+    behind the window (a white web page made them unreadable). The orb's own rect gets the
+    theme's card surface, more transparent than the composer; the gap stays transparent."""
+    from abstractassistant.retint import parse_color
+    from abstractassistant.theme import THEME
+
+    from abstractassistant.theme import DEFAULT_THEME, activate
+
+    window, _ = orb_palette
+    window.apply_theme(theme_id, persist=False)
+    _SMOKE["_app"]().processEvents()
+    button = window.conversation_button
+    try:
+        image = window.grab().toImage()
+        (r, g, b), _alpha = parse_color(THEME.surface_card)
+    finally:
+        activate(DEFAULT_THEME)  # the palette is process-global; leave it as found
+    ratio = image.devicePixelRatio()
+    # Below the orb's face, inside the button: the backdrop, and nothing else.
+    x, y = button.x() + button.width() // 2, button.y() + button.height() - 8
+    pixel = image.pixelColor(int(x * ratio), int(y * ratio))
+    assert 0.7 * 255 <= pixel.alpha() <= 0.9 * 255, pixel.alpha()
+    composer_alpha = (_alpha if _alpha is not None else 1.0) * 255
+    assert pixel.alpha() < composer_alpha  # more transparent than the panel beside it
+    assert max(abs(pixel.red() - r), abs(pixel.green() - g), abs(pixel.blue() - b)) <= 3
+    # The desktop gap between the composer and the orb is untouched.
+    gap_x = (window.composer_card.geometry().right() + button.x()) // 2
+    assert image.pixelColor(int(gap_x * ratio), int(button.geometry().center().y() * ratio)).alpha() == 0

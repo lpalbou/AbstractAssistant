@@ -330,8 +330,8 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
 - `core/voice_conversation.py`, `core/utterance_endpoint.py`, `ui/avatar.py`,
   `core/gateway_voice_manager.py` — one voice question per press (listen to one utterance, send,
   speak the reply, stop), the rule that ends an utterance (about one second of silence after
-  speech), the orb beside the composer that controls it and shows its state
-  (`AvatarVoiceButton`), and the local capture/playback layer over gateway
+  speech), the orb beside the composer that controls it and shows its state on its own
+  translucent panel (`AvatarVoiceButton`), and the local capture/playback layer over gateway
   speech routes.
   The former status strip, `ui/voice_strip.py`, stays in the code but is no longer shown.
 - `gateway/automations.py`, `core/automations.py`, `ui/automations.py` — the Automations API
