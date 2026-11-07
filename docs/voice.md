@@ -47,7 +47,8 @@ the device still cannot play, a banner explains that part of the reply may be mi
 Audio already submitted to disconnected hardware can be lost.
 
 Spoken text is prose: markdown, code, images and link targets are removed before synthesis, and
-folder path separators and comparison signs are read as words. A reply with nothing left to read
+folder paths are read with "slash" between their parts and the signs ≥, ≤ and ≠ as words (in
+English, whatever the reply's language). A reply with nothing left to read
 says so instead of playing nothing.
 
 ## Dictate

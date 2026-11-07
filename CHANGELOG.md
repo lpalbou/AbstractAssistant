@@ -9,7 +9,7 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 The desktop voice control moves into the composer: the animated orb beside the message box starts
 and ends a voice conversation and shows what the assistant is doing. Read aloud recovers on its own
-after a failed check and reads folder paths and symbols as words. On Apple Watch, Home is now the
+after a failed check and reads folder paths and the signs ≥, ≤ and ≠ as words. On Apple Watch, Home is now the
 conversation screen and Notes can be captured from it; Watch and iPhone can keep their sign-in when
 you disconnect. The web Assistant has its own release, 0.1.1 ([web/CHANGELOG.md](web/CHANGELOG.md)).
 The Watch and iPhone changes reach you with their next TestFlight build.
@@ -41,8 +41,10 @@ It needs AbstractVoice 0.20.1 or later (installed with it), whose adaptive micro
   controls on a second row. A voice conversation keeps your unfinished draft: what you say while
   it is open is added to it and not sent on its own, and a notice says so. Esc ends voice before
   it hides the window.
-- **What you say is transcribed sooner.** In a voice conversation or while dictating, about one
-  second of silence (it was one and a half) ends what you said and starts the transcription.
+- **What you say is transcribed sooner.** With the default Voice setting (pause the microphone
+  while the assistant speaks), 1.02 seconds of silence (it was 1.5) ends what you said and starts
+  the transcription, in a voice conversation and while dictating. With **Keep the mic open** it
+  stays at 0.9 seconds, and dictation after such a conversation uses 0.9 seconds too.
 - **A voice that the gateway rejects is not replaced.** When a cloned or selected voice fails the
   gateway's check, the reply is not read with the default voice instead; press Play to try the same
   voice again. Other failures (the audio output, an empty first chunk, the network) keep their own
@@ -65,9 +67,12 @@ It needs AbstractVoice 0.20.1 or later (installed with it), whose adaptive micro
   without a second click. Stop cancels it while the check is still running. The check asks the
   gateway only about voice, so slower media checks no longer delay speech; it needs no gateway
   upgrade (gateways before 0.20.2 answer with their full list, which works as before).
-- **Folder paths and symbols are read as words.** Path separators and comparison signs are spoken
-  as words, which stops a cloned voice from repeating itself on a reply that lists folders. The
-  text on screen is unchanged.
+- **Folder paths and three signs are read as words.** A path is read with "slash" between its
+  parts ("~" as "home", "." and ".." as "current directory" and "parent directory"), and ≥, ≤ and ≠
+  as "greater than or equal to", "less than or equal to" and "not equal to". This stops a cloned
+  voice from repeating itself on a reply that lists folders. The words are English whatever the
+  reply's language; the ASCII forms (>=, <=, !=) are left as they are. The text on screen is
+  unchanged.
 - **Tooltips wait before they appear.** Every desktop tooltip (links, detail cards, moving between
   items) waits at least 200 ms, and Esc cancels one that is about to appear. Hovering the orb no
   longer changes its border or background.

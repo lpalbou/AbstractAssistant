@@ -68,7 +68,7 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 
 0.18.1 moves the voice control into the composer: the animated orb beside the message box starts
 and ends a voice conversation and shows whether the assistant is listening, thinking or speaking.
-Read aloud recovers by itself after a failed check and reads folder paths and symbols as words. On
+Read aloud recovers by itself after a failed check and reads folder paths and the signs ≥, ≤ and ≠ as words. On
 Apple Watch, Home is the conversation screen and captures Notes, and Watch and iPhone can keep their
 sign-in when you disconnect (next TestFlight build). See the
 [0.18.1 release notes](CHANGELOG.md#0181---2026-11-07).

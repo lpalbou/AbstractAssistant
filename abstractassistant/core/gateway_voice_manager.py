@@ -429,8 +429,10 @@ class GatewayVoiceManager:
         rec = VoiceRecognizer(
             transcription_callback=_on_transcription,
             stop_callback=_on_stop,
-            # Require at least 1 s of silence. The recognizer floors to 30 ms
-            # frames, so 1020 ms avoids rounding 1000 ms down to 990 ms.
+            # About 1 s of silence ends an utterance in the default ("wait") mode;
+            # the recognizer floors to 30 ms frames, so 1020 ms avoids rounding
+            # 1000 ms down to 990 ms. Its "full" and "ptt" profiles use their own
+            # values (900 / 700 ms) and override this one.
             silence_timeout=1020,
             debug_mode=self.debug_mode,
             stt_adapter=adapter,
