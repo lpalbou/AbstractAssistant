@@ -14,6 +14,7 @@ conversation screen and Notes can be captured from it; Watch and iPhone can keep
 you disconnect. The web Assistant has its own release, 0.1.1 ([web/CHANGELOG.md](web/CHANGELOG.md)).
 The Watch and iPhone changes reach you with their next TestFlight build.
 The desktop palette file now matches ui-kit 0.9.15; its colours did not change, so the app looks the same.
+It needs AbstractVoice 0.20.1 or later (installed with it), whose adaptive microphone levels let a quiet microphone move the orb too.
 
 ### Added
 
