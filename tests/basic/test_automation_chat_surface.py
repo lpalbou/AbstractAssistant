@@ -146,7 +146,8 @@ def test_a_chip_opens_the_structured_card_on_hover_and_focus() -> None:
 
     app = QApplication.instance() or QApplication([])
     import abstractassistant.app as app_module
-    from abstractassistant.ui.stat_detail import StatDetailCard, stat_detail_popup
+    from abstractassistant.ui.stat_detail import StatDetailCard, _hover, stat_detail_popup
+    from abstractassistant.ui.tooltips import MIN_TOOLTIP_DELAY_MS
     from abstractassistant.utils.markdown_renderer import MarkdownRenderer
 
     message = {"role": "assistant", "message_id": "m1", "content": "Done.",
@@ -161,9 +162,22 @@ def test_a_chip_opens_the_structured_card_on_hover_and_focus() -> None:
     tokens = chips["tokens_in"]
     assert tokens.toolTip() == "", "no plain grey tooltip: the card is the tooltip"
     assert "Tokens · 15 total" in tokens.accessibleDescription()
-    # Keyboard focus on a clickable chip opens the card; Escape closes it.
+    # Keyboard focus on a clickable chip opens the card after the tooltip dwell (at least
+    # 200 ms, never instantly); Escape or leaving closes it. The dwell timer is driven
+    # through its seam (no wall-clock wait): it must be pending, then it fires.
+    def open_after_dwell(chip) -> None:
+        QApplication.setActiveWindow(card)
+        chip.setFocus(app_module.Qt.TabFocusReason)
+        app.processEvents()
+        assert chip.hasFocus()
+        assert not stat_detail_popup().isVisible(), "focus never opens the card instantly"
+        assert hover._open.isActive() and hover._open.interval() >= MIN_TOOLTIP_DELAY_MS
+        hover._open.stop()
+        hover._show_pending()
+
+    hover = _hover()
     tools = chips["tools"]
-    QApplication.sendEvent(tools, QFocusEvent(QEvent.FocusIn))
+    open_after_dwell(tools)
     popup = stat_detail_popup()
     assert popup.isVisible() and isinstance(popup.card, StatDetailCard)
     assert popup.card.title_label.text() == "Tools" and popup.card.detail.headline == "1 call"
@@ -171,7 +185,7 @@ def test_a_chip_opens_the_structured_card_on_hover_and_focus() -> None:
     assert not popup.isVisible()
     # A chip that is not a button is reachable from the keyboard too (the kit's tabIndex 0).
     assert tokens.focusPolicy() != app_module.Qt.NoFocus
-    QApplication.sendEvent(tokens, QFocusEvent(QEvent.FocusIn))
+    open_after_dwell(tokens)
     assert popup.isVisible() and popup.card.title_label.text() == "Tokens"
     QApplication.sendEvent(tokens, QFocusEvent(QEvent.FocusOut))
     assert not popup.isVisible()
