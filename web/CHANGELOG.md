@@ -6,7 +6,12 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 
 ## [Unreleased]
 
-## [0.1.1] - 2026-11-07
+## [0.1.2] - 2026-11-07
+
+The 0.1.1 contents below, published. The `web-v0.1.1` tag exists but 0.1.1 never reached npm: the
+release workflow passed the package path without `./`, so npm read it as a GitHub repository.
+
+## [0.1.1] - 2026-11-07 (tagged, not published)
 
 Voice in the browser is easier to trust: the avatar says it is speaking only while you can hear
 it, and the Avatar conversation view has one set of voice controls. Built on AbstractUIC ui-kit
