@@ -2402,6 +2402,12 @@ class AttachmentDropFrame(QFrame):
         event.ignore()
 
 
+# Why the orb menu's Microphone item cannot act in a conversation state.
+_MICROPHONE_CLOSED_REASONS = {
+    "starting": "The microphone is starting.",
+    "thinking": "The microphone is closed while the assistant works.",
+    "speaking": "The microphone is closed while the assistant speaks.",
+}
 HOLD_TO_TALK_TOOLTIP = "Hold to talk — release to send (right-click: voice conversation, ⌘⇧V)"
 
 
@@ -11410,6 +11416,7 @@ class AssistantPalette(QMainWindow):
         feature: the check shows the state and the label never swaps (operator rule,
         toggles show state)."""
         menu = QMenu(self)
+        menu.setToolTipsVisible(True)  # a disabled item says why
         in_conversation = bool(self._state("_voice_conversation_active", False))
         action = menu.addAction("End the voice conversation (⌘⇧V)" if in_conversation else "Start a voice conversation (⌘⇧V)")
         reason = "" if in_conversation else self._voice_conversation_unavailable_reason()
@@ -11418,10 +11425,17 @@ class AssistantPalette(QMainWindow):
             action.setToolTip(reason)
         action.triggered.connect(self._toggle_voice_conversation)
         if in_conversation:
-            # Checked while the conversation may listen; unchecking pauses the microphone.
+            # Ticked exactly while the microphone listens. The user can pause or resume it
+            # only between turns; while the assistant works or speaks the loop itself keeps
+            # it closed, so the item is unticked and disabled with the reason.
+            state = self._voice_conversation.state
             microphone = menu.addAction("Microphone")
             microphone.setCheckable(True)
-            microphone.setChecked(self._voice_conversation.state != "paused")
+            microphone.setChecked(state in {"listening", "heard"})
+            closed_because = _MICROPHONE_CLOSED_REASONS.get(state, "")
+            if state not in {"listening", "heard", "paused"}:
+                microphone.setEnabled(False)
+                microphone.setToolTip(closed_because or "The microphone cannot be paused right now.")
             microphone.triggered.connect(lambda _checked: self._voice_pause_toggled())
         dictate = menu.addAction("Dictate into the message box")
         dictate.setCheckable(True)

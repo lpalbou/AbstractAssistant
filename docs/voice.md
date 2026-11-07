@@ -10,8 +10,9 @@ The voice control is the orb beside the composer: your activity avatar when it i
 Settings → Appearance, a simple sound icon otherwise. "Listening", "Thinking" or "Speaking" appears
 above it while that is happening; it shows nothing when idle. Click it to start or end a voice
 conversation; click it while a reply is being read to stop reading. Right-click it for the other
-choices, each ticked while it is on: **Microphone** (during a conversation; untick it to pause
-listening, tick it to listen again), **Dictate into the message box** and **Read new replies
+choices, each ticked while it is on: **Microphone** (during a conversation: ticked while it
+listens; untick it to pause listening and tick it to listen again. While the assistant works or
+speaks, the microphone is closed and the item is greyed out with the reason), **Dictate into the message box** and **Read new replies
 aloud**.
 
 Speech uses the gateway's default engines (its **Text To Speech** and **Speech To Text** routes,

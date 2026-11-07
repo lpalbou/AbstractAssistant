@@ -175,3 +175,40 @@ def test_orb_menu_on_off_items_keep_their_feature_label_and_show_state(orb_palet
     dictate = items()["Dictate into the message box"]
     assert dictate.isCheckable() and dictate.isChecked()
     window._listening = False
+
+
+@pytest.mark.basic
+def test_orb_menu_microphone_shows_the_real_microphone_and_acts_only_when_it_can(orb_palette):
+    """While the assistant works or speaks the conversation keeps the microphone closed and
+    cannot pause it: the item says so (unticked, disabled, with the reason) instead of a tick
+    that an untick silently ignores (review 2026-11-07, finding 1)."""
+    window, _ = orb_palette
+
+    def microphone():
+        menu = window._build_voice_menu()
+        assert menu.toolTipsVisible(), "a disabled item's reason must be readable"
+        return {a.text(): a for a in menu.actions() if not a.isSeparator()}["Microphone"]
+
+    window._start_voice_conversation()
+    conversation = window._voice_conversation
+    assert conversation.state == "listening"
+    assert microphone().isEnabled() and microphone().isChecked()
+
+    conversation.mark_sent()  # a turn went out: the assistant works, the mic is closed
+    assert conversation.state == "thinking"
+    mic = microphone()
+    assert not mic.isChecked() and not mic.isEnabled()
+    assert mic.toolTip() == "The microphone is closed while the assistant works."
+    mic.trigger()
+    assert conversation.state == "thinking"
+
+    conversation.run_finished(will_speak=True)
+    assert conversation.state == "speaking"
+    mic = microphone()
+    assert not mic.isChecked() and not mic.isEnabled()
+    assert mic.toolTip() == "The microphone is closed while the assistant speaks."
+
+    conversation.speech_finished()
+    assert conversation.state == "listening"
+    assert microphone().isEnabled() and microphone().isChecked()
+    window._end_voice_conversation()
