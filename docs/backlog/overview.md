@@ -7,7 +7,7 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 
 ## Current Counts
 
-- Planned: 16
+- Planned: 17
 - Proposed: 10
 - Completed: 32
 
@@ -41,6 +41,7 @@ Counts recomputed from disk on 2026-10-26 after adding 1053 (shared Swift client
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
+| [1154](planned/1154_automation_titles_are_stored_whole.md) | Automation titles are stored whole; the 120-character default is a display form (root ADR 0054) | Planned | Operator 2026-11-08; web `automations.ts:85,95`, Apple `Models.swift:633,867`; 2 of 8 live automations carry a cut title |
 | [1148](planned/1148_iphone_notes_tab_capture.md) | iPhone: a Notes tab, the fourth icon at the bottom | Planned | Operator ask 2026-11-07. Tab value 3 after Automations, gated on `GET /api/gateway/note/status`; reuses the Watch's `note-capture` request, outcome mapping and retry-with-same-key from the shared client (`source.client = "iphone"`); same account = same notebook; no offline queue (1054); 400-point screenshot. |
 | [1108](planned/1108_watch_ui_tests_fail_on_watchos_27_and_never_run_in_ci.md) | Watch UI tests: 20 fail on watchOS 27.0 and no CI job runs them | Planned | 86 passed / 20 failed / 11 skipped (live) on a Series 11 46 mm watchOS 27.0 simulator, 2026-11-03; classify and fix each, then a CI job for the non-live suite. Next round. |
 | [1057](planned/1057_web_assistant.md) | The Assistant on the web | Planned | Scaffold in `web/` (Vite + React + TypeScript on the abstractuic app-server; host interface for the browser now and a Tauri shell later; session fold, run input, turn reducer ported from the desktop with parity tests; 58 tests, build green; read-only live proofs). Next: operator decision on ADR 0007, live send/approval proof, gateway catalog row (G1), npm publish (0.1.0 prepared 2026-11-02, `web-v*` tags). |
