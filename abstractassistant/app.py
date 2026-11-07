@@ -154,7 +154,6 @@ from .core.voice_conversation import (
     VoiceConversation,
 )
 from .core import tool_presenter as _presenter
-from .core.run_failure import explain_run_failure, failure_tooltip
 from .core.link_targets import (
     click_action,
     describe_link,
@@ -249,6 +248,17 @@ _TRAY_VOICE_FRAME_INTERVAL_MS = 66 if sys.platform == "darwin" else 200
 _TRAY_VOICE_DECAY_S = 0.35
 _TRAY_VISIBILITY_RETRY_DELAYS_MS = (0, 180, 720, 1600)
 _ZOOMED_SHELL_GROWTH = 1.4
+
+
+# What a failed run says: the gateway's own error text, word for word and in full
+# (operator ruling 2026-11-07: "Runs should not fail; if they do, show the actual
+# error"). Nothing reads, splits or maps that text.
+FAILED_RUN_NO_REASON = "The run failed; the gateway gave no reason."
+
+
+def failed_run_line(reason: Any) -> str:
+    text = str(reason or "").strip()
+    return f"The run failed: {text}" if text else FAILED_RUN_NO_REASON
 
 
 def _qt_int(value: Any) -> int:
@@ -6166,6 +6176,8 @@ class AssistantPalette(QMainWindow):
         self.chat_status_label.setWordWrap(True)
         self.chat_status_label.setTextFormat(Qt.PlainText)
         self.chat_status_label.hide()
+        # A failure line opens the whole error in a window on click (eventFilter).
+        self.chat_status_label.installEventFilter(self)
         history_wrap.addWidget(self.continued_banner)
         history_wrap.addWidget(self.kept_recording_banner)
         history_wrap.addWidget(self.banner_label)
@@ -8341,9 +8353,21 @@ class AssistantPalette(QMainWindow):
             self.chat_status_label.setWordWrap(False)
         else:
             self._active_tool_history_status = None
-            display = message if len(message) <= 160 else f"{message[:157].rstrip()}..."
+            if tone == "error":
+                # A failure is shown in full, wrapped: the gateway's words are the explanation
+                # (operator ruling 2026-11-07). When the window is too small for all of it, a
+                # click opens the whole text in a window it can be copied from.
+                display = message
+            else:
+                #[WARNING:TRUNCATION] a passing status line; the full text is in the tooltip
+                display = message if len(message) <= 160 else f"{message[:157].rstrip()}..."
             self.chat_status_label.setTextFormat(Qt.PlainText)
             self.chat_status_label.setWordWrap(True)
+        if tone == "error" and not rich:
+            self.chat_status_label.setCursor(Qt.PointingHandCursor)
+            tooltip = f"{tooltip or message}\n\nClick to read the whole error in a window you can copy from."
+        else:
+            self.chat_status_label.unsetCursor()
         self.chat_status_label.setText(display)
         self.chat_status_label.setProperty(
             "tone", str(tone or "neutral").strip() or "neutral"
@@ -8351,6 +8375,20 @@ class AssistantPalette(QMainWindow):
         self.chat_status_label.setToolTip(str(tooltip or message))
         self._refresh_widget_style(self.chat_status_label)
         self.chat_status_label.show()
+
+    def _show_failure_text(self) -> None:
+        """The whole failure line, word for word, in a window whose text can be selected and
+        copied — however small the palette is."""
+        text = str(self._state("_history_status_text", "") or "").strip()
+        if not text:
+            return
+        box = QMessageBox(QMessageBox.Warning, "The run failed", text, QMessageBox.Close, self)
+        box.setTextFormat(Qt.PlainText)
+        box.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        box.setAttribute(Qt.WA_DeleteOnClose)
+        self._failure_text_box = box
+        self._register_aux_dialog(box)
+        box.open()
 
     def _history_status_showing(self) -> bool:
         return bool(str(self._history_status_text or "").strip())
@@ -8903,6 +8941,15 @@ class AssistantPalette(QMainWindow):
             ):
                 self._submit()
                 return True
+        status_label = state.get("chat_status_label")
+        if (
+            obj is status_label
+            and event is not None
+            and event.type() == QEvent.MouseButtonRelease
+            and status_label.property("tone") == "error"
+        ):
+            self._show_failure_text()
+            return True
         history_host = state.get("history_host")
         if obj is history_host and event is not None:
             if event.type() in {QEvent.LayoutRequest, QEvent.Resize, QEvent.Show}:
@@ -10463,11 +10510,12 @@ class AssistantPalette(QMainWindow):
                 fallback = "Run stopped."
             elif ended_as == "failed":
                 fallback = ""
-                failure = explain_run_failure(str(self._state("_last_run_error", "") or ""))
                 self._run_has_final_output = True
-                # The cause in plain words where the conversation is read; the
-                # gateway's own words stay one hover away.
-                self._set_history_status(failure.text, tone="error", tooltip=failure_tooltip(failure))
+                # The gateway's own error text, word for word and in full (operator ruling
+                # 2026-11-07: no guessing from error names, no rewording, never cut).
+                self._set_history_status(
+                    failed_run_line(str(self._state("_last_run_error", "") or "")), tone="error"
+                )
             else:
                 fallback = "The workflow completed, but it returned no written reply."
             if fallback:

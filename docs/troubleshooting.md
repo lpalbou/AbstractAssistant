@@ -73,14 +73,17 @@ switch on **Use my default** / **Follow the gateway policy**). See [settings.md]
 
 ## A reply ends with "The run failed…"
 
-The line under the conversation says why the run stopped, in plain words, when the reason is one
-the Assistant recognises, and says what to do. For example, "This model can't use the MTP
-speed-up (speculative decoding) this request asked for" means the chat model or provider cannot
-run MTP, which was required either by the MTP depth under Settings → Models or by the gateway's
-own default for that model: set MTP depth to Off, or choose a model that supports it. For any
-other reason the line reads "The run failed before it wrote a reply."; hover over it to read what
-the gateway reported. The line explains why the run itself failed, not an earlier step that
-recovered.
+The line under the conversation shows the gateway's own error text, word for word: "The run
+failed: " followed by what the gateway reported. Click the line to read the whole text in a
+window you can copy it from (useful in a small window or for a long error). When the gateway gave
+no reason, the line says "The run failed; the gateway gave no reason." The line is about why the
+run itself failed, not an earlier step that recovered.
+
+An error that mentions `SpeculationUnavailableError` or `require_acceleration` means MTP was asked
+of a model that cannot run it. The Assistant offers MTP only for models whose capability card
+supports it and never sends a saved depth to another model, so the request came from the gateway
+side (for example the gateway's own MTP default for that model): change it in the gateway console,
+or choose another model.
 
 ## The prompt ignores spaces after opening from the menu bar
 

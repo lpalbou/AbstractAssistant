@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 import pytest
 from abstractassistant.preferences import AssistantPreferences, PreferencesStore
-from abstractassistant.speculation import normalize_speculation, speculation_options
+from abstractassistant.speculation import normalize_speculation, speculation_view
 from abstractassistant.gateway.run_input import build_run_input_data
 
 
@@ -26,14 +26,15 @@ def test_inherit_is_absent_and_malformed_controls_refuse():
 
 
 def test_capability_options_never_infer_from_model_names():
-    rows, note = speculation_options({"capabilities":{"speculation":{"native_mtp":True}}})
-    assert [value for value, _ in rows] == [None, False]
-    assert "unknown" in note
+    view = speculation_view({"capabilities":{"speculation":{"native_mtp":True}}})
+    assert [value for value, _ in view["choices"]] == [None]  # not described: nothing to choose
+    assert not view["enabled"] and view["state"] == "unknown"
     saved = normalize_speculation({"mode":"native_mtp", "num_draft_tokens":5})
-    rows, note = speculation_options({"execution":{"speculation":{"supported":True,"ready":False,"supported_depths":[2,3],"reason":"head_not_loaded"}}}, saved)
-    assert len(rows) == 5
-    assert "saved; not available" in rows[-1][1]
-    assert note == "head_not_loaded"
+    view = speculation_view({"execution":{"speculation":{"supported":True,"ready":False,"supported_depths":[2,3],"reason":"head_not_loaded"}}}, saved)
+    assert [label for _, label in view["choices"]] == ["Gateway default", "Off", "Depth 2", "Depth 3"]
+    assert view["selected"] is None  # depth 5 is not listed: not shown as chosen, never sent
+    assert view["note"] == "MTP is supported but not ready on this instance."
+    assert view["detail"] == "head_not_loaded"
 
 
 def test_gateway_discovery_sends_provider_separately(monkeypatch):

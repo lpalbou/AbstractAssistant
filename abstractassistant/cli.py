@@ -252,6 +252,12 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
 
     text_override = dict(_call("route_override", "output.text", default=None) or {})
     scope = dict(_call("run_scope", default=None) or {})
+    # Only the reasoning level and MTP value the chat model can use (the tray's send-time guard).
+    guarded = _call("sendable_model_options", scope.get("thinking"), scope.get("speculation"), default=None)
+    if isinstance(guarded, tuple) and len(guarded) == 2:
+        scope["thinking"], scope["speculation"] = guarded
+    else:
+        scope.pop("speculation", None)  # the guard could not run: no MTP is sent
     input_data = build_run_input_data(
         prompt=args.prompt,
         allowed_tools=controller.allowed_tools_for_run(),

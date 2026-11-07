@@ -42,8 +42,8 @@ session out).
 
 | Control | Meaning | Stored |
 |---|---|---|
-| Reasoning effort | Gateway default, none, minimal, low, medium, high, extra high. The ladder comes from the gateway contract (`thinking_control.values`). Sent with every run as `_runtime.thinking`; Gateway default sends nothing. Levels the chat model's capability card does not list are greyed out | this app `reasoning_effort` |
-| MTP depth | The shared route picker's MTP choice, with the same words as AbstractCode and the gateway console: **Gateway default** (with the gateway's own depth, e.g. **Gateway default (depth 2)**), **Off**, or **Depth N** for each depth the gateway advertises for the selected provider/model. Configurable when the gateway reports the model MTP-capable; for a model it reports without MTP the list is shown disabled with the gateway's sentence (a saved depth stays changeable, marked **(saved; not available)**). Sent as `_runtime.speculation` (`{mode: "native_mtp", num_draft_tokens, require_acceleration: true}`); Off sends `false`, and inheritance omits the key | this app `speculation` |
+| Reasoning effort | Gateway default, none, minimal, low, medium, high, extra high. The ladder comes from the gateway contract (`thinking_control.values`). Sent with every run as `_runtime.thinking`; Gateway default sends nothing. Levels the chat model's capability card does not list are greyed out ("This model does not advertise it"), and a saved level the card rules out is shown as Gateway default and not sent. Changing the chat model or provider puts it back on Gateway default | this app `reasoning_effort` |
+| MTP depth | The shared route picker's MTP choice, with the same words as AbstractCode and the gateway console: **Gateway default** (with the gateway's own depth, e.g. **Gateway default (depth 2)**), then **Off** and **Depth N** for each depth the gateway advertises — offered only when the gateway's capability card for the selected provider/model says MTP is supported. Otherwise the list is disabled on **Gateway default** and says why: the gateway's sentence, else "This model does not support MTP." (or "MTP is offered when the gateway confirms this model supports it." when the gateway cannot describe the model), with the gateway's own reason under **Technical details**. Changing the chat model or provider puts it back on Gateway default. Sent as `_runtime.speculation` (`{mode: "native_mtp", num_draft_tokens, require_acceleration: true}`) only when the model can use it; Off sends `false`, and inheritance omits the key | this app `speculation` |
 | Stream replies | A switch, on by default: on shows the answer while the model writes it; off shows it when it is finished. Streaming is this app's choice, so every run says so explicitly as `_runtime.stream` — `true` when the switch is on and the gateway offers live replies (`streaming.deltas` in its discovery, read from the cached answer, never fetched per turn), `false` otherwise. There is no "Gateway default": the gateway's own **Streamed replies** setting (Workflows → Settings in the console) applies only to clients that do not say. When the switch is on but the gateway says it has no live replies, the line under it says so and a chat shows one note | this app `stream_replies` (`on`, `off`; an older `gateway_default` loads as on) |
 | Applies-to line | The chat model that will serve the next turn (gateway default or this app's override) and the reasoning levels that model reports, when the gateway has a capability card for it | gateway |
 | Model routes | One row per route the assistant drives: chat model, voice output, voice input, image generation, image edit, image upscale, video generation, image → video, music, sound effects | this app `route_overrides` |
@@ -63,8 +63,14 @@ no "Advanced" disclosure); the voice route adds a voice picker.
 
 Where overrides travel: the chat model rides the run input (top-level pins and `_runtime`);
 voice overrides ride each speech request; image, video, music and sound overrides ride the
-managed workflow's input pins. A level the model cannot honor is mapped by AbstractCore to the
-nearest supported reasoning level.
+managed workflow's input pins.
+
+Reasoning and MTP follow the chat model (the same rule as the other AbstractFramework apps). Choosing
+another provider or model, or going back to Gateway default, resets both to **Gateway default** and
+saves that. Before each run the Assistant reads the capability card of the model that will answer and
+sends only what that model can use: a saved MTP depth is never sent to a model without MTP, and a
+reasoning level the card does not list is not sent either. When the card cannot be read, no MTP
+value is sent and the reasoning level is (unknown is not unsupported).
 
 ### Live replies
 
@@ -84,7 +90,7 @@ reconnection the bubble picks up where the model is.
 
 MTP is native multi-token prediction, not a reasoning level. Its choices come from the
 gateway's execution capability card, not the model's name. The app shows whether the head is
-ready or a reload is needed; an unavailable saved choice remains visible. Selecting a depth
+ready or a reload is needed; a saved depth the model cannot use is not shown as chosen. Selecting a depth
 requests that exact depth with `require_acceleration=true`: the execution host must honor it
 or report an error, not silently run without MTP. This control neither downloads a head nor
 changes the gateway's shared default. Leaving it on Gateway default follows the Core policy
