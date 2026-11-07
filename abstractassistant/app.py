@@ -2405,7 +2405,7 @@ class AttachmentDropFrame(QFrame):
 
 # The orb's one tooltip: true in every state (idle, in a conversation, reading a reply aloud,
 # dictating), so it never swaps verbs (operator rule: toggles show state).
-ORB_TOOLTIP = "Voice: click to start or stop, right-click for more choices (⌘⇧V: voice conversation)"
+ORB_TOOLTIP = "Voice: click to ask one question, click again to send it now, right-click for more choices (⌘⇧V)"
 HOLD_TO_TALK_TOOLTIP = "Hold to talk — release to send (right-click: voice conversation, ⌘⇧V)"
 
 

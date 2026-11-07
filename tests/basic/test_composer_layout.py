@@ -289,3 +289,10 @@ def test_a_disabled_voice_conversation_item_says_why(orb_palette):
     controller.current_workflow = connected
     item = {a.text(): a for a in window._build_voice_menu().actions() if not a.isSeparator()}["Voice conversation (⌘⇧V)"]
     assert item.isEnabled() and item.toolTip().startswith("One question per press")
+
+
+@pytest.mark.basic
+def test_the_orb_tooltip_describes_one_question_per_press():
+    """Review A3: a click while the orb listens SENDS (it no longer "stops" a conversation)."""
+    assert "one question" in ORB_TOOLTIP and "send it now" in ORB_TOOLTIP
+    assert "start or stop" not in ORB_TOOLTIP
