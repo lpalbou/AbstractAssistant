@@ -180,6 +180,11 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 
 ## What's new
 
+0.18.3 makes reasoning and MTP follow the chat model: MTP depths are offered only for a model the
+gateway says supports MTP, changing the model puts both back on Gateway default, and a saved value
+the model cannot use is never sent. A failed run now shows the gateway's own error, word for word.
+See the [0.18.3 release notes](CHANGELOG.md#0183---2026-11-07).
+
 0.18.2 makes a press of the orb one question by voice: it listens until you pause, sends what you
 said, reads the reply aloud, then stops listening until your next press. The orb sits on its own
 slightly transparent panel so it stays readable over any window, and a failed run now says why in
@@ -688,8 +693,8 @@ session out).
 
 | Control | Meaning | Stored |
 |---|---|---|
-| Reasoning effort | Gateway default, none, minimal, low, medium, high, extra high. The ladder comes from the gateway contract (`thinking_control.values`). Sent with every run as `_runtime.thinking`; Gateway default sends nothing. Levels the chat model's capability card does not list are greyed out | this app `reasoning_effort` |
-| MTP depth | The shared route picker's MTP choice, with the same words as AbstractCode and the gateway console: **Gateway default** (with the gateway's own depth, e.g. **Gateway default (depth 2)**), **Off**, or **Depth N** for each depth the gateway advertises for the selected provider/model. Configurable when the gateway reports the model MTP-capable; for a model it reports without MTP the list is shown disabled with the gateway's sentence (a saved depth stays changeable, marked **(saved; not available)**). Sent as `_runtime.speculation` (`{mode: "native_mtp", num_draft_tokens, require_acceleration: true}`); Off sends `false`, and inheritance omits the key | this app `speculation` |
+| Reasoning effort | Gateway default, none, minimal, low, medium, high, extra high. The ladder comes from the gateway contract (`thinking_control.values`). Sent with every run as `_runtime.thinking`; Gateway default sends nothing. Levels the chat model's capability card does not list are greyed out ("This model does not advertise it"), and a saved level the card rules out is shown as Gateway default and not sent. Changing the chat model or provider puts it back on Gateway default | this app `reasoning_effort` |
+| MTP depth | The shared route picker's MTP choice, with the same words as AbstractCode and the gateway console: **Gateway default** (with the gateway's own depth, e.g. **Gateway default (depth 2)**), then **Off** and **Depth N** for each depth the gateway advertises — offered only when the gateway's capability card for the selected provider/model says MTP is supported. Otherwise the list is disabled on **Gateway default** and says why: the gateway's sentence, else "This model does not support MTP." (or "MTP is offered when the gateway confirms this model supports it." when the gateway cannot describe the model), with the gateway's own reason under **Technical details**. Changing the chat model or provider puts it back on Gateway default. Sent as `_runtime.speculation` (`{mode: "native_mtp", num_draft_tokens, require_acceleration: true}`) only when the model can use it; Off sends `false`, and inheritance omits the key | this app `speculation` |
 | Stream replies | A switch, on by default: on shows the answer while the model writes it; off shows it when it is finished. Streaming is this app's choice, so every run says so explicitly as `_runtime.stream` — `true` when the switch is on and the gateway offers live replies (`streaming.deltas` in its discovery, read from the cached answer, never fetched per turn), `false` otherwise. There is no "Gateway default": the gateway's own **Streamed replies** setting (Workflows → Settings in the console) applies only to clients that do not say. When the switch is on but the gateway says it has no live replies, the line under it says so and a chat shows one note | this app `stream_replies` (`on`, `off`; an older `gateway_default` loads as on) |
 | Applies-to line | The chat model that will serve the next turn (gateway default or this app's override) and the reasoning levels that model reports, when the gateway has a capability card for it | gateway |
 | Model routes | One row per route the assistant drives: chat model, voice output, voice input, image generation, image edit, image upscale, video generation, image → video, music, sound effects | this app `route_overrides` |
@@ -709,8 +714,14 @@ no "Advanced" disclosure); the voice route adds a voice picker.
 
 Where overrides travel: the chat model rides the run input (top-level pins and `_runtime`);
 voice overrides ride each speech request; image, video, music and sound overrides ride the
-managed workflow's input pins. A level the model cannot honor is mapped by AbstractCore to the
-nearest supported reasoning level.
+managed workflow's input pins.
+
+Reasoning and MTP follow the chat model (the same rule as the other AbstractFramework apps). Choosing
+another provider or model, or going back to Gateway default, resets both to **Gateway default** and
+saves that. Before each run the Assistant reads the capability card of the model that will answer and
+sends only what that model can use: a saved MTP depth is never sent to a model without MTP, and a
+reasoning level the card does not list is not sent either. When the card cannot be read, no MTP
+value is sent and the reasoning level is (unknown is not unsupported).
 
 ### Live replies
 
@@ -730,7 +741,7 @@ reconnection the bubble picks up where the model is.
 
 MTP is native multi-token prediction, not a reasoning level. Its choices come from the
 gateway's execution capability card, not the model's name. The app shows whether the head is
-ready or a reload is needed; an unavailable saved choice remains visible. Selecting a depth
+ready or a reload is needed; a saved depth the model cannot use is not shown as chosen. Selecting a depth
 requests that exact depth with `require_acceleration=true`: the execution host must honor it
 or report an error, not silently run without MTP. This control neither downloads a head nor
 changes the gateway's shared default. Leaving it on Gateway default follows the Core policy
@@ -1578,8 +1589,9 @@ The gateway's `resolved_workflow` for the last run start is shown in Settings �
 
 Executes one turn in the terminal through the same workflow choice as the tray. Tool approvals are asked
 interactively. The turn honors the same local overrides as the tray: chat model pin, media pins,
-reasoning effort and reply streaming from `preferences.json`; the workspaces come from the gateway
-(the chat's subset, else your account default, else the gateway policy).
+reasoning effort, MTP depth and reply streaming from `preferences.json` — reasoning and MTP only
+when the chat model's capability card allows them, as in the tray; the workspaces come from the
+gateway (the chat's subset, else your account default, else the gateway policy).
 
 `--stream on|off` overrides the app's **Stream replies** switch (on unless switched off in
 Settings) for this turn. The run always says `_runtime.stream` explicitly: `true` only to a gateway
@@ -1631,7 +1643,7 @@ default applies:
 |---|---|
 | `provider`, `model`, `base_url` and `_runtime.provider/model/base_url` | chat model override |
 | `_runtime.thinking` | reasoning effort |
-| `_runtime.speculation` | MTP depth: `false` for Off, `{"mode": "native_mtp", "num_draft_tokens": N, "require_acceleration": true}` for a depth; omitted to follow the gateway default |
+| `_runtime.speculation` | MTP depth: `false` for Off, `{"mode": "native_mtp", "num_draft_tokens": N, "require_acceleration": true}` for a depth; omitted to follow the gateway default, and omitted when the chat model's capability card does not say it supports MTP at that depth (or cannot be read) |
 | `_runtime.stream` | Stream replies, ALWAYS sent: `true` when the switch is on and the cached `/discovery/capabilities` answer advertises `streaming.deltas: true`, `false` otherwise (the gateway's `streaming.default` never decides for this app) |
 | `workspace_root` | the chat's private workspace, once the gateway gave it on the chat's first run (blank before); which other workspaces the run may use is resolved by the gateway at run start — the chat's subset (`/sessions/{id}/workspaces`) > the account default (`/workspace/policy/me`) > the gateway policy — never sent per run |
 | `image_provider/image_model`, `image_edit_*`, `image_upscale_*`, `video_*`, `image_to_video_*`, `music_*`, `sound_output` | media route overrides |
@@ -2090,6 +2102,10 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
 - `ui/activity.py` — the run activity model (steps, durations, header copy) and the transcript card.
 - `ui/approval.py`, `core/tool_presenter.py`, `core/tool_risk.py` — tool approval sheet and
   post-hoc tool cards; presentation of calls and of the gateway's risk classification.
+- `speculation.py`, `model_options.py` — the MTP depth control's choices and sentences, and the rule
+  shared with the kit's controls: reasoning and MTP follow the selected chat model (offered and sent
+  only when its capability card allows them; `controller.sendable_model_options` is the send-time
+  guard the run worker applies).
 - `ui/settings/` — the settings window (sidebar, pages, extracted route editor). The About page
   builds its application rows and its gateway version rows with AbstractCore's framework identity
   helpers (`abstractcore.utils.identity`), so they match every other AbstractFramework About screen.
@@ -2301,8 +2317,8 @@ you pin a different provider and model **for this app only**. The pin is stored 
 
 It sets the thinking level (none to extra high) sent with every run, using the gateway's own
 contract. The page shows which model it applies to and which levels that model reports; a level
-the model cannot honor is mapped to the nearest supported one by AbstractCore. "Gateway default"
-sends nothing.
+the model's capability card does not list is greyed out and never sent. Choosing another chat model
+puts it back on "Gateway default", which sends nothing.
 
 ## Can I choose which workspaces the assistant may use?
 
@@ -2540,14 +2556,17 @@ switch on **Use my default** / **Follow the gateway policy**). See [settings.md]
 
 ## A reply ends with "The run failed…"
 
-The line under the conversation says why the run stopped, in plain words, when the reason is one
-the Assistant recognises, and says what to do. For example, "This model can't use the MTP
-speed-up (speculative decoding) this request asked for" means the chat model or provider cannot
-run MTP, which was required either by the MTP depth under Settings → Models or by the gateway's
-own default for that model: set MTP depth to Off, or choose a model that supports it. For any
-other reason the line reads "The run failed before it wrote a reply."; hover over it to read what
-the gateway reported. The line explains why the run itself failed, not an earlier step that
-recovered.
+The line under the conversation shows the gateway's own error text, word for word: "The run
+failed: " followed by what the gateway reported. Click the line to read the whole text in a
+window you can copy it from (useful in a small window or for a long error). When the gateway gave
+no reason, the line says "The run failed; the gateway gave no reason." The line is about why the
+run itself failed, not an earlier step that recovered.
+
+An error that mentions `SpeculationUnavailableError` or `require_acceleration` means MTP was asked
+of a model that cannot run it. The Assistant offers MTP only for models whose capability card
+supports it and never sends a saved depth to another model, so the request came from the gateway
+side (for example the gateway's own MTP default for that model): change it in the gateway console,
+or choose another model.
 
 ## The prompt ignores spaces after opening from the menu bar
 
@@ -3330,6 +3349,33 @@ All notable changes to AbstractAssistant are documented in this file. Entries de
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
 ## [Unreleased]
+
+## [0.18.3] - 2026-11-07
+
+Reasoning and MTP now follow the chat model, and a failed run shows the gateway's own error.
+
+### Changed
+
+- **MTP only for models that support it.** Settings → Models offers **Off** and the MTP depths only
+  when the gateway's capability card for the selected chat model says MTP is supported. For any
+  other model the MTP depth list stays on **Gateway default**, is disabled, and says why: the
+  gateway's sentence, else "This model does not support MTP.", with the gateway's own reason under
+  **Technical details**. The words are the ones the other AbstractFramework apps use.
+- **Changing the model resets reasoning and MTP.** Choosing another chat provider or model, or going
+  back to Gateway default, puts Reasoning and MTP depth back on **Gateway default** and saves it.
+- **A failed run shows the actual error.** The line under the conversation reads "The run failed: "
+  followed by the gateway's own error text, word for word and never shortened; click it to read the
+  whole text in a window you can copy from. The Assistant no longer guesses a cause from the
+  error's name (0.18.2's explanation for MTP errors is gone).
+
+### Fixed
+
+- **A saved MTP depth no longer breaks every run with a model that has no MTP.** Before each run the
+  Assistant reads the capability card of the model that will answer and sends only the MTP value
+  and reasoning level that model can use; when the card cannot be read, no MTP value is sent. A
+  depth saved for one model (for example depth 2 with "require acceleration") was sent with an
+  endpoint model that has no MTP, and the gateway refused every run. Your saved settings are not
+  changed on disk: the value is simply not sent, and the next model change resets it.
 
 ## [0.18.2] - 2026-11-07
 
@@ -8379,6 +8425,16 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-07
+
+On `@abstractframework/ui-kit` ^0.9.16 (AbstractUIC 0.10.3).
+
+### Fixed
+
+- **The avatar moves smoothly while it rests.** A finished or waiting avatar was redrawn only 6 to 10
+  times per second; it now moves at 24 frames per second, like a speaking one, and a small avatar is
+  drawn at its real size. The picture itself is unchanged.
+
 ## [0.1.2] - 2026-11-07
 
 The 0.1.1 contents below, published. The `web-v0.1.1` tag exists but 0.1.1 never reached npm: the
@@ -8474,7 +8530,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.18.2"
+version = "0.18.3"
 description = "A gateway-native macOS menu-bar assistant for AbstractFramework: a compact palette, voice questions, automations and a small CLI over AbstractGateway"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -8867,6 +8923,12 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
 
     text_override = dict(_call("route_override", "output.text", default=None) or {})
     scope = dict(_call("run_scope", default=None) or {})
+    # Only the reasoning level and MTP value the chat model can use (the tray's send-time guard).
+    guarded = _call("sendable_model_options", scope.get("thinking"), scope.get("speculation"), default=None)
+    if isinstance(guarded, tuple) and len(guarded) == 2:
+        scope["thinking"], scope["speculation"] = guarded
+    else:
+        scope.pop("speculation", None)  # the guard could not run: no MTP is sent
     input_data = build_run_input_data(
         prompt=args.prompt,
         allowed_tools=controller.allowed_tools_for_run(),
@@ -10090,7 +10152,7 @@ import re
 import threading
 import time
 import warnings
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from abstractassistant.config import BUILTIN_GATEWAY_URL, Config, default_gateway_url
 from abstractassistant.core.tool_policy import ToolApprovalPolicy
@@ -11027,6 +11089,38 @@ class AssistantController:
             self._execution_capabilities_cache[key] = (time.monotonic(), result)
         return result
 
+    def sendable_model_options(self, thinking: Any, speculation: Any) -> Tuple[str, Any]:
+        """Send-time guard (the kit's ``resolveSendableModelOptions``, operator rule 2026-11-07):
+        the reasoning level and MTP value the model that will serve the run can use, as
+        ``(thinking, speculation)`` with "" / None meaning "send nothing".
+
+        Reads that model's capability card only when something is set. A card that cannot be
+        read sends no MTP (the reasoning level is kept: unknown is not unsupported). This is
+        what makes a saved MTP depth harmless with a model that has no MTP (the incident: a
+        saved depth sent with an endpoint model was refused on every run). Network work: call
+        it off the GUI thread (the worker does)."""
+        from .model_options import sendable_model_options
+        from .speculation import normalize_speculation
+
+        reasoning = str(thinking or "").strip().lower()
+        try:
+            wanted = normalize_speculation(speculation)
+        except ValueError:
+            wanted = None
+        if not reasoning and wanted is None:
+            return "", None
+        payload: Any = None
+        try:
+            route = self.effective_chat_route()
+            model = str(route.get("model") or "").strip()
+            if model:
+                payload = self.execution_capabilities(str(route.get("provider") or ""), model)
+        except Exception:
+            payload = None
+        if not isinstance(payload, dict) or not payload or payload.get("error"):
+            payload = None
+        return sendable_model_options(reasoning, wanted, payload)
+
     def voice_defaults(self) -> Dict[str, Any]:
         """The gateway's default voice engines (``GET /voice/defaults``), as
         Settings → Voice shows them read-only: ``{"tts": {...}, "stt": {...}}``
@@ -11623,6 +11717,8 @@ class AssistantController:
             media_overrides=self.media_route_overrides() or None,
             thinking=str(scope.get("thinking") or ""),
             speculation=scope.get("speculation"),
+            # Applied by the worker, off the GUI thread, right before the run starts.
+            model_options_guard=self.sendable_model_options,
             stream=scope.get("stream"),
             workspace_root=str(scope.get("workspace_root") or ""),
             debug=self.debug,
@@ -16516,7 +16612,7 @@ import json
 import os
 import threading
 import warnings
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:
     from PyQt5.QtCore import QThread, pyqtSignal
@@ -16579,6 +16675,7 @@ class GatewayWorker(QThread):
         media_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
         thinking: str = "",
         speculation: Any = None,
+        model_options_guard: Optional[Callable[[str, Any], Tuple[str, Any]]] = None,
         stream: Optional[bool] = None,
         workspace_root: str = "",
         debug: bool = False,
@@ -16612,6 +16709,9 @@ class GatewayWorker(QThread):
         self._thinking = str(thinking or "").strip().lower()
         from abstractassistant.speculation import normalize_speculation
         self._speculation = normalize_speculation(speculation)
+        # The send-time guard (controller.sendable_model_options): keeps only the reasoning
+        # level and MTP value the run's model can use. Network work, so it runs in `run()`.
+        self._model_options_guard = model_options_guard
         # Live replies (`_runtime.stream`): None = the gateway's default
         # (nothing sent), True/False = this app's explicit choice.
         if stream is not None and not isinstance(stream, bool):
@@ -17423,6 +17523,19 @@ class GatewayWorker(QThread):
             merged["_assistant_stats"] = {"run_id": rid, **stats}
         return merged
 
+    def _sendable_model_options(self) -> Tuple[str, Any]:
+        """(thinking, speculation) for this run: what the guard allows for the run's model, or
+        what was given when there is no guard. A guard that fails sends no MTP."""
+        guard = self.__dict__.get("_model_options_guard")
+        if not callable(guard):
+            return self._thinking, self._speculation
+        try:
+            thinking, speculation = guard(self._thinking, self._speculation)
+        except Exception as exc:  # noqa: BLE001
+            warnings.warn(f"#FALLBACK: could not read the chat model's capability card, no MTP sent: {exc}")
+            return self._thinking, None
+        return str(thinking or ""), speculation
+
     def run(self) -> None:
         try:
             if self._gateway is None:
@@ -17477,6 +17590,7 @@ class GatewayWorker(QThread):
                         warnings.warn(f"Failed to append user message: {e}")
 
                 try:
+                    thinking, speculation = self._sendable_model_options()
                     primary_image_artifact = self._pick_primary_image_artifact(attachments)
                     input_data = build_run_input_data(
                         prompt=self._user_text,
@@ -17489,8 +17603,8 @@ class GatewayWorker(QThread):
                         model=self._model_override,
                         base_url=self._base_url_override,
                         media_overrides=self._media_overrides,
-                        thinking=self._thinking,
-                        speculation=self._speculation,
+                        thinking=thinking,
+                        speculation=speculation,
                         stream=self._stream,
                         workspace_root=self._workspace_root,
                     )

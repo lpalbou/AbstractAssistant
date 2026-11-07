@@ -5,6 +5,33 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+## [0.18.3] - 2026-11-07
+
+Reasoning and MTP now follow the chat model, and a failed run shows the gateway's own error.
+
+### Changed
+
+- **MTP only for models that support it.** Settings → Models offers **Off** and the MTP depths only
+  when the gateway's capability card for the selected chat model says MTP is supported. For any
+  other model the MTP depth list stays on **Gateway default**, is disabled, and says why: the
+  gateway's sentence, else "This model does not support MTP.", with the gateway's own reason under
+  **Technical details**. The words are the ones the other AbstractFramework apps use.
+- **Changing the model resets reasoning and MTP.** Choosing another chat provider or model, or going
+  back to Gateway default, puts Reasoning and MTP depth back on **Gateway default** and saves it.
+- **A failed run shows the actual error.** The line under the conversation reads "The run failed: "
+  followed by the gateway's own error text, word for word and never shortened; click it to read the
+  whole text in a window you can copy from. The Assistant no longer guesses a cause from the
+  error's name (0.18.2's explanation for MTP errors is gone).
+
+### Fixed
+
+- **A saved MTP depth no longer breaks every run with a model that has no MTP.** Before each run the
+  Assistant reads the capability card of the model that will answer and sends only the MTP value
+  and reasoning level that model can use; when the card cannot be read, no MTP value is sent. A
+  depth saved for one model (for example depth 2 with "require acceleration") was sent with an
+  endpoint model that has no MTP, and the gateway refused every run. Your saved settings are not
+  changed on disk: the value is simply not sent, and the next model change resets it.
+
 ## [0.18.2] - 2026-11-07
 
 A press of the orb now asks one question by voice and then stops listening, like the Apple Watch
