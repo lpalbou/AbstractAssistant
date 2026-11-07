@@ -23,6 +23,14 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 - An entity's look is read only from its identity record. With a gateway older than 0.20, or while
   an entity is closed for maintenance, the watch draws no orb for it (an empty grey ring) and shows the
   gateway's sentence under the orb.
+- **Disconnect asks whether to keep your sign-in.** **Disconnect this iPhone** now offers "Keep my
+  sign-in", to reconnect later without signing in again, or "Sign out and forget"; your gateway
+  conversations and automations are kept either way. Keeping it works even when the gateway cannot
+  be reached.
+- **On the watch:** Home is the conversation screen (tap the orb to talk there; Sessions and
+  Automations open on the same screen, and **Discuss something else** starts fresh), Notes can be
+  captured to your AbstractNote notebook, and disconnecting offline keeps the sign-in. See the
+  [watch release history](../../watch/apple/CHANGELOG.md).
 
 ## [0.17.0] — 2026-11-03
 

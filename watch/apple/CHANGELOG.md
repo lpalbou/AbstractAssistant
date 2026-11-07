@@ -16,11 +16,27 @@ iPhone app); the Python package's history is in
 - **An entity speaks with its own voice.** When the gateway refuses to speak for an entity (for
   example because it has no voice yet), the watch shows the gateway's sentence instead of "Voice
   unavailable"; no other voice is used.
+- **Notes from your wrist.** Home offers Notes beside Sessions and Automations: write or dictate a
+  thought and save it to your AbstractNote notebook (the gateway needs AbstractNote set up). A
+  draft stays until it is saved or you discard it, saving the same note again never makes a second
+  copy, and a save that waits for an approval can be checked again.
 
 ### Changed
 
 - An entity's look is read only from its identity record: with a gateway older than 0.20, or while
   an entity is closed for maintenance, it has no orb (an empty grey ring) and the gateway's sentence shows.
+- **Home is the conversation screen.** Tap the orb on Home to start talking right there; the answer
+  appears on the same screen. The area below the orb switches between the current conversation and
+  Sessions / Automations without losing the current turn, and a session or automation you open
+  continues on this same screen.
+- **Discuss something else** goes back to the Home list, and the orb then starts a fresh
+  conversation.
+
+### Fixed
+
+- **Disconnecting while the gateway cannot be reached keeps your sign-in** when you choose
+  "Keep my sign-in", so you can reconnect later without signing in again. A kept sign-in without a
+  user name shows as "Use saved sign-in".
 
 ## [0.17.0] - 2026-11-03
 
