@@ -154,6 +154,7 @@ from .core.voice_conversation import (
     VoiceConversation,
 )
 from .core import tool_presenter as _presenter
+from .core.run_failure import explain_run_failure, failure_tooltip
 from .core.link_targets import (
     click_action,
     describe_link,
@@ -5746,6 +5747,9 @@ class AssistantPalette(QMainWindow):
     # How the run the palette is following ENDED, per the run itself.
     # `_cancel_requested` only knows about a stop this process issued.
     _last_run_status = ""
+    # The newest failure reason the run reported (a failed step's `error` in the
+    # replay view, or the run summary's): what "the run failed" is explained with.
+    _last_run_error = ""
     # Set when the voice manager surfaced a concrete failure for the current
     # speak attempt, so the generic "couldn't start" banner never overwrites a
     # specific cause.
@@ -6455,6 +6459,7 @@ class AssistantPalette(QMainWindow):
         self._worker = worker
         self._cancel_requested = False
         self._last_run_status = ended if recovering else ""
+        self._last_run_error = ""
         self._run_busy = not recovering
         # A recovered (finished) run's answer is not spoken by itself (read aloud).
         self._reply_live = not recovering
@@ -9866,6 +9871,7 @@ class AssistantPalette(QMainWindow):
         self._pending_submit = False
         self._cancel_requested = False
         self._last_run_status = ""
+        self._last_run_error = ""
         prompt = self.prompt_edit.toPlainText().strip()
         if not prompt and not self._attachments:
             return
@@ -9983,6 +9989,13 @@ class AssistantPalette(QMainWindow):
             self._on_live_reset()
             return
         self._feed_activity(payload)
+        if typ == "error":
+            # The newest wins: the worker reports the run's own reason last
+            # (a failed root step, or the run summary when the view had none).
+            reason = str(payload.get("error") or "").strip()
+            if reason:
+                self._last_run_error = reason
+            return
         if typ == "run_start_failed":
             # The gateway refused to start the run (workspace grant out of
             # policy, missing workflow…): withdraw the phantom user turn, put
@@ -10450,11 +10463,17 @@ class AssistantPalette(QMainWindow):
             if was_stopped or ended_as == "cancelled":
                 fallback = "Run stopped."
             elif ended_as == "failed":
-                fallback = "The run failed before it wrote a reply."
+                fallback = ""
+                failure = explain_run_failure(str(self._state("_last_run_error", "") or ""))
+                self._run_has_final_output = True
+                # The cause in plain words where the conversation is read; the
+                # gateway's own words stay one hover away.
+                self._set_history_status(failure.text, tone="error", tooltip=failure_tooltip(failure))
             else:
                 fallback = "The workflow completed, but it returned no written reply."
-            self._run_has_final_output = True
-            self._set_history_status(fallback, tone="info")
+            if fallback:
+                self._run_has_final_output = True
+                self._set_history_status(fallback, tone="info")
         self._refresh_tray_feedback()
         if had_indicator != self._show_thinking_indicator():
             self.refresh_history()
