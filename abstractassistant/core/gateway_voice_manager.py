@@ -488,13 +488,27 @@ class GatewayVoiceManager:
     _failed_hold_retrying = False
     _failed_hold_lock = threading.Lock()
 
-    def begin_hold(self, on_audio_level: Callable[[float], None] | None = None) -> bool:
+    def begin_hold(
+        self,
+        on_audio_level: Callable[[float], None] | None = None,
+        *,
+        on_utterance_end: Callable[[str], None] | None = None,
+    ) -> bool:
         """Start recording from the microphone for as long as the user holds.
 
         The Code TUI's principle (operator 2026-10-10 and 2026-10-17: "we press,
         it records, we unpress, it sends"): no voice-activity detection, no stop
         phrase — the press and the release ARE the utterance's boundaries. The
         continuous recognizer (`listen`) and a hold never run together.
+
+        ``on_utterance_end`` makes it ONE spoken turn instead (the orb, 0.18.2):
+        every 30 ms frame goes through the voice-activity detector and an
+        `UtteranceEndpoint`; when the utterance is over (about one second of
+        silence after speech, nothing said in time, or the longest turn) the
+        callback fires ONCE, from the audio thread, with the reason. Later
+        frames are not kept. The caller then ends the recording with
+        ``end_hold`` (``hold_heard_speech()`` says whether anything was said)
+        or drops it with ``cancel_hold``.
         """
         if not self.supports_stt():
             raise RuntimeError("Gateway STT unavailable (microphone not available)")
@@ -510,11 +524,47 @@ class GatewayVoiceManager:
 
         chunks: list = []
         lock = threading.Lock()
+        endpoint = None
+        detector = None
+        normalizer = None
+        if on_utterance_end is not None:
+            from abstractvoice.audio.levels import VoiceLevelNormalizer
+            from abstractvoice.vad import VoiceDetector
+
+            from .utterance_endpoint import UtteranceEndpoint
+
+            # The continuous recognizer's detector and aggressiveness (1), so
+            # what counts as speech did not change with the one-turn rule.
+            detector = VoiceDetector(aggressiveness=1, sample_rate=self.HOLD_SAMPLE_RATE)
+            endpoint = UtteranceEndpoint(frame_ms=30)
+            normalizer = VoiceLevelNormalizer()
+        self._hold_endpoint = endpoint
 
         def _callback(indata, frames, time_info, status) -> None:  # noqa: ARG001
             try:
                 block = np.asarray(indata, dtype=np.int16).reshape(-1).copy()
             except Exception:
+                return
+            if endpoint is not None:
+                if endpoint.ended is not None:
+                    return
+                speech = bool(detector.is_speech(block.tobytes())) if block.size else False
+                with lock:
+                    chunks.append(block)
+                if on_audio_level is not None and block.size:
+                    try:
+                        samples = block.astype(np.float32) / 32768.0
+                        on_audio_level(normalizer.push(
+                            float(np.sqrt(np.mean(samples ** 2))), peak=float(np.max(np.abs(samples))),
+                            seconds=block.size / float(self.HOLD_SAMPLE_RATE), speech=speech))
+                    except Exception:
+                        pass
+                reason = endpoint.push(speech)
+                if reason is not None:
+                    try:
+                        on_utterance_end(reason)
+                    except Exception:
+                        pass
                 return
             with lock:
                 chunks.append(block)
@@ -544,6 +594,12 @@ class GatewayVoiceManager:
 
     def is_holding(self) -> bool:
         return self._hold_stream is not None
+
+    def hold_heard_speech(self) -> bool:
+        """The one-turn recording (``on_utterance_end``) has heard speech: ending
+        it now sends something. False for a plain hold, which has no detector."""
+        endpoint = getattr(self, "_hold_endpoint", None)
+        return bool(self._hold_stream is not None and endpoint is not None and endpoint.heard)
 
     def cancel_hold(self) -> None:
         """Drop a hold without transcribing (window closed, conversation started…)."""

@@ -1,7 +1,7 @@
 # AbstractAssistant
 
 AbstractAssistant is a gateway-native desktop assistant for the AbstractFramework ecosystem: a
-macOS menu-bar app with a compact palette, a hands-free voice conversation mode, and a small CLI.
+macOS menu-bar app with a compact palette, voice questions from one press of the orb, and a small CLI.
 
 The desktop client stays thin. AbstractGateway owns workflow discovery, durable runs, provider
 connections, tool execution and policy, workspace policy, and multimodal defaults. The assistant
@@ -39,9 +39,10 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   the finished answer replaces the live text.
 - Tool approvals in a modeless sheet that shows the gateway's risk tier for each call and never
   blocks the palette; "always allow on this Mac" and per-chat trust for low-risk tools.
-- Voice from the orb beside the composer: click it (or press ⌘⇧V) for a voice conversation —
-  listen, send, speak, listen again — with Listening, Thinking or Speaking shown above it; right-click
-  it to dictate into the message box. Spoken replies stream from the gateway.
+- Voice from the orb beside the composer: click it (or press ⌘⇧V) to ask one question by voice —
+  it listens until you pause, sends, reads the reply aloud, then stops — with Listening, Thinking or
+  Speaking shown above it; right-click it to dictate into the message box. Spoken replies stream
+  from the gateway.
 - A Settings window with seven sections: Connection, Models & reasoning (workflow, reasoning
   effort, reply streaming), Voice, Workspace (my default workspaces, this chat), Tools & permissions,
   Appearance & window, About. Every value says whether it is the gateway default or this app's

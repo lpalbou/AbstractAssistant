@@ -70,14 +70,15 @@ choice cannot run, sending is blocked and the palette says why. See
 ## How does voice work?
 
 Microphone audio is captured locally and played locally; STT and TTS run on the gateway. Replies
-stream progressively when the gateway advertises streaming TTS. A hands-free conversation mode
-(⌘⇧V) listens, sends, speaks and listens again. See [voice.md](voice.md).
+stream progressively when the gateway advertises streaming TTS. A press of the orb (or ⌘⇧V) asks
+one question by voice: it listens until you pause, sends what you said, reads the reply aloud, then
+stops listening. See [voice.md](voice.md).
 
-## Why can't I interrupt the assistant by talking?
+## Why doesn't the orb keep listening after a reply?
 
-With the default barge-in setting the microphone is paused while the assistant speaks, so it
-never transcribes itself through your speakers. Use Esc, the stop button, or switch Barge-in to
-"Keep the mic open" when you use headphones.
+Each press is one question, so nothing near your Mac is ever sent without a press: the microphone
+closes once you have spoken and stays closed while the reply is read. Press the orb again for the
+next question. To cut a reply short, press the orb or Esc.
 
 ## What does the activity card show?
 

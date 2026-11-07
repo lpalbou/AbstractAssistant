@@ -327,9 +327,12 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
 - `ui/settings/` — the settings window (sidebar, pages, extracted route editor). The About page
   builds its application rows and its gateway version rows with AbstractCore's framework identity
   helpers (`abstractcore.utils.identity`), so they match every other AbstractFramework About screen.
-- `core/voice_conversation.py`, `ui/avatar.py`, `core/gateway_voice_manager.py` — the
-  hands-free loop, the orb beside the composer that controls it and shows its state
-  (`AvatarVoiceButton`), and the local capture/playback layer over gateway speech routes.
+- `core/voice_conversation.py`, `core/utterance_endpoint.py`, `ui/avatar.py`,
+  `core/gateway_voice_manager.py` — one voice question per press (listen to one utterance, send,
+  speak the reply, stop), the rule that ends an utterance (about one second of silence after
+  speech), the orb beside the composer that controls it and shows its state
+  (`AvatarVoiceButton`), and the local capture/playback layer over gateway
+  speech routes.
   The former status strip, `ui/voice_strip.py`, stays in the code but is no longer shown.
 - `gateway/automations.py`, `core/automations.py`, `ui/automations.py` — the Automations API
   client, its Qt-free presentation rules (labels, enabled controls, chat pairs, the create body,

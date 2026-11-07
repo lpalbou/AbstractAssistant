@@ -33,25 +33,34 @@ def orb_palette():
     app.processEvents()
 
 
+def _speak_a_turn(window, controller, words):
+    """One voice turn up to its transcript: speech, the silence, the gateway's words."""
+    controller.voice_manager.heard = True
+    turn = window._voice_conversation
+    window.voice_turn_ended.emit(turn, "silence")
+    _SMOKE["_app"]().processEvents()
+    window.voice_turn_transcribed.emit(turn, words)
+    _SMOKE["_app"]().processEvents()
+
+
 @pytest.mark.basic
 @pytest.mark.parametrize("has_text,has_file", [(True, False), (False, True), (True, True)])
-def test_draft_created_during_voice_debounce_is_never_sent(orb_palette, has_text, has_file):
+def test_draft_created_during_a_voice_turn_is_never_sent(orb_palette, has_text, has_file):
     window, controller = orb_palette
     window._start_voice_conversation()
-    conversation = window._voice_conversation
-    conversation.heard("spoken words")
     if has_text:
         window.prompt_edit.setPlainText("Unfinished draft")
     attachments = [object()] if has_file else []
     window._attachments = attachments
-    conversation.send_now()
+    _speak_a_turn(window, controller, "spoken words")
     assert window.prompt_edit.toPlainText() == ("Unfinished draft spoken words" if has_text else "spoken words")
     assert window._attachments is attachments
     assert controller.built == []
-    assert not conversation.auto_send
-    assert conversation.state == "listening"
+    # The turn is over: the microphone is closed and nothing listens again.
+    assert window._voice_conversation is None
+    assert not controller.voice_manager.listening
     # Said where the user sees it (the strip is hidden since 0.18.1): the words went to the
-    # draft and sending on its own is now off for this conversation.
+    # draft and were not sent on their own.
     assert window.banner_label.isVisible()
     assert "not sent automatically" in window.banner_label.text()
     assert "Return" in window.banner_label.text()
@@ -120,10 +129,109 @@ def test_animation_failure_switches_to_usable_voice_control_without_other_ui_eve
 def test_words_heard_beside_a_draft_go_into_it_and_the_notice_says_so(orb_palette):
     window, controller = orb_palette
     window._start_voice_conversation()
-    conversation = window._voice_conversation
-    assert conversation.auto_send
     window.prompt_edit.setPlainText("Unfinished draft")
-    window._on_transcription("spoken words")
+    _speak_a_turn(window, controller, "spoken words")
     assert window.prompt_edit.toPlainText() == "Unfinished draft spoken words"
-    assert not conversation.auto_send and controller.built == []
+    assert controller.built == []
     assert window.banner_label.isVisible() and "not sent automatically" in window.banner_label.text()
+
+
+# ------------------------------------------------------------ one voice turn per press (0.18.2)
+
+
+@pytest.mark.basic
+def test_a_press_on_the_listening_orb_sends_what_was_said(orb_palette):
+    window, controller = orb_palette
+    voice = controller.voice_manager
+    QTest.mouseClick(window.conversation_button, Qt.LeftButton)
+    assert voice.listening and window._voice_conversation.state == "listening"
+    voice.heard = True
+    QTest.mouseClick(window.conversation_button, Qt.LeftButton)  # done talking
+    assert not voice.listening
+    assert window._voice_conversation.state == "transcribing"
+    assert callable(voice.transcribe_kwargs.get("on_transcription"))
+    window.voice_turn_transcribed.emit(window._voice_conversation, "call mum")
+    _SMOKE["_app"]().processEvents()
+    assert controller.built and controller.built[-1]["prompt"] == "call mum"
+
+
+@pytest.mark.basic
+def test_a_press_on_the_listening_orb_with_nothing_said_cancels(orb_palette):
+    window, controller = orb_palette
+    voice = controller.voice_manager
+    QTest.mouseClick(window.conversation_button, Qt.LeftButton)
+    voice.transcribe_kwargs = {}
+    QTest.mouseClick(window.conversation_button, Qt.LeftButton)
+    assert not voice.listening
+    assert voice.transcribe_kwargs == {}  # nothing went to the gateway
+    assert not window._voice_conversation_active
+    assert not window.conversation_button.isChecked()
+    assert window.title_label.text() == "I didn't hear anything"
+    assert controller.built == []
+
+
+@pytest.mark.basic
+def test_escape_cancels_a_turn_even_after_speech(orb_palette):
+    window, controller = orb_palette
+    voice = controller.voice_manager
+    window._start_voice_conversation()
+    voice.heard = True
+    voice.transcribe_kwargs = {}
+    window._on_escape()
+    assert not voice.listening and voice.transcribe_kwargs == {}
+    assert not window._voice_conversation_active
+    assert controller.built == []
+
+
+@pytest.mark.basic
+def test_the_turn_ends_after_the_reply_and_nothing_listens_again(orb_palette):
+    """The operator's report: in a quiet room the loop kept listening after each reply
+    and sent "Thank you." and "Cough, cough." One turn, then the orb is idle."""
+    window, controller = orb_palette
+    voice = controller.voice_manager
+    opened: list = []
+    original = voice.begin_hold
+    voice.begin_hold = lambda **kw: (opened.append(1), original(**kw))[1]
+    window._start_voice_conversation()
+    conversation = window._voice_conversation
+    voice.heard = True
+    window.voice_turn_ended.emit(conversation, "silence")
+    _SMOKE["_app"]().processEvents()
+    # The run itself is the smoke controller's (it refuses to start); drive the
+    # reply's lifecycle directly: it is spoken, then it finishes.
+    conversation.state = "thinking"
+    conversation.run_finished(will_speak=True)
+    window._on_voice_speech_finished()
+    _SMOKE["_app"]().processEvents()
+    assert not window._voice_conversation_active
+    assert not voice.listening
+    # A late transcript or an endpoint from the finished turn changes nothing.
+    window.voice_turn_transcribed.emit(conversation, "Thank you.")
+    window.voice_turn_ended.emit(conversation, "silence")
+    _SMOKE["_app"]().processEvents()
+    assert opened == [1]
+    assert controller.built == []
+    assert not window.conversation_button.isChecked()
+
+
+@pytest.mark.basic
+def test_a_cancelled_turns_late_transcript_never_lands_in_the_next_turn(orb_palette):
+    window, controller = orb_palette
+    voice = controller.voice_manager
+    window._start_voice_conversation()
+    first = window._voice_conversation
+    voice.heard = True
+    window.voice_turn_ended.emit(first, "silence")
+    _SMOKE["_app"]().processEvents()
+    window._on_escape()  # cancelled while the gateway transcribes
+    window._start_voice_conversation()
+    second = window._voice_conversation
+    window.voice_turn_ended.emit(second, "silence")
+    _SMOKE["_app"]().processEvents()
+    assert second.state == "transcribing"
+    window.voice_turn_transcribed.emit(first, "the cancelled question")
+    _SMOKE["_app"]().processEvents()
+    assert controller.built == [] and second.state == "transcribing"
+    window.voice_turn_transcribed.emit(second, "the real question")
+    _SMOKE["_app"]().processEvents()
+    assert controller.built and controller.built[-1]["prompt"] == "the real question"

@@ -61,9 +61,8 @@ def test_escape_ends_voice_before_hiding_and_speech_labels_follow_player(orb_pal
     controller.voice_manager.is_speaking = lambda: True
     window._on_voice_state("speaking")
     assert window.title_label.text().startswith("Speaking")
-    window._voice_conversation.last_transcript = "what is the weather"
-    window._on_voice_state("heard")
-    assert window.title_label.text() == "Heard: “what is the weather”"
+    window._on_voice_state("transcribing")
+    assert window.title_label.text() == "Sending what you said…"
     window._on_escape()
     assert not controller.voice_manager.listening
     assert not window._voice_conversation_active
@@ -100,6 +99,7 @@ def test_orb_labels_states_above_centered_body_and_owns_voice_stop(orb_palette):
     assert window.voice_strip.isHidden()
     assert button.caption.text() == "Listening"
     assert button.caption.geometry().bottom() < button.avatar.y()
+    controller.voice_manager.listening = False  # the turn's words went out: the mic is closed
     window._voice_conversation._set_state("thinking")
     assert button.caption.text() == "Thinking"
     assert window.voice_strip.isHidden()
@@ -112,16 +112,16 @@ def test_orb_labels_states_above_centered_body_and_owns_voice_stop(orb_palette):
 
 @pytest.mark.basic
 def test_quiet_microphone_pcm_reaches_avatar_and_stale_level_decays(orb_palette, monkeypatch):
-    import numpy as np
     import abstractassistant.app as module
-    from abstractvoice.recognition import VoiceRecognizer
-    window, _ = orb_palette
+    from abstractvoice.audio.levels import VoiceLevelNormalizer
+    window, controller = orb_palette
     window._start_voice_conversation()
-    rec = VoiceRecognizer.__new__(VoiceRecognizer)
-    rec._audio_level_ema = 0.0
-    rec.audio_level_callback = window.voice_level_received.emit
+    # The voice turn's recording reports levels the way `begin_hold` does: the
+    # adaptive normalizer, fed a quiet microphone (rms 0.002) while speech is heard.
+    level = controller.voice_manager.capture_kwargs["on_audio_level"]
+    normalizer = VoiceLevelNormalizer()
     for _ in range(8):
-        rec._emit_audio_level(np.full((480, 1), 0.002, dtype=np.float32))
+        level(normalizer.push(0.002, peak=0.004, seconds=0.03, speech=True))
     _SMOKE["_app"]().processEvents()
     assert window._avatar_presentation().state == "listening"
     assert window._avatar_presentation().level > 0.15
@@ -161,19 +161,6 @@ def test_orb_menu_on_off_items_keep_their_feature_label_and_show_state(orb_palet
         menu = window._build_voice_menu()
         return {a.text(): a for a in menu.actions() if not a.isSeparator()}
 
-    window._start_voice_conversation()
-    assert window._voice_conversation.state != "paused"
-    mic = items()["Microphone"]
-    assert mic.isCheckable() and mic.isChecked()
-    mic.trigger()
-    assert window._voice_conversation.state == "paused"
-    mic = items()["Microphone"]
-    assert mic.isCheckable() and not mic.isChecked()
-    mic.trigger()
-    assert window._voice_conversation.state != "paused"
-    window._end_voice_conversation()
-
-    assert "Microphone" not in items()
     dictate = items()["Dictate into the message box"]
     assert dictate.isCheckable() and not dictate.isChecked()
     window._listening = True
@@ -183,40 +170,38 @@ def test_orb_menu_on_off_items_keep_their_feature_label_and_show_state(orb_palet
 
 
 @pytest.mark.basic
-def test_orb_menu_microphone_shows_the_real_microphone_and_acts_only_when_it_can(orb_palette):
-    """While the assistant works or speaks the conversation keeps the microphone closed and
-    cannot pause it: the item says so (unticked, disabled, with the reason) instead of a tick
-    that an untick silently ignores (review 2026-11-07, finding 1)."""
-    window, _ = orb_palette
+def test_voice_turn_menu_item_is_ticked_exactly_while_the_turn_runs(orb_palette):
+    """A voice turn is one utterance (0.18.2): there is no microphone to pause between
+    turns, so no "Microphone" item; "Voice conversation" is ticked from the press until
+    the reply has been spoken, then unticks by itself."""
+    window, controller = orb_palette
 
-    def microphone():
+    def items():
         menu = window._build_voice_menu()
-        assert menu.toolTipsVisible(), "a disabled item's reason must be readable"
-        return {a.text(): a for a in menu.actions() if not a.isSeparator()}["Microphone"]
+        return {a.text(): a for a in menu.actions() if not a.isSeparator()}
 
     window._start_voice_conversation()
     conversation = window._voice_conversation
-    assert conversation.state == "listening"
-    assert microphone().isEnabled() and microphone().isChecked()
-
-    conversation.mark_sent()  # a turn went out: the assistant works, the mic is closed
-    assert conversation.state == "thinking"
-    mic = microphone()
-    assert not mic.isChecked() and not mic.isEnabled()
-    assert mic.toolTip() == "The microphone is closed while the assistant works."
-    mic.trigger()
-    assert conversation.state == "thinking"
-
+    for state in ("listening",):
+        assert conversation.state == state
+        assert items()["Voice conversation (⌘⇧V)"].isChecked()
+        assert "Microphone" not in items()
+    controller.voice_manager.heard = True
+    window.voice_turn_ended.emit(conversation, "silence")
+    _SMOKE["_app"]().processEvents()
+    assert conversation.state == "transcribing"
+    assert items()["Voice conversation (⌘⇧V)"].isChecked()
+    conversation.state = "thinking"  # the send itself is covered by the smoke tests
     conversation.run_finished(will_speak=True)
     assert conversation.state == "speaking"
-    mic = microphone()
-    assert not mic.isChecked() and not mic.isEnabled()
-    assert mic.toolTip() == "The microphone is closed while the assistant speaks."
-
+    assert items()["Voice conversation (⌘⇧V)"].isChecked()
     conversation.speech_finished()
-    assert conversation.state == "listening"
-    assert microphone().isEnabled() and microphone().isChecked()
-    window._end_voice_conversation()
+    _SMOKE["_app"]().processEvents()
+    item = items()["Voice conversation (⌘⇧V)"]
+    assert item.isCheckable() and not item.isChecked()
+    assert not window._voice_conversation_active
+    assert not window.conversation_button.isChecked()
+    assert not controller.voice_manager.listening  # nothing reopened the microphone
 
 
 @pytest.mark.basic
@@ -244,7 +229,7 @@ def test_voice_conversation_is_one_checkable_item_and_the_orb_keeps_one_name(orb
     active = menu_labels()
     item = active["Voice conversation (⌘⇧V)"]
     assert item.isCheckable() and item.isChecked()
-    assert set(idle) <= set(active) and set(active) - set(idle) == {"Microphone"}
+    assert set(idle) == set(active)  # the labels never change with the state
     assert orb() == ("Voice", ORB_TOOLTIP)
     item.trigger()
     assert not window._voice_conversation_active
@@ -254,3 +239,4 @@ def test_voice_conversation_is_one_checkable_item_and_the_orb_keeps_one_name(orb
     window._listening = False
     controller.voice_manager.is_speaking = lambda: True  # reading a reply aloud
     assert orb() == ("Voice", ORB_TOOLTIP)
+

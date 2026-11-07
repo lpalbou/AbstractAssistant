@@ -63,11 +63,14 @@ def test_a_late_old_step_or_other_run_seen_cannot_withdraw_the_current_gate(pale
 def test_remote_question_close_never_answers_or_recreates_a_deferred_question(palette, monkeypatch):
     window, _ = _prepare(palette)
     monkeypatch.setattr(window, "_surface_for_prompt", lambda **kwargs: None)
-    resumed = []
-    voice = SimpleNamespace(state="listening", pause=lambda: True, resume=lambda: resumed.append(True))
-    window._voice_conversation = voice
+    voice = window._controller.voice_manager
+    window._start_voice_conversation()
+    assert voice.listening
     payload = {"type": "ask_user", "run_id": "leaf", "wait_key": "ask", "step_id": "one", "prompt": "Which file?"}
     window._open_ask_dialog(payload)
+    # A question on screen ends a voice turn that was still listening: side talk is
+    # never transcribed (0.18.2: one turn per press, so nothing to pause and resume).
+    assert not window._voice_conversation_active and not voice.listening
     dialog = window._ask_dialog
     decisions = []
     dialog.finished.connect(lambda *args: decisions.append(args))
@@ -76,22 +79,23 @@ def test_remote_question_close_never_answers_or_recreates_a_deferred_question(pa
     assert window._ask_dialog is None and not dialog.isVisible()
     assert window._deferred_ask_payload is None and not window._pending_user_waits
     assert decisions == []
-    assert resumed == [True]
+    assert not voice.listening  # closing the question never reopens the microphone
 
 
 @pytest.mark.basic
-def test_resolving_one_gate_keeps_voice_paused_until_the_last_queued_gate_is_gone(palette):
+def test_resolving_gates_never_reopens_the_microphone(palette):
     window, _ = _prepare(palette)
-    resumed = []
-    window._voice_conversation = SimpleNamespace(state="listening", pause=lambda: True,
-                                                resume=lambda: resumed.append(True))
+    voice = window._controller.voice_manager
+    window._start_voice_conversation()
     for key, step in (("first", "one"), ("second", "two")):
         window._open_approval_sheet(tool_calls=[{"name": "read_file", "arguments": {"path": "note.txt"}}],
                                     run_id="leaf", wait_key=key, step_id=step)
+    assert not window._voice_conversation_active and not voice.listening
     window._on_me_event(_event(518, "attention.seen", "first"), False)
-    assert resumed == [] and window._approval_sheet.current_batch["wait_key"] == "second"
+    assert window._approval_sheet.current_batch["wait_key"] == "second"
     window._on_me_event(_event(520, "attention.seen", "second", step="two"), False)
-    assert resumed == [True] and not window._pending_user_waits
+    assert not window._pending_user_waits
+    assert not voice.listening and not window._voice_conversation_active
 
 
 @pytest.mark.basic

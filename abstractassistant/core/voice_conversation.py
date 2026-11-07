@@ -1,48 +1,65 @@
-"""Hands-free voice conversation: the listen → send → speak → listen loop.
+"""One voice turn: listen once → send → speak the reply → stop.
 
-This is the Qt-free state machine behind the palette's "Voice conversation"
-mode. It owns no widgets and no threads: the palette marshals recognizer
-callbacks onto the GUI thread and calls the methods below; a `schedule`
-callable (a QTimer wrapper in the app, a manual scheduler in tests) provides
-the short debounce that merges closely spaced utterances into one turn.
+This is the Qt-free state machine behind the orb and the menu's "Voice
+conversation". It owns no widgets and no threads: the palette marshals the
+voice manager's callbacks onto the GUI thread and calls the methods below.
+
+A press is ONE turn, like the Apple Watch's orb (0.18.2; before, the mode was a
+hands-free loop that listened again after every reply, and in a quiet room the
+speech-to-text model turned the silence into "Thank you." four times, each sent
+as a message):
+
+- the microphone records ONE utterance (``GatewayVoiceManager.begin_hold`` with
+  ``on_utterance_end``): about one second of silence after speech ends it;
+  nothing said for a few seconds ends it with nothing sent;
+- pressing the orb while it listens ends the turn now: what was said is sent,
+  and nothing is sent when nothing was said (``finish_listening``);
+- the gateway transcribes the recording, the words are sent like typed text,
+  the reply is spoken, and the turn is over (state ``off``): the microphone is
+  never reopened by itself. The next press starts the next turn.
 
 States (``VoiceConversation.state``):
 
-- ``off``       — not running.
-- ``starting``  — microphone + gateway STT are being brought up.
-- ``listening`` — mic open, waiting for speech.
-- ``heard``     — an utterance was transcribed; more may follow within the
-                  debounce window before it is sent as one prompt.
-- ``thinking``  — the prompt was sent; a run is in flight.
-- ``speaking``  — the reply is being spoken (the microphone is paused by the
-                  voice manager's ``wait`` gate so the assistant never
-                  transcribes itself).
-- ``paused``    — the user muted the microphone without leaving the mode.
-- ``error``     — the loop stopped because something failed; ``error`` says what.
+- ``off``           — no turn (or the turn just ended; ``outcome`` says how).
+- ``starting``      — the microphone is being opened.
+- ``listening``     — the microphone records the one utterance.
+- ``transcribing``  — the microphone is closed; the gateway transcribes.
+- ``thinking``      — the words were sent; a run is in flight.
+- ``speaking``      — the reply is being spoken.
+- ``error``         — the turn stopped because something failed; ``error`` says what.
 
-Everything the palette shows for the mode derives from ``state`` plus the
-``last_transcript`` / ``error`` fields, so the UI can never claim a state the
-loop is not in.
+Everything the palette shows for the turn derives from ``state`` plus the
+``last_transcript`` / ``error`` / ``outcome`` fields, so the UI can never claim a
+state the turn is not in.
 """
 
 from __future__ import annotations
 
-from typing import Callable, List, Optional
+from typing import Callable, Optional
 
 
 VOICE_CONVERSATION_STATES = (
     "off",
     "starting",
     "listening",
-    "heard",
+    "transcribing",
     "thinking",
     "speaking",
-    "paused",
     "error",
 )
 
-# Model guidance while the conversation is on: spoken replies must be short
-# and free of markup, or the TTS reads tables and headings aloud.
+# How a turn ended (``VoiceConversation.outcome`` once the state is ``off``).
+TURN_OUTCOMES = (
+    "answered",       # the reply was spoken, or the run ended with nothing to speak
+    "nothing_heard",  # no speech before the turn ended (silence, or a press)
+    "not_sent",       # the transcription failed: the recording is kept (Retry / Discard)
+    "failed",         # the run failed or could not start
+    "handed_over",    # the words went to the message box instead of being sent
+    "cancelled",      # Esc, the menu, or a press after listening
+)
+
+# Model guidance while a voice turn runs: spoken replies must be short and free
+# of markup, or the TTS reads tables and headings aloud.
 VOICE_CONVERSATION_SYSTEM_PROMPT = (
     "You are in a spoken voice conversation.\n"
     "- Reply as natural spoken conversation, discussion-style.\n"
@@ -54,7 +71,7 @@ VOICE_CONVERSATION_SYSTEM_PROMPT = (
 
 
 class VoiceConversation:
-    """The hands-free loop. See the module docstring for the states."""
+    """One voice turn. See the module docstring for the states."""
 
     def __init__(
         self,
@@ -63,41 +80,25 @@ class VoiceConversation:
         on_send: Callable[[str], None],
         on_state: Optional[Callable[[str], None]] = None,
         on_level: Optional[Callable[[float], None]] = None,
-        schedule: Optional[Callable[[float, Callable[[], None]], None]] = None,
-        debounce_s: float = 0.8,
         auto_send: bool = True,
-        voice_mode: str = "wait",
     ) -> None:
         self._voice = voice_manager
         self._on_send = on_send
         self._on_state = on_state
         self._on_level = on_level
-        self._schedule = schedule
-        self._debounce_s = max(0.0, float(debounce_s))
         self.auto_send = bool(auto_send)
-        # "wait": the mic pauses while the reply plays (speakers, no barge-in).
-        # "full": the mic stays open so the spoken "stop" interrupts (headphones).
-        self.voice_mode = "full" if str(voice_mode or "").strip().lower() == "full" else "wait"
         self.state = "off"
         self.error = ""
+        self.outcome = ""
         self.last_transcript = ""
         self.turns = 0
-        self._pending: List[str] = []
-        self._queued: List[str] = []
-        self._flush_token = 0
-        self._speak_pending = False
+        self._transcribe_kwargs: dict = {}
 
     # ------------------------------------------------------------------ helpers
 
     @property
     def active(self) -> bool:
         return self.state not in {"off", "error"}
-
-    def pending_text(self) -> str:
-        return " ".join(part for part in self._pending if part).strip()
-
-    def queued_text(self) -> str:
-        return " ".join(part for part in self._queued if part).strip()
 
     def _set_state(self, state: str, *, error: str = "") -> None:
         if state not in VOICE_CONVERSATION_STATES:
@@ -110,26 +111,43 @@ class VoiceConversation:
             except Exception:
                 pass
 
+    def _call(self, name: str, *args, **kwargs):
+        fn = getattr(self._voice, name, None)
+        if not callable(fn):
+            return None
+        try:
+            return fn(*args, **kwargs)
+        except Exception:
+            return None
+
+    def _finish(self, outcome: str) -> None:
+        """The turn is over: the microphone is closed and stays closed."""
+        self.outcome = outcome if outcome in TURN_OUTCOMES else "answered"
+        self._call("cancel_hold")
+        self._set_state("off")
+
     # ------------------------------------------------------------------ lifecycle
 
-    def start(self, *, listen_kwargs: Optional[dict] = None) -> bool:
-        """Open the microphone. Returns False (state ``error``) when it cannot."""
+    def start(self, *, capture_kwargs: Optional[dict] = None, transcribe_kwargs: Optional[dict] = None) -> bool:
+        """Open the microphone for one utterance. Returns False (state
+        ``error``) when it cannot.
+
+        ``capture_kwargs`` go to ``begin_hold`` (``on_audio_level``,
+        ``on_utterance_end``); ``transcribe_kwargs`` to ``end_hold``
+        (``on_transcription``, ``on_error``). Both carry callbacks the palette
+        marshals onto the GUI thread.
+        """
         if self.active:
             return True
-        self._pending = []
-        self._queued = []
-        self._speak_pending = False
+        self.outcome = ""
+        self.last_transcript = ""
+        self._transcribe_kwargs = dict(transcribe_kwargs or {})
         self._set_state("starting")
         try:
-            setter = getattr(self._voice, "set_voice_mode", None)
-            if callable(setter):
-                # `wait`: the recognizer is paused while the reply plays, so
-                # the assistant never transcribes its own voice on speakers.
-                setter(self.voice_mode)
             meter = getattr(self._voice, "set_audio_meter_callback", None)
             if callable(meter) and self._on_level is not None:
                 meter(self._on_level)
-            started = self._voice.listen(**(listen_kwargs or {}))
+            started = self._voice.begin_hold(**(capture_kwargs or {}))
         except Exception as exc:
             self._set_state("error", error=str(exc) or exc.__class__.__name__)
             return False
@@ -140,24 +158,17 @@ class VoiceConversation:
         return True
 
     def detach(self) -> None:
-        """Drop the UI callbacks (the palette is tearing the mode down and
+        """Drop the UI callbacks (the palette is tearing the turn down and
         must not be re-entered by the state change ``stop`` produces)."""
         self._on_state = None
         self._on_level = None
 
     def stop(self, *, reason: str = "") -> None:
-        """Leave the mode: close the microphone and stop any speech."""
-        self._flush_token += 1
-        self._pending = []
-        self._queued = []
-        self._speak_pending = False
-        for name in ("stop_listening", "stop_speaking"):
-            fn = getattr(self._voice, name, None)
-            if callable(fn):
-                try:
-                    fn()
-                except Exception:
-                    pass
+        """End the turn now: close the microphone (nothing recorded is sent)
+        and stop any speech."""
+        was = self.state
+        self._call("cancel_hold")
+        self._call("stop_speaking")
         meter = getattr(self._voice, "set_audio_meter_callback", None)
         if callable(meter):
             try:
@@ -167,174 +178,96 @@ class VoiceConversation:
         if reason:
             self._set_state("error", error=reason)
         else:
+            if was not in {"off", "error"}:
+                self.outcome = "cancelled"
             self._set_state("off")
 
-    def pause(self) -> bool:
-        """Mute the microphone without leaving the mode."""
-        if self.state not in {"listening", "heard"}:
+    # ------------------------------------------------------------------ listening
+
+    def finish_listening(self) -> bool:
+        """End the listening now (the silence after speech, or a press on the
+        orb). What was said is transcribed and sent; when nothing was said the
+        turn ends with nothing sent. Returns True when a recording went to the
+        gateway."""
+        if self.state != "listening":
             return False
-        fn = getattr(self._voice, "pause_listening", None)
-        ok = bool(fn()) if callable(fn) else False
-        if ok:
-            self._flush_token += 1
-            self._set_state("paused")
-        return ok
-
-    def resume(self) -> bool:
-        if self.state != "paused":
+        heard = bool(self._call("hold_heard_speech"))
+        if not heard:
+            self._finish("nothing_heard")
             return False
-        fn = getattr(self._voice, "resume_listening", None)
-        ok = bool(fn()) if callable(fn) else False
-        if ok:
-            self._set_state("listening")
-            self._flush_queued()
-        return ok
+        started = False
+        try:
+            started = bool(self._voice.end_hold(**self._transcribe_kwargs))
+        except Exception as exc:
+            self._call("cancel_hold")
+            self._set_state("error", error=str(exc) or exc.__class__.__name__)
+            return False
+        if not started:
+            # Too short to be speech: nothing goes to the gateway.
+            self._finish("nothing_heard")
+            return False
+        self._set_state("transcribing")
+        return True
 
-    # ------------------------------------------------------------------ events
+    def utterance_ended(self) -> None:
+        """The voice manager's endpoint fired (silence after speech, nothing
+        said in time, or the longest utterance): end the listening."""
+        self.finish_listening()
 
-    def heard(self, text: str) -> None:
-        """A transcription arrived (call on the GUI thread)."""
+    def transcribed(self, text: str) -> None:
+        """The gateway's transcript of the one utterance (GUI thread)."""
+        if self.state != "transcribing":
+            return
         utterance = " ".join(str(text or "").split()).strip()
-        if not utterance or not self.active:
+        if not utterance:
+            self._finish("nothing_heard")
             return
         self.last_transcript = utterance
-        if self.state in {"thinking", "speaking"}:
-            # The user kept talking while the assistant works: keep it for the
-            # next turn instead of steering a run with a half sentence.
-            self._queued.append(utterance)
-            return
-        if self.state == "paused":
-            return
-        self._pending.append(utterance)
-        self._set_state("heard")
-        if not self.auto_send:
-            return
-        self._flush_token += 1
-        token = self._flush_token
-        if self._schedule is None or self._debounce_s <= 0:
-            self._flush(token)
-            return
-        self._schedule(self._debounce_s, lambda: self._flush(token))
-
-    def send_now(self) -> str:
-        """Send whatever was heard so far (the composer's Enter in manual mode)."""
-        self._flush_token += 1
-        return self._flush(self._flush_token)
-
-    def _flush(self, token: int) -> str:
-        if token != self._flush_token or not self.active:
-            return ""
-        text = self.pending_text()
-        self._pending = []
-        if not text or self.state not in {"heard", "listening"}:
-            return ""
         self.turns += 1
-        self._enter_thinking()
+        self._set_state("thinking")
         try:
-            self._on_send(text)
+            self._on_send(utterance)
         except Exception as exc:
             self._set_state("error", error=str(exc) or exc.__class__.__name__)
-            return ""
-        return text
 
-    def _enter_thinking(self) -> None:
-        """The run is working: mute the microphone so side talk is never
-        transcribed or queued behind the user's back (the strip says
-        "mic paused" — this is what makes that true)."""
-        self._set_state("thinking")
-        fn = getattr(self._voice, "pause_listening", None)
-        if callable(fn):
-            try:
-                fn()
-            except Exception:
-                pass
+    def transcription_failed(self, reason: str = "") -> None:
+        """The gateway could not transcribe it: the voice manager keeps the
+        recording for Retry / Discard; the turn ends with nothing sent."""
+        if self.state == "transcribing":
+            self._finish("not_sent")
 
-    def _enter_listening(self) -> None:
-        fn = getattr(self._voice, "resume_listening", None)
-        if callable(fn):
-            try:
-                fn()
-            except Exception:
-                pass
-        self._set_state("listening")
+    def hand_over(self) -> None:
+        """The words were put in the message box instead of being sent (a
+        draft is open, a reply is still finishing, or sending is manual)."""
+        if self.active:
+            self._finish("handed_over")
 
-    def mark_sent(self) -> str:
-        """The user sent the pending words themselves (manual mode, Return):
-        account for the turn without re-sending it."""
-        if not self.active:
-            return ""
-        text = self.pending_text()
-        self._flush_token += 1
-        self._pending = []
-        if self.state in {"heard", "listening", "speaking", "paused"}:
-            self._speak_pending = False
-            self.turns += 1
-            self._enter_thinking()
-        return text
-
-    def requeue(self, text: str) -> None:
-        """A turn could not be sent right now (a run is still finishing):
-        keep it for the next listening window instead of steering."""
-        utterance = " ".join(str(text or "").split()).strip()
-        if utterance and self.active:
-            self._queued.append(utterance)
-            if self.state != "thinking":
-                self._enter_thinking()
+    # ------------------------------------------------------------------ the reply
 
     def run_finished(self, *, will_speak: bool) -> None:
-        """The run ended. ``will_speak`` is True when a reply is about to be
-        spoken (the palette then calls ``speech_started``/``speech_finished``)."""
-        if not self.active:
+        """The run ended. ``will_speak``: its reply is about to be spoken (the
+        palette then calls ``speech_finished``); otherwise the turn is over."""
+        if self.state != "thinking":
             return
         if will_speak:
-            self._speak_pending = True
-            # The voice manager's own gate keeps the mic closed while the
-            # reply plays in `wait` mode; `full` mode reopens it for barge-in.
-            if self.voice_mode == "full":
-                fn = getattr(self._voice, "resume_listening", None)
-                if callable(fn):
-                    try:
-                        fn()
-                    except Exception:
-                        pass
             self._set_state("speaking")
             return
-        self._speak_pending = False
-        self._enter_listening()
-        self._flush_queued()
-
-    def speech_started(self) -> None:
-        if self.active and self.state != "paused":
-            self._speak_pending = False
-            self._set_state("speaking")
+        self._finish("answered")
 
     def speech_finished(self) -> None:
-        """The reply finished (or failed) playing: listen again."""
-        if not self.active or self.state != "speaking":
-            return
-        self._speak_pending = False
-        self._enter_listening()
-        self._flush_queued()
+        """The reply finished (or failed, or was stopped): the turn is over."""
+        if self.state == "speaking":
+            self._finish("answered")
 
     def run_failed(self, reason: str = "") -> None:
-        """The run errored: stay in the mode, say so, and keep listening."""
-        if not self.active:
-            return
-        self._enter_listening()
-        self._flush_queued()
-
-    def _flush_queued(self) -> None:
-        if not self._queued or self.state != "listening":
-            return
-        self._pending = list(self._queued)
-        self._queued = []
-        self._set_state("heard")
-        if self.auto_send:
-            self._flush_token += 1
-            self._flush(self._flush_token)
+        """The run errored or could not start: the turn is over (the palette
+        shows why)."""
+        if self.active:
+            self._finish("failed")
 
 
 __all__ = [
+    "TURN_OUTCOMES",
     "VOICE_CONVERSATION_STATES",
     "VOICE_CONVERSATION_SYSTEM_PROMPT",
     "VoiceConversation",
