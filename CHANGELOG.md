@@ -44,7 +44,8 @@ It needs AbstractVoice 0.20.1 or later (installed with it), whose adaptive micro
   second of silence (it was one and a half) ends what you said and starts the transcription.
 - **A voice that the gateway rejects is not replaced.** When a cloned or selected voice fails the
   gateway's check, the reply is not read with the default voice instead; press Play to try the same
-  voice again.
+  voice again. Other failures (the audio output, an empty first chunk, the network) keep their own
+  message and still fall back to preparing the whole reply with the same voice.
 - **Fewer speech notices.** Speaking no longer shows a notice naming the output device and volume;
   you still get a warning when the output is muted or very quiet. Notices are shorter, with the
   details in the logs.

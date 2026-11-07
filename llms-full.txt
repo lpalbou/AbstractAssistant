@@ -943,7 +943,9 @@ synthesizing the whole message first.
 If the gateway's speech support could not be checked (for example while the gateway was starting),
 pressing the speaker button checks again and then reads the reply, with no second click; Stop
 cancels it while the check runs. When the gateway rejects a cloned or selected voice, the reply is
-not read with another voice: press the speaker button to try the same voice again.
+not read with another voice: press the speaker button to try the same voice again. Any other
+failure before the first sound (the audio output, the network) keeps its own message, and the
+whole reply is prepared again with the same voice.
 
 Pausing keeps queued speech until you resume or stop it. With the matching AbstractVoice
 player, five seconds without output progress triggers one attempt to reopen the output and
@@ -3349,7 +3351,8 @@ It needs AbstractVoice 0.20.1 or later (installed with it), whose adaptive micro
   second of silence (it was one and a half) ends what you said and starts the transcription.
 - **A voice that the gateway rejects is not replaced.** When a cloned or selected voice fails the
   gateway's check, the reply is not read with the default voice instead; press Play to try the same
-  voice again.
+  voice again. Other failures (the audio output, an empty first chunk, the network) keep their own
+  message and still fall back to preparing the whole reply with the same voice.
 - **Fewer speech notices.** Speaking no longer shows a notice naming the output device and volume;
   you still get a warning when the output is muted or very quiet. Notices are shorter, with the
   details in the logs.
@@ -18920,15 +18923,22 @@ class GatewayVoiceManager:
             completion_owned = True
             return bool(result)
 
-        def _artifact_fallback(reason: str = "", *, retry_unpinned: bool = False) -> bool:
+        def _artifact_fallback(
+            reason: str = "", *, retry_unpinned: bool = False, gateway_rejected: bool = False
+        ) -> bool:
             nonlocal completion_owned
             if stop_gate.is_set():
                 return False
             # A chosen identity is not interchangeable with the default voice.
-            # The server already owns segment retries; after rejection the app
-            # waits for an explicit Play instead of generating the reply again.
+            # When the GATEWAY rejects it (an error event or an HTTP refusal before
+            # any audio, or a failed voice check), the server already owned the
+            # segment retries: the app waits for an explicit Play instead of
+            # generating the reply again. A local or transport failure (player,
+            # empty chunk, timeout) says nothing about the voice: it keeps its own
+            # cause and the same-voice artifact lane below.
+            voice_selected = bool(voice or profile)
             clone_rejected = "ClonedVoiceNotAppliedError" in reason
-            if voice or profile or clone_rejected:
+            if clone_rejected or (voice_selected and gateway_rejected):
                 warnings.warn(f"Gateway TTS stopped without automatic regeneration: {reason}")
                 message = (
                     "The cloned voice didn't pass its voice check."
@@ -18940,7 +18950,8 @@ class GatewayVoiceManager:
             # for its own reason: "the stream was rejected AND the fallback
             # timed out" is the sentence the user needs.
             self._note_speech_failure(reason)
-            if retry_unpinned:
+            # Retrying unpinned would replace a chosen voice with the default one.
+            if retry_unpinned and not voice_selected:
                 retried = _retry_stream_unpinned(reason or "stream produced no audio")
                 if retried is not None:
                     return retried
@@ -19085,6 +19096,7 @@ class GatewayVoiceManager:
                     return _artifact_fallback(
                         f"stream reported {event_type}: {detail}",
                         retry_unpinned=True,
+                        gateway_rejected=event_type == "error",
                     )
             if stop_gate.is_set():
                 return False
@@ -19103,7 +19115,13 @@ class GatewayVoiceManager:
                         "only part of the message was spoken"
                     )
                 return False
-            return _artifact_fallback(f"stream transport failed: {detail}", retry_unpinned=True)
+            # The gateway answered with a refusal (4xx other than auth, timeout and
+            # rate limit): that is a rejection of the request, the voice included.
+            status = int(getattr(e, "status", 0) or 0)
+            refused = 400 <= status < 500 and status not in {401, 403, 408, 429}
+            return _artifact_fallback(
+                f"stream transport failed: {detail}", retry_unpinned=True, gateway_rejected=refused
+            )
         finally:
             self._clear_stream_control(stream_id)
             if not completion_owned:

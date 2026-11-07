@@ -36,7 +36,9 @@ synthesizing the whole message first.
 If the gateway's speech support could not be checked (for example while the gateway was starting),
 pressing the speaker button checks again and then reads the reply, with no second click; Stop
 cancels it while the check runs. When the gateway rejects a cloned or selected voice, the reply is
-not read with another voice: press the speaker button to try the same voice again.
+not read with another voice: press the speaker button to try the same voice again. Any other
+failure before the first sound (the audio output, the network) keeps its own message, and the
+whole reply is prepared again with the same voice.
 
 Pausing keeps queued speech until you resume or stop it. With the matching AbstractVoice
 player, five seconds without output progress triggers one attempt to reopen the output and

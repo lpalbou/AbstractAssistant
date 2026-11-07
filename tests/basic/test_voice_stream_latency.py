@@ -30,6 +30,7 @@ from types import SimpleNamespace
 import pytest
 
 from abstractassistant.core.gateway_voice_manager import GatewayVoiceManager
+from abstractassistant.gateway.client import GatewayHttpError
 
 
 def _wav_bytes(*, frames: int = 240, value: int = 0) -> bytes:
@@ -285,7 +286,8 @@ def test_rejected_voice_waits_for_manual_retry_with_same_identity(monkeypatch, s
                     if selection == "gateway_clone" else "selected voice unavailable"
                 )
                 if transport_error:
-                    raise RuntimeError(detail)
+                    # The gateway refused the request: the client raises its HTTP error.
+                    raise GatewayHttpError(f"voice_tts_stream failed: {detail}", status=422, body_text=detail)
                 yield {"type": "error", "error": detail}
                 return
             yield from super().voice_tts_stream(**kwargs)
@@ -322,6 +324,61 @@ def test_rejected_voice_waits_for_manual_retry_with_same_identity(monkeypatch, s
         assert second[selection] == "my-clone"
     assert not gateway.artifact_calls and not notices
     assert len(failures) == 1 and ends == [1, 1]
+
+
+@pytest.mark.basic
+@pytest.mark.parametrize("failure", ["network_timeout", "playback_could_not_start", "no_player", "empty_first_chunk"])
+def test_a_local_failure_with_a_chosen_voice_keeps_its_cause_and_the_same_voice(monkeypatch, failure):
+    """Review 2026-11-07 finding 3: only a gateway rejection of the chosen voice stops
+    without regenerating. A local or transport failure keeps its own cause (never "your
+    selected voice") and falls back to whole-message synthesis WITH THE SAME VOICE, never to
+    the default voice."""
+
+    class Gateway(_StreamingGateway):
+        def __init__(self):
+            super().__init__()
+            self.requests = []
+            self.artifact_voices = []
+
+        def voice_tts_stream(self, **kwargs):
+            self.requests.append(kwargs)
+            if failure == "network_timeout":
+                raise TimeoutError("timed out")
+            if failure == "empty_first_chunk":
+                yield {"type": "runtime_start", "ok": True}
+                yield {"type": "audio", "sequence": 0, "content_type": "audio/wav", "audio_b64": ""}
+                return
+            yield from super().voice_tts_stream(**kwargs)
+
+        def voice_tts(self, **kwargs):
+            self.artifact_voices.append((kwargs.get("voice"), kwargs.get("profile")))
+            return super().voice_tts(**kwargs)
+
+    gateway = Gateway()
+    manager = _ManagerStub(gateway)
+    manager.current_tts_voice = "my-clone"
+    manager.current_tts_voice_mode = "voice"
+    vm = GatewayVoiceManager(llm_manager=manager, debug_mode=False)
+    player = _wire_player(vm, monkeypatch)
+    if failure == "playback_could_not_start":
+        monkeypatch.setattr(vm, "_begin_stream_playback", lambda: False)
+    if failure == "no_player":
+        # Present when the stream leg starts, gone when the first chunk arrives.
+        answers = [player]
+        monkeypatch.setattr(vm, "_ensure_inprocess_audio_player", lambda: answers.pop(0) if answers else None)
+    played = []
+    monkeypatch.setattr(vm, "_play_audio_bytes",
+                        lambda audio_bytes, content_type, callback=None: played.append(content_type) or True)
+    failures, notices = [], []
+    vm.on_speech_error = failures.append
+    vm.on_speech_notice = notices.append
+
+    with pytest.warns(UserWarning):
+        assert vm.speak("hello") is True
+        assert _wait_for(lambda: played)
+    assert [r.get("voice") for r in gateway.requests] == ["my-clone"], "never retried with the default voice"
+    assert gateway.artifact_voices == [("my-clone", None)] or gateway.artifact_voices == [("my-clone", "")]
+    assert not any("selected voice" in f for f in failures + notices)
 
 
 @pytest.mark.basic
