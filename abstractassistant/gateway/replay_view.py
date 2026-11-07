@@ -301,6 +301,9 @@ class ViewProjector:
         self._assistant_ids: Set[str] = set()
         self.final_shown = False
         self.error_shown = False
+        # The newest failed step of the ROOT run (a child's may be recovered): the run's own
+        # reason when the run summary cannot be read.
+        self.root_error = ""
 
     def suppress_history(self, view: Dict[str, Any]) -> None:
         """Mark everything the view holds as already shown, except an open interaction (an
@@ -393,6 +396,7 @@ class ViewProjector:
             self._tool_done.add(f"{aid}|failed")
             if rid == getattr(self, "_root", ""):
                 self.error_shown = True  # a child's failed step may be recovered: not the run's reason
+                self.root_error = str(act.get("error") or "")
             out.append({"type": "error", "error": str(act.get("error") or f"{act.get('name') or kind} failed"), "run_id": rid})
         return out
 

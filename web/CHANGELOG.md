@@ -6,6 +6,16 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-07
+
+On `@abstractframework/ui-kit` ^0.9.16 (AbstractUIC 0.10.3).
+
+### Fixed
+
+- **The avatar moves smoothly while it rests.** A finished or waiting avatar was redrawn only 6 to 10
+  times per second; it now moves at 24 frames per second, like a speaking one, and a small avatar is
+  drawn at its real size. The picture itself is unchanged.
+
 ## [0.1.2] - 2026-11-07
 
 The 0.1.1 contents below, published. The `web-v0.1.1` tag exists but 0.1.1 never reached npm: the

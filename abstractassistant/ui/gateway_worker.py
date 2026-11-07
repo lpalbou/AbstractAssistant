@@ -721,8 +721,9 @@ class GatewayWorker(QThread):
         view = fold.view or {}
         status = str(view.get("status") or "").strip().lower()
         summary: Dict[str, Any] = {}
-        if (status == "completed" and not projector.final_shown) or (status == "failed" and not projector.error_shown):
-            # The view has neither the run's output fields nor its error: the summary does.
+        if (status == "completed" and not projector.final_shown) or status == "failed":
+            # The view has neither the run's output fields nor, for a failed run, the run's
+            # OWN reason (its failed steps may include recovered ones): the summary does.
             try:
                 got = self._gateway.get_run(run_id=run_id)
                 summary = got if isinstance(got, dict) else {}
@@ -735,6 +736,13 @@ class GatewayWorker(QThread):
         if status == "failed" and not projector.error_shown:
             reason = str(summary.get("error") or "").strip()
             self.event_emitted.emit({"type": "error", "error": reason or "The run failed.", "run_id": run_id})
+        if status == "failed":
+            # The reason the RUN failed (what the palette explains): the run summary's error,
+            # else the root run's newest failed step. Never a child's step, which may have been
+            # recovered before the run failed for another reason.
+            run_reason = str(summary.get("error") or "").strip() or str(projector.root_error or "").strip()
+            if run_reason:
+                self.event_emitted.emit({"type": "run_error", "error": run_reason, "run_id": run_id})
         if status in {"completed", "failed", "cancelled"}:
             return status
         if self.isInterruptionRequested():

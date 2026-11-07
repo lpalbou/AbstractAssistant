@@ -267,11 +267,13 @@ def test_voice_page_saves_conversation_options() -> None:
     dlg.show_section("voice")
     page = dlg.page_voice
     assert "MacBook Pro Speakers" in page.device_summary.text()
-    # Barge-in is a list, like every other choice on the page (2026-09-18).
-    page.voice_mode_combo.setCurrentIndex(page.voice_mode_combo.findData("full"))
+    # 0.18.2: no Barge-in choice (a voice turn closes the microphone once you
+    # have spoken); saving never rewrites the stored `voice_mode`.
+    assert not hasattr(page, "voice_mode_combo")
+    before = ctl.preferences.voice_mode
     page.voice_auto_send.setChecked(False)
     page._save()
-    assert ctl.preferences.voice_mode == "full"
+    assert ctl.preferences.voice_mode == before
     assert ctl.preferences.voice_auto_send is False
 
 

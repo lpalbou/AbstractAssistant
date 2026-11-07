@@ -174,10 +174,10 @@ def test_choosing_the_system_default_clears_the_pin() -> None:
 
 
 def test_saving_the_page_does_not_disturb_the_other_voice_settings() -> None:
-    controller = _Controller()
+    # `voice_mode` saved by an older version (its Barge-in row is gone in 0.18.2).
+    controller = _Controller(prefs=AssistantPreferences.from_dict({"voice_mode": "full"}))
     page = _page(controller)
     page.auto_speak.setChecked(True)
-    page.voice_mode_combo.setCurrentIndex(page.voice_mode_combo.findData("full"))
     page._save()
     assert controller.preferences.auto_speak is True
     assert controller.preferences.voice_mode == "full"

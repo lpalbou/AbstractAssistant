@@ -64,6 +64,36 @@ class _Voice:
     def stop_listening(self) -> None:
         self.listening = False
 
+    # The one-turn recording a voice turn uses (0.18.2): `listening` is "the
+    # microphone is open", whichever path opened it.
+    heard = False
+    capture_kwargs: dict = {}
+    transcribe_kwargs: dict = {}
+
+    def begin_hold(self, on_audio_level=None, **kwargs) -> bool:
+        self.listening = True
+        self.capture_kwargs = {"on_audio_level": on_audio_level, **kwargs}
+        return True
+
+    def is_holding(self) -> bool:
+        return self.listening
+
+    def hold_heard_speech(self) -> bool:
+        return self.listening and self.heard
+
+    stalled_reason = None
+
+    def poll_hold_endpoint(self):
+        return self.stalled_reason if self.listening else None
+
+    def end_hold(self, **kwargs) -> bool:
+        self.listening = False
+        self.transcribe_kwargs = kwargs
+        return True
+
+    def cancel_hold(self) -> None:
+        self.listening = False
+
     def stop_speaking(self) -> None:
         pass
 
@@ -291,8 +321,8 @@ def test_palette_voice_conversation_starts_listens_and_ends(palette) -> None:
     _app().processEvents()
     assert window._voice_conversation_active is True
     assert window._voice_conversation.state == "listening"
-    assert controller.voice_manager.mode == "wait"
     assert controller.voice_manager.listening is True
+    assert "on_utterance_end" in controller.voice_manager.capture_kwargs  # one utterance, then it ends
     assert window.voice_strip.isHidden()
     assert window.voice_strip.state == "listening"
     assert window.conversation_button.isChecked()
@@ -317,16 +347,18 @@ def test_palette_voice_send_routes_through_submit_with_the_addendum(palette) -> 
     window._start_voice_conversation()
     _app().processEvents()
 
-    window._voice_conversation.heard("what time is it")
-    # The debounce timer would fire ~0.8 s later; flush it explicitly here.
-    window._voice_conversation.send_now()
+    controller.voice_manager.heard = True
+    turn = window._voice_conversation
+    window.voice_turn_ended.emit(turn, "silence")  # about one second of silence after speech
+    _app().processEvents()
+    window.voice_turn_transcribed.emit(turn, "what time is it")
     _app().processEvents()
 
     # build_chat_worker was reached with the voice addendum (and raised, so
-    # the loop went back to listening instead of wedging in "thinking").
+    # the turn ended instead of wedging in "thinking").
     assert controller.built and "spoken voice conversation" in controller.built[-1]["system_prompt_extra"]
-    assert window._voice_conversation.state == "listening"
-    window._end_voice_conversation()
+    assert window._voice_conversation is None and not window._voice_conversation_active
+    assert controller.voice_manager.listening is False
 
 
 @pytest.mark.basic

@@ -154,6 +154,7 @@ from .core.voice_conversation import (
     VoiceConversation,
 )
 from .core import tool_presenter as _presenter
+from .core.run_failure import explain_run_failure, failure_tooltip
 from .core.link_targets import (
     click_action,
     describe_link,
@@ -2404,13 +2405,7 @@ class AttachmentDropFrame(QFrame):
 
 # The orb's one tooltip: true in every state (idle, in a conversation, reading a reply aloud,
 # dictating), so it never swaps verbs (operator rule: toggles show state).
-ORB_TOOLTIP = "Voice: click to start or stop, right-click for more choices (⌘⇧V: voice conversation)"
-# Why the orb menu's Microphone item cannot act in a conversation state.
-_MICROPHONE_CLOSED_REASONS = {
-    "starting": "The microphone is starting.",
-    "thinking": "The microphone is closed while the assistant works.",
-    "speaking": "The microphone is closed while the assistant speaks.",
-}
+ORB_TOOLTIP = "Voice: click to ask one question, click again to send it now, right-click for more choices (⌘⇧V)"
 HOLD_TO_TALK_TOOLTIP = "Hold to talk — release to send (right-click: voice conversation, ⌘⇧V)"
 
 
@@ -5697,7 +5692,14 @@ class AssistantPalette(QMainWindow):
     listening_stopped = pyqtSignal()
     hold_transcription_received = pyqtSignal(str)
     hold_transcription_failed = pyqtSignal(str)
-    # Hands-free conversation: microphone/playback level (recognizer thread)
+    # One voice turn (the orb): the recording's end (audio thread) and its
+    # transcript or failure (transcription thread) hop to the GUI thread.
+    # Each carries the turn it belongs to: a late answer for a turn that was
+    # cancelled never lands in the next one.
+    voice_turn_ended = pyqtSignal(object, str)
+    voice_turn_transcribed = pyqtSignal(object, str)
+    voice_turn_failed = pyqtSignal(object, str)
+    # Voice: microphone/playback level (audio threads)
     # and the spoken reply's completion (playback thread) hop to the GUI thread.
     voice_level_received = pyqtSignal(float)
     voice_speech_finished = pyqtSignal()
@@ -5745,6 +5747,9 @@ class AssistantPalette(QMainWindow):
     # How the run the palette is following ENDED, per the run itself.
     # `_cancel_requested` only knows about a stop this process issued.
     _last_run_status = ""
+    # Why the run the palette follows failed (the worker's `run_error`): what the
+    # failed-run line explains.
+    _last_run_error = ""
     # Set when the voice manager surfaced a concrete failure for the current
     # speak attempt, so the generic "couldn't start" banner never overwrites a
     # specific cause.
@@ -5865,6 +5870,9 @@ class AssistantPalette(QMainWindow):
         self.listening_stopped.connect(self._on_listen_stop)
         self.hold_transcription_received.connect(self._on_hold_transcription)
         self.hold_transcription_failed.connect(self._on_hold_transcription_failed)
+        self.voice_turn_ended.connect(self._on_voice_turn_ended)
+        self.voice_turn_transcribed.connect(self._on_voice_turn_transcribed)
+        self.voice_turn_failed.connect(self._on_voice_turn_failed)
         self.voice_level_received.connect(self._on_voice_level)
         self.voice_speech_finished.connect(self._on_voice_speech_finished)
         self.session_attachments_restored.connect(self._on_session_attachments_restored)
@@ -6218,11 +6226,10 @@ class AssistantPalette(QMainWindow):
         self.attachments_tray.setWidget(self.attachments_host)
         composer_outer.addWidget(self.attachments_tray)
 
-        # Hands-free conversation status (hidden until a conversation starts).
+        # Voice turn status (never shown since 0.18.1; the orb shows the state).
         self.voice_strip = VoiceStrip(self.composer_card)
         self.voice_strip.hide()
         self.voice_strip.end_button.hide()  # The orb is the single voice-conversation toggle.
-        self.voice_strip.pause_toggled.connect(self._voice_pause_toggled)
         self.voice_strip.stop_speech_requested.connect(self._voice_stop_speaking)
         self.voice_strip.interrupt_requested.connect(self._cancel_active_run)
         self.voice_strip.end_requested.connect(self._end_voice_conversation)
@@ -6452,6 +6459,7 @@ class AssistantPalette(QMainWindow):
         self._worker = worker
         self._cancel_requested = False
         self._last_run_status = ended if recovering else ""
+        self._last_run_error = ""
         self._run_busy = not recovering
         # A recovered (finished) run's answer is not spoken by itself (read aloud).
         self._reply_live = not recovering
@@ -8925,7 +8933,7 @@ class AssistantPalette(QMainWindow):
         if active_modal is not None and active_modal.isVisible():
             return
         if bool(self._state("_voice_conversation_active", False)):
-            # A hands-free conversation is a control surface; keep it on screen.
+            # A voice question in progress is a control surface; keep it on screen.
             return
         for dialog in self._aux_dialogs():
             try:
@@ -9863,6 +9871,7 @@ class AssistantPalette(QMainWindow):
         self._pending_submit = False
         self._cancel_requested = False
         self._last_run_status = ""
+        self._last_run_error = ""
         prompt = self.prompt_edit.toPlainText().strip()
         if not prompt and not self._attachments:
             return
@@ -9910,11 +9919,12 @@ class AssistantPalette(QMainWindow):
         if (
             conversation is not None
             and bool(self._state("_voice_conversation_active", False))
-            and conversation.state in {"heard", "listening", "speaking", "paused"}
+            and conversation.state in {"starting", "listening", "speaking"}
         ):
-            # Manual voice mode: the user pressed Return on the transcript.
-            # Account for the turn (mic pauses) without sending it twice.
-            conversation.mark_sent()
+            # A typed send while a voice turn listens or speaks: the person
+            # chose the keyboard. The turn ends (nothing recorded is sent) and
+            # this run is an ordinary typed one.
+            self._end_voice_conversation()
 
         self._run_busy = True
         self._reply_live = True  # a run started here: its reply may be read aloud
@@ -9979,6 +9989,12 @@ class AssistantPalette(QMainWindow):
             self._on_live_reset()
             return
         self._feed_activity(payload)
+        if typ == "run_error":
+            # Why THIS run failed, as the worker read it at the end (the run summary's
+            # error, else the root run's newest failed step): what the failed-run line
+            # explains. A step's `error` event is not it: that step may have recovered.
+            self._last_run_error = str(payload.get("error") or "").strip()
+            return
         if typ == "run_start_failed":
             # The gateway refused to start the run (workspace grant out of
             # policy, missing workflow…): withdraw the phantom user turn, put
@@ -10433,7 +10449,7 @@ class AssistantPalette(QMainWindow):
             self._finish_activity("stopped" if was_stopped else "completed")
         conversation = self._state("_voice_conversation")
         if conversation is not None and conversation.state == "thinking":
-            # No spoken reply is coming (stopped, or nothing to say): listen again.
+            # No spoken reply is coming (stopped, or nothing to say): the voice turn ends.
             conversation.run_finished(will_speak=False)
         if not self._run_has_final_output:
             # A stopped run legitimately has no final answer — say so instead
@@ -10446,11 +10462,17 @@ class AssistantPalette(QMainWindow):
             if was_stopped or ended_as == "cancelled":
                 fallback = "Run stopped."
             elif ended_as == "failed":
-                fallback = "The run failed before it wrote a reply."
+                fallback = ""
+                failure = explain_run_failure(str(self._state("_last_run_error", "") or ""))
+                self._run_has_final_output = True
+                # The cause in plain words where the conversation is read; the
+                # gateway's own words stay one hover away.
+                self._set_history_status(failure.text, tone="error", tooltip=failure_tooltip(failure))
             else:
                 fallback = "The workflow completed, but it returned no written reply."
-            self._run_has_final_output = True
-            self._set_history_status(fallback, tone="info")
+            if fallback:
+                self._run_has_final_output = True
+                self._set_history_status(fallback, tone="info")
         self._refresh_tray_feedback()
         if had_indicator != self._show_thinking_indicator():
             self.refresh_history()
@@ -11217,7 +11239,7 @@ class AssistantPalette(QMainWindow):
             f"Voice failed: {text}." if text else "Voice failed for an unknown reason.",
             tone="warning",
         )
-        # A failed reply must never wedge the hands-free loop: listen again.
+        # A reply that cannot be spoken ends the voice turn (never a wedge).
         conversation = self._state("_voice_conversation")
         if conversation is not None and conversation.state == "speaking":
             conversation.speech_finished()
@@ -11425,23 +11447,14 @@ class AssistantPalette(QMainWindow):
         action.setCheckable(True)
         action.setChecked(in_conversation)
         reason = "" if in_conversation else self._voice_conversation_unavailable_reason()
+        # Ticked exactly while a voice turn runs (listening, sending, speaking the reply);
+        # it unticks by itself when the turn is over.
         if reason:
             action.setEnabled(False)
-            action.setToolTip(reason)
+            action.setToolTip(reason)  # a disabled item says why, never what it would do
+        else:
+            action.setToolTip("One question per press: it listens until you pause, sends, speaks the reply, then stops.")
         action.triggered.connect(lambda _checked: self._toggle_voice_conversation())
-        if in_conversation:
-            # Ticked exactly while the microphone listens. The user can pause or resume it
-            # only between turns; while the assistant works or speaks the loop itself keeps
-            # it closed, so the item is unticked and disabled with the reason.
-            state = self._voice_conversation.state
-            microphone = menu.addAction("Microphone")
-            microphone.setCheckable(True)
-            microphone.setChecked(state in {"listening", "heard"})
-            closed_because = _MICROPHONE_CLOSED_REASONS.get(state, "")
-            if state not in {"listening", "heard", "paused"}:
-                microphone.setEnabled(False)
-                microphone.setToolTip(closed_because or "The microphone cannot be paused right now.")
-            microphone.triggered.connect(lambda _checked: self._voice_pause_toggled())
         dictate = menu.addAction("Dictate into the message box")
         dictate.setCheckable(True)
         dictate.setChecked(bool(self._listening))
@@ -11478,22 +11491,7 @@ class AssistantPalette(QMainWindow):
         self._set_status("Listening...", tone="busy")
 
     def _on_transcription(self, text: str) -> None:
-        conversation = self._state("_voice_conversation")
-        if conversation is not None and bool(self._state("_voice_conversation_active", False)):
-            # Opening voice beside a draft never authorizes sending or
-            # replacing that draft (or its attachments).
-            draft_stops_auto_send = conversation.auto_send and bool(
-                self.prompt_edit.toPlainText().strip() or self._attachments)
-            if draft_stops_auto_send:
-                conversation.auto_send = False
-            conversation.heard(text)
-            if not conversation.auto_send:
-                self._append_prompt_text(text)
-                if draft_stops_auto_send:
-                    self._note_voice_words_go_to_draft()
-                else:
-                    self._set_status("Added to your message: press Return to send", "voice")
-            return
+        """Dictation (the continuous recognizer): words land in the message box."""
         self._append_prompt_text(text)
 
     def _append_prompt_text(self, text: str) -> None:
@@ -11527,10 +11525,17 @@ class AssistantPalette(QMainWindow):
         if self._state("_listening", False) and not self._state("_voice_conversation_active", False):
             self._toggle_listening()
         else:
+            # A press while it listens ends the turn now: what was said is sent,
+            # and nothing is sent when nothing was said.
             self._toggle_voice_conversation()
 
     def _toggle_voice_conversation(self) -> None:
-        if bool(self._state("_voice_conversation_active", False)):
+        """⌘⇧V, the menu item and the orb are one press: start a question; while it
+        listens, send what was said (nothing when nothing was said); later, end it."""
+        conversation = self._state("_voice_conversation")
+        if conversation is not None and conversation.state == "listening":
+            conversation.finish_listening()
+        elif bool(self._state("_voice_conversation_active", False)):
             self._end_voice_conversation()
         else:
             self._start_voice_conversation()
@@ -11554,9 +11559,8 @@ class AssistantPalette(QMainWindow):
             on_send=self._voice_send,
             on_state=self._on_voice_state,
             on_level=self.speech_level_received.emit,
-            schedule=lambda delay, fn: QTimer.singleShot(int(delay * 1000), fn),
             auto_send=bool(getattr(prefs, "voice_auto_send", True)),
-            voice_mode=str(getattr(prefs, "voice_mode", "wait") or "wait"),
+            schedule=lambda delay, fn: QTimer.singleShot(int(delay * 1000), fn),
         )
         self._voice_conversation = conversation
         self._voice_conversation_active = True
@@ -11570,11 +11574,14 @@ class AssistantPalette(QMainWindow):
         self.voice_strip.hide()
         self._sync_composer_height()
         started = conversation.start(
-            listen_kwargs={
-                "on_transcription": lambda text: self.transcription_received.emit(str(text or "")),
-                "on_stop": lambda: self.listening_stopped.emit(),
+            capture_kwargs={
                 "on_audio_level": lambda level: self.voice_level_received.emit(float(level or 0.0)),
-            }
+                "on_utterance_end": lambda reason, turn=conversation: self.voice_turn_ended.emit(turn, str(reason or "")),
+            },
+            transcribe_kwargs={
+                "on_transcription": lambda text, turn=conversation: self.voice_turn_transcribed.emit(turn, str(text or "")),
+                "on_error": lambda message, turn=conversation: self.voice_turn_failed.emit(turn, str(message or "")),
+            },
         )
         if not started:
             detail = conversation.error or "the microphone did not start"
@@ -11656,35 +11663,62 @@ class AssistantPalette(QMainWindow):
                 alive = bool(worker.isRunning())
             except Exception:
                 alive = False
-        if alive:
-            # The previous run is still closing: hold the turn for the next
-            # listening window instead of steering a finished run with it.
-            if conversation is not None:
-                conversation.requeue(text)
-            return
-        if self.prompt_edit.toPlainText().strip() or self._attachments:
+        draft_open = bool(self.prompt_edit.toPlainText().strip() or self._attachments)
+        manual = conversation is not None and not conversation.auto_send
+        if alive or draft_open or manual:
+            # Never steer a closing run with it, never send or replace an open
+            # draft (or its attachments), and never send when sending is
+            # manual: the words go to the message box and the turn ends.
             self._append_prompt_text(str(text or ""))
             if conversation is not None:
-                conversation.auto_send = False
-                conversation.run_finished(will_speak=False)
-            self._note_voice_words_go_to_draft()
+                conversation.hand_over()
+            if draft_open or alive:
+                self._note_voice_words_go_to_draft()
+            else:
+                self._set_status("Added to your message: press Return to send", "voice")
             return
         self.prompt_edit.setPlainText(str(text or ""))
         self._submit()
         if conversation is not None and self._state("_worker") is None:
             # The send was refused (still connecting, nothing runnable…):
-            # listen again rather than sit in "thinking" forever.
+            # the turn ends instead of sitting in "thinking" forever.
             conversation.run_failed("send refused")
 
     def _note_voice_words_go_to_draft(self) -> None:
-        """A draft is open, so the conversation stops sending on its own: say so where the
-        user sees it (the voice strip is hidden since 0.18.1)."""
+        """A draft is open (or a reply is still finishing), so what was said is not sent on
+        its own: say so where the user sees it (the voice strip is hidden since 0.18.1)."""
         self._set_banner(
-            "Added to your draft. While a draft is open, what you say is not sent automatically: "
-            "press Return to send.",
+            "Added to your draft. While a draft is open or a reply is still finishing, what you "
+            "say is not sent automatically: press Return to send.",
             tone="info",
             key="voice",
         )
+
+    def _current_voice_turn(self, turn: object):
+        """The live turn, only when ``turn`` is it (a cancelled turn's late
+        callbacks reach nothing)."""
+        conversation = self._state("_voice_conversation")
+        return conversation if conversation is not None and conversation is turn else None
+
+    def _on_voice_turn_ended(self, turn: object, _reason: str = "") -> None:
+        """The recording's endpoint fired (GUI thread): end the listening."""
+        conversation = self._current_voice_turn(turn)
+        if conversation is not None:
+            conversation.utterance_ended()
+
+    def _on_voice_turn_transcribed(self, turn: object, text: str) -> None:
+        conversation = self._current_voice_turn(turn)
+        if conversation is not None:
+            conversation.transcribed(text)
+
+    def _on_voice_turn_failed(self, turn: object, message: str) -> None:
+        """The gateway could not transcribe the turn: the recording is kept
+        (Retry / Discard on the kept-recording line) and nothing was sent."""
+        conversation = self._current_voice_turn(turn)
+        if conversation is not None:
+            conversation.transcription_failed(message)
+        self._set_status(f"Transcription failed: {message}", tone="error")
+        self._refresh_kept_recording(str(message or ""))
 
     def _on_voice_state(self, state: str) -> None:
         conversation = self._state("_voice_conversation")
@@ -11692,10 +11726,7 @@ class AssistantPalette(QMainWindow):
         if strip is None:
             return
         text = ""
-        if state == "heard" and conversation is not None:
-            preview = conversation.last_transcript
-            text = f"Heard: “{preview[:60]}{'…' if len(preview) > 60 else ''}”"
-        elif state == "speaking" and not self._voice_is_speaking():
+        if state == "speaking" and not self._voice_is_speaking():
             text = "Speech paused" if self._controller.voice_manager.is_paused() else "Preparing speech…"
         elif state == "error" and conversation is not None and conversation.error:
             text = f"Voice conversation stopped: {conversation.error}"
@@ -11703,14 +11734,20 @@ class AssistantPalette(QMainWindow):
         status_map = {
             "starting": ("Starting microphone…", "busy"),
             "listening": ("Listening", "voice"),
-            "heard": (text or "Heard you", "voice"),
+            "transcribing": ("Sending what you said…", "busy"),
             "thinking": ("Thinking…", "busy"),
             "speaking": ("Speaking", "voice") if self._voice_is_speaking() else (text or "Preparing speech…", "info" if text == "Speech paused" else "busy"),
-            "paused": ("Voice paused", "info"),
             "error": ("Voice stopped", "error"),
         }
         if state in status_map:
             self._set_status(*status_map[state])
+        elif state == "off" and conversation is not None:
+            # The turn is over: the microphone is closed and the orb is idle
+            # again. The next press starts the next turn.
+            outcome = str(getattr(conversation, "outcome", "") or "")
+            self._end_voice_conversation()
+            if outcome == "nothing_heard":
+                self._set_status("I didn't hear anything", tone="info")
         elif state == "off":
             self._set_status("Ready")
         if state == "error" and conversation is not None:
@@ -11730,15 +11767,6 @@ class AssistantPalette(QMainWindow):
         self._voice_level_last_emit = now
         strip.set_level(level)
 
-    def _voice_pause_toggled(self) -> None:
-        conversation = self._state("_voice_conversation")
-        if conversation is None:
-            return
-        if conversation.state == "paused":
-            conversation.resume()
-        else:
-            conversation.pause()
-
     def _voice_stop_speaking(self) -> None:
         try:
             self._controller.voice_manager.stop_speaking()
@@ -11747,7 +11775,7 @@ class AssistantPalette(QMainWindow):
         self._voice_after_stop_speaking()
 
     def _voice_after_stop_speaking(self) -> None:
-        """A deliberate stop skips the speak callback: move the loop on now."""
+        """A deliberate stop skips the speak callback: end the voice turn now."""
         conversation = self._state("_voice_conversation")
         if (
             conversation is not None
@@ -11795,12 +11823,6 @@ class AssistantPalette(QMainWindow):
         mic must be closed here — otherwise the indicator shows "off" while the
         microphone is still recording and uploading to the gateway.
         """
-        conversation = self._state("_voice_conversation")
-        if conversation is not None and bool(self._state("_voice_conversation_active", False)):
-            # In a conversation the spoken "stop" only interrupts the reply
-            # (the voice manager already stopped playback); keep listening.
-            conversation.speech_finished()
-            return
         try:
             self._controller.voice_manager.stop_listening()
         except Exception:
@@ -12020,17 +12042,14 @@ class AssistantPalette(QMainWindow):
     # ------------------------------------------------------------ waits (modeless)
 
     def _pause_voice_for_dialog(self) -> None:
-        """A question or approval is on screen: stop transcribing side talk."""
+        """A question or approval is on screen: a voice turn still listening
+        ends without sending, so side talk is never transcribed."""
         conversation = self._state("_voice_conversation")
-        if conversation is not None and conversation.state in {"listening", "heard"}:
-            if conversation.pause():
-                self._voice_paused_for_dialog = True
+        if conversation is not None and conversation.state in {"starting", "listening"}:
+            self._end_voice_conversation()
 
     def _resume_voice_after_dialog(self) -> None:
-        conversation = self._state("_voice_conversation")
-        if conversation is not None and bool(self._state("_voice_paused_for_dialog", False)):
-            self._voice_paused_for_dialog = False
-            conversation.resume()
+        """Nothing reopens the microphone by itself: the next press does."""
 
     def _open_approval_sheet(self, *, tool_calls: List[Dict[str, Any]], run_id: str, wait_key: str, step_id: str = "") -> None:
         """Show (or queue into) the modeless approval sheet for one wait."""
@@ -12702,8 +12721,8 @@ class AssistantPalette(QMainWindow):
     def _install_speech_meter(self) -> None:
         """Own the voice manager's meter callback.
 
-        The hands-free conversation installs its own while it runs and clears
-        it on stop, so this is re-asserted afterwards; without it the tray
+        A voice question installs its own while it runs and clears it when the
+        turn ends, so this is re-asserted afterwards; without it the tray
         would go quiet for every speech after the first conversation ended.
         """
         manager = getattr(self._controller, "voice_manager", None)

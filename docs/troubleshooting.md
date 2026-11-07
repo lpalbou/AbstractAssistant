@@ -71,6 +71,17 @@ the gateway's reason. A workspace the gateway no longer allows is one cause: ope
 Workspace and check **This chat** and **My default workspaces** against the **Gateway:** line (or
 switch on **Use my default** / **Follow the gateway policy**). See [settings.md](settings.md#workspace).
 
+## A reply ends with "The run failed…"
+
+The line under the conversation says why the run stopped, in plain words, when the reason is one
+the Assistant recognises, and says what to do. For example, "This model can't use the MTP
+speed-up (speculative decoding) this request asked for" means the chat model or provider cannot
+run MTP, which was required either by the MTP depth under Settings → Models or by the gateway's
+own default for that model: set MTP depth to Off, or choose a model that supports it. For any
+other reason the line reads "The run failed before it wrote a reply."; hover over it to read what
+the gateway reported. The line explains why the run itself failed, not an earlier step that
+recovered.
+
 ## The prompt ignores spaces after opening from the menu bar
 
 The palette releases the tray menu before focusing the prompt. If keyboard input still

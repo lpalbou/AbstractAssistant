@@ -331,7 +331,7 @@ def test_voice_tab_has_no_engines_card_and_keeps_the_device_and_reply_options() 
     for gone in ("tts_summary", "stt_summary", "tts_link", "stt_link", "navigate", "engine_summary"):
         assert not hasattr(page, gone), gone
     rows = [label.text() for label in page.findChildren(QLabel, "rowLabel")]
-    assert rows == ["Output device", "Playing on", "Read aloud", "Voice latency", "Sending", "Reply style", "Barge-in"]
+    assert rows == ["Output device", "Playing on", "Read aloud", "Voice latency", "Sending", "Reply style"]
 
 
 # --------------------------------------------------------------------------- #

@@ -1,19 +1,19 @@
 # Voice
 
 Microphone capture and audio playback happen on your Mac; speech-to-text and text-to-speech run
-on the gateway. The assistant offers three voice features: reading replies aloud, dictation and a
-hands-free voice conversation. Dictation and conversations need the `voice` extra for microphone
+on the gateway. The assistant offers three voice features: reading replies aloud, dictation and
+voice questions (the voice conversation: one question per press of the orb). Dictation and voice questions need the `voice` extra for microphone
 capture (`pip install "abstractassistant[voice]"`), and each feature needs a gateway that
 advertises the matching voice route.
 
 The voice control is the orb beside the composer: your activity avatar when it is turned on in
 Settings → Appearance, a simple sound icon otherwise. "Listening", "Thinking" or "Speaking" appears
-above it while that is happening; it shows nothing when idle. Click it to start or end a voice
-conversation; click it while a reply is being read to stop reading. Right-click it for the other
-choices, each ticked while it is on: **Voice conversation (⌘⇧V)**; **Microphone** (during a
-conversation: ticked while it listens; untick it to pause listening and tick it to listen again.
-While the assistant works or speaks, the microphone is closed and the item is greyed out with the
-reason); **Dictate into the message box**; and **Read new replies aloud**.
+above it while that is happening; it shows nothing when idle. The orb sits on its own slightly
+transparent panel, so it and its label stay readable over any window behind the palette. Click it
+to ask a question by voice; click it while it listens to send what you said straight away; click it
+while a reply is being read to stop reading. Right-click it for the other choices, each ticked while
+it is on: **Voice conversation (⌘⇧V)** (ticked while a voice question is in progress);
+**Dictate into the message box**; and **Read new replies aloud**.
 
 Speech uses the gateway's default engines (its **Text To Speech** and **Speech To Text** routes,
 `output.voice` and `input.voice`) unless you choose another provider and model for this app under
@@ -58,59 +58,57 @@ silence the gateway transcribes what you said and adds it to the message box, wh
 and press Return to send. Click the orb again, press Esc or untick **Dictate into the message box** to
 stop listening.
 
-## Voice conversation (hands-free)
+## Voice conversation: one question per press
 
 Start with a click on the orb, ⌘⇧V, **Voice conversation** in the orb's right-click menu, or the
-tray menu. The loop:
+tray menu. Each press is one question, like the orb of the Apple Watch app:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> starting: ⌘⇧V
-    starting --> listening: microphone open
-    starting --> error: microphone or gateway STT unavailable
-    listening --> heard: utterance transcribed
-    heard --> thinking: sent as a turn (after a short debounce)
-    thinking --> speaking: final reply
-    thinking --> listening: no spoken reply / run stopped / run failed
-    speaking --> listening: playback finished, failed, or interrupted
-    listening --> paused: Microphone unticked
-    paused --> listening: Microphone ticked
-    listening --> [*]: end (orb, ⌘⇧V, Esc, or the header speaker toggle)
+    [*] --> listening: press (orb, ⌘⇧V, menu)
+    listening --> sending: about one second of silence after you speak, or a press
+    listening --> [*]: nothing said, a press before you speak, or Esc
+    sending --> thinking: your words are sent
+    sending --> [*]: transcription failed (the recording is kept)
+    thinking --> speaking: the reply
+    thinking --> [*]: no spoken reply, run stopped or failed
+    speaking --> [*]: the reply has been spoken (or stopped)
 ```
 
-What you see: the orb shows "Listening", "Thinking" or "Speaking" above it and moves with your
-microphone level and with the reply's sound. To pause listening, untick **Microphone** in its right-click menu; the
-composer's Stop button stops a run. The header title mirrors the state. An unfinished draft in the
-message box is kept: the conversation does not send it or replace it. What you say while a draft
-is open is added to it, and the conversation stops sending on its own until it ends; a notice says
-so, and Return sends the draft.
+1. **Listening**: speak your question. About one second of silence after you speak ends it. To
+   send right away, click the orb. If you say nothing for about five seconds, or click the orb
+   before speaking, it stops with "I didn't hear anything" and nothing is sent.
+2. **Sending and thinking**: the microphone is closed; the gateway transcribes what you said and it
+   is sent like a typed message.
+3. **Speaking**: the reply is read aloud. Then the orb is idle again; the microphone stays closed
+   until your next press.
+
+Esc while the orb listens cancels the question: nothing is sent. Once your words have been sent,
+Esc ends the voice question but not the run: its reply still arrives in the conversation and is
+read aloud only if **Read new replies aloud** is on. During the reply, Esc stops the reading.
 
 Behavior details:
 
-- **Auto-send** (default on): each utterance becomes a turn after about one second of silence;
-  closely spaced utterances are merged. With auto-send off, words land in the message box and Return sends them.
-- **While the assistant works**, speech is not transcribed (the microphone is paused) so side
-  conversation never steers the run. Speech that arrives between the reply and the next listen is
-  kept for the next turn.
-- **Spoken-style replies** (default on): each request carries an instruction to answer briefly, in
-  natural spoken language, without markdown. The workflow's own system prompt is kept in front of
-  it.
-- **Stopping a reply**: a spoken "stop" in barge-in mode returns the loop to listening. Esc or a
-  click on the orb ends the whole conversation. Words heard while the previous run is still
-  closing wait for the next listening window; they are never injected into the closing run.
-- **Barge-in** depends on the Voice setting. "Pause the mic while the assistant speaks" (default,
-  for speakers) never transcribes the assistant's own voice, so the reply cannot be interrupted by
-  speaking; use Esc or the orb to end the conversation. "Keep the mic open" (for headphones) lets a
-  spoken "stop" interrupt the reply.
-- **Questions and approvals** pause the microphone while their window is open and resume it after
-  your decision.
-- **Typing still works** during a conversation; a typed send behaves like a spoken one.
-- Auto-speak is on for the duration of the conversation and returns to your saved preference when
-  it ends.
+- **Auto-send** (default on): what you said is sent as soon as it is transcribed. With auto-send
+  off, the words land in the message box and Return sends them.
+- **An unfinished draft** in the message box is kept: a voice question never sends it or replaces
+  it. What you say is added to the draft, a notice says so, and Return sends it. The same happens
+  while a previous reply is still finishing.
+- **Spoken-style replies** (default on): each voice question carries an instruction to answer
+  briefly, in natural spoken language, without markdown. The workflow's own system prompt is kept
+  in front of it.
+- **Questions and approvals** that appear while the orb is listening end that question without
+  sending it, so nothing said near your screen is sent while you decide.
+- **Typing** a message while the orb listens or speaks ends the voice question; the typed message
+  is sent as usual.
+- If the gateway cannot transcribe what you said, nothing is sent and the recording is kept:
+  **Retry** sends the same recording again, **Discard** forgets it.
+- Replies to a voice question are always read aloud; **Read new replies aloud** keeps its saved
+  setting for typed messages.
 
 Failures name their cause in a banner: a microphone that cannot start (macOS:
 System Settings → Privacy & Security → Microphone), gateway speech input that is unavailable, a
-reply that could not be spoken (the loop resumes listening), or a run that failed.
+reply that could not be spoken, or a run that failed.
 
 ## Audio output
 

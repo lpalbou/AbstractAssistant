@@ -335,14 +335,15 @@ class AssistantPreferences:
     # is chosen in the gateway — Settings → Workspace "My default workspaces"
     # (account) and "This chat" (session). A `workspace_root` left in an older
     # preferences.json is ignored, never sent.
-    # Hands-free voice conversation: send each utterance automatically (off =
-    # transcribe into the composer and wait for Enter) and ask the model for
-    # short spoken-style replies while the conversation is on.
+    # Voice questions (one per press of the orb): send what was said as soon as
+    # it is transcribed (off = put it in the composer and wait for Enter) and ask
+    # the model for short spoken-style replies to them.
     voice_auto_send: bool = True
     voice_spoken_replies: bool = True
-    # Microphone gating while the assistant speaks: "wait" pauses capture
-    # (speakers: the assistant never transcribes itself; no barge-in), "full"
-    # keeps the mic open so a spoken "stop" interrupts (headphones).
+    # Read by nothing since 0.18.2 and kept as saved: it chose whether the old
+    # hands-free loop kept the microphone open while a reply played ("full") or
+    # paused it ("wait"). A voice question closes the microphone once you have
+    # spoken, so there is nothing left to choose (the Barge-in row is gone).
     voice_mode: str = "wait"
     # WHICH SPEAKER spoken replies come out of. "" follows the Mac's current
     # default output; otherwise a device UID (`BuiltInSpeakerDevice`,

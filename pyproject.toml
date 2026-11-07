@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.18.1"
-description = "A gateway-native macOS menu-bar assistant for AbstractFramework: a compact palette, hands-free voice conversations, automations and a small CLI over AbstractGateway"
+version = "0.18.2"
+description = "A gateway-native macOS menu-bar assistant for AbstractFramework: a compact palette, voice questions, automations and a small CLI over AbstractGateway"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"

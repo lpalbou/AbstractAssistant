@@ -1,4 +1,4 @@
-"""The composer's voice strip: what the hands-free conversation is doing.
+"""The composer's voice strip: what the voice turn is doing.
 
 One 36 px row above the prompt so typing keeps working while the conversation
 runs. Everything it shows comes from the ``VoiceConversation`` state machine
@@ -7,7 +7,7 @@ never infers a state on its own.
 
 The strip owns its look (``VOICE_STRIP_QSS``, tokens only) and applies it to
 itself, so its per-state tint is the same in the palette and in any host:
-listening / speaking = positive, heard / thinking = accent, paused = neutral,
+listening / speaking = positive, transcribing / thinking = accent,
 error = danger.
 """
 
@@ -36,15 +36,14 @@ def _state_view() -> dict:
     return {
         "starting": ("loader", THEME.text_muted, "Starting the microphone…"),
         "listening": ("mic", THEME.positive, "Listening…"),
-        "heard": ("loader", THEME.accent, "Heard you — sending in a moment…"),
+        "transcribing": ("loader", THEME.accent, "Sending what you said…"),
         "thinking": ("spark", THEME.accent, "Thinking…"),
         "speaking": ("speaker", THEME.positive, "Speaking… Esc ends voice"),
-        "paused": ("mic-off", THEME.text_muted, "Microphone paused"),
         "error": ("alert", THEME.danger, "Voice conversation stopped"),
         "off": ("mic-off", THEME.text_muted, ""),
     }
 
-_METER_STATES = {"listening", "speaking", "heard"}
+_METER_STATES = {"listening", "speaking"}
 
 
 def _build_strip_qss() -> str:
@@ -62,8 +61,7 @@ def _build_strip_qss() -> str:
             border-top-right-radius: {m.radius_card}px;
         }}
         QFrame#voiceStrip[state="starting"] {{ {tint(t.text_secondary, 0.04, 0.14)} }}
-        QFrame#voiceStrip[state="heard"], QFrame#voiceStrip[state="thinking"] {{ {tint(t.accent, 0.07, 0.18)} }}
-        QFrame#voiceStrip[state="paused"] {{ {tint(t.text_secondary, 0.04, 0.14)} }}
+        QFrame#voiceStrip[state="transcribing"], QFrame#voiceStrip[state="thinking"] {{ {tint(t.accent, 0.07, 0.18)} }}
         QFrame#voiceStrip[state="error"] {{ {tint(t.danger, 0.10, 0.24)} }}
         QLabel#voiceStripStatus {{
             color: {t.text_primary};
@@ -73,7 +71,7 @@ def _build_strip_qss() -> str:
             border: none;
         }}
         QLabel#voiceStripStatus[state="error"] {{ color: {t.danger_text}; }}
-        QLabel#voiceStripStatus[state="paused"], QLabel#voiceStripStatus[state="starting"] {{ color: {t.text_secondary}; }}
+        QLabel#voiceStripStatus[state="starting"] {{ color: {t.text_secondary}; }}
         QLabel#voiceStripGlyph {{ background: transparent; border: none; }}
         QPushButton#voiceStripButton {{
             min-height: 26px; max-height: 26px; min-width: 26px; max-width: 26px;
@@ -146,7 +144,6 @@ class LevelMeter(QWidget):
 
 
 class VoiceStrip(QFrame):
-    pause_toggled = pyqtSignal()
     stop_speech_requested = pyqtSignal()
     interrupt_requested = pyqtSignal()
     end_requested = pyqtSignal()
@@ -188,8 +185,6 @@ class VoiceStrip(QFrame):
             row.addWidget(button, 0, Qt.AlignVCenter)
             return button
 
-        self.pause_button = _button("pause", "pause", "Pause the microphone")
-        self.pause_button.clicked.connect(self.pause_toggled.emit)
         self.stop_button = _button("stop", "stop", "Stop speaking")
         self.stop_button.clicked.connect(self.stop_speech_requested.emit)
         self.interrupt_button = _button("interrupt", "hand", "Stop the run (⌘.)")
@@ -221,11 +216,6 @@ class VoiceStrip(QFrame):
         self.meter.set_active(normalized in _METER_STATES)
         if normalized not in _METER_STATES:
             self.meter.set_level(0.0)
-        self.pause_button.setVisible(normalized in {"listening", "heard", "paused"})
-        self.pause_button.setIcon(
-            symbol_icon("play" if normalized == "paused" else "pause", color=THEME.text_secondary, size=14)
-        )
-        self.pause_button.setToolTip("Resume the microphone" if normalized == "paused" else "Pause the microphone")
         self.stop_button.setVisible(normalized == "speaking")
         self.interrupt_button.setVisible(normalized == "thinking")
         refresh_style(self)

@@ -784,7 +784,7 @@ class VoicePage(SettingsPage):
         conversation = self.add_card(
             Card(
                 "Voice conversation",
-                "Hands-free mode (⌘⇧V or the waveform button): the assistant listens, sends what you say, speaks the reply and listens again.",
+                "One question per press (⌘⇧V or the orb): the assistant listens until you pause, sends what you said, speaks the reply, then stops listening. Press again for the next question.",
             )
         )
         self.voice_auto_send = AfSwitch("Send what you say automatically")
@@ -792,27 +792,16 @@ class VoicePage(SettingsPage):
         conversation.add_row("Sending", self.voice_auto_send, help_text="Off: your words land in the message box and Return sends them.")
         self.voice_spoken_replies = AfSwitch("Ask for short, spoken-style replies")
         self._immediate(self.voice_spoken_replies, "voice_spoken_replies", ("Short, spoken-style replies are on.", "Short, spoken-style replies are off."))
-        conversation.add_row("Reply style", self.voice_spoken_replies, help_text="Adds a voice-style instruction to each request while the conversation runs.")
-        # A two-option question is a list, like every other choice in Settings —
-        # not a stack of radio buttons that has to be read twice to be answered.
-        self.voice_mode_combo = QComboBox()
-        self.voice_mode_combo.addItem("Pause the mic while speaking", "wait")
-        self.voice_mode_combo.addItem("Keep the mic open", "full")
-        conversation.add_row(
-            "Barge-in",
-            self.voice_mode_combo,
-            stretch_control=False,
-            help_text=(
-                "Pause on speakers; keep it open with headphones and say “stop” "
-                "to interrupt. With speakers, the open-mic option may transcribe "
-                "the assistant's own voice."
-            ),
-        )
+        conversation.add_row("Reply style", self.voice_spoken_replies, help_text="Adds a voice-style instruction to each voice question.")
+        # 0.18.2: no "Barge-in" choice any more. A voice turn closes the microphone
+        # once you have spoken, so it is never open while the reply plays; to cut a
+        # reply short, press the orb or Esc. (`voice_mode` stays in the saved
+        # preferences, untouched.)
 
         # No Save button on this page: every control is a switch or a choice,
         # and each applies the moment it changes (user actions only:
         # `activated`, not `currentIndexChanged`, so a refresh saves nothing).
-        for combo in (self.output_device_combo, self.voice_quality_combo, self.voice_mode_combo):
+        for combo in (self.output_device_combo, self.voice_quality_combo):
             combo.activated.connect(lambda _index=0: self._save())
 
     def _immediate(self, switch: AfSwitch, key: str, messages) -> None:
@@ -838,9 +827,6 @@ class VoicePage(SettingsPage):
         self.voice_quality_combo.setCurrentIndex(idx if idx >= 0 else 0)
         self.voice_auto_send.setChecked(bool(safe_attr(prefs, "voice_auto_send", True)))
         self.voice_spoken_replies.setChecked(bool(safe_attr(prefs, "voice_spoken_replies", True)))
-        mode = str(safe_attr(prefs, "voice_mode", "wait") or "wait")
-        mode_index = self.voice_mode_combo.findData("full" if mode == "full" else "wait")
-        self.voice_mode_combo.setCurrentIndex(mode_index if mode_index >= 0 else 0)
         self._reload_output_devices(announce=False)
         self._refresh_summaries()
 
@@ -935,7 +921,6 @@ class VoicePage(SettingsPage):
             voice_quality=str(self.voice_quality_combo.currentData() or "standard"),
             voice_auto_send=bool(self.voice_auto_send.isChecked()),
             voice_spoken_replies=bool(self.voice_spoken_replies.isChecked()),
-            voice_mode=str(self.voice_mode_combo.currentData() or "wait"),
             audio_output_device=device_key,
             audio_output_device_name=device_name,
         )

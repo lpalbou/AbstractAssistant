@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from PyQt5.QtCore import QEvent, Qt, QTimer, QRectF, pyqtSignal
-from PyQt5.QtGui import QColor, QImage, QPixmap, QPainter
+from PyQt5.QtGui import QColor, QImage, QPen, QPixmap, QPainter
 from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QSizePolicy, QWidget
 
 from ..theme import THEME
@@ -320,14 +320,51 @@ class AvatarVoiceButton(QPushButton):
         self.setAccessibleName("Voice")
         self.setAccessibleDescription(f"Assistant: {state}. {self.toolTip()} {self.avatar.error}".strip())
 
+    # The floating orb's own backdrop, so the orb and its state label read over
+    # any window behind the palette (a white web page, a dark desktop) in every
+    # theme. In a light theme the card surface is itself near white, so the panel
+    # is the card surface pulled toward the theme's ink (a tone that differs from
+    # white, and from black in a dark theme) with a hairline edge in that ink.
+    # It stays lighter than the composer panel beside it, inside the button's own
+    # rect only (it never covers the composer), with the radius of the button's
+    # keyboard-focus outline.
+    BACKDROP_OPACITY = 0.82
+    BACKDROP_INK_MIX = 0.14
+    BACKDROP_EDGE_ALPHA = 0.34
+    BACKDROP_RADIUS = 24.0
+
+    @staticmethod
+    def _token_rgb(token: str, fallback: tuple) -> tuple:
+        from ..retint import parse_color
+
+        parsed = parse_color(str(token or ""))
+        return tuple(int(v) for v in parsed[0]) if parsed else fallback
+
+    def backdrop_color(self) -> QColor:
+        surface = self._token_rgb(THEME.surface_card, self._token_rgb(THEME.surface_raised, (16, 22, 31)))
+        ink = self._token_rgb(THEME.text_primary, (237, 242, 248))
+        mix = self.BACKDROP_INK_MIX
+        color = QColor(*(round(s * (1 - mix) + i * mix) for s, i in zip(surface, ink)))
+        color.setAlphaF(self.BACKDROP_OPACITY)
+        return color
+
+    def backdrop_edge_color(self) -> QColor:
+        color = QColor(*self._token_rgb(THEME.text_primary, (237, 242, 248)))
+        color.setAlphaF(self.BACKDROP_EDGE_ALPHA)
+        return color
+
     def paintEvent(self, event) -> None:  # noqa: N802
-        super().paintEvent(event)
-        # macOS uses window alpha for native hit testing. A wire avatar's
-        # transparent center otherwise sends physical clicks to the window below.
         painter = QPainter(self)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(16, 22, 31, 28))
-        painter.drawEllipse(QRectF(8, 14, 68, 68))
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setPen(QPen(self.backdrop_edge_color(), 1.0))
+        painter.setBrush(self.backdrop_color())
+        painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5),
+                                self.BACKDROP_RADIUS, self.BACKDROP_RADIUS)
+        painter.end()
+        super().paintEvent(event)
+        # macOS uses window alpha for native hit testing; the backdrop makes the
+        # whole button opaque enough, so a wire avatar's transparent centre does
+        # not send clicks to the window below.
 
     def focusInEvent(self, event) -> None:  # noqa: N802
         self._set_keyboard_focus(event.reason() in (Qt.TabFocusReason, Qt.BacktabFocusReason, Qt.ShortcutFocusReason))

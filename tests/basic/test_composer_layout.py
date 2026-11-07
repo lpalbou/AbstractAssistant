@@ -61,9 +61,8 @@ def test_escape_ends_voice_before_hiding_and_speech_labels_follow_player(orb_pal
     controller.voice_manager.is_speaking = lambda: True
     window._on_voice_state("speaking")
     assert window.title_label.text().startswith("Speaking")
-    window._voice_conversation.last_transcript = "what is the weather"
-    window._on_voice_state("heard")
-    assert window.title_label.text() == "Heard: “what is the weather”"
+    window._on_voice_state("transcribing")
+    assert window.title_label.text() == "Sending what you said…"
     window._on_escape()
     assert not controller.voice_manager.listening
     assert not window._voice_conversation_active
@@ -100,6 +99,7 @@ def test_orb_labels_states_above_centered_body_and_owns_voice_stop(orb_palette):
     assert window.voice_strip.isHidden()
     assert button.caption.text() == "Listening"
     assert button.caption.geometry().bottom() < button.avatar.y()
+    controller.voice_manager.listening = False  # the turn's words went out: the mic is closed
     window._voice_conversation._set_state("thinking")
     assert button.caption.text() == "Thinking"
     assert window.voice_strip.isHidden()
@@ -112,16 +112,16 @@ def test_orb_labels_states_above_centered_body_and_owns_voice_stop(orb_palette):
 
 @pytest.mark.basic
 def test_quiet_microphone_pcm_reaches_avatar_and_stale_level_decays(orb_palette, monkeypatch):
-    import numpy as np
     import abstractassistant.app as module
-    from abstractvoice.recognition import VoiceRecognizer
-    window, _ = orb_palette
+    from abstractvoice.audio.levels import VoiceLevelNormalizer
+    window, controller = orb_palette
     window._start_voice_conversation()
-    rec = VoiceRecognizer.__new__(VoiceRecognizer)
-    rec._audio_level_ema = 0.0
-    rec.audio_level_callback = window.voice_level_received.emit
+    # The voice turn's recording reports levels the way `begin_hold` does: the
+    # adaptive normalizer, fed a quiet microphone (rms 0.002) while speech is heard.
+    level = controller.voice_manager.capture_kwargs["on_audio_level"]
+    normalizer = VoiceLevelNormalizer()
     for _ in range(8):
-        rec._emit_audio_level(np.full((480, 1), 0.002, dtype=np.float32))
+        level(normalizer.push(0.002, peak=0.004, seconds=0.03, speech=True))
     _SMOKE["_app"]().processEvents()
     assert window._avatar_presentation().state == "listening"
     assert window._avatar_presentation().level > 0.15
@@ -161,19 +161,6 @@ def test_orb_menu_on_off_items_keep_their_feature_label_and_show_state(orb_palet
         menu = window._build_voice_menu()
         return {a.text(): a for a in menu.actions() if not a.isSeparator()}
 
-    window._start_voice_conversation()
-    assert window._voice_conversation.state != "paused"
-    mic = items()["Microphone"]
-    assert mic.isCheckable() and mic.isChecked()
-    mic.trigger()
-    assert window._voice_conversation.state == "paused"
-    mic = items()["Microphone"]
-    assert mic.isCheckable() and not mic.isChecked()
-    mic.trigger()
-    assert window._voice_conversation.state != "paused"
-    window._end_voice_conversation()
-
-    assert "Microphone" not in items()
     dictate = items()["Dictate into the message box"]
     assert dictate.isCheckable() and not dictate.isChecked()
     window._listening = True
@@ -183,40 +170,38 @@ def test_orb_menu_on_off_items_keep_their_feature_label_and_show_state(orb_palet
 
 
 @pytest.mark.basic
-def test_orb_menu_microphone_shows_the_real_microphone_and_acts_only_when_it_can(orb_palette):
-    """While the assistant works or speaks the conversation keeps the microphone closed and
-    cannot pause it: the item says so (unticked, disabled, with the reason) instead of a tick
-    that an untick silently ignores (review 2026-11-07, finding 1)."""
-    window, _ = orb_palette
+def test_voice_turn_menu_item_is_ticked_exactly_while_the_turn_runs(orb_palette):
+    """A voice turn is one utterance (0.18.2): there is no microphone to pause between
+    turns, so no "Microphone" item; "Voice conversation" is ticked from the press until
+    the reply has been spoken, then unticks by itself."""
+    window, controller = orb_palette
 
-    def microphone():
+    def items():
         menu = window._build_voice_menu()
-        assert menu.toolTipsVisible(), "a disabled item's reason must be readable"
-        return {a.text(): a for a in menu.actions() if not a.isSeparator()}["Microphone"]
+        return {a.text(): a for a in menu.actions() if not a.isSeparator()}
 
     window._start_voice_conversation()
     conversation = window._voice_conversation
-    assert conversation.state == "listening"
-    assert microphone().isEnabled() and microphone().isChecked()
-
-    conversation.mark_sent()  # a turn went out: the assistant works, the mic is closed
-    assert conversation.state == "thinking"
-    mic = microphone()
-    assert not mic.isChecked() and not mic.isEnabled()
-    assert mic.toolTip() == "The microphone is closed while the assistant works."
-    mic.trigger()
-    assert conversation.state == "thinking"
-
+    for state in ("listening",):
+        assert conversation.state == state
+        assert items()["Voice conversation (⌘⇧V)"].isChecked()
+        assert "Microphone" not in items()
+    controller.voice_manager.heard = True
+    window.voice_turn_ended.emit(conversation, "silence")
+    _SMOKE["_app"]().processEvents()
+    assert conversation.state == "transcribing"
+    assert items()["Voice conversation (⌘⇧V)"].isChecked()
+    conversation.state = "thinking"  # the send itself is covered by the smoke tests
     conversation.run_finished(will_speak=True)
     assert conversation.state == "speaking"
-    mic = microphone()
-    assert not mic.isChecked() and not mic.isEnabled()
-    assert mic.toolTip() == "The microphone is closed while the assistant speaks."
-
+    assert items()["Voice conversation (⌘⇧V)"].isChecked()
     conversation.speech_finished()
-    assert conversation.state == "listening"
-    assert microphone().isEnabled() and microphone().isChecked()
-    window._end_voice_conversation()
+    _SMOKE["_app"]().processEvents()
+    item = items()["Voice conversation (⌘⇧V)"]
+    assert item.isCheckable() and not item.isChecked()
+    assert not window._voice_conversation_active
+    assert not window.conversation_button.isChecked()
+    assert not controller.voice_manager.listening  # nothing reopened the microphone
 
 
 @pytest.mark.basic
@@ -244,7 +229,7 @@ def test_voice_conversation_is_one_checkable_item_and_the_orb_keeps_one_name(orb
     active = menu_labels()
     item = active["Voice conversation (⌘⇧V)"]
     assert item.isCheckable() and item.isChecked()
-    assert set(idle) <= set(active) and set(active) - set(idle) == {"Microphone"}
+    assert set(idle) == set(active)  # the labels never change with the state
     assert orb() == ("Voice", ORB_TOOLTIP)
     item.trigger()
     assert not window._voice_conversation_active
@@ -254,3 +239,105 @@ def test_voice_conversation_is_one_checkable_item_and_the_orb_keeps_one_name(orb
     window._listening = False
     controller.voice_manager.is_speaking = lambda: True  # reading a reply aloud
     assert orb() == ("Voice", ORB_TOOLTIP)
+
+
+@pytest.mark.basic
+@pytest.mark.parametrize("theme_id", ["dark", "light", "observer-night", "solarized-light"])
+def test_the_floating_orb_has_its_own_translucent_backdrop_in_every_theme(orb_palette, theme_id):
+    """Operator 2026-11-07: the orb and its "Listening" label sat straight on whatever was
+    behind the window (a white web page made them unreadable). The orb's own rect gets the
+    theme's card surface, more transparent than the composer; the gap stays transparent."""
+    from abstractassistant.retint import parse_color
+    from abstractassistant.theme import THEME
+
+    from abstractassistant.theme import DEFAULT_THEME, activate
+
+    window, _ = orb_palette
+    window.apply_theme(theme_id, persist=False)
+    _SMOKE["_app"]().processEvents()
+    button = window.conversation_button
+    try:
+        image = window.grab().toImage()
+        _rgb, _alpha = parse_color(THEME.surface_card)
+        wanted = button.backdrop_color()
+        r, g, b = wanted.red(), wanted.green(), wanted.blue()
+    finally:
+        activate(DEFAULT_THEME)  # the palette is process-global; leave it as found
+    ratio = image.devicePixelRatio()
+    # Below the orb's face, inside the button: the backdrop, and nothing else.
+    x, y = button.x() + button.width() // 2, button.y() + button.height() - 8
+    pixel = image.pixelColor(int(x * ratio), int(y * ratio))
+    assert 0.7 * 255 <= pixel.alpha() <= 0.9 * 255, pixel.alpha()
+    composer_alpha = (_alpha if _alpha is not None else 1.0) * 255
+    assert pixel.alpha() < composer_alpha  # more transparent than the panel beside it
+    assert max(abs(pixel.red() - r), abs(pixel.green() - g), abs(pixel.blue() - b)) <= 3
+    # The desktop gap between the composer and the orb is untouched.
+    gap_x = (window.composer_card.geometry().right() + button.x()) // 2
+    assert image.pixelColor(int(gap_x * ratio), int(button.geometry().center().y() * ratio)).alpha() == 0
+
+
+@pytest.mark.basic
+def test_a_disabled_voice_conversation_item_says_why(orb_palette):
+    """Operator rule (a disabled item says why): with no gateway connection the greyed-out
+    item's tooltip is the reason, not the description of what it would do (review A1)."""
+    window, controller = orb_palette
+    connected = controller.current_workflow
+    controller.current_workflow = lambda: None
+    menu = window._build_voice_menu()
+    assert menu.toolTipsVisible()
+    item = {a.text(): a for a in menu.actions() if not a.isSeparator()}["Voice conversation (⌘⇧V)"]
+    assert not item.isEnabled()
+    assert item.toolTip() == "Connect to the gateway before starting a voice conversation."
+    controller.current_workflow = connected
+    item = {a.text(): a for a in window._build_voice_menu().actions() if not a.isSeparator()}["Voice conversation (⌘⇧V)"]
+    assert item.isEnabled() and item.toolTip().startswith("One question per press")
+
+
+@pytest.mark.basic
+def test_the_orb_tooltip_describes_one_question_per_press():
+    """Review A3: a click while the orb listens SENDS (it no longer "stops" a conversation)."""
+    assert "one question" in ORB_TOOLTIP and "send it now" in ORB_TOOLTIP
+    assert "start or stop" not in ORB_TOOLTIP
+
+
+def _luminance(rgb):
+    def channel(v):
+        v /= 255.0
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+    r, g, b = rgb
+    return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+
+
+def _contrast(a, b):
+    low, high = sorted((_luminance(a), _luminance(b)))
+    return (high + 0.05) / (low + 0.05)
+
+
+def _over(color, background):
+    alpha = color.alphaF()
+    return tuple(round(alpha * c + (1 - alpha) * bg)
+                 for c, bg in zip((color.red(), color.green(), color.blue()), background))
+
+
+@pytest.mark.basic
+def test_the_orb_backdrop_stands_out_over_white_and_black_in_every_theme():
+    """Review A8: in the light themes the card surface is itself near white, so a backdrop
+    in that colour vanished over a white page. In EVERY theme, over a white page and over a
+    black desktop, the panel's tone differs from the page and its edge is clearly visible."""
+    from abstractassistant import ui_themes
+    from abstractassistant.theme import DEFAULT_THEME, activate
+    from abstractassistant.ui.avatar import AvatarPresentation, AvatarVoiceButton
+
+    _SMOKE["_app"]()
+    button = AvatarVoiceButton(lambda: AvatarPresentation())
+    try:
+        for theme_id in ["abstract-glass", *ui_themes.THEME_SPECS]:
+            activate(ui_themes.build_theme(theme_id) or DEFAULT_THEME)
+            for page in ((255, 255, 255), (0, 0, 0)):
+                fill = _over(button.backdrop_color(), page)
+                edge = _over(button.backdrop_edge_color(), fill)
+                assert _contrast(fill, page) >= 1.2, (theme_id, page, fill)
+                assert _contrast(edge, page) >= 1.8, (theme_id, page, edge)
+    finally:
+        activate(DEFAULT_THEME)
+        button.deleteLater()

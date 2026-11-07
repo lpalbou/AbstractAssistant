@@ -149,9 +149,9 @@ def test_voice_switches_apply_at_once_and_the_page_has_no_save() -> None:
     assert ctl.preferences.voice_auto_send is False
     assert page.feedback.text() == "What you say lands in the message box; Return sends it."
     # A choice applies on the user's pick too (activated, not a refresh).
-    page.voice_mode_combo.setCurrentIndex(page.voice_mode_combo.findData("full"))
-    page.voice_mode_combo.activated.emit(page.voice_mode_combo.currentIndex())
-    assert ctl.preferences.voice_mode == "full"
+    page.voice_quality_combo.setCurrentIndex(page.voice_quality_combo.findData("low"))
+    page.voice_quality_combo.activated.emit(page.voice_quality_combo.currentIndex())
+    assert ctl.preferences.voice_quality == "low"
     # A refresh never saves.
     saved = ctl.preferences
     page.refresh()
