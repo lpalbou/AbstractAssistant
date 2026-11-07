@@ -3351,9 +3351,10 @@ app. The orb stays readable over any window, and a failed run says why in plain 
   a reply is read, so there is nothing to pause or keep open. **Voice conversation (⌘⇧V)** is ticked
   while a question is in progress and unticks by itself when it is over. Your other voice settings
   are unchanged.
-- **The orb is readable on any background.** It sits on its own slightly transparent panel in your
-  theme's colour, so the orb and its "Listening", "Thinking" or "Speaking" label stay clear over a
-  white web page as well as over a dark desktop.
+- **The orb is readable on any background.** It sits on its own slightly transparent panel with a
+  fine edge, in a tone of your theme that stands out from both white and black, so the orb and its
+  "Listening", "Thinking" or "Speaking" label stay clear over a white web page as well as over a
+  dark desktop, in light and dark themes alike.
 
 ### Fixed
 
@@ -9808,14 +9809,15 @@ class AssistantPreferences:
     # is chosen in the gateway — Settings → Workspace "My default workspaces"
     # (account) and "This chat" (session). A `workspace_root` left in an older
     # preferences.json is ignored, never sent.
-    # Hands-free voice conversation: send each utterance automatically (off =
-    # transcribe into the composer and wait for Enter) and ask the model for
-    # short spoken-style replies while the conversation is on.
+    # Voice questions (one per press of the orb): send what was said as soon as
+    # it is transcribed (off = put it in the composer and wait for Enter) and ask
+    # the model for short spoken-style replies to them.
     voice_auto_send: bool = True
     voice_spoken_replies: bool = True
-    # Microphone gating while the assistant speaks: "wait" pauses capture
-    # (speakers: the assistant never transcribes itself; no barge-in), "full"
-    # keeps the mic open so a spoken "stop" interrupts (headphones).
+    # Read by nothing since 0.18.2 and kept as saved: it chose whether the old
+    # hands-free loop kept the microphone open while a reply played ("full") or
+    # paused it ("wait"). A voice question closes the microphone once you have
+    # spoken, so there is nothing left to choose (the Barge-in row is gone).
     voice_mode: str = "wait"
     # WHICH SPEAKER spoken replies come out of. "" follows the Mac's current
     # default output; otherwise a device UID (`BuiltInSpeakerDevice`,
@@ -17612,12 +17614,18 @@ class VoiceConversation:
         on_state: Optional[Callable[[str], None]] = None,
         on_level: Optional[Callable[[float], None]] = None,
         auto_send: bool = True,
+        schedule: Optional[Callable[[float, Callable[[], None]], None]] = None,
+        poll_s: float = 0.25,
     ) -> None:
         self._voice = voice_manager
         self._on_send = on_send
         self._on_state = on_state
         self._on_level = on_level
         self.auto_send = bool(auto_send)
+        # A timer (QTimer in the app, a manual scheduler in tests) that checks the
+        # recording's wall-clock limits while listening, frames or not.
+        self._schedule = schedule
+        self._poll_s = max(0.05, float(poll_s))
         self.state = "off"
         self.error = ""
         self.outcome = ""
@@ -17686,7 +17694,22 @@ class VoiceConversation:
             self._set_state("error", error="the microphone did not start")
             return False
         self._set_state("listening")
+        self._arm_watch()
         return True
+
+    def _arm_watch(self) -> None:
+        if self._schedule is not None:
+            self._schedule(self._poll_s, self._watch)
+
+    def _watch(self) -> None:
+        """While listening: end the turn when a wall-clock limit is reached, even
+        if the microphone stopped delivering frames (a stalled or lost device)."""
+        if self.state != "listening":
+            return
+        if self._call("poll_hold_endpoint"):
+            self.finish_listening()
+            return
+        self._arm_watch()
 
     def detach(self) -> None:
         """Drop the UI callbacks (the palette is tearing the turn down and
@@ -18405,7 +18428,8 @@ class GatewayVoiceManager:
         `UtteranceEndpoint`; when the utterance is over (about one second of
         silence after speech, nothing said in time, or the longest turn) the
         callback fires ONCE, from the audio thread, with the reason. Later
-        frames are not kept. The caller then ends the recording with
+        frames are not kept. The limits are wall-clock: ``poll_hold_endpoint``
+        ends a turn whose microphone stopped delivering frames. The caller then ends the recording with
         ``end_hold`` (``hold_heard_speech()`` says whether anything was said)
         or drops it with ``cancel_hold``.
         """
@@ -18493,6 +18517,15 @@ class GatewayVoiceManager:
 
     def is_holding(self) -> bool:
         return self._hold_stream is not None
+
+    def poll_hold_endpoint(self) -> Optional[str]:
+        """Check the one-turn recording's wall-clock limits now (frames or not).
+        Returns the end reason when THIS call ends it (the ``on_utterance_end``
+        callback does not fire for it), None otherwise."""
+        endpoint = getattr(self, "_hold_endpoint", None)
+        if self._hold_stream is None or endpoint is None:
+            return None
+        return endpoint.poll()
 
     def hold_heard_speech(self) -> bool:
         """The one-turn recording (``on_utterance_end``) has heard speech: ending
