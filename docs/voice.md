@@ -80,7 +80,9 @@ stateDiagram-v2
 What you see: the orb shows "Listening", "Thinking" or "Speaking" above it and moves with your
 microphone level and with the reply's sound. To pause listening, untick **Microphone** in its right-click menu; the
 composer's Stop button stops a run. The header title mirrors the state. An unfinished draft in the
-message box is kept: the conversation does not send it or replace it.
+message box is kept: the conversation does not send it or replace it. What you say while a draft
+is open is added to it, and the conversation stops sending on its own until it ends; a notice says
+so, and Return sends the draft.
 
 Behavior details:
 

@@ -11482,12 +11482,17 @@ class AssistantPalette(QMainWindow):
         if conversation is not None and bool(self._state("_voice_conversation_active", False)):
             # Opening voice beside a draft never authorizes sending or
             # replacing that draft (or its attachments).
-            if self.prompt_edit.toPlainText().strip() or self._attachments:
+            draft_stops_auto_send = conversation.auto_send and bool(
+                self.prompt_edit.toPlainText().strip() or self._attachments)
+            if draft_stops_auto_send:
                 conversation.auto_send = False
             conversation.heard(text)
             if not conversation.auto_send:
                 self._append_prompt_text(text)
-                self.voice_strip.set_state("listening", "Added to your message — press Return to send")
+                if draft_stops_auto_send:
+                    self._note_voice_words_go_to_draft()
+                else:
+                    self._set_status("Added to your message: press Return to send", "voice")
             return
         self._append_prompt_text(text)
 
@@ -11662,7 +11667,7 @@ class AssistantPalette(QMainWindow):
             if conversation is not None:
                 conversation.auto_send = False
                 conversation.run_finished(will_speak=False)
-            self.voice_strip.set_state("listening", "Added to your draft — press Enter to send")
+            self._note_voice_words_go_to_draft()
             return
         self.prompt_edit.setPlainText(str(text or ""))
         self._submit()
@@ -11670,6 +11675,16 @@ class AssistantPalette(QMainWindow):
             # The send was refused (still connecting, nothing runnable…):
             # listen again rather than sit in "thinking" forever.
             conversation.run_failed("send refused")
+
+    def _note_voice_words_go_to_draft(self) -> None:
+        """A draft is open, so the conversation stops sending on its own: say so where the
+        user sees it (the voice strip is hidden since 0.18.1)."""
+        self._set_banner(
+            "Added to your draft. While a draft is open, what you say is not sent automatically: "
+            "press Return to send.",
+            tone="info",
+            key="voice",
+        )
 
     def _on_voice_state(self, state: str) -> None:
         conversation = self._state("_voice_conversation")
@@ -11682,15 +11697,13 @@ class AssistantPalette(QMainWindow):
             text = f"Heard: “{preview[:60]}{'…' if len(preview) > 60 else ''}”"
         elif state == "speaking" and not self._voice_is_speaking():
             text = "Speech paused" if self._controller.voice_manager.is_paused() else "Preparing speech…"
-        elif state == "speaking" and conversation is not None and conversation.voice_mode == "full":
-            text = "Speaking… say “stop”; Esc ends voice"
         elif state == "error" and conversation is not None and conversation.error:
             text = f"Voice conversation stopped: {conversation.error}"
         strip.set_state(state, text)
         status_map = {
             "starting": ("Starting microphone…", "busy"),
             "listening": ("Listening", "voice"),
-            "heard": ("Heard you", "voice"),
+            "heard": (text or "Heard you", "voice"),
             "thinking": ("Thinking…", "busy"),
             "speaking": ("Speaking", "voice") if self._voice_is_speaking() else (text or "Preparing speech…", "info" if text == "Speech paused" else "busy"),
             "paused": ("Voice paused", "info"),

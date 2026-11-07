@@ -38,7 +38,8 @@ It needs AbstractVoice 0.20.1 or later (installed with it), whose adaptive micro
   Watch Hover design.
 - **The composer.** Send appears when there is a draft or an attachment, and Stop stays visible
   while a run is going. Longer drafts make the message box taller, and small windows put the header
-  controls on a second row. A voice conversation keeps your unfinished draft; Esc ends voice before
+  controls on a second row. A voice conversation keeps your unfinished draft: what you say while
+  it is open is added to it and not sent on its own, and a notice says so. Esc ends voice before
   it hides the window.
 - **What you say is transcribed sooner.** In a voice conversation or while dictating, about one
   second of silence (it was one and a half) ends what you said and starts the transcription.

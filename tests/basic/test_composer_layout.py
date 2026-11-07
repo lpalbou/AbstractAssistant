@@ -51,15 +51,19 @@ def test_escape_ends_voice_before_hiding_and_speech_labels_follow_player(orb_pal
     window, controller = orb_palette
     window._start_voice_conversation()
     assert window.prompt_edit.placeholderText() == "Type a message…"
+    # The header title is what the user sees (the voice strip is hidden since 0.18.1).
     window._on_voice_state("speaking")
-    assert window.voice_strip.status.text() == "Preparing speech…"
+    assert window.title_label.text() == "Preparing speech…"
     controller.voice_manager.is_paused = lambda: True
     window._on_voice_state("speaking")
-    assert window.voice_strip.status.text() == "Speech paused"
+    assert window.title_label.text() == "Speech paused"
     controller.voice_manager.is_paused = lambda: False
     controller.voice_manager.is_speaking = lambda: True
     window._on_voice_state("speaking")
-    assert window.voice_strip.status.text().startswith("Speaking")
+    assert window.title_label.text().startswith("Speaking")
+    window._voice_conversation.last_transcript = "what is the weather"
+    window._on_voice_state("heard")
+    assert window.title_label.text() == "Heard: “what is the weather”"
     window._on_escape()
     assert not controller.voice_manager.listening
     assert not window._voice_conversation_active
