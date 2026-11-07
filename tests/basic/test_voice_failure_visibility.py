@@ -226,6 +226,9 @@ def test_artifact_leg_failure_reports_a_cause(monkeypatch: pytest.MonkeyPatch) -
     gateway.artifact_error = RuntimeError("gateway said 500")
     vm, reported = _manager_with_errors(gateway)
     monkeypatch.setattr(vm, "supports_tts", lambda: True)
+    # This test fakes playback; a runner without an audio player (Linux CI) must not
+    # turn it into the synchronous "no audio output backend" refusal.
+    monkeypatch.setattr(vm, "_audio_player_available", lambda: True)
     monkeypatch.setattr(vm, "_speak_gateway_stream", lambda **kwargs: None)
 
     completions: list[int] = []
@@ -245,6 +248,9 @@ def test_playback_refusal_after_successful_synthesis_reports_a_cause(
     gateway = _Gateway()
     vm, reported = _manager_with_errors(gateway)
     monkeypatch.setattr(vm, "supports_tts", lambda: True)
+    # This test fakes playback; a runner without an audio player (Linux CI) must not
+    # turn it into the synchronous "no audio output backend" refusal.
+    monkeypatch.setattr(vm, "_audio_player_available", lambda: True)
     monkeypatch.setattr(vm, "_speak_gateway_stream", lambda **kwargs: None)
     monkeypatch.setattr(
         vm, "_play_audio_bytes", lambda audio_bytes, content_type, callback=None: False
@@ -660,6 +666,9 @@ def test_an_async_failure_goes_to_the_callers_own_receiver_then_the_next_speak_r
     gateway.artifact_error = RuntimeError("gateway said 500")
     vm, reported = _manager_with_errors(gateway)
     monkeypatch.setattr(vm, "supports_tts", lambda: True)
+    # This test fakes playback; a runner without an audio player (Linux CI) must not
+    # turn it into the synchronous "no audio output backend" refusal.
+    monkeypatch.setattr(vm, "_audio_player_available", lambda: True)
     monkeypatch.setattr(vm, "_speak_gateway_stream", lambda **kwargs: None)
     mine: list[str] = []
     completions: list[int] = []
