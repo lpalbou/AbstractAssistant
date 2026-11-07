@@ -10,8 +10,9 @@ The voice control is the orb beside the composer: your activity avatar when it i
 Settings → Appearance, a simple sound icon otherwise. "Listening", "Thinking" or "Speaking" appears
 above it while that is happening; it shows nothing when idle. Click it to start or end a voice
 conversation; click it while a reply is being read to stop reading. Right-click it for the other
-choices: dictate into the message box, pause or resume voice during a conversation, and **Read new
-replies aloud**.
+choices, each ticked while it is on: **Microphone** (during a conversation; untick it to pause
+listening, tick it to listen again), **Dictate into the message box** and **Read new replies
+aloud**.
 
 Speech uses the gateway's default engines (its **Text To Speech** and **Speech To Text** routes,
 `output.voice` and `input.voice`) unless you choose another provider and model for this app under
@@ -50,8 +51,8 @@ says so instead of playing nothing.
 
 Right-click the orb and choose **Dictate into the message box**. Speak; after about one second of
 silence the gateway transcribes what you said and adds it to the message box, where you can edit it
-and press Return to send. Click the orb again, press Esc or choose **Stop dictation** to stop
-listening.
+and press Return to send. Click the orb again, press Esc or untick **Dictate into the message box** to
+stop listening.
 
 ## Voice conversation (hands-free)
 
@@ -67,13 +68,13 @@ stateDiagram-v2
     thinking --> speaking: final reply
     thinking --> listening: no spoken reply / run stopped / run failed
     speaking --> listening: playback finished, failed, or interrupted
-    listening --> paused: pause button
-    paused --> listening: resume
+    listening --> paused: Microphone unticked
+    paused --> listening: Microphone ticked
     listening --> [*]: end (orb, ⌘⇧V, Esc, or the header speaker toggle)
 ```
 
 What you see: the orb shows "Listening", "Thinking" or "Speaking" above it and moves with your
-microphone level and with the reply's sound. Pause and resume are in its right-click menu, and the
+microphone level and with the reply's sound. To pause listening, untick **Microphone** in its right-click menu; the
 composer's Stop button stops a run. The header title mirrors the state. An unfinished draft in the
 message box is kept: the conversation does not send it or replace it.
 

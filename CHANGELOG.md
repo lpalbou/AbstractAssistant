@@ -26,8 +26,8 @@ The desktop palette file now matches ui-kit 0.9.15; its colours did not change, 
 - **The orb is the desktop voice control.** The animated avatar sits beside the composer instead of
   above the conversation, which gives the conversation more room. Click it to start or end a voice
   conversation (or press ⌘⇧V); click it while a reply is being read to stop reading. Right-click it
-  to dictate into the message box, pause or resume voice, or turn **Read new replies aloud** on or
-  off. The composer's separate microphone button and the voice status strip are gone. With the
+  for its switches, each ticked when it is on: **Microphone** (during a conversation; untick it to
+  pause listening), **Dictate into the message box** and **Read new replies aloud**. The composer's separate microphone button and the voice status strip are gone. With the
   avatar turned off, the same control shows a simple sound icon.
 - **The orb says what is happening.** "Listening", "Speaking" or "Thinking" appears above it; it
   shows nothing when idle. It moves with the reply's sound and with your microphone level, and it

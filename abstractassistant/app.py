@@ -11403,6 +11403,12 @@ class AssistantPalette(QMainWindow):
 
     def _show_mic_menu(self, pos) -> None:
         """Secondary voice choices stay on the orb, without another mic button."""
+        self._build_voice_menu().exec(self.conversation_button.mapToGlobal(pos))
+
+    def _build_voice_menu(self) -> QMenu:
+        """The orb's right-click menu. Each on/off is one checkable item named for its
+        feature: the check shows the state and the label never swaps (operator rule,
+        toggles show state)."""
         menu = QMenu(self)
         in_conversation = bool(self._state("_voice_conversation_active", False))
         action = menu.addAction("End the voice conversation (⌘⇧V)" if in_conversation else "Start a voice conversation (⌘⇧V)")
@@ -11412,18 +11418,22 @@ class AssistantPalette(QMainWindow):
             action.setToolTip(reason)
         action.triggered.connect(self._toggle_voice_conversation)
         if in_conversation:
-            paused = self._voice_conversation.state == "paused"
-            pause = menu.addAction("Resume voice" if paused else "Pause voice")
-            pause.triggered.connect(self._voice_pause_toggled)
-        dictate = menu.addAction("Stop dictation" if self._listening else "Dictate into the message box")
+            # Checked while the conversation may listen; unchecking pauses the microphone.
+            microphone = menu.addAction("Microphone")
+            microphone.setCheckable(True)
+            microphone.setChecked(self._voice_conversation.state != "paused")
+            microphone.triggered.connect(lambda _checked: self._voice_pause_toggled())
+        dictate = menu.addAction("Dictate into the message box")
+        dictate.setCheckable(True)
+        dictate.setChecked(bool(self._listening))
         dictate.setEnabled(not in_conversation and self._controller.supports_stt())
-        dictate.triggered.connect(self._toggle_listening)
+        dictate.triggered.connect(lambda _checked: self._toggle_listening())
         menu.addSeparator()
         read_aloud = menu.addAction("Read new replies aloud")
         read_aloud.setCheckable(True)
         read_aloud.setChecked(self.auto_speak.isChecked())
         read_aloud.triggered.connect(lambda checked: (self.auto_speak.setChecked(checked), self._persist_auto_speak()))
-        menu.exec(self.conversation_button.mapToGlobal(pos))
+        return menu
 
     def _toggle_listening(self) -> None:
         if self._listening:

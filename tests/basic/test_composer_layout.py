@@ -144,3 +144,34 @@ def test_speaking_orb_uses_output_bands_and_click_stops_read_aloud(orb_palette):
     QTest.mouseClick(window.conversation_button, Qt.LeftButton)
     assert not speaking[0]
     assert not controller.voice_manager.listening
+
+
+@pytest.mark.basic
+def test_orb_menu_on_off_items_keep_their_feature_label_and_show_state(orb_palette):
+    """Operator rule (toggles show state, 2026-09-30): an on/off in the orb's menu is one
+    checkable item named for its feature; the check shows the state, the label never swaps."""
+    window, _ = orb_palette
+
+    def items():
+        menu = window._build_voice_menu()
+        return {a.text(): a for a in menu.actions() if not a.isSeparator()}
+
+    window._start_voice_conversation()
+    assert window._voice_conversation.state != "paused"
+    mic = items()["Microphone"]
+    assert mic.isCheckable() and mic.isChecked()
+    mic.trigger()
+    assert window._voice_conversation.state == "paused"
+    mic = items()["Microphone"]
+    assert mic.isCheckable() and not mic.isChecked()
+    mic.trigger()
+    assert window._voice_conversation.state != "paused"
+    window._end_voice_conversation()
+
+    assert "Microphone" not in items()
+    dictate = items()["Dictate into the message box"]
+    assert dictate.isCheckable() and not dictate.isChecked()
+    window._listening = True
+    dictate = items()["Dictate into the message box"]
+    assert dictate.isCheckable() and dictate.isChecked()
+    window._listening = False
