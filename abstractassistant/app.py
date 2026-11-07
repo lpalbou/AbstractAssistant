@@ -11523,18 +11523,20 @@ class AssistantPalette(QMainWindow):
             self._voice_stop_speaking()
             self._refresh_avatar()
             return
-        conversation = self._state("_voice_conversation")
         if self._state("_listening", False) and not self._state("_voice_conversation_active", False):
             self._toggle_listening()
-        elif conversation is not None and conversation.state == "listening":
+        else:
             # A press while it listens ends the turn now: what was said is sent,
             # and nothing is sent when nothing was said.
-            conversation.finish_listening()
-        else:
             self._toggle_voice_conversation()
 
     def _toggle_voice_conversation(self) -> None:
-        if bool(self._state("_voice_conversation_active", False)):
+        """⌘⇧V, the menu item and the orb are one press: start a question; while it
+        listens, send what was said (nothing when nothing was said); later, end it."""
+        conversation = self._state("_voice_conversation")
+        if conversation is not None and conversation.state == "listening":
+            conversation.finish_listening()
+        elif bool(self._state("_voice_conversation_active", False)):
             self._end_voice_conversation()
         else:
             self._start_voice_conversation()

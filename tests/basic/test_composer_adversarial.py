@@ -235,3 +235,35 @@ def test_a_cancelled_turns_late_transcript_never_lands_in_the_next_turn(orb_pale
     window.voice_turn_transcribed.emit(second, "the real question")
     _SMOKE["_app"]().processEvents()
     assert controller.built and controller.built[-1]["prompt"] == "the real question"
+
+
+@pytest.mark.basic
+@pytest.mark.parametrize("press", ["shortcut", "menu"])
+def test_cmd_shift_v_and_the_menu_item_are_the_same_press_as_the_orb(orb_palette, press):
+    """Review A2: pressed while the orb listens, ⌘⇧V and the menu item send what was said,
+    and cancel when nothing was said — exactly like a click on the orb."""
+    window, controller = orb_palette
+    voice = controller.voice_manager
+
+    def do_press():
+        if press == "shortcut":
+            QTest.keyClick(window, Qt.Key_V, Qt.ControlModifier | Qt.ShiftModifier)
+        else:
+            menu = window._build_voice_menu()
+            {a.text(): a for a in menu.actions() if not a.isSeparator()}["Voice conversation (⌘⇧V)"].trigger()
+        _SMOKE["_app"]().processEvents()
+
+    do_press()
+    assert window._voice_conversation.state == "listening"
+    voice.heard = True
+    do_press()  # done talking
+    assert window._voice_conversation.state == "transcribing"
+    assert callable(voice.transcribe_kwargs.get("on_transcription"))
+    window._end_voice_conversation()
+
+    voice.heard = False
+    voice.transcribe_kwargs = {}
+    do_press()
+    do_press()  # nothing said yet: cancelled
+    assert voice.transcribe_kwargs == {}
+    assert not window._voice_conversation_active and not voice.listening
