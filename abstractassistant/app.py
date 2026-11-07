@@ -2402,6 +2402,9 @@ class AttachmentDropFrame(QFrame):
         event.ignore()
 
 
+# The orb's one tooltip: true in every state (idle, in a conversation, reading a reply aloud,
+# dictating), so it never swaps verbs (operator rule: toggles show state).
+ORB_TOOLTIP = "Voice: click to start or stop, right-click for more choices (⌘⇧V: voice conversation)"
 # Why the orb menu's Microphone item cannot act in a conversation state.
 _MICROPHONE_CLOSED_REASONS = {
     "starting": "The microphone is starting.",
@@ -6285,7 +6288,7 @@ class AssistantPalette(QMainWindow):
         composer.addWidget(self.send_button, 0, Qt.AlignVCenter)
 
         self.conversation_button = AvatarVoiceButton(self._avatar_presentation, central)
-        self.conversation_button.setToolTip("Start a voice conversation (⌘⇧V)")
+        self.conversation_button.setToolTip(ORB_TOOLTIP)
         self.conversation_button.clicked.connect(self._on_orb_clicked)
         self.conversation_button.setContextMenuPolicy(Qt.CustomContextMenu)
         self.conversation_button.customContextMenuRequested.connect(self._show_mic_menu)
@@ -11418,12 +11421,14 @@ class AssistantPalette(QMainWindow):
         menu = QMenu(self)
         menu.setToolTipsVisible(True)  # a disabled item says why
         in_conversation = bool(self._state("_voice_conversation_active", False))
-        action = menu.addAction("End the voice conversation (⌘⇧V)" if in_conversation else "Start a voice conversation (⌘⇧V)")
+        action = menu.addAction("Voice conversation (⌘⇧V)")
+        action.setCheckable(True)
+        action.setChecked(in_conversation)
         reason = "" if in_conversation else self._voice_conversation_unavailable_reason()
         if reason:
             action.setEnabled(False)
             action.setToolTip(reason)
-        action.triggered.connect(self._toggle_voice_conversation)
+        action.triggered.connect(lambda _checked: self._toggle_voice_conversation())
         if in_conversation:
             # Ticked exactly while the microphone listens. The user can pause or resume it
             # only between turns; while the assistant works or speaks the loop itself keeps
@@ -11553,7 +11558,7 @@ class AssistantPalette(QMainWindow):
         self._update_prompt_placeholder()
         self._auto_speak_before_voice = bool(self.auto_speak.isChecked())
         self.conversation_button.setChecked(True)
-        self.conversation_button.setToolTip("End the voice conversation (⌘⇧V)")
+        self.conversation_button.setToolTip(ORB_TOOLTIP)
         self.mic_button.setEnabled(False)
         self.mic_button.setToolTip("Dictation is off during a voice conversation")
         # State lives above the orb; run cancellation stays on the red Stop.
@@ -11596,7 +11601,7 @@ class AssistantPalette(QMainWindow):
             self.auto_speak.setChecked(bool(restore))
             self._auto_speak_before_voice = None
         self.conversation_button.setChecked(False)
-        self.conversation_button.setToolTip("Start a voice conversation (⌘⇧V)")
+        self.conversation_button.setToolTip(ORB_TOOLTIP)
         self.voice_strip.set_state("off")
         self.voice_strip.hide()
         self._sync_composer_height()
@@ -12473,10 +12478,9 @@ class AssistantPalette(QMainWindow):
         manager = getattr(self._state("_controller"), "voice_manager", None)
         playing = self._voice_is_speaking() or bool(manager and manager.is_paused())
         reason = "" if active or playing else self._voice_conversation_unavailable_reason()
-        action = "End voice conversation" if active else ("Stop speaking" if playing else "Start voice conversation")
         button.setEnabled(not reason)
-        button.setToolTip(reason or action)
-        button.setAccessibleName(action)
+        button.setToolTip(reason or ORB_TOOLTIP)
+        button.setAccessibleName("Voice")
 
     def _update_prompt_placeholder(self) -> None:
         if self._state("_automation_view_id", ""):

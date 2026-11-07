@@ -105,7 +105,7 @@ def test_animation_failure_switches_to_usable_voice_control_without_other_ui_eve
         assert button.fallback.isVisible()
         assert button.avatar.isHidden()
         assert button.isEnabled()
-        assert button.accessibleName() == "Start voice conversation"
+        assert button.accessibleName() == "Voice"
     finally:
         button.hide()
         button.deleteLater()
