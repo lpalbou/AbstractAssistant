@@ -1,7 +1,10 @@
+// A single portrait (balanced, high) moves at one smooth rate in every animated pose: the
+// resting Ready and Waiting motion at 6–12 fps read as a stutter in the avatar views. Only
+// economy, meant for grids of small previews, keeps slower idle rates to bound their total cost.
 const budgets = {
     economy: { pixels: 256, ratio: 1.5, active: 12, ready: 2, waiting: 6 },
-    balanced: { pixels: 384, ratio: 2, active: 24, ready: 6, waiting: 10 },
-    high: { pixels: 512, ratio: 3, active: 30, ready: 12, waiting: 12 },
+    balanced: { pixels: 384, ratio: 2, active: 24, ready: 24, waiting: 24 },
+    high: { pixels: 512, ratio: 3, active: 30, ready: 30, waiting: 30 },
 };
 function budget(quality) {
     if (!Object.prototype.hasOwnProperty.call(budgets, quality))

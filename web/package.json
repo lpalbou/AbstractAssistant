@@ -1,6 +1,6 @@
 {
   "name": "@abstractframework/assistant",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "AbstractAssistant for the web: chat or talk with the Assistant in a browser, with live answers, approvals, dictation and read aloud. A thin client of AbstractGateway, served at /apps/assistant-web/.",
   "keywords": [
     "abstractframework",
@@ -60,7 +60,7 @@
   },
   "devDependencies": {
     "@abstractframework/panel-chat": "^0.8.2",
-    "@abstractframework/ui-kit": "^0.9.15",
+    "@abstractframework/ui-kit": "^0.9.16",
     "@types/react": "18.3.27",
     "@types/react-dom": "18.3.7",
     "@vitejs/plugin-react": "4.7.0",
