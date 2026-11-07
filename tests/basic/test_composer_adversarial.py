@@ -267,3 +267,28 @@ def test_cmd_shift_v_and_the_menu_item_are_the_same_press_as_the_orb(orb_palette
     do_press()  # nothing said yet: cancelled
     assert voice.transcribe_kwargs == {}
     assert not window._voice_conversation_active and not voice.listening
+
+
+@pytest.mark.basic
+def test_escape_after_the_words_were_sent_ends_the_turn_not_the_run(orb_palette):
+    """Review A5: Esc cancels only while listening. Once the words are sent, Esc ends the
+    voice question (no spoken reply) and leaves the run alone; the docs say exactly that."""
+    window, controller = orb_palette
+    window._start_voice_conversation()
+    conversation = window._voice_conversation
+    controller.voice_manager.heard = True
+    window.voice_turn_ended.emit(conversation, "silence")
+    _SMOKE["_app"]().processEvents()
+    conversation.state = "thinking"  # sent; the smoke controller cannot run it
+    cancelled = []
+    window._cancel_active_run = lambda *a, **k: cancelled.append(True)
+    window._on_escape()
+    assert not window._voice_conversation_active
+    assert cancelled == []
+    root = Path(__file__).resolve().parents[2]
+    voice_doc = (root / "docs" / "voice.md").read_text()
+    assert "Esc ends a question at any point" not in voice_doc
+    assert "Esc while the orb listens cancels the question" in voice_doc
+    changelog = (root / "CHANGELOG.md").read_text()
+    section = changelog[changelog.index("## [0.18.2]"):changelog.index("## [0.18.1]")]
+    assert "Esc while it\n  listens cancels the question" in section

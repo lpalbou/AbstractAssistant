@@ -83,7 +83,9 @@ stateDiagram-v2
 3. **Speaking**: the reply is read aloud. Then the orb is idle again; the microphone stays closed
    until your next press.
 
-Esc ends a question at any point without sending it; during the reply, it stops the reading.
+Esc while the orb listens cancels the question: nothing is sent. Once your words have been sent,
+Esc ends the voice question but not the run: its reply still arrives in the conversation and is
+read aloud only if **Read new replies aloud** is on. During the reply, Esc stops the reading.
 
 Behavior details:
 

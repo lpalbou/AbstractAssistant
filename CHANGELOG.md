@@ -17,8 +17,9 @@ app. The orb stays readable over any window, and a failed run says why in plain 
   your next press. Before, the voice conversation listened again after every reply, so a quiet room
   could be turned into messages such as "Thank you." that were sent on their own. Click the orb
   while it listens to send what you said right away; if you have not spoken yet, or say nothing for
-  about five seconds, nothing is sent and the orb says "I didn't hear anything". Esc ends a
-  question without sending it.
+  about five seconds, nothing is sent and the orb says "I didn't hear anything". Esc while it
+  listens cancels the question; once your words are sent, Esc ends the voice question but not the
+  run, whose reply is then read aloud only if Read new replies aloud is on.
 - **Simpler voice menu and settings.** The orb's right-click menu no longer has a **Microphone**
   item, and Settings → Voice no longer has the **Barge-in** choice: the microphone is closed while
   a reply is read, so there is nothing to pause or keep open. **Voice conversation (⌘⇧V)** is ticked
