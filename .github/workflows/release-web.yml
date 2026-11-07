@@ -115,7 +115,7 @@ jobs:
       - name: Publish
         env:
           VERSION: ${{ needs.build.outputs.version }}
-          TARBALL: package/${{ needs.build.outputs.tarball }}
+          TARBALL: ./package/${{ needs.build.outputs.tarball }}
         run: |
           set -euo pipefail
           if [ "$(npm view "@abstractframework/assistant@${VERSION}" version 2>/dev/null || true)" = "$VERSION" ]; then
