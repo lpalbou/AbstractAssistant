@@ -28,6 +28,9 @@ def test_a_known_type_becomes_a_plain_sentence_with_the_action() -> None:
     failure = explain_run_failure(SPECULATION)
     assert failure.error_type == "SpeculationUnavailableError"
     assert "MTP" in failure.text and "Settings" in failure.text and "Off" in failure.text
+    # The requirement may be the gateway's own default for the model (the console can store a
+    # strict one), so "Gateway default" is not offered as a fix and nothing claims the app chose it.
+    assert "Gateway default" not in failure.text and "chosen in Settings" not in failure.text
     assert "SpeculationUnavailableError" not in failure.text  # no exception names on screen
     assert failure.reason == SPECULATION
     assert SPECULATION in failure_tooltip(failure)
@@ -39,6 +42,24 @@ def test_the_type_is_matched_exactly_never_by_the_words_of_the_message() -> None
     assert error_type_of("The provider has no native MTP adapter (speculation.require_acceleration=True)") == ""
     # A type whose name merely CONTAINS the known one is a different type.
     assert error_type_of("Effect failed: NotSpeculationUnavailableErrorAtAll: x") == ""
+
+
+@pytest.mark.basic
+@pytest.mark.parametrize(
+    "reason,expected",
+    [
+        ("SpeculationUnavailableError: no MTP adapter", "SpeculationUnavailableError"),
+        (SPECULATION, "SpeculationUnavailableError"),
+        ("Effect failed after 1 attempt: SpeculationUnavailableError: x", "SpeculationUnavailableError"),
+        # The name anywhere else in the chain is not the type (review A4a).
+        ("Tool failed: user said: SpeculationUnavailableError: is what I typed", ""),
+        ("Effect failed after 3 attempts: ProviderAPIError: SpeculationUnavailableError: x", ""),
+        ("Effect failed after 3 attempts: SpeculationUnavailableError", ""),  # no message: no type
+        ("SpeculationUnavailableError('x')", ""),
+    ],
+)
+def test_the_type_is_read_only_at_its_position(reason, expected) -> None:
+    assert error_type_of(reason) == expected
 
 
 @pytest.mark.basic
@@ -88,7 +109,7 @@ def _palette():
 def test_the_conversation_shows_the_runs_own_reason(reason, expected) -> None:
     app_module, palette, shown = _palette()
     # What the worker emits for a failed run: the step's (or the summary's) error, then the status.
-    app_module.AssistantPalette._on_worker_event(palette, {"type": "error", "error": reason, "run_id": "run-1"})
+    app_module.AssistantPalette._on_worker_event(palette, {"type": "run_error", "error": reason, "run_id": "run-1"})
     app_module.AssistantPalette._on_worker_event(palette, {"type": "status", "status": "failed"})
     palette._run_has_final_output = False
     app_module.AssistantPalette._on_worker_finished(palette)
@@ -97,3 +118,27 @@ def test_the_conversation_shows_the_runs_own_reason(reason, expected) -> None:
     assert kw.get("tone") == "error"
     assert reason in kw.get("tooltip", "")  # the gateway's own words, one hover away
 
+
+@pytest.mark.basic
+def test_a_recovered_steps_error_is_never_the_runs_reason() -> None:
+    """Review A4b: an earlier step failed with the MTP error and recovered; the run then
+    failed for another reason. The line explains the run's own reason."""
+    app_module, palette, shown = _palette()
+    app_module.AssistantPalette._on_worker_event(palette, {"type": "error", "error": SPECULATION, "run_id": "child"})
+    app_module.AssistantPalette._on_worker_event(
+        palette, {"type": "run_error", "error": "Effect failed after 3 attempts: ProviderAPIError: upstream 502"})
+    app_module.AssistantPalette._on_worker_event(palette, {"type": "status", "status": "failed"})
+    palette._run_has_final_output = False
+    app_module.AssistantPalette._on_worker_finished(palette)
+    assert shown[-1][0] == GENERIC_FAILURE
+    assert "upstream 502" in shown[-1][1]["tooltip"]
+
+
+@pytest.mark.basic
+def test_a_step_error_alone_is_not_explained_as_the_runs_reason() -> None:
+    app_module, palette, shown = _palette()
+    app_module.AssistantPalette._on_worker_event(palette, {"type": "error", "error": SPECULATION, "run_id": "child"})
+    app_module.AssistantPalette._on_worker_event(palette, {"type": "status", "status": "failed"})
+    palette._run_has_final_output = False
+    app_module.AssistantPalette._on_worker_finished(palette)
+    assert shown[-1][0] == GENERIC_FAILURE

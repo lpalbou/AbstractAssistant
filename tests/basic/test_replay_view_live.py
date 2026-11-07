@@ -439,6 +439,40 @@ def test_a_failed_run_says_why():
     worker = _worker(_Gw([]))
     assert worker._follow_view(run_id=ROOT, attach=False) == "failed"
     assert [e["error"] for e in worker.event_emitted.items if e["type"] == "error"] == ["provider unreachable"]
+    assert [e["error"] for e in worker.event_emitted.items if e["type"] == "run_error"] == ["provider unreachable"]
+
+
+_MTP = "Effect failed after 3 attempts: SpeculationUnavailableError: no native MTP adapter"
+
+
+def _failed_step(step: str, error: str) -> Dict[str, Any]:
+    return {"run_id": ROOT, "step_id": step, "node_id": "reason", "status": "failed", "error": error,
+            "effect": {"type": "llm_call", "payload": {"provider": "p", "model": "m"}}}
+
+
+@pytest.mark.basic
+def test_the_runs_own_reason_is_the_summary_not_an_earlier_failed_step():
+    """Review A4b: a step failed with the MTP error (and was recovered); the run then failed
+    for another reason. The palette is told the run summary's reason."""
+    class _Gw(_OldGateway):
+        def get_run(self, run_id):
+            return {"run_id": run_id, "status": "failed", "error": "ProviderAPIError: upstream 502"}
+
+    worker = _worker(_Gw([_failed_step("s1", _MTP)], status="failed"))
+    assert worker._follow_view(run_id=ROOT, attach=False) == "failed"
+    assert [e["error"] for e in worker.event_emitted.items if e["type"] == "run_error"] == [
+        "ProviderAPIError: upstream 502"]
+
+
+@pytest.mark.basic
+def test_without_a_summary_reason_the_root_runs_newest_failed_step_is_the_reason():
+    class _Gw(_OldGateway):
+        def get_run(self, run_id):
+            return {"run_id": run_id, "status": "failed"}
+
+    worker = _worker(_Gw([_failed_step("s1", "first"), _failed_step("s2", _MTP)], status="failed"))
+    assert worker._follow_view(run_id=ROOT, attach=False) == "failed"
+    assert [e["error"] for e in worker.event_emitted.items if e["type"] == "run_error"] == [_MTP]
 
 
 

@@ -31,11 +31,11 @@ app. The orb stays readable over any window, and a failed run says why in plain 
 ### Fixed
 
 - **A failed run says why.** Instead of only "The run failed before it wrote a reply.", the
-  conversation names the cause and what to do when the Assistant recognises it. For example, when
-  the chosen chat model cannot use the MTP speed-up selected in Settings → Models: "This model
-  can't use the MTP speed-up (speculative decoding) chosen in Settings. In Settings → Models, set
-  MTP depth to Off or Gateway default, or choose a model that supports it." For any other cause,
-  hover over the line to read what the gateway reported.
+  conversation names the cause of the run's own failure and what to do when the Assistant
+  recognises it. For example, when the chat model cannot use the MTP speed-up the request asked
+  for: "This model can't use the MTP speed-up (speculative decoding) this request asked for. In
+  Settings → Models, set MTP depth to Off, or choose a model that supports it." For any other
+  cause, hover over the line to read what the gateway reported.
 
 ## [0.18.1] - 2026-11-07
 

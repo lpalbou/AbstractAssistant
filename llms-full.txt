@@ -2540,10 +2540,12 @@ switch on **Use my default** / **Follow the gateway policy**). See [settings.md]
 
 The line under the conversation says why the run stopped, in plain words, when the reason is one
 the Assistant recognises, and says what to do. For example, "This model can't use the MTP
-speed-up (speculative decoding) chosen in Settings" means the chat model or provider cannot run
-the MTP depth chosen under Settings → Models: set MTP depth to Off or Gateway default, or choose a
-model that supports it. For any other reason the line reads "The run failed before it wrote a
-reply."; hover over it to read what the gateway reported.
+speed-up (speculative decoding) this request asked for" means the chat model or provider cannot
+run MTP, which was required either by the MTP depth under Settings → Models or by the gateway's
+own default for that model: set MTP depth to Off, or choose a model that supports it. For any
+other reason the line reads "The run failed before it wrote a reply."; hover over it to read what
+the gateway reported. The line explains why the run itself failed, not an earlier step that
+recovered.
 
 ## The prompt ignores spaces after opening from the menu bar
 
@@ -3353,11 +3355,11 @@ app. The orb stays readable over any window, and a failed run says why in plain 
 ### Fixed
 
 - **A failed run says why.** Instead of only "The run failed before it wrote a reply.", the
-  conversation names the cause and what to do when the Assistant recognises it. For example, when
-  the chosen chat model cannot use the MTP speed-up selected in Settings → Models: "This model
-  can't use the MTP speed-up (speculative decoding) chosen in Settings. In Settings → Models, set
-  MTP depth to Off or Gateway default, or choose a model that supports it." For any other cause,
-  hover over the line to read what the gateway reported.
+  conversation names the cause of the run's own failure and what to do when the Assistant
+  recognises it. For example, when the chat model cannot use the MTP speed-up the request asked
+  for: "This model can't use the MTP speed-up (speculative decoding) this request asked for. In
+  Settings → Models, set MTP depth to Off, or choose a model that supports it." For any other
+  cause, hover over the line to read what the gateway reported.
 
 ## [0.18.1] - 2026-11-07
 
@@ -16000,6 +16002,9 @@ class ViewProjector:
         self._assistant_ids: Set[str] = set()
         self.final_shown = False
         self.error_shown = False
+        # The newest failed step of the ROOT run (a child's may be recovered): the run's own
+        # reason when the run summary cannot be read.
+        self.root_error = ""
 
     def suppress_history(self, view: Dict[str, Any]) -> None:
         """Mark everything the view holds as already shown, except an open interaction (an
@@ -16092,6 +16097,7 @@ class ViewProjector:
             self._tool_done.add(f"{aid}|failed")
             if rid == getattr(self, "_root", ""):
                 self.error_shown = True  # a child's failed step may be recovered: not the run's reason
+                self.root_error = str(act.get("error") or "")
             out.append({"type": "error", "error": str(act.get("error") or f"{act.get('name') or kind} failed"), "run_id": rid})
         return out
 
@@ -17216,8 +17222,9 @@ class GatewayWorker(QThread):
         view = fold.view or {}
         status = str(view.get("status") or "").strip().lower()
         summary: Dict[str, Any] = {}
-        if (status == "completed" and not projector.final_shown) or (status == "failed" and not projector.error_shown):
-            # The view has neither the run's output fields nor its error: the summary does.
+        if (status == "completed" and not projector.final_shown) or status == "failed":
+            # The view has neither the run's output fields nor, for a failed run, the run's
+            # OWN reason (its failed steps may include recovered ones): the summary does.
             try:
                 got = self._gateway.get_run(run_id=run_id)
                 summary = got if isinstance(got, dict) else {}
@@ -17230,6 +17237,13 @@ class GatewayWorker(QThread):
         if status == "failed" and not projector.error_shown:
             reason = str(summary.get("error") or "").strip()
             self.event_emitted.emit({"type": "error", "error": reason or "The run failed.", "run_id": run_id})
+        if status == "failed":
+            # The reason the RUN failed (what the palette explains): the run summary's error,
+            # else the root run's newest failed step. Never a child's step, which may have been
+            # recovered before the run failed for another reason.
+            run_reason = str(summary.get("error") or "").strip() or str(projector.root_error or "").strip()
+            if run_reason:
+                self.event_emitted.emit({"type": "run_error", "error": run_reason, "run_id": run_id})
         if status in {"completed", "failed", "cancelled"}:
             return status
         if self.isInterruptionRequested():

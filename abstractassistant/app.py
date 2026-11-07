@@ -5747,8 +5747,8 @@ class AssistantPalette(QMainWindow):
     # How the run the palette is following ENDED, per the run itself.
     # `_cancel_requested` only knows about a stop this process issued.
     _last_run_status = ""
-    # The newest failure reason the run reported (a failed step's `error` in the
-    # replay view, or the run summary's): what "the run failed" is explained with.
+    # Why the run the palette follows failed (the worker's `run_error`): what the
+    # failed-run line explains.
     _last_run_error = ""
     # Set when the voice manager surfaced a concrete failure for the current
     # speak attempt, so the generic "couldn't start" banner never overwrites a
@@ -9989,12 +9989,11 @@ class AssistantPalette(QMainWindow):
             self._on_live_reset()
             return
         self._feed_activity(payload)
-        if typ == "error":
-            # The newest wins: the worker reports the run's own reason last
-            # (a failed root step, or the run summary when the view had none).
-            reason = str(payload.get("error") or "").strip()
-            if reason:
-                self._last_run_error = reason
+        if typ == "run_error":
+            # Why THIS run failed, as the worker read it at the end (the run summary's
+            # error, else the root run's newest failed step): what the failed-run line
+            # explains. A step's `error` event is not it: that step may have recovered.
+            self._last_run_error = str(payload.get("error") or "").strip()
             return
         if typ == "run_start_failed":
             # The gateway refused to start the run (workspace grant out of
