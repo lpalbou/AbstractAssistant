@@ -5,46 +5,77 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-11-07
+
+The desktop voice control moves into the composer: the animated orb beside the message box starts
+and ends a voice conversation and shows what the assistant is doing. Read aloud recovers on its own
+after a failed check and reads folder paths and the signs ≥, ≤ and ≠ as words. On Apple Watch, Home is now the
+conversation screen and Notes can be captured from it; Watch and iPhone can keep their sign-in when
+you disconnect. The web Assistant has its own release, 0.1.1 ([web/CHANGELOG.md](web/CHANGELOG.md)).
+The Watch and iPhone changes reach you with their next TestFlight build.
+The desktop palette file now matches ui-kit 0.9.15; its colours did not change, so the app looks the same.
+It needs AbstractVoice 0.20.1 or later (installed with it), whose adaptive microphone levels let a quiet microphone move the orb too.
+
+### Added
+
+- **Notes on Apple Watch.** Watch Home offers Notes beside Sessions and Automations: write or
+  dictate a thought and save it to your AbstractNote notebook. A draft stays until it is saved or
+  you discard it, and saving the same note again never creates a second copy.
+
 ### Changed
 
-- Watch Home is the conversation screen: tapping its animated orb starts listening
-  in place. The area below switches between the current conversation and Sessions /
-  Automations without losing the current turn. Loaded sessions and automations reuse
-  this same screen; New conversation explicitly starts a fresh draft.
-- Desktop voice turns in the default listening mode require at least 1 second
-  of silence (1.02 seconds at 30 ms frame resolution), down from 1.5 seconds,
-  before transcription starts.
-- A rejected cloned or selected voice no longer triggers automatic generation
-  with the default voice or a whole-reply artifact retry. Play explicitly retries
-  using the same voice selection; server-side voice checks remain unchanged.
-- Speech playback no longer announces the output device and volume in a banner;
-  muted or very quiet output still gets an actionable warning. Speech notices
-  use concise language, with detailed diagnostics in logs.
-- The desktop assistant places its animated avatar beside the composer as the voice control, reclaiming conversation space. Typing stays available, Send
-  appears for drafts and attachments, and Stop stays visible during a run.
-  Transparent gaps separate the floating panels; Send has a neutral finish,
-  and the orb shows a focus outline only during keyboard navigation.
-- The orb is vertically centered with Listening, Speaking, or Thinking above it;
-  idle has no label. Voice status no longer adds a duplicate strip or Stop control.
-  Wire avatars have a continuous hit surface for macOS clicks. Speech playback
-  supplies frequency bands to the avatar, and microphone levels decay when stale.
-- Compact windows wrap header controls into a second row, and longer drafts grow
-  the composer. Voice preserves unfinished drafts; Escape ends voice before
-  hiding the window. Speech preparation and paused playback are labeled accurately.
+- **The orb is the desktop voice control.** The animated avatar sits beside the composer instead of
+  above the conversation, which gives the conversation more room. Click it to start or end a voice
+  conversation (or press ⌘⇧V); click it while a reply is being read to stop reading. Right-click it
+  for its switches, each ticked while it is on: **Voice conversation (⌘⇧V)**, **Microphone** (during
+  a conversation: ticked while it listens, untick it to pause listening; greyed out while the
+  assistant works or speaks, when the microphone is closed anyway), **Dictate into the message
+  box** and **Read new replies aloud**. The composer's separate microphone button and the voice
+  status strip are gone. With the avatar turned off, the same control shows a simple sound icon.
+- **The orb says what is happening.** "Listening", "Speaking" or "Thinking" appears above it; it
+  shows nothing when idle. It moves with the reply's sound and with your microphone level, and it
+  shows a focus outline only when you reach it with the keyboard. New installs start with the
+  Watch Hover design.
+- **The composer.** Send appears when there is a draft or an attachment, and Stop stays visible
+  while a run is going. Longer drafts make the message box taller, and small windows put the header
+  controls on a second row. A voice conversation keeps your unfinished draft: what you say while
+  it is open is added to it and not sent on its own, and a notice says so. Esc ends voice before
+  it hides the window.
+- **What you say is transcribed sooner.** With the default Voice setting (pause the microphone
+  while the assistant speaks), 1.02 seconds of silence (it was 1.5) ends what you said and starts
+  the transcription, in a voice conversation and while dictating. With **Keep the mic open** it
+  stays at 0.9 seconds, and dictation after such a conversation uses 0.9 seconds too.
+- **A voice that the gateway rejects is not replaced.** When a cloned or selected voice fails the
+  gateway's check, the reply is not read with the default voice instead; press Play to try the same
+  voice again. Other failures (the audio output, an empty first chunk, the network) keep their own
+  message and still fall back to preparing the whole reply with the same voice.
+- **Fewer speech notices.** Speaking no longer shows a notice naming the output device and volume;
+  you still get a warning when the output is muted or very quiet. Notices are shorter, with the
+  details in the logs.
+- **Apple Watch Home is the conversation screen.** Tap the orb to start talking right there. The
+  area below switches between the current conversation and Sessions / Automations without losing
+  the current turn; sessions and automations open on the same screen, and **Discuss something
+  else** goes back to the list so the orb starts a fresh conversation.
+- **Keep your sign-in when you disconnect (Watch and iPhone).** On iPhone, Disconnect now asks, as
+  the watch already did, whether to keep the sign-in on the device to reconnect later or to sign
+  out and forget it. On both, keeping it works even when the gateway cannot be reached.
 
 ### Fixed
 
-- Orb hover leaves its border and background unchanged. All desktop tooltip
-  paths wait at least 200 ms, including links, detail cards and movement between
-  items; Escape cancels a pending tooltip.
-
-- Read-aloud refreshes a failed speech-support check in the background and continues
-  the original Play request. Stop cancels playback while discovery is pending.
-  Voice discovery uses a separate, narrow Gateway contract so unrelated media
-  probes do not delay speech; older Gateways remain compatible.
-- Read-aloud pronounces filesystem path separators and comparison symbols as
-  words. This prevents the reproduced Qwen cloned-voice repetition on a folder
-  listing reply without weakening the voice-identity check or altering the transcript.
+- **Read aloud recovers by itself.** If the check for speech support failed (for example while the
+  gateway was starting), pressing Play checks again in the background and then reads the reply,
+  without a second click. Stop cancels it while the check is still running. The check asks the
+  gateway only about voice, so slower media checks no longer delay speech; it needs no gateway
+  upgrade (gateways before 0.20.2 answer with their full list, which works as before).
+- **Folder paths and three signs are read as words.** A path is read with "slash" between its
+  parts ("~" as "home", "." and ".." as "current directory" and "parent directory"), and ≥, ≤ and ≠
+  as "greater than or equal to", "less than or equal to" and "not equal to". This stops a cloned
+  voice from repeating itself on a reply that lists folders. The words are English whatever the
+  reply's language; the ASCII forms (>=, <=, !=) are left as they are. The text on screen is
+  unchanged.
+- **Tooltips wait before they appear.** Every desktop tooltip (links, detail cards, moving between
+  items) waits at least 200 ms, and Esc cancels one that is about to appear. Hovering the orb no
+  longer changes its border or background.
 
 ## [0.18.0] - 2026-11-04
 

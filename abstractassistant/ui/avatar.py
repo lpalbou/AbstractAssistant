@@ -309,16 +309,16 @@ class AvatarVoiceButton(QPushButton):
         self.fallback.setVisible(not use_avatar)
         if not use_avatar:
             self.fallback.setPixmap(symbol_icon("audio-lines", color=THEME.text_primary, size=24).pixmap(24, 24))
-        active = self.isChecked()
         state = self.avatar._state_provider().state.capitalize()
         label = {"Listening": "Listening", "Speaking": "Speaking", "Thinking": "Thinking", "Working": "Thinking"}.get(state, "")
         self.caption.setText(label)
         self.caption.setFixedWidth(min(84, self.caption.sizeHint().width() + 8))
         self.caption.move((self.width() - self.caption.width()) // 2, 0)
         self.caption.setVisible(bool(label))
-        action = "End voice conversation" if active else ("Stop speaking" if state == "Speaking" else "Start voice conversation")
-        self.setAccessibleName(action)
-        self.setAccessibleDescription(f"Assistant: {state}. {self.toolTip()} {self.avatar.error}")
+        # One name; the checked state (a voice conversation or dictation is on) and the
+        # description say the rest (operator rule: toggles show state, never swap verbs).
+        self.setAccessibleName("Voice")
+        self.setAccessibleDescription(f"Assistant: {state}. {self.toolTip()} {self.avatar.error}".strip())
 
     def paintEvent(self, event) -> None:  # noqa: N802
         super().paintEvent(event)

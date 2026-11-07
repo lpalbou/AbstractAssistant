@@ -17,9 +17,10 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 - A menu-bar palette whose title tells you what the app is doing, with a session switcher fed by
   the gateway (your sessions from every device, optionally every client's) and a live gateway
   connection orb.
-- A local [AbstractAvatar](https://github.com/lpalbou/AbstractAvatar) portrait in the palette (it ships with every install),
-  with design and motion controls in [Appearance](docs/settings.md#appearance--window). It follows
-  listening, speech, tools, waits and errors; it stays off until you enable it.
+- A local [AbstractAvatar](https://github.com/lpalbou/AbstractAvatar) portrait as the voice control
+  beside the composer (it ships with every install), with design and motion controls in
+  [Appearance](docs/settings.md#appearance--window). It follows listening, speech, tools, waits and
+  errors; until you enable it, the control shows a simple sound icon.
 - Automations: schedule a conversation to run on the gateway at a fixed UTC interval or when an
   email arrives (with the result emailed to you if you want), read its runs
   as a chat, switch it off or on (**Active**), run it now, edit or archive it, answer the runs that wait for you, discuss a
@@ -38,9 +39,9 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   the finished answer replaces the live text.
 - Tool approvals in a modeless sheet that shows the gateway's risk tier for each call and never
   blocks the palette; "always allow on this Mac" and per-chat trust for low-risk tools.
-- Hold the microphone button to talk: release sends the words. A voice conversation mode (⌘⇧V,
-  or the microphone's right-click menu): listen, send, speak, listen again — with a live status
-  strip. Spoken replies stream from the gateway.
+- Voice from the orb beside the composer: click it (or press ⌘⇧V) for a voice conversation —
+  listen, send, speak, listen again — with Listening, Thinking or Speaking shown above it; right-click
+  it to dictate into the message box. Spoken replies stream from the gateway.
 - A Settings window with seven sections: Connection, Models & reasoning (workflow, reasoning
   effort, reply streaming), Voice, Workspace (my default workspaces, this chat), Tools & permissions,
   Appearance & window, About. Every value says whether it is the gateway default or this app's
@@ -64,6 +65,13 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   ([watch/apple/README.md](watch/apple/README.md)).
 
 ## What's new
+
+0.18.1 moves the voice control into the composer: the animated orb beside the message box starts
+and ends a voice conversation and shows whether the assistant is listening, thinking or speaking.
+Read aloud recovers by itself after a failed check and reads folder paths and the signs ≥, ≤ and ≠ as words. On
+Apple Watch, Home is the conversation screen and captures Notes, and Watch and iPhone can keep their
+sign-in when you disconnect (next TestFlight build). See the
+[0.18.1 release notes](CHANGELOG.md#0181---2026-11-07).
 
 0.18.0 ships the activity avatar with every install, folds paused automations under "Paused · N" and archived ones under "Archived · N" in
 the switcher, and the activity avatar looks toward the pointer only when its design has eyes. The

@@ -23,7 +23,7 @@ flowchart LR
   end
   subgraph Desktop["AbstractAssistant (this Mac)"]
     Entry["Launch (cli.py · macos_entry.py)\n--gateway-url · --gateway-token\n--gateway-handover-file"]
-    Palette["Palette (app.py)\nheader status · transcript · composer\nactivity card · live reply bubbles · voice strip"]
+    Palette["Palette (app.py)\nheader status · transcript · composer\nactivity card · live reply bubbles · voice orb"]
     Settings["Settings (ui/settings)\n7 pages · route editor · About"]
     Sheets["Approval sheet · Ask dialog\n(ui/approval, ui/dialogs)"]
     Activity["RunActivityModel (ui/activity)"]
@@ -327,9 +327,10 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
 - `ui/settings/` — the settings window (sidebar, pages, extracted route editor). The About page
   builds its application rows and its gateway version rows with AbstractCore's framework identity
   helpers (`abstractcore.utils.identity`), so they match every other AbstractFramework About screen.
-- `core/voice_conversation.py`, `ui/voice_strip.py`, `core/gateway_voice_manager.py` — the
-  hands-free loop, its status strip, and the local capture/playback layer over gateway speech
-  routes.
+- `core/voice_conversation.py`, `ui/avatar.py`, `core/gateway_voice_manager.py` — the
+  hands-free loop, the orb beside the composer that controls it and shows its state
+  (`AvatarVoiceButton`), and the local capture/playback layer over gateway speech routes.
+  The former status strip, `ui/voice_strip.py`, stays in the code but is no longer shown.
 - `gateway/automations.py`, `core/automations.py`, `ui/automations.py` — the Automations API
   client, its Qt-free presentation rules (labels, enabled controls, chat pairs, the create body,
   notifications), and the switcher rows, automation view, Schedule window and polling hub.

@@ -130,9 +130,10 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 - A menu-bar palette whose title tells you what the app is doing, with a session switcher fed by
   the gateway (your sessions from every device, optionally every client's) and a live gateway
   connection orb.
-- A local [AbstractAvatar](https://github.com/lpalbou/AbstractAvatar) portrait in the palette (it ships with every install),
-  with design and motion controls in [Appearance](docs/settings.md#appearance--window). It follows
-  listening, speech, tools, waits and errors; it stays off until you enable it.
+- A local [AbstractAvatar](https://github.com/lpalbou/AbstractAvatar) portrait as the voice control
+  beside the composer (it ships with every install), with design and motion controls in
+  [Appearance](docs/settings.md#appearance--window). It follows listening, speech, tools, waits and
+  errors; until you enable it, the control shows a simple sound icon.
 - Automations: schedule a conversation to run on the gateway at a fixed UTC interval or when an
   email arrives (with the result emailed to you if you want), read its runs
   as a chat, switch it off or on (**Active**), run it now, edit or archive it, answer the runs that wait for you, discuss a
@@ -151,9 +152,9 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   the finished answer replaces the live text.
 - Tool approvals in a modeless sheet that shows the gateway's risk tier for each call and never
   blocks the palette; "always allow on this Mac" and per-chat trust for low-risk tools.
-- Hold the microphone button to talk: release sends the words. A voice conversation mode (⌘⇧V,
-  or the microphone's right-click menu): listen, send, speak, listen again — with a live status
-  strip. Spoken replies stream from the gateway.
+- Voice from the orb beside the composer: click it (or press ⌘⇧V) for a voice conversation —
+  listen, send, speak, listen again — with Listening, Thinking or Speaking shown above it; right-click
+  it to dictate into the message box. Spoken replies stream from the gateway.
 - A Settings window with seven sections: Connection, Models & reasoning (workflow, reasoning
   effort, reply streaming), Voice, Workspace (my default workspaces, this chat), Tools & permissions,
   Appearance & window, About. Every value says whether it is the gateway default or this app's
@@ -177,6 +178,13 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   ([watch/apple/README.md](watch/apple/README.md)).
 
 ## What's new
+
+0.18.1 moves the voice control into the composer: the animated orb beside the message box starts
+and ends a voice conversation and shows whether the assistant is listening, thinking or speaking.
+Read aloud recovers by itself after a failed check and reads folder paths and the signs ≥, ≤ and ≠ as words. On
+Apple Watch, Home is the conversation screen and captures Notes, and Watch and iPhone can keep their
+sign-in when you disconnect (next TestFlight build). See the
+[0.18.1 release notes](CHANGELOG.md#0181---2026-11-07).
 
 0.18.0 ships the activity avatar with every install, folds paused automations under "Paused · N" and archived ones under "Archived · N" in
 the switcher, and the activity avatar looks toward the pointer only when its design has eyes. The
@@ -562,10 +570,11 @@ Summon it from the menu-bar icon or with the global shortcut (default `cmd+shift
   line (tokens, tools, files, duration, model); the tools and files segments open detail views.
   While a run works, an activity card at the bottom shows the current step, the elapsed time and
   the latest steps; it can pause, resume or stop the run and open the full run log.
-- **Composer**: attach files (button or drag and drop), hold the microphone to talk (release
-  sends), start a voice conversation (⌘⇧V or the microphone's right-click menu), type, and send
-  with Return (Shift+Return adds a line). During a run the
-  send button becomes Stop (⌘.) and typed text steers the run.
+- **Composer**: attach files (button or drag and drop), type, and send with Return (Shift+Return
+  adds a line); Send appears once there is a draft or an attachment. During a run the send button
+  becomes Stop (⌘.) and typed text steers the run. Beside the composer, the orb is the voice
+  control: click it (or press ⌘⇧V) for a voice conversation, right-click it to dictate into the
+  message box or for its other voice switches (see [voice.md](voice.md)).
 
 ## 5. Approvals and questions
 
@@ -602,8 +611,9 @@ The full reference is [settings.md](settings.md).
 
 ## 7. Voice
 
-Click a reply's speaker button to hear it, use the microphone button to dictate, or press ⌘⇧V for
-a hands-free conversation. Details and failure handling are in [voice.md](voice.md).
+Click a reply's speaker button to hear it. The orb beside the composer is the voice control: click
+it (or press ⌘⇧V) for a hands-free conversation, or right-click it to dictate into the message box.
+Details and failure handling are in [voice.md](voice.md).
 
 ## 8. Files and workspace
 
@@ -842,8 +852,8 @@ Listed as **Appearance** in the sidebar.
 | Control | Meaning | Stored |
 |---|---|---|
 | Theme | The colour palettes shared with the other AbstractFramework apps; applies to every window of this app at once | this app `ui_theme` |
-| Activity avatar | Optional procedural portrait beneath the palette header. Off by default; shows listening, speech, thinking, tool activity, waiting and errors from the app's existing state. Ships with every install | this app `avatar_enabled` |
-| Design | A design from AbstractAvatar's shared catalog, stored by its stable key | this app `avatar_style` |
+| Activity avatar | Optional procedural portrait that becomes the voice control beside the composer. Off by default (the control then shows a sound icon); shows listening, speech, thinking, tool activity, waiting and errors from the app's existing state. Ships with every install | this app `avatar_enabled` |
+| Design | A design from AbstractAvatar's shared catalog, stored by its stable key (Watch Hover for a new install) | this app `avatar_style` |
 | Motion | Animate only while the palette is visible. Turn off for still state frames; hidden avatars release their renderer and run no animation clock | this app `avatar_animated` |
 | Text size / Line spacing / Paragraph gap / Bullet gap | How replies are set in the transcript: text size 10–22 px (default 13), line spacing 1.0–2.2 × (default 1.2), paragraph gap 0–28 px and bullet gap 0–16 px (default 3 each). Applies immediately | this app `text_size`, `line_spacing`, `paragraph_spacing`, `bullet_spacing` |
 | Summon / Key combination | Global hotkey (default `cmd+shift+space`), subject to macOS Accessibility permission. The **Summon the assistant from anywhere** switch applies at once; the key combination applies when you press Return or leave the field | this app `hotkey_enabled`, `hotkey_sequence` |
@@ -860,7 +870,8 @@ Migration note: preferences saved with the 0.5.0 defaults (width 500 px, gap 18 
 the `layout_version: 2` marker are moved to 650 px and 12 px once; any other saved width or gap,
 including a gap of 0, is kept.
 
-In-app shortcuts: Return sends, Shift+Return adds a line, Esc stops speech then hides, ⌘. stops
+In-app shortcuts: Return sends, Shift+Return adds a line, Esc ends a voice conversation or
+dictation or stops speech, then hides, ⌘. stops
 the run (does nothing when no run is active), ⌘N starts a new chat (refused while a run is
 active), ⌘, opens Settings, ⌘⇧V starts or ends a voice conversation. In the approval sheet:
 Return allows once, or activates the Deny / Decide later button when one of them has focus; ⌘D
@@ -898,9 +909,19 @@ file (they live in the gateway). Each session's cached `session.json` may also c
 # Voice
 
 Microphone capture and audio playback happen on your Mac; speech-to-text and text-to-speech run
-on the gateway. The assistant offers three voice features, all of which require the `voice` extra
-for microphone capture (`pip install "abstractassistant[voice]"`) and a gateway that advertises
-the matching voice routes.
+on the gateway. The assistant offers three voice features: reading replies aloud, dictation and a
+hands-free voice conversation. Dictation and conversations need the `voice` extra for microphone
+capture (`pip install "abstractassistant[voice]"`), and each feature needs a gateway that
+advertises the matching voice route.
+
+The voice control is the orb beside the composer: your activity avatar when it is turned on in
+Settings → Appearance, a simple sound icon otherwise. "Listening", "Thinking" or "Speaking" appears
+above it while that is happening; it shows nothing when idle. Click it to start or end a voice
+conversation; click it while a reply is being read to stop reading. Right-click it for the other
+choices, each ticked while it is on: **Voice conversation (⌘⇧V)**; **Microphone** (during a
+conversation: ticked while it listens; untick it to pause listening and tick it to listen again.
+While the assistant works or speaks, the microphone is closed and the item is greyed out with the
+reason); **Dictate into the message box**; and **Read new replies aloud**.
 
 Speech uses the gateway's default engines (its **Text To Speech** and **Speech To Text** routes,
 `output.voice` and `input.voice`) unless you choose another provider and model for this app under
@@ -914,10 +935,18 @@ for failures.
 ## Speak a reply
 
 Every assistant reply has a speaker button. Click it to hear the reply; click again to pause and
-resume. Switch on **Speak replies automatically** (header toggle or Voice settings) to have every
-final answer spoken. Replies stream from the gateway's streaming TTS lane, so long answers start
+resume. Switch on **Read new replies aloud** in the orb's right-click menu (**Speak replies
+automatically** in the header toggle or Voice settings: the same preference) to have every final
+answer spoken. Replies stream from the gateway's streaming TTS lane, so long answers start
 playing within about a second; when the stream is unavailable the assistant says that it is
 synthesizing the whole message first.
+
+If the gateway's speech support could not be checked (for example while the gateway was starting),
+pressing the speaker button checks again and then reads the reply, with no second click; Stop
+cancels it while the check runs. When the gateway rejects a cloned or selected voice, the reply is
+not read with another voice: press the speaker button to try the same voice again. Any other
+failure before the first sound (the audio output, the network) keeps its own message, and the
+whole reply is prepared again with the same voice.
 
 Pausing keeps queued speech until you resume or stop it. With the matching AbstractVoice
 player, five seconds without output progress triggers one attempt to reopen the output and
@@ -925,25 +954,22 @@ continue pending speech. Recovery leaves microphone capture running and shows a 
 the device still cannot play, a banner explains that part of the reply may be missing.
 Audio already submitted to disconnected hardware can be lost.
 
-Spoken text is prose: markdown, code, images and link targets are removed before synthesis. A
-reply with nothing left to read says so instead of playing nothing.
+Spoken text is prose: markdown, code, images and link targets are removed before synthesis, and
+folder paths are read with "slash" between their parts and the signs ≥, ≤ and ≠ as words (in
+English, whatever the reply's language). A reply with nothing left to read
+says so instead of playing nothing.
 
-## Hold to talk
+## Dictate
 
-The composer has one microphone button. Hold it while you speak and release it: the recording
-stops, the gateway transcribes it, and the words are sent as your next message — exactly what
-Return would do with them. Text already in the composer goes out with the spoken words. A short
-tap records nothing and reminds you to hold. The status line follows the gesture ("Listening —
-release to send", "Transcribing…").
-
-When the transcription fails, nothing is sent and the recording is kept: a line under the
-conversation says "Not sent. Your recording is kept", with the reason, and offers **Retry** (sends
-the same recording again) and **Discard**. Nothing is resent without your click, and the kept
-recording lives in memory until the app quits.
+Right-click the orb and choose **Dictate into the message box**. Speak; after about one second of
+silence the gateway transcribes what you said and adds it to the message box, where you can edit it
+and press Return to send. Click the orb again, press Esc or untick **Dictate into the message box** to
+stop listening.
 
 ## Voice conversation (hands-free)
 
-Start with ⌘⇧V, the microphone button's right-click menu, or the tray menu. The loop:
+Start with a click on the orb, ⌘⇧V, **Voice conversation** in the orb's right-click menu, or the
+tray menu. The loop:
 
 ```mermaid
 stateDiagram-v2
@@ -955,31 +981,34 @@ stateDiagram-v2
     thinking --> speaking: final reply
     thinking --> listening: no spoken reply / run stopped / run failed
     speaking --> listening: playback finished, failed, or interrupted
-    listening --> paused: pause button
-    paused --> listening: resume
-    listening --> [*]: end (⌘⇧V, ✕, or the header speaker toggle)
+    listening --> paused: Microphone unticked
+    paused --> listening: Microphone ticked
+    listening --> [*]: end (orb, ⌘⇧V, Esc, or the header speaker toggle)
 ```
 
-What you see: a strip above the composer with a glyph, a live level meter, the state text
-("Listening…", "Heard: …", "Thinking… (mic paused)", "Speaking…"), pause/resume, stop-speaking
-and interrupt buttons, and an end button. The header title mirrors the state.
+What you see: the orb shows "Listening", "Thinking" or "Speaking" above it and moves with your
+microphone level and with the reply's sound. To pause listening, untick **Microphone** in its right-click menu; the
+composer's Stop button stops a run. The header title mirrors the state. An unfinished draft in the
+message box is kept: the conversation does not send it or replace it. What you say while a draft
+is open is added to it, and the conversation stops sending on its own until it ends; a notice says
+so, and Return sends the draft.
 
 Behavior details:
 
-- **Auto-send** (default on): each utterance becomes a turn after a short pause; closely spaced
-  utterances are merged. With auto-send off, words land in the message box and Return sends them.
+- **Auto-send** (default on): each utterance becomes a turn after about one second of silence;
+  closely spaced utterances are merged. With auto-send off, words land in the message box and Return sends them.
 - **While the assistant works**, speech is not transcribed (the microphone is paused) so side
   conversation never steers the run. Speech that arrives between the reply and the next listen is
   kept for the next turn.
 - **Spoken-style replies** (default on): each request carries an instruction to answer briefly, in
   natural spoken language, without markdown. The workflow's own system prompt is kept in front of
   it.
-- **Stopping a reply** (Esc, the strip's stop button, or a spoken "stop" in barge-in mode)
-  returns the loop to listening. Words heard while the previous run is still closing wait for
-  the next listening window; they are never injected into the closing run.
+- **Stopping a reply**: a spoken "stop" in barge-in mode returns the loop to listening. Esc or a
+  click on the orb ends the whole conversation. Words heard while the previous run is still
+  closing wait for the next listening window; they are never injected into the closing run.
 - **Barge-in** depends on the Voice setting. "Pause the mic while the assistant speaks" (default,
   for speakers) never transcribes the assistant's own voice, so the reply cannot be interrupted by
-  speaking; use Esc, the stop button, or the strip. "Keep the mic open" (for headphones) lets a
+  speaking; use Esc or the orb to end the conversation. "Keep the mic open" (for headphones) lets a
   spoken "stop" interrupt the reply.
 - **Questions and approvals** pause the microphone while their window is open and resume it after
   your decision.
@@ -987,7 +1016,7 @@ Behavior details:
 - Auto-speak is on for the duration of the conversation and returns to your saved preference when
   it ends.
 
-Failures name their cause in the strip and in a banner: a microphone that cannot start (macOS:
+Failures name their cause in a banner: a microphone that cannot start (macOS:
 System Settings → Privacy & Security → Microphone), gateway speech input that is unavailable, a
 reply that could not be spoken (the loop resumes listening), or a run that failed.
 
@@ -997,8 +1026,7 @@ Playback follows the Mac's current default output device, resolved each time a r
 so switching to headphones or another speaker in macOS takes effect on the next reply. You can
 instead pin a device under Settings → Voice → Output device (see [settings.md](settings.md)).
 When a pinned device is not connected, replies play on the system default and a notice says so.
-When speech starts, a notice names the device and warns when the system output is muted or very
-low. If the output device stops accepting audio mid-reply, playback is stopped and reported, and
+When the system output is muted or very low as speech starts, a notice says so. If the output device stops accepting audio mid-reply, playback is stopped and reported, and
 the next reply reopens the device. While the microphone is live, the device list is not
 refreshed, so a device change cannot interrupt capture.
 
@@ -1761,7 +1789,7 @@ flowchart LR
   end
   subgraph Desktop["AbstractAssistant (this Mac)"]
     Entry["Launch (cli.py · macos_entry.py)\n--gateway-url · --gateway-token\n--gateway-handover-file"]
-    Palette["Palette (app.py)\nheader status · transcript · composer\nactivity card · live reply bubbles · voice strip"]
+    Palette["Palette (app.py)\nheader status · transcript · composer\nactivity card · live reply bubbles · voice orb"]
     Settings["Settings (ui/settings)\n7 pages · route editor · About"]
     Sheets["Approval sheet · Ask dialog\n(ui/approval, ui/dialogs)"]
     Activity["RunActivityModel (ui/activity)"]
@@ -2065,9 +2093,10 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
 - `ui/settings/` — the settings window (sidebar, pages, extracted route editor). The About page
   builds its application rows and its gateway version rows with AbstractCore's framework identity
   helpers (`abstractcore.utils.identity`), so they match every other AbstractFramework About screen.
-- `core/voice_conversation.py`, `ui/voice_strip.py`, `core/gateway_voice_manager.py` — the
-  hands-free loop, its status strip, and the local capture/playback layer over gateway speech
-  routes.
+- `core/voice_conversation.py`, `ui/avatar.py`, `core/gateway_voice_manager.py` — the
+  hands-free loop, the orb beside the composer that controls it and shows its state
+  (`AvatarVoiceButton`), and the local capture/playback layer over gateway speech routes.
+  The former status strip, `ui/voice_strip.py`, stays in the code but is no longer shown.
 - `gateway/automations.py`, `core/automations.py`, `ui/automations.py` — the Automations API
   client, its Qt-free presentation rules (labels, enabled controls, chat pairs, the create body,
   notifications), and the switcher rows, automation view, Schedule window and polling hub.
@@ -2580,12 +2609,13 @@ while the gateway is unreachable, the stream resumes where it stopped once it is
 The gateway has turned that tool off (the reason it serves follows the colon); the assistant cannot
 enable it. Ask the gateway operator.
 
-## The microphone button is disabled
+## Voice conversation or dictation is unavailable
 
 The gateway is not advertising a speech-input route, or local capture is unavailable. Install the
 `voice` extra (`pip install "abstractassistant[voice]"`) and allow microphone access in macOS:
-System Settings → Privacy & Security → Microphone → your Python or the app bundle. The button's
-tooltip names the missing side.
+System Settings → Privacy & Security → Microphone → your Python or the app bundle. A click on the
+orb shows a banner naming the missing side, and the unavailable choices in its right-click menu
+are greyed out.
 
 ## The voice conversation stops with "Microphone unavailable"
 
@@ -2596,9 +2626,9 @@ exclusively. Start the conversation again with ⌘⇧V.
 ## Replies are spoken but I hear nothing
 
 Playback uses the device chosen in Settings → Voice → Output device, or the Mac's default output
-when that is `System default` or the chosen device is not connected. The notice shown when speech
-starts names the device and the system volume; a headset or a muted or very low output is the
-usual cause. Use **Test** next to Output device to check the device.
+when that is `System default` or the chosen device is not connected. A notice appears when speech
+starts on a muted or very low output; a headset or a muted or very low output is the usual
+cause. Use **Test** next to Output device to check the device.
 
 ## A spoken reply fails with a banner
 
@@ -3285,6 +3315,78 @@ All notable changes to AbstractAssistant are documented in this file. Entries de
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
 ## [Unreleased]
+
+## [0.18.1] - 2026-11-07
+
+The desktop voice control moves into the composer: the animated orb beside the message box starts
+and ends a voice conversation and shows what the assistant is doing. Read aloud recovers on its own
+after a failed check and reads folder paths and the signs ≥, ≤ and ≠ as words. On Apple Watch, Home is now the
+conversation screen and Notes can be captured from it; Watch and iPhone can keep their sign-in when
+you disconnect. The web Assistant has its own release, 0.1.1 ([web/CHANGELOG.md](web/CHANGELOG.md)).
+The Watch and iPhone changes reach you with their next TestFlight build.
+The desktop palette file now matches ui-kit 0.9.15; its colours did not change, so the app looks the same.
+It needs AbstractVoice 0.20.1 or later (installed with it), whose adaptive microphone levels let a quiet microphone move the orb too.
+
+### Added
+
+- **Notes on Apple Watch.** Watch Home offers Notes beside Sessions and Automations: write or
+  dictate a thought and save it to your AbstractNote notebook. A draft stays until it is saved or
+  you discard it, and saving the same note again never creates a second copy.
+
+### Changed
+
+- **The orb is the desktop voice control.** The animated avatar sits beside the composer instead of
+  above the conversation, which gives the conversation more room. Click it to start or end a voice
+  conversation (or press ⌘⇧V); click it while a reply is being read to stop reading. Right-click it
+  for its switches, each ticked while it is on: **Voice conversation (⌘⇧V)**, **Microphone** (during
+  a conversation: ticked while it listens, untick it to pause listening; greyed out while the
+  assistant works or speaks, when the microphone is closed anyway), **Dictate into the message
+  box** and **Read new replies aloud**. The composer's separate microphone button and the voice
+  status strip are gone. With the avatar turned off, the same control shows a simple sound icon.
+- **The orb says what is happening.** "Listening", "Speaking" or "Thinking" appears above it; it
+  shows nothing when idle. It moves with the reply's sound and with your microphone level, and it
+  shows a focus outline only when you reach it with the keyboard. New installs start with the
+  Watch Hover design.
+- **The composer.** Send appears when there is a draft or an attachment, and Stop stays visible
+  while a run is going. Longer drafts make the message box taller, and small windows put the header
+  controls on a second row. A voice conversation keeps your unfinished draft: what you say while
+  it is open is added to it and not sent on its own, and a notice says so. Esc ends voice before
+  it hides the window.
+- **What you say is transcribed sooner.** With the default Voice setting (pause the microphone
+  while the assistant speaks), 1.02 seconds of silence (it was 1.5) ends what you said and starts
+  the transcription, in a voice conversation and while dictating. With **Keep the mic open** it
+  stays at 0.9 seconds, and dictation after such a conversation uses 0.9 seconds too.
+- **A voice that the gateway rejects is not replaced.** When a cloned or selected voice fails the
+  gateway's check, the reply is not read with the default voice instead; press Play to try the same
+  voice again. Other failures (the audio output, an empty first chunk, the network) keep their own
+  message and still fall back to preparing the whole reply with the same voice.
+- **Fewer speech notices.** Speaking no longer shows a notice naming the output device and volume;
+  you still get a warning when the output is muted or very quiet. Notices are shorter, with the
+  details in the logs.
+- **Apple Watch Home is the conversation screen.** Tap the orb to start talking right there. The
+  area below switches between the current conversation and Sessions / Automations without losing
+  the current turn; sessions and automations open on the same screen, and **Discuss something
+  else** goes back to the list so the orb starts a fresh conversation.
+- **Keep your sign-in when you disconnect (Watch and iPhone).** On iPhone, Disconnect now asks, as
+  the watch already did, whether to keep the sign-in on the device to reconnect later or to sign
+  out and forget it. On both, keeping it works even when the gateway cannot be reached.
+
+### Fixed
+
+- **Read aloud recovers by itself.** If the check for speech support failed (for example while the
+  gateway was starting), pressing Play checks again in the background and then reads the reply,
+  without a second click. Stop cancels it while the check is still running. The check asks the
+  gateway only about voice, so slower media checks no longer delay speech; it needs no gateway
+  upgrade (gateways before 0.20.2 answer with their full list, which works as before).
+- **Folder paths and three signs are read as words.** A path is read with "slash" between its
+  parts ("~" as "home", "." and ".." as "current directory" and "parent directory"), and ≥, ≤ and ≠
+  as "greater than or equal to", "less than or equal to" and "not equal to". This stops a cloned
+  voice from repeating itself on a reply that lists folders. The words are English whatever the
+  reply's language; the ASCII forms (>=, <=, !=) are left as they are. The text on screen is
+  unchanged.
+- **Tooltips wait before they appear.** Every desktop tooltip (links, detail cards, moving between
+  items) waits at least 200 ms, and Esc cancels one that is about to appear. Hovering the orb no
+  longer changes its border or background.
 
 ## [0.18.0] - 2026-11-04
 
@@ -5165,6 +5267,14 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 - An entity's look is read only from its identity record. With a gateway older than 0.20, or while
   an entity is closed for maintenance, the watch draws no orb for it (an empty grey ring) and shows the
   gateway's sentence under the orb.
+- **Disconnect asks whether to keep your sign-in.** **Disconnect this iPhone** now offers "Keep my
+  sign-in", to reconnect later without signing in again, or "Sign out and forget"; your gateway
+  conversations and automations are kept either way. Keeping it works even when the gateway cannot
+  be reached.
+- **On the watch:** Home is the conversation screen (tap the orb to talk there; Sessions and
+  Automations open on the same screen, and **Discuss something else** starts fresh), Notes can be
+  captured to your AbstractNote notebook, and disconnecting offline keeps the sign-in. See the
+  [watch release history](../../watch/apple/CHANGELOG.md).
 
 ## [0.17.0] — 2026-11-03
 
@@ -6823,11 +6933,27 @@ iPhone app); the Python package's history is in
 - **An entity speaks with its own voice.** When the gateway refuses to speak for an entity (for
   example because it has no voice yet), the watch shows the gateway's sentence instead of "Voice
   unavailable"; no other voice is used.
+- **Notes from your wrist.** Home offers Notes beside Sessions and Automations: write or dictate a
+  thought and save it to your AbstractNote notebook (the gateway needs AbstractNote set up). A
+  draft stays until it is saved or you discard it, saving the same note again never makes a second
+  copy, and a save that waits for an approval can be checked again.
 
 ### Changed
 
 - An entity's look is read only from its identity record: with a gateway older than 0.20, or while
   an entity is closed for maintenance, it has no orb (an empty grey ring) and the gateway's sentence shows.
+- **Home is the conversation screen.** Tap the orb on Home to start talking right there; the answer
+  appears on the same screen. The area below the orb switches between the current conversation and
+  Sessions / Automations without losing the current turn, and a session or automation you open
+  continues on this same screen.
+- **Discuss something else** goes back to the Home list, and the orb then starts a fresh
+  conversation.
+
+### Fixed
+
+- **Disconnecting while the gateway cannot be reached keeps your sign-in** when you choose
+  "Keep my sign-in", so you can reconnect later without signing in again. A kept sign-in without a
+  user name shows as "Use saved sign-in".
 
 ## [0.17.0] - 2026-11-03
 
@@ -7983,7 +8109,7 @@ another conversation or starting a new one stops the previous audio.
 
 Settings includes the complete 44-design AbstractAvatar catalog: 34 Watch picker
 designs, three additional Watch shape variants, the iPhone woven orb and six shaded
-avatars. Watch Halo is the default for a new browser; existing selections are preserved.
+avatars. Watch Hover is the default for a new browser; existing selections are preserved.
 The shared generator and AbstractUIC presenter provide previews of Ready,
 Listening, Thinking, Working, Speaking, Waiting and Error, and an animation switch.
 Reduced motion and hidden-page animation are handled by the shared renderer.
@@ -8204,6 +8330,34 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-07
+
+Voice in the browser is easier to trust: the avatar says it is speaking only while you can hear
+it, and the Avatar conversation view has one set of voice controls. Built on AbstractUIC ui-kit
+0.9.15 and panel-chat 0.8.2.
+
+### Changed
+
+- **One set of voice controls in the Avatar conversation view.** Talk with the composer's
+  microphone, and play the latest line or a message with its own speaker button. The view no
+  longer adds a second Talk button or its own Read new replies aloud, Pause voice and Silence
+  voice buttons. Finished answers no longer carry an accent border.
+- **New browsers start with the Watch Hover avatar** (it was Watch Halo). A design you already
+  chose is kept.
+
+### Fixed
+
+- **The avatar shows Speaking only while you can hear it.** While speech is still being prepared,
+  between streamed parts, or while the output is muted, the avatar does not claim to speak.
+- **When the browser holds playback back**, read aloud no longer stays on "loading": the page says
+  "Audio playback is paused by the browser. Press Play to try again.", and Play continues the same
+  audio from where it stopped instead of preparing it again. The notice goes away once audio
+  plays, when the browser resumes by itself, or when you press Stop.
+- **Clicking a reply's speaker button again while its speech is being prepared** no longer starts
+  a second synthesis of the same reply.
+- **The open conversation stands out in the list**: its card is tinted and outlined in the accent
+  colour, with a bolder title.
+
 ## [0.1.0] - 2026-11-03
 
 First public release on npm. AbstractGateway lists it as **Assistant (web)** and installs it from
@@ -8266,7 +8420,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.18.0"
+version = "0.18.1"
 description = "A gateway-native macOS menu-bar assistant for AbstractFramework: a compact palette, hands-free voice conversations, automations and a small CLI over AbstractGateway"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -8298,12 +8452,14 @@ dependencies = [
     # 0.15.0: `abstractruntime.replay.apply_delta` keeps the client copy of the gateway's
     # replay view (one reducer, the runtime's; backlog 1063).
     "abstractruntime>=0.15.0",
-    # 0.19.5: the player's playback_status / recover_stream / try_stop_stream, used by the
-    # stalled-speech recovery and the non-blocking Stop (0.19.3: the start of every playback
-    # is reported; backlog 1068).
+    # 0.20.1: adaptive microphone levels (the recognizer normalizes above the room's noise
+    # floor), so a quiet microphone still moves the orb. 0.19.5: the player's
+    # playback_status / recover_stream / try_stop_stream, used by the stalled-speech
+    # recovery and the non-blocking Stop (0.19.3: the start of every playback is reported;
+    # backlog 1068).
     # (0.11.4 was the first whose voice extras install `webrtcvad-wheels`; the macOS bundle's
     # PyInstaller hook, packaging/macos/hooks/hook-webrtcvad.py, copies its metadata.)
-    "abstractvoice[audio-io]>=0.19.5",
+    "abstractvoice[audio-io]>=0.20.1",
     # Used for an optional local config read (STT language hint) and the shared
     # About/identity helpers (abstractcore.utils.identity, new in 2.16.0); all
     # provider execution happens on the gateway, so no provider extras.
@@ -8337,18 +8493,18 @@ dependencies = [
 avatar = []  # Back-compat alias: the avatar is in the base install since 0.18.0.
 lite = []  # Back-compat alias for the base install.
 voice = [
-    "abstractvoice[audio-io,stt]>=0.19.5",
+    "abstractvoice[audio-io,stt]>=0.20.1",
 ]
 apple = [
     "abstractcore[all-apple]>=2.16.0",
-    "abstractvoice[all-apple]>=0.19.5",
+    "abstractvoice[all-apple]>=0.20.1",
 ]
 gpu = [
     "abstractcore[all-gpu]>=2.16.0",
-    "abstractvoice[all-gpu]>=0.19.5",
+    "abstractvoice[all-gpu]>=0.20.1",
 ]
 all = [
-    "abstractvoice[audio-io,stt]>=0.19.5",
+    "abstractvoice[audio-io,stt]>=0.20.1",
 ]  # Back-compat alias for full voice I/O.
 dev = [
     "pytest>=7.0.0",
@@ -9281,8 +9437,8 @@ from abstractassistant.speculation import normalize_speculation
 
 def normalize_avatar_style(value: Any) -> str:
     """Preserve stable renderer keys without loading native code to read preferences."""
-    key = str(value or "halo").strip().lower()
-    return key if re.fullmatch(r"[a-z][a-z0-9-]{0,79}", key) else "halo"
+    key = str(value or "watch-hover").strip().lower()
+    return key if re.fullmatch(r"[a-z][a-z0-9-]{0,79}", key) else "watch-hover"
 
 
 def _load_speculation(value: Any) -> Any:
@@ -9621,7 +9777,7 @@ class AssistantPreferences:
     ui_theme: str = "abstract-glass"
     # Optional local procedural portrait; the shared renderer runs only while visible.
     avatar_enabled: bool = False
-    avatar_style: str = "halo"
+    avatar_style: str = "watch-hover"
     avatar_animated: bool = True
     # Reading comfort in the transcript. Sizes are px, line height is a
     # multiplier; the gaps are the space after a paragraph and between list
@@ -9885,7 +10041,7 @@ from abstractassistant.config import BUILTIN_GATEWAY_URL, Config, default_gatewa
 from abstractassistant.core.tool_policy import ToolApprovalPolicy
 from abstractassistant.core.gateway_voice_manager import GatewayVoiceManager
 from abstractassistant.core.llm_manager import LLMManager
-from abstractassistant.gateway import GatewayClient, GatewayClientConfig, session_memory_run_id
+from abstractassistant.gateway import GatewayClient, GatewayClientConfig, session_memory_run_id, get_cached_assistant_capabilities
 from abstractassistant.gateway.automations import AutomationsClient
 from abstractassistant.gateway.me_events import MeEventsClient
 from abstractassistant.gateway.client import wait_answer_payload
@@ -10269,6 +10425,7 @@ class AssistantController:
         except Exception:
             pass
         try:
+            get_cached_assistant_capabilities(self.llm_manager.gateway_client(), voice_only=True, force=True)
             self.llm_manager.gateway_capabilities(force=True)
         except Exception:
             pass
@@ -11362,6 +11519,7 @@ class AssistantController:
         return bool(self.voice_manager.supports_stt())
 
     def refresh_gateway_capabilities(self) -> None:
+        get_cached_assistant_capabilities(self.llm_manager.gateway_client(), voice_only=True, force=True)
         self.llm_manager.gateway_capabilities(force=True)
         self._sync_gateway_voice_defaults()
 
@@ -13680,6 +13838,14 @@ class GatewayClient:
             method="GET",
             url=self._url("/api/gateway/discovery/capabilities"),
             label="discovery_capabilities failed",
+        )
+
+    def discovery_voice_capabilities(self) -> Dict[str, Any]:
+        # Older Gateways ignore this query and return the full compatible envelope.
+        return self._request_json(
+            method="GET",
+            url=self._url("/api/gateway/discovery/capabilities", query={"scope": "voice"}),
+            label="voice capabilities failed",
         )
 
     def discovery_providers(self, *, include_models: bool = False) -> Dict[str, Any]:
@@ -18164,6 +18330,11 @@ class GatewayVoiceManager:
         rec = VoiceRecognizer(
             transcription_callback=_on_transcription,
             stop_callback=_on_stop,
+            # About 1 s of silence ends an utterance in the default ("wait") mode;
+            # the recognizer floors to 30 ms frames, so 1020 ms avoids rounding
+            # 1000 ms down to 990 ms. Its "full" and "ptt" profiles use their own
+            # values (900 / 700 ms) and override this one.
+            silence_timeout=1020,
             debug_mode=self.debug_mode,
             stt_adapter=adapter,
             language=lang,
@@ -18738,8 +18909,7 @@ class GatewayVoiceManager:
                 f"{reason}; retrying the stream with gateway defaults"
             )
             self._report_speech_notice(
-                f"Reading in the gateway's default voice: {self._tts_pin_origin()} "
-                f"did not work ({str(reason or '').strip()[:200]})"
+                "Couldn't use your selected voice. Trying the default voice."
             )
             result = self._run_gateway_stream_playback(
                 stream_id=stream_id,
@@ -18765,15 +18935,35 @@ class GatewayVoiceManager:
             completion_owned = True
             return bool(result)
 
-        def _artifact_fallback(reason: str = "", *, retry_unpinned: bool = False) -> bool:
+        def _artifact_fallback(
+            reason: str = "", *, retry_unpinned: bool = False, gateway_rejected: bool = False
+        ) -> bool:
             nonlocal completion_owned
+            if stop_gate.is_set():
+                return False
+            # A chosen identity is not interchangeable with the default voice.
+            # When the GATEWAY rejects it (an error event or an HTTP refusal before
+            # any audio, or a failed voice check), the server already owned the
+            # segment retries: the app waits for an explicit Play instead of
+            # generating the reply again. A local or transport failure (player,
+            # empty chunk, timeout) says nothing about the voice: it keeps its own
+            # cause and the same-voice artifact lane below.
+            voice_selected = bool(voice or profile)
+            clone_rejected = "ClonedVoiceNotAppliedError" in reason
+            if clone_rejected or (voice_selected and gateway_rejected):
+                warnings.warn(f"Gateway TTS stopped without automatic regeneration: {reason}")
+                message = (
+                    "The cloned voice didn't pass its voice check."
+                    if clone_rejected else "Couldn't generate speech with your selected voice."
+                )
+                self._report_speech_failure(f"{message} Press Play to retry with the same voice.")
+                return False
             # Keep the streaming cause even when the artifact lane later fails
             # for its own reason: "the stream was rejected AND the fallback
             # timed out" is the sentence the user needs.
             self._note_speech_failure(reason)
-            if stop_gate.is_set():
-                return False
-            if retry_unpinned:
+            # Retrying unpinned would replace a chosen voice with the default one.
+            if retry_unpinned and not voice_selected:
                 retried = _retry_stream_unpinned(reason or "stream produced no audio")
                 if retried is not None:
                     return retried
@@ -18916,8 +19106,9 @@ class GatewayVoiceManager:
                     # before conceding the whole-message artifact lane.
                     detail = str(event.get("error") or event.get("message") or event_type).strip()
                     return _artifact_fallback(
-                        f"stream reported {event_type}: {detail[:200]}",
+                        f"stream reported {event_type}: {detail}",
                         retry_unpinned=True,
+                        gateway_rejected=event_type == "error",
                     )
             if stop_gate.is_set():
                 return False
@@ -18936,7 +19127,13 @@ class GatewayVoiceManager:
                         "only part of the message was spoken"
                     )
                 return False
-            return _artifact_fallback(f"stream transport failed: {detail}", retry_unpinned=True)
+            # The gateway answered with a refusal (4xx other than auth, timeout and
+            # rate limit): that is a rejection of the request, the voice included.
+            status = int(getattr(e, "status", 0) or 0)
+            refused = 400 <= status < 500 and status not in {401, 403, 408, 429}
+            return _artifact_fallback(
+                f"stream transport failed: {detail}", retry_unpinned=True, gateway_rejected=refused
+            )
         finally:
             self._clear_stream_control(stream_id)
             if not completion_owned:
@@ -18958,7 +19155,7 @@ class GatewayVoiceManager:
         Returns True when the request was accepted and dispatched to a worker
         thread; the terminal outcome (played, failed, or cancelled) is
         signalled exactly once via `callback` and `on_speech_end`. Returns
-        False only for immediate refusals (empty text, TTS unsupported).
+        False only for immediate refusals (empty text, no local audio backend).
 
         Synthesis + artifact download can take tens of seconds for long
         texts, and speak() is routinely called from the Qt GUI thread — the
@@ -18980,37 +19177,46 @@ class GatewayVoiceManager:
                 on_failure,
             )
             return False
-        if not self.supports_tts():
-            # Capability cache is prefetched at startup; this check stays
-            # synchronous so callers get an immediate, honest refusal — and it
-            # names WHICH side is missing (an unavailable gateway route and a
-            # missing local audio backend need opposite user actions).
+        if not self._audio_player_available():
             self._refuse_speech(self._tts_unsupported_reason(), on_failure)
             return False
+        # Register the generation before returning to Qt: an immediate Stop
+        # must cancel it even if the worker has not been scheduled yet.
+        with self._dispatch_lock:
+            self.stop_speaking()
+            self._begin_speech_failure_tracking()
+            self._speech_sinks = (on_failure, on_notice)
+            control = self._start_stream_control()
         threading.Thread(
             target=self._speak_dispatch,
-            kwargs={"text": raw, "callback": callback, "sinks": (on_failure, on_notice)},
+            kwargs={"text": raw, "callback": callback, "control": control},
             daemon=True,
             name="gateway-tts-dispatch",
         ).start()
         return True
 
-    def _speak_dispatch(self, *, text: str, callback: Optional[Callable], sinks: tuple = (None, None)) -> None:
-        """Worker-thread body: stop previous speech, then stream-or-artifact."""
-        stream_id = ""
+    def _speak_dispatch(self, *, text: str, callback: Optional[Callable], control: tuple) -> None:
+        """Worker-thread body: discover voice support, then stream-or-artifact."""
+        stream_id, pause_gate, stop_gate = control
         try:
-            with self._dispatch_lock:
-                self.stop_speaking()
-                # stop_speaking() muted the SUPERSEDED generation's reporting;
-                # this dispatch owns the channel from here on (its own
-                # failure/notice receivers included).
-                self._begin_speech_failure_tracking()
-                self._speech_sinks = tuple(sinks or (None, None))
-                stream_id, pause_gate, stop_gate = self._start_stream_control()
-                # Resolve once per dispatch; speaks are single-active
-                # (stop_speaking above), so a per-instance value is race-free.
-                self._active_quality_preset = self._resolved_quality_preset()
+            if stop_gate.is_set():
+                self._finish_cancelled_preflight(stream_id, callback)
+                return
             gw = self._gateway_client()
+            # A failed startup probe is not a rejected Play request. Refresh
+            # here, off Qt, and continue this same generation after recovery.
+            # The voice cache is separate: its narrow response must never
+            # replace the full contract used by sessions/automations/settings.
+            get_cached_assistant_capabilities(gw, voice_only=True, retry_failure=True)
+            if stop_gate.is_set():
+                self._finish_cancelled_preflight(stream_id, callback)
+                return
+            if not self.supports_tts():
+                reason = self._tts_unsupported_reason()
+                if self._clear_stream_control(stream_id):
+                    self._fire_speech_completion(callback, reason=reason)
+                return
+            self._active_quality_preset = self._resolved_quality_preset()
             run_id = self._session_run_id()
             selected_provider = self._selected_tts_provider()
             selected_voice = self._selected_tts_voice()
@@ -19057,6 +19263,13 @@ class GatewayVoiceManager:
                 reason=self._speech_failure_reason
                 or f"the gateway speech request failed ({detail})",
             )
+
+    def _finish_cancelled_preflight(self, stream_id: str, callback: Optional[Callable]) -> None:
+        # A superseded request still completes its own callback, but must not
+        # announce that the newer generation's voice activity has ended.
+        with self._state_lock:
+            notify_activity = self._stream_id in ("", stream_id)
+        self._fire_speech_completion(callback, cancelled=True, notify_activity=notify_activity)
 
     @staticmethod
     def _exception_reason(exc: BaseException) -> str:
@@ -19236,6 +19449,7 @@ class GatewayVoiceManager:
         *,
         reason: str = "",
         cancelled: bool = False,
+        notify_activity: bool = True,
     ) -> None:
         """Signal the terminal outcome of a dispatched speak() exactly once.
 
@@ -19253,7 +19467,7 @@ class GatewayVoiceManager:
         if not cancelled:
             self._report_speech_failure(reason or self._speech_failure_reason)
         try:
-            if self.on_speech_end:
+            if notify_activity and self.on_speech_end:
                 self.on_speech_end()
         except Exception:
             pass
@@ -19461,10 +19675,19 @@ class GatewayVoiceManager:
         try:
             if proc.poll() is None:
                 proc.terminate()
-                try:
-                    proc.wait(timeout=1.5)
-                except Exception:
-                    proc.kill()
+                # Reap off Qt: speak() registers its cancellation control
+                # synchronously, so retiring the previous process must not
+                # hold a new Play click behind a slow player shutdown.
+                def reap() -> None:
+                    try:
+                        proc.wait(timeout=1.5)
+                    except Exception:
+                        try:
+                            proc.kill()
+                            proc.wait(timeout=1.5)
+                        except Exception:
+                            pass
+                threading.Thread(target=reap, name="gateway-audio-reap", daemon=True).start()
         except Exception:
             pass
         self._play_proc = None
@@ -20326,18 +20549,9 @@ class GatewayVoiceManager:
         return base / "gateway_audio"
 
     def _assistant_capabilities(self):
-        try:
-            fn = getattr(self._llm_manager, "gateway_capabilities", None)
-            if callable(fn):
-                try:
-                    caps = fn(stale_ok=True)
-                except TypeError:
-                    caps = fn()
-                if caps is not None:
-                    return caps
-        except Exception:
-            pass
-        return get_cached_assistant_capabilities(self._gateway_client(), stale_ok=True)
+        return get_cached_assistant_capabilities(
+            self._gateway_client(), stale_ok=True, voice_only=True,
+        )
 
     def _gateway_tts_available(self) -> bool:
         try:

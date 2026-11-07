@@ -6,6 +6,34 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-07
+
+Voice in the browser is easier to trust: the avatar says it is speaking only while you can hear
+it, and the Avatar conversation view has one set of voice controls. Built on AbstractUIC ui-kit
+0.9.15 and panel-chat 0.8.2.
+
+### Changed
+
+- **One set of voice controls in the Avatar conversation view.** Talk with the composer's
+  microphone, and play the latest line or a message with its own speaker button. The view no
+  longer adds a second Talk button or its own Read new replies aloud, Pause voice and Silence
+  voice buttons. Finished answers no longer carry an accent border.
+- **New browsers start with the Watch Hover avatar** (it was Watch Halo). A design you already
+  chose is kept.
+
+### Fixed
+
+- **The avatar shows Speaking only while you can hear it.** While speech is still being prepared,
+  between streamed parts, or while the output is muted, the avatar does not claim to speak.
+- **When the browser holds playback back**, read aloud no longer stays on "loading": the page says
+  "Audio playback is paused by the browser. Press Play to try again.", and Play continues the same
+  audio from where it stopped instead of preparing it again. The notice goes away once audio
+  plays, when the browser resumes by itself, or when you press Stop.
+- **Clicking a reply's speaker button again while its speech is being prepared** no longer starts
+  a second synthesis of the same reply.
+- **The open conversation stands out in the list**: its card is tinted and outlined in the accent
+  colour, with a bolder title.
+
 ## [0.1.0] - 2026-11-03
 
 First public release on npm. AbstractGateway lists it as **Assistant (web)** and installs it from

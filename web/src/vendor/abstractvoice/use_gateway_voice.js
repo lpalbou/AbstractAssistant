@@ -357,8 +357,15 @@ function useGatewayVoice(opts) {
   const tts_stream_done_ref = useRef(true);
   const tts_paused_ref = useRef(false);
   const tts_audio_id_ref = useRef("");
+  const tts_audio_text_ref = useRef("");
   const tts_resume_attempt_ref = useRef(0);
   const tts_resume_error_ref = useRef(false);
+  const clear_tts_resume_error = () => {
+    if (!tts_resume_error_ref.current)
+      return;
+    tts_resume_error_ref.current = false;
+    set_error?.("");
+  };
   const tts_audio_id = (key, text) => {
     const voice = ttsVoiceKey(opts_ref.current.tts_voice);
     return voice ? `${key}${text}${voice}` : "";
@@ -368,8 +375,10 @@ function useGatewayVoice(opts) {
     if (!key)
       return;
     const hasAudio = Boolean(tts_source_ref.current || tts_sched_ref.current.length);
-    const status = tts_paused_ref.current ? "paused" : hasAudio ? tts_ctx_ref.current?.state === "running" ? "playing" : "paused" : tts_stream_done_ref.current ? "idle" : tts_segments_ref.current.length ? "playing" : "loading";
+    const status = tts_paused_ref.current ? "paused" : hasAudio ? tts_ctx_ref.current?.state === "running" ? "playing" : "paused" : tts_loading_key_ref.current === key ? "loading" : tts_stream_done_ref.current ? "idle" : tts_segments_ref.current.length ? "playing" : "loading";
     apply_tts_playback({ key: status === "idle" ? "" : key, status });
+    if (tts_ctx_ref.current?.state === "running")
+      clear_tts_resume_error();
     const audible = status === "playing" && hasAudio && tts_ctx_ref.current?.state === "running" && Boolean(tts_gain_ref.current?.gain.value);
     set_tts_speaking(audible);
     if (audible)
@@ -393,10 +402,8 @@ function useGatewayVoice(opts) {
         if (attempt !== tts_resume_attempt_ref.current)
           return;
         sync_tts_playback();
-        if (ctx.state === "running" && tts_resume_error_ref.current) {
-          tts_resume_error_ref.current = false;
-          set_error?.("");
-        }
+        if (ctx.state === "running")
+          clear_tts_resume_error();
       }, failed);
     } catch {
       failed();
@@ -484,8 +491,10 @@ function useGatewayVoice(opts) {
     tts_key_ref.current = "";
     tts_buffer_ref.current = null;
     tts_audio_id_ref.current = "";
+    tts_audio_text_ref.current = "";
     tts_offset_ref.current = 0;
     tts_started_at_ref.current = 0;
+    clear_tts_resume_error();
     apply_tts_playback({ key: "", status: "idle" });
   }, [stop_tts_source, apply_tts_playback]);
   const voice_key = ttsVoiceKey(opts.tts_voice);
@@ -541,6 +550,7 @@ function useGatewayVoice(opts) {
       apply_tts_playback({ key: "", status: "idle" });
     };
     source.start(0, off);
+    tts_loading_key_ref.current = "";
     sync_tts_playback();
   };
   const start_stream_segment = (key, gen) => {
@@ -630,6 +640,7 @@ function useGatewayVoice(opts) {
     tts_key_ref.current = key;
     tts_loading_key_ref.current = key;
     tts_audio_id_ref.current = tts_audio_id(key, text);
+    tts_audio_text_ref.current = `${key}${text}`;
     apply_tts_playback({ key, status: "loading" });
     set_error?.("");
     let prelude = null;
@@ -700,7 +711,7 @@ function useGatewayVoice(opts) {
     if (playback.status !== "playing")
       request_tts_resume(engine.ctx);
     const is_same = playback.key === key;
-    if (is_same && playback.status === "paused" && !tts_paused_ref.current && tts_audio_id_ref.current !== "" && tts_audio_id_ref.current === tts_audio_id(key, t) && (tts_source_ref.current || tts_sched_ref.current.length)) {
+    if (is_same && playback.status === "paused" && !tts_paused_ref.current && tts_audio_text_ref.current === `${key}${t}` && (tts_source_ref.current || tts_sched_ref.current.length)) {
       sync_tts_playback();
       return;
     }
@@ -764,6 +775,7 @@ function useGatewayVoice(opts) {
     tts_key_ref.current = key;
     tts_loading_key_ref.current = key;
     tts_audio_id_ref.current = tts_audio_id(key, t);
+    tts_audio_text_ref.current = `${key}${t}`;
     apply_tts_playback({ key, status: "loading" });
     set_error?.("");
     try {
@@ -779,7 +791,7 @@ function useGatewayVoice(opts) {
     } catch (e) {
       if (tts_stream_gen_ref.current !== gen)
         return;
-      if (tts_loading_key_ref.current === key) {
+      if (tts_loading_key_ref.current === key || tts_key_ref.current === key) {
         tts_loading_key_ref.current = "";
         tts_key_ref.current = "";
         apply_tts_playback({ key: "", status: "idle" });

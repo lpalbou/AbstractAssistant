@@ -1205,6 +1205,15 @@ def test_launch_tray_app_shows_palette_when_bundle_requests_visible_launch(
         def setWindowIcon(self, _icon) -> None:
             events.append("icon")
 
+        def style(self):
+            # launch_tray_app wraps the application style for the 200 ms tooltip rule.
+            from PyQt5.QtWidgets import QStyleFactory
+
+            return QStyleFactory.create("Fusion")
+
+        def setStyle(self, style) -> None:
+            events.append(f"style:{type(style).__name__}")
+
         def quit(self) -> None:
             events.append("quit-called")
 
@@ -1298,6 +1307,7 @@ def test_launch_tray_app_shows_palette_when_bundle_requests_visible_launch(
     result = app_module.launch_tray_app(config=None, debug=False, data_dir=None)
 
     assert result == 17
+    assert "style:TooltipStyle" in events
     assert "show" in events
     assert "hide" not in events
     assert events.count("tray-connect") >= 2
@@ -1335,6 +1345,15 @@ def test_launch_tray_app_waits_for_native_tray_readiness_before_visible_launch(
 
         def setWindowIcon(self, _icon) -> None:
             pass
+
+        def style(self):
+            # launch_tray_app wraps the application style for the 200 ms tooltip rule.
+            from PyQt5.QtWidgets import QStyleFactory
+
+            return QStyleFactory.create("Fusion")
+
+        def setStyle(self, style) -> None:
+            events.append(f"style:{type(style).__name__}")
 
         def processEvents(self) -> None:
             events.append("process")
@@ -1435,6 +1454,7 @@ def test_launch_tray_app_waits_for_native_tray_readiness_before_visible_launch(
 
     assert "show:1" in events
     assert events.count("show:1") == 1
+    assert "style:TooltipStyle" in events
     assert not any(entry.startswith("banner:warn:True") for entry in events)
 
 

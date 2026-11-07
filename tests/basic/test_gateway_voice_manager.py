@@ -279,6 +279,9 @@ def test_gateway_voice_manager_temporarily_raises_tts_timeout(monkeypatch: pytes
     vm = GatewayVoiceManager(llm_manager=_ManagerStub(gateway), debug_mode=False)
 
     monkeypatch.setattr(vm, "supports_tts", lambda: True)
+    # This test fakes playback; a runner without an audio player (Linux CI) must not
+    # turn it into the synchronous "no audio output backend" refusal.
+    monkeypatch.setattr(vm, "_audio_player_available", lambda: True)
     monkeypatch.setattr(vm, "_play_audio_bytes", lambda audio_bytes, content_type, callback=None: True)
 
     assert vm.speak("hello from timeout test") is True
@@ -465,6 +468,9 @@ def test_gateway_voice_manager_artifact_speak_returns_before_synthesis(monkeypat
     vm = GatewayVoiceManager(llm_manager=_ManagerStub(gateway), debug_mode=False)
 
     monkeypatch.setattr(vm, "supports_tts", lambda: True)
+    # This test fakes playback; a runner without an audio player (Linux CI) must not
+    # turn it into the synchronous "no audio output backend" refusal.
+    monkeypatch.setattr(vm, "_audio_player_available", lambda: True)
     monkeypatch.setattr(vm, "_speak_gateway_stream", lambda **kwargs: None)
     played = []
     monkeypatch.setattr(vm, "_play_audio_bytes", lambda audio_bytes, content_type, callback=None: played.append(1) or True)
@@ -487,6 +493,9 @@ def test_gateway_voice_manager_artifact_stop_during_synthesis_cancels_and_comple
     vm = GatewayVoiceManager(llm_manager=_ManagerStub(gateway), debug_mode=False)
 
     monkeypatch.setattr(vm, "supports_tts", lambda: True)
+    # This test fakes playback; a runner without an audio player (Linux CI) must not
+    # turn it into the synchronous "no audio output backend" refusal.
+    monkeypatch.setattr(vm, "_audio_player_available", lambda: True)
     monkeypatch.setattr(vm, "_speak_gateway_stream", lambda **kwargs: None)
     played = []
     monkeypatch.setattr(vm, "_play_audio_bytes", lambda audio_bytes, content_type, callback=None: played.append(1) or True)
@@ -510,6 +519,9 @@ def test_gateway_voice_manager_artifact_pause_during_synthesis_holds_playback(mo
     vm = GatewayVoiceManager(llm_manager=_ManagerStub(gateway), debug_mode=False)
 
     monkeypatch.setattr(vm, "supports_tts", lambda: True)
+    # This test fakes playback; a runner without an audio player (Linux CI) must not
+    # turn it into the synchronous "no audio output backend" refusal.
+    monkeypatch.setattr(vm, "_audio_player_available", lambda: True)
     monkeypatch.setattr(vm, "_speak_gateway_stream", lambda **kwargs: None)
     played = []
     monkeypatch.setattr(vm, "_play_audio_bytes", lambda audio_bytes, content_type, callback=None: played.append(1) or True)
@@ -539,6 +551,9 @@ def test_gateway_voice_manager_speak_failure_fires_completion(monkeypatch: pytes
     vm = GatewayVoiceManager(llm_manager=_ManagerStub(gateway), debug_mode=False)
 
     monkeypatch.setattr(vm, "supports_tts", lambda: True)
+    # This test fakes playback; a runner without an audio player (Linux CI) must not
+    # turn it into the synchronous "no audio output backend" refusal.
+    monkeypatch.setattr(vm, "_audio_player_available", lambda: True)
     monkeypatch.setattr(vm, "_speak_gateway_stream", lambda **kwargs: None)
     played = []
     monkeypatch.setattr(vm, "_play_audio_bytes", lambda audio_bytes, content_type, callback=None: played.append(1) or True)

@@ -50,7 +50,11 @@ def test_draft_created_during_voice_debounce_is_never_sent(orb_palette, has_text
     assert controller.built == []
     assert not conversation.auto_send
     assert conversation.state == "listening"
-    assert "press Enter" in window.voice_strip.status.text()
+    # Said where the user sees it (the strip is hidden since 0.18.1): the words went to the
+    # draft and sending on its own is now off for this conversation.
+    assert window.banner_label.isVisible()
+    assert "not sent automatically" in window.banner_label.text()
+    assert "Return" in window.banner_label.text()
 
 
 @pytest.mark.basic
@@ -105,8 +109,21 @@ def test_animation_failure_switches_to_usable_voice_control_without_other_ui_eve
         assert button.fallback.isVisible()
         assert button.avatar.isHidden()
         assert button.isEnabled()
-        assert button.accessibleName() == "Start voice conversation"
+        assert button.accessibleName() == "Voice"
     finally:
         button.hide()
         button.deleteLater()
         app.processEvents()
+
+
+@pytest.mark.basic
+def test_words_heard_beside_a_draft_go_into_it_and_the_notice_says_so(orb_palette):
+    window, controller = orb_palette
+    window._start_voice_conversation()
+    conversation = window._voice_conversation
+    assert conversation.auto_send
+    window.prompt_edit.setPlainText("Unfinished draft")
+    window._on_transcription("spoken words")
+    assert window.prompt_edit.toPlainText() == "Unfinished draft spoken words"
+    assert not conversation.auto_send and controller.built == []
+    assert window.banner_label.isVisible() and "not sent automatically" in window.banner_label.text()

@@ -289,15 +289,33 @@ def test_microphone_failure_is_reported_in_the_status_line() -> None:
 
 
 @pytest.mark.basic
-def test_the_composer_has_one_mic_and_the_conversation_button_is_hidden() -> None:
-    """The source of truth: the composer row adds the mic, hides the conversation toggle."""
-    import inspect
+def test_the_orb_is_the_composer_voice_control_and_the_mic_button_is_hidden() -> None:
+    """Since 0.18.1 (aa4c332, a84a8ea) the animated orb beside the composer is the one voice
+    control and the hold-to-talk mic button is never shown: checked on the running palette,
+    after construction, a conversation cycle and a capability refresh (review finding 10)."""
+    from test_composer_adversarial import _SMOKE
 
-    from abstractassistant import app as app_module
+    app = _SMOKE["_app"]()
+    window = _SMOKE["AssistantPalette"](controller=_SMOKE["_Controller"]())
+    _SMOKE["_wait_for_bootstrap"](window)
+    window._hide_if_inactive = lambda: None
+    window.show()
+    app.processEvents()
+    try:
+        def check() -> None:
+            app.processEvents()
+            assert window.mic_button.isHidden()
+            assert window.conversation_button.isVisible()
 
-    src = inspect.getsource(app_module.AssistantPalette)
-    assert "self.mic_button.pressed.connect(self._begin_hold_to_talk)" in src
-    assert "self.mic_button.released.connect(self._end_hold_to_talk)" in src
-    assert "self.conversation_button.hide()" in src
-    assert "composer.addWidget(self.conversation_button)" not in src
-    assert "self.mic_button.clicked.connect(self._toggle_listening)" not in src
+        check()
+        window._start_voice_conversation()
+        check()
+        window._end_voice_conversation()
+        check()
+        window._refresh_capability_state()
+        check()
+    finally:
+        window.shutdown()
+        window.hide()
+        window.deleteLater()
+        app.processEvents()

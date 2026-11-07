@@ -1,9 +1,19 @@
 # Voice
 
 Microphone capture and audio playback happen on your Mac; speech-to-text and text-to-speech run
-on the gateway. The assistant offers three voice features, all of which require the `voice` extra
-for microphone capture (`pip install "abstractassistant[voice]"`) and a gateway that advertises
-the matching voice routes.
+on the gateway. The assistant offers three voice features: reading replies aloud, dictation and a
+hands-free voice conversation. Dictation and conversations need the `voice` extra for microphone
+capture (`pip install "abstractassistant[voice]"`), and each feature needs a gateway that
+advertises the matching voice route.
+
+The voice control is the orb beside the composer: your activity avatar when it is turned on in
+Settings → Appearance, a simple sound icon otherwise. "Listening", "Thinking" or "Speaking" appears
+above it while that is happening; it shows nothing when idle. Click it to start or end a voice
+conversation; click it while a reply is being read to stop reading. Right-click it for the other
+choices, each ticked while it is on: **Voice conversation (⌘⇧V)**; **Microphone** (during a
+conversation: ticked while it listens; untick it to pause listening and tick it to listen again.
+While the assistant works or speaks, the microphone is closed and the item is greyed out with the
+reason); **Dictate into the message box**; and **Read new replies aloud**.
 
 Speech uses the gateway's default engines (its **Text To Speech** and **Speech To Text** routes,
 `output.voice` and `input.voice`) unless you choose another provider and model for this app under
@@ -17,10 +27,18 @@ for failures.
 ## Speak a reply
 
 Every assistant reply has a speaker button. Click it to hear the reply; click again to pause and
-resume. Switch on **Speak replies automatically** (header toggle or Voice settings) to have every
-final answer spoken. Replies stream from the gateway's streaming TTS lane, so long answers start
+resume. Switch on **Read new replies aloud** in the orb's right-click menu (**Speak replies
+automatically** in the header toggle or Voice settings: the same preference) to have every final
+answer spoken. Replies stream from the gateway's streaming TTS lane, so long answers start
 playing within about a second; when the stream is unavailable the assistant says that it is
 synthesizing the whole message first.
+
+If the gateway's speech support could not be checked (for example while the gateway was starting),
+pressing the speaker button checks again and then reads the reply, with no second click; Stop
+cancels it while the check runs. When the gateway rejects a cloned or selected voice, the reply is
+not read with another voice: press the speaker button to try the same voice again. Any other
+failure before the first sound (the audio output, the network) keeps its own message, and the
+whole reply is prepared again with the same voice.
 
 Pausing keeps queued speech until you resume or stop it. With the matching AbstractVoice
 player, five seconds without output progress triggers one attempt to reopen the output and
@@ -28,25 +46,22 @@ continue pending speech. Recovery leaves microphone capture running and shows a 
 the device still cannot play, a banner explains that part of the reply may be missing.
 Audio already submitted to disconnected hardware can be lost.
 
-Spoken text is prose: markdown, code, images and link targets are removed before synthesis. A
-reply with nothing left to read says so instead of playing nothing.
+Spoken text is prose: markdown, code, images and link targets are removed before synthesis, and
+folder paths are read with "slash" between their parts and the signs ≥, ≤ and ≠ as words (in
+English, whatever the reply's language). A reply with nothing left to read
+says so instead of playing nothing.
 
-## Hold to talk
+## Dictate
 
-The composer has one microphone button. Hold it while you speak and release it: the recording
-stops, the gateway transcribes it, and the words are sent as your next message — exactly what
-Return would do with them. Text already in the composer goes out with the spoken words. A short
-tap records nothing and reminds you to hold. The status line follows the gesture ("Listening —
-release to send", "Transcribing…").
-
-When the transcription fails, nothing is sent and the recording is kept: a line under the
-conversation says "Not sent. Your recording is kept", with the reason, and offers **Retry** (sends
-the same recording again) and **Discard**. Nothing is resent without your click, and the kept
-recording lives in memory until the app quits.
+Right-click the orb and choose **Dictate into the message box**. Speak; after about one second of
+silence the gateway transcribes what you said and adds it to the message box, where you can edit it
+and press Return to send. Click the orb again, press Esc or untick **Dictate into the message box** to
+stop listening.
 
 ## Voice conversation (hands-free)
 
-Start with ⌘⇧V, the microphone button's right-click menu, or the tray menu. The loop:
+Start with a click on the orb, ⌘⇧V, **Voice conversation** in the orb's right-click menu, or the
+tray menu. The loop:
 
 ```mermaid
 stateDiagram-v2
@@ -58,31 +73,34 @@ stateDiagram-v2
     thinking --> speaking: final reply
     thinking --> listening: no spoken reply / run stopped / run failed
     speaking --> listening: playback finished, failed, or interrupted
-    listening --> paused: pause button
-    paused --> listening: resume
-    listening --> [*]: end (⌘⇧V, ✕, or the header speaker toggle)
+    listening --> paused: Microphone unticked
+    paused --> listening: Microphone ticked
+    listening --> [*]: end (orb, ⌘⇧V, Esc, or the header speaker toggle)
 ```
 
-What you see: a strip above the composer with a glyph, a live level meter, the state text
-("Listening…", "Heard: …", "Thinking… (mic paused)", "Speaking…"), pause/resume, stop-speaking
-and interrupt buttons, and an end button. The header title mirrors the state.
+What you see: the orb shows "Listening", "Thinking" or "Speaking" above it and moves with your
+microphone level and with the reply's sound. To pause listening, untick **Microphone** in its right-click menu; the
+composer's Stop button stops a run. The header title mirrors the state. An unfinished draft in the
+message box is kept: the conversation does not send it or replace it. What you say while a draft
+is open is added to it, and the conversation stops sending on its own until it ends; a notice says
+so, and Return sends the draft.
 
 Behavior details:
 
-- **Auto-send** (default on): each utterance becomes a turn after a short pause; closely spaced
-  utterances are merged. With auto-send off, words land in the message box and Return sends them.
+- **Auto-send** (default on): each utterance becomes a turn after about one second of silence;
+  closely spaced utterances are merged. With auto-send off, words land in the message box and Return sends them.
 - **While the assistant works**, speech is not transcribed (the microphone is paused) so side
   conversation never steers the run. Speech that arrives between the reply and the next listen is
   kept for the next turn.
 - **Spoken-style replies** (default on): each request carries an instruction to answer briefly, in
   natural spoken language, without markdown. The workflow's own system prompt is kept in front of
   it.
-- **Stopping a reply** (Esc, the strip's stop button, or a spoken "stop" in barge-in mode)
-  returns the loop to listening. Words heard while the previous run is still closing wait for
-  the next listening window; they are never injected into the closing run.
+- **Stopping a reply**: a spoken "stop" in barge-in mode returns the loop to listening. Esc or a
+  click on the orb ends the whole conversation. Words heard while the previous run is still
+  closing wait for the next listening window; they are never injected into the closing run.
 - **Barge-in** depends on the Voice setting. "Pause the mic while the assistant speaks" (default,
   for speakers) never transcribes the assistant's own voice, so the reply cannot be interrupted by
-  speaking; use Esc, the stop button, or the strip. "Keep the mic open" (for headphones) lets a
+  speaking; use Esc or the orb to end the conversation. "Keep the mic open" (for headphones) lets a
   spoken "stop" interrupt the reply.
 - **Questions and approvals** pause the microphone while their window is open and resume it after
   your decision.
@@ -90,7 +108,7 @@ Behavior details:
 - Auto-speak is on for the duration of the conversation and returns to your saved preference when
   it ends.
 
-Failures name their cause in the strip and in a banner: a microphone that cannot start (macOS:
+Failures name their cause in a banner: a microphone that cannot start (macOS:
 System Settings → Privacy & Security → Microphone), gateway speech input that is unavailable, a
 reply that could not be spoken (the loop resumes listening), or a run that failed.
 
@@ -100,7 +118,6 @@ Playback follows the Mac's current default output device, resolved each time a r
 so switching to headphones or another speaker in macOS takes effect on the next reply. You can
 instead pin a device under Settings → Voice → Output device (see [settings.md](settings.md)).
 When a pinned device is not connected, replies play on the system default and a notice says so.
-When speech starts, a notice names the device and warns when the system output is muted or very
-low. If the output device stops accepting audio mid-reply, playback is stopped and reported, and
+When the system output is muted or very low as speech starts, a notice says so. If the output device stops accepting audio mid-reply, playback is stopped and reported, and
 the next reply reopens the device. While the microphone is live, the device list is not
 refreshed, so a device change cannot interrupt capture.

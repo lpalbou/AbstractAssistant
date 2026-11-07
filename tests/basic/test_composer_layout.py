@@ -2,6 +2,7 @@
 import pytest
 from PyQt5.QtCore import QRect
 from test_composer_adversarial import orb_palette, _SMOKE
+from abstractassistant.app import ORB_TOOLTIP
 
 
 @pytest.mark.basic
@@ -50,15 +51,19 @@ def test_escape_ends_voice_before_hiding_and_speech_labels_follow_player(orb_pal
     window, controller = orb_palette
     window._start_voice_conversation()
     assert window.prompt_edit.placeholderText() == "Type a message…"
+    # The header title is what the user sees (the voice strip is hidden since 0.18.1).
     window._on_voice_state("speaking")
-    assert window.voice_strip.status.text() == "Preparing speech…"
+    assert window.title_label.text() == "Preparing speech…"
     controller.voice_manager.is_paused = lambda: True
     window._on_voice_state("speaking")
-    assert window.voice_strip.status.text() == "Speech paused"
+    assert window.title_label.text() == "Speech paused"
     controller.voice_manager.is_paused = lambda: False
     controller.voice_manager.is_speaking = lambda: True
     window._on_voice_state("speaking")
-    assert window.voice_strip.status.text().startswith("Speaking")
+    assert window.title_label.text().startswith("Speaking")
+    window._voice_conversation.last_transcript = "what is the weather"
+    window._on_voice_state("heard")
+    assert window.title_label.text() == "Heard: “what is the weather”"
     window._on_escape()
     assert not controller.voice_manager.listening
     assert not window._voice_conversation_active
@@ -140,7 +145,112 @@ def test_speaking_orb_uses_output_bands_and_click_stops_read_aloud(orb_palette):
     assert frame.bands[0] < frame.bands[-1]
     assert window.conversation_button.caption.text() == "Speaking"
     assert window.conversation_button.isEnabled()
-    assert window.conversation_button.toolTip() == "Stop speaking"
+    assert window.conversation_button.toolTip() == ORB_TOOLTIP
     QTest.mouseClick(window.conversation_button, Qt.LeftButton)
     assert not speaking[0]
     assert not controller.voice_manager.listening
+
+
+@pytest.mark.basic
+def test_orb_menu_on_off_items_keep_their_feature_label_and_show_state(orb_palette):
+    """Operator rule (toggles show state, 2026-09-30): an on/off in the orb's menu is one
+    checkable item named for its feature; the check shows the state, the label never swaps."""
+    window, _ = orb_palette
+
+    def items():
+        menu = window._build_voice_menu()
+        return {a.text(): a for a in menu.actions() if not a.isSeparator()}
+
+    window._start_voice_conversation()
+    assert window._voice_conversation.state != "paused"
+    mic = items()["Microphone"]
+    assert mic.isCheckable() and mic.isChecked()
+    mic.trigger()
+    assert window._voice_conversation.state == "paused"
+    mic = items()["Microphone"]
+    assert mic.isCheckable() and not mic.isChecked()
+    mic.trigger()
+    assert window._voice_conversation.state != "paused"
+    window._end_voice_conversation()
+
+    assert "Microphone" not in items()
+    dictate = items()["Dictate into the message box"]
+    assert dictate.isCheckable() and not dictate.isChecked()
+    window._listening = True
+    dictate = items()["Dictate into the message box"]
+    assert dictate.isCheckable() and dictate.isChecked()
+    window._listening = False
+
+
+@pytest.mark.basic
+def test_orb_menu_microphone_shows_the_real_microphone_and_acts_only_when_it_can(orb_palette):
+    """While the assistant works or speaks the conversation keeps the microphone closed and
+    cannot pause it: the item says so (unticked, disabled, with the reason) instead of a tick
+    that an untick silently ignores (review 2026-11-07, finding 1)."""
+    window, _ = orb_palette
+
+    def microphone():
+        menu = window._build_voice_menu()
+        assert menu.toolTipsVisible(), "a disabled item's reason must be readable"
+        return {a.text(): a for a in menu.actions() if not a.isSeparator()}["Microphone"]
+
+    window._start_voice_conversation()
+    conversation = window._voice_conversation
+    assert conversation.state == "listening"
+    assert microphone().isEnabled() and microphone().isChecked()
+
+    conversation.mark_sent()  # a turn went out: the assistant works, the mic is closed
+    assert conversation.state == "thinking"
+    mic = microphone()
+    assert not mic.isChecked() and not mic.isEnabled()
+    assert mic.toolTip() == "The microphone is closed while the assistant works."
+    mic.trigger()
+    assert conversation.state == "thinking"
+
+    conversation.run_finished(will_speak=True)
+    assert conversation.state == "speaking"
+    mic = microphone()
+    assert not mic.isChecked() and not mic.isEnabled()
+    assert mic.toolTip() == "The microphone is closed while the assistant speaks."
+
+    conversation.speech_finished()
+    assert conversation.state == "listening"
+    assert microphone().isEnabled() and microphone().isChecked()
+    window._end_voice_conversation()
+
+
+@pytest.mark.basic
+def test_voice_conversation_is_one_checkable_item_and_the_orb_keeps_one_name(orb_palette):
+    """Operator rule (toggles show state): the voice conversation is an on/off, so the menu
+    has one checkable "Voice conversation" item whose label never swaps, and the orb keeps
+    one accessible name and one tooltip that are true in every state (review finding 2)."""
+    window, controller = orb_palette
+
+    def menu_labels():
+        menu = window._build_voice_menu()
+        return {a.text(): a for a in menu.actions() if not a.isSeparator()}
+
+    def orb():
+        window._refresh_avatar()
+        button = window.conversation_button
+        return button.accessibleName(), button.toolTip()
+
+    idle = menu_labels()
+    item = idle["Voice conversation (⌘⇧V)"]
+    assert item.isCheckable() and not item.isChecked()
+    assert orb() == ("Voice", ORB_TOOLTIP)
+
+    window._start_voice_conversation()
+    active = menu_labels()
+    item = active["Voice conversation (⌘⇧V)"]
+    assert item.isCheckable() and item.isChecked()
+    assert set(idle) <= set(active) and set(active) - set(idle) == {"Microphone"}
+    assert orb() == ("Voice", ORB_TOOLTIP)
+    item.trigger()
+    assert not window._voice_conversation_active
+
+    window._listening = True  # dictating: a click on the orb stops dictation
+    assert orb() == ("Voice", ORB_TOOLTIP)
+    window._listening = False
+    controller.voice_manager.is_speaking = lambda: True  # reading a reply aloud
+    assert orb() == ("Voice", ORB_TOOLTIP)

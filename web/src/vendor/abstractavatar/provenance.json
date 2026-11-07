@@ -4,7 +4,7 @@
   "adapter_owner": "@abstractframework/ui-kit",
   "sources": {
     "src/avatar_renderer.ts": "def5382569a006a5a16f6ea1a1bf28d571ae058bb671b8248a58a96b62d11fc7",
-    "src/activity_avatar.tsx": "994aa85d3dad0952ea0925ae6d0f2f57703aaf7ca329bdec153c0a2220e62bba",
+    "src/activity_avatar.tsx": "72752bb7ad5995a12af7f4e7cf9a31ad0b6ed59b73e9877c633fbb7dbe49e595",
     "src/avatar_quality.ts": "838dac94d83ab2f08d711b49d660cb521a57cd02782fad34f27219ae77f25d35",
     "src/avatars/avatar_core.wasm": "340cda76600252f2abf0750d7fa259c56aa7d505a9fb37de6fdd2a399dec167a",
     "src/avatars/provenance.json": "7cdc9e17052046a0876aac6adf0231a78e90da71b53aa547dacf55dc42272fa1"
@@ -12,7 +12,7 @@
   "artifacts": {
     "avatar_renderer.js": "62802793cecf925e77b0f59423745b14fff44c2a0e1170683f09bda32731247c",
     "avatar_renderer.d.ts": "05fecf51e25ed6ddee4efecaafb7b7b22232204b270707574596d4790e4d5364",
-    "activity_avatar.js": "48a6484b479febf3c557f3401925591dd730af9f57b66825fc67ee878b37484f",
+    "activity_avatar.js": "86894c31696fcc3986edc59679a1a9630538d874a9349f69df52d45aa1dbeb86",
     "activity_avatar.d.ts": "eb12ec34c696089dc69d881db460d05726848881869aaf6937487c398851e338",
     "avatar_quality.js": "43d5212b2159448217ee6db769f49079be4233dc1bdb60cd7ee75d92e1e500a2",
     "avatar_quality.d.ts": "b1db1791b279b63c4648b6f4e5000a238cfce3cbdc1d307bf864153cf3c321f6",

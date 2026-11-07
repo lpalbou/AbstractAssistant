@@ -17,7 +17,7 @@ another conversation or starting a new one stops the previous audio.
 
 Settings includes the complete 44-design AbstractAvatar catalog: 34 Watch picker
 designs, three additional Watch shape variants, the iPhone woven orb and six shaded
-avatars. Watch Halo is the default for a new browser; existing selections are preserved.
+avatars. Watch Hover is the default for a new browser; existing selections are preserved.
 The shared generator and AbstractUIC presenter provide previews of Ready,
 Listening, Thinking, Working, Speaking, Waiting and Error, and an animation switch.
 Reduced motion and hidden-page animation are handled by the shared renderer.

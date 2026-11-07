@@ -2402,6 +2402,15 @@ class AttachmentDropFrame(QFrame):
         event.ignore()
 
 
+# The orb's one tooltip: true in every state (idle, in a conversation, reading a reply aloud,
+# dictating), so it never swaps verbs (operator rule: toggles show state).
+ORB_TOOLTIP = "Voice: click to start or stop, right-click for more choices (⌘⇧V: voice conversation)"
+# Why the orb menu's Microphone item cannot act in a conversation state.
+_MICROPHONE_CLOSED_REASONS = {
+    "starting": "The microphone is starting.",
+    "thinking": "The microphone is closed while the assistant works.",
+    "speaking": "The microphone is closed while the assistant speaks.",
+}
 HOLD_TO_TALK_TOOLTIP = "Hold to talk — release to send (right-click: voice conversation, ⌘⇧V)"
 
 
@@ -6279,7 +6288,7 @@ class AssistantPalette(QMainWindow):
         composer.addWidget(self.send_button, 0, Qt.AlignVCenter)
 
         self.conversation_button = AvatarVoiceButton(self._avatar_presentation, central)
-        self.conversation_button.setToolTip("Start a voice conversation (⌘⇧V)")
+        self.conversation_button.setToolTip(ORB_TOOLTIP)
         self.conversation_button.clicked.connect(self._on_orb_clicked)
         self.conversation_button.setContextMenuPolicy(Qt.CustomContextMenu)
         self.conversation_button.customContextMenuRequested.connect(self._show_mic_menu)
@@ -11403,27 +11412,47 @@ class AssistantPalette(QMainWindow):
 
     def _show_mic_menu(self, pos) -> None:
         """Secondary voice choices stay on the orb, without another mic button."""
+        self._build_voice_menu().exec(self.conversation_button.mapToGlobal(pos))
+
+    def _build_voice_menu(self) -> QMenu:
+        """The orb's right-click menu. Each on/off is one checkable item named for its
+        feature: the check shows the state and the label never swaps (operator rule,
+        toggles show state)."""
         menu = QMenu(self)
+        menu.setToolTipsVisible(True)  # a disabled item says why
         in_conversation = bool(self._state("_voice_conversation_active", False))
-        action = menu.addAction("End the voice conversation (⌘⇧V)" if in_conversation else "Start a voice conversation (⌘⇧V)")
+        action = menu.addAction("Voice conversation (⌘⇧V)")
+        action.setCheckable(True)
+        action.setChecked(in_conversation)
         reason = "" if in_conversation else self._voice_conversation_unavailable_reason()
         if reason:
             action.setEnabled(False)
             action.setToolTip(reason)
-        action.triggered.connect(self._toggle_voice_conversation)
+        action.triggered.connect(lambda _checked: self._toggle_voice_conversation())
         if in_conversation:
-            paused = self._voice_conversation.state == "paused"
-            pause = menu.addAction("Resume voice" if paused else "Pause voice")
-            pause.triggered.connect(self._voice_pause_toggled)
-        dictate = menu.addAction("Stop dictation" if self._listening else "Dictate into the message box")
+            # Ticked exactly while the microphone listens. The user can pause or resume it
+            # only between turns; while the assistant works or speaks the loop itself keeps
+            # it closed, so the item is unticked and disabled with the reason.
+            state = self._voice_conversation.state
+            microphone = menu.addAction("Microphone")
+            microphone.setCheckable(True)
+            microphone.setChecked(state in {"listening", "heard"})
+            closed_because = _MICROPHONE_CLOSED_REASONS.get(state, "")
+            if state not in {"listening", "heard", "paused"}:
+                microphone.setEnabled(False)
+                microphone.setToolTip(closed_because or "The microphone cannot be paused right now.")
+            microphone.triggered.connect(lambda _checked: self._voice_pause_toggled())
+        dictate = menu.addAction("Dictate into the message box")
+        dictate.setCheckable(True)
+        dictate.setChecked(bool(self._listening))
         dictate.setEnabled(not in_conversation and self._controller.supports_stt())
-        dictate.triggered.connect(self._toggle_listening)
+        dictate.triggered.connect(lambda _checked: self._toggle_listening())
         menu.addSeparator()
         read_aloud = menu.addAction("Read new replies aloud")
         read_aloud.setCheckable(True)
         read_aloud.setChecked(self.auto_speak.isChecked())
         read_aloud.triggered.connect(lambda checked: (self.auto_speak.setChecked(checked), self._persist_auto_speak()))
-        menu.exec(self.conversation_button.mapToGlobal(pos))
+        return menu
 
     def _toggle_listening(self) -> None:
         if self._listening:
@@ -11453,12 +11482,17 @@ class AssistantPalette(QMainWindow):
         if conversation is not None and bool(self._state("_voice_conversation_active", False)):
             # Opening voice beside a draft never authorizes sending or
             # replacing that draft (or its attachments).
-            if self.prompt_edit.toPlainText().strip() or self._attachments:
+            draft_stops_auto_send = conversation.auto_send and bool(
+                self.prompt_edit.toPlainText().strip() or self._attachments)
+            if draft_stops_auto_send:
                 conversation.auto_send = False
             conversation.heard(text)
             if not conversation.auto_send:
                 self._append_prompt_text(text)
-                self.voice_strip.set_state("listening", "Added to your message — press Return to send")
+                if draft_stops_auto_send:
+                    self._note_voice_words_go_to_draft()
+                else:
+                    self._set_status("Added to your message: press Return to send", "voice")
             return
         self._append_prompt_text(text)
 
@@ -11529,7 +11563,7 @@ class AssistantPalette(QMainWindow):
         self._update_prompt_placeholder()
         self._auto_speak_before_voice = bool(self.auto_speak.isChecked())
         self.conversation_button.setChecked(True)
-        self.conversation_button.setToolTip("End the voice conversation (⌘⇧V)")
+        self.conversation_button.setToolTip(ORB_TOOLTIP)
         self.mic_button.setEnabled(False)
         self.mic_button.setToolTip("Dictation is off during a voice conversation")
         # State lives above the orb; run cancellation stays on the red Stop.
@@ -11572,7 +11606,7 @@ class AssistantPalette(QMainWindow):
             self.auto_speak.setChecked(bool(restore))
             self._auto_speak_before_voice = None
         self.conversation_button.setChecked(False)
-        self.conversation_button.setToolTip("Start a voice conversation (⌘⇧V)")
+        self.conversation_button.setToolTip(ORB_TOOLTIP)
         self.voice_strip.set_state("off")
         self.voice_strip.hide()
         self._sync_composer_height()
@@ -11633,7 +11667,7 @@ class AssistantPalette(QMainWindow):
             if conversation is not None:
                 conversation.auto_send = False
                 conversation.run_finished(will_speak=False)
-            self.voice_strip.set_state("listening", "Added to your draft — press Enter to send")
+            self._note_voice_words_go_to_draft()
             return
         self.prompt_edit.setPlainText(str(text or ""))
         self._submit()
@@ -11641,6 +11675,16 @@ class AssistantPalette(QMainWindow):
             # The send was refused (still connecting, nothing runnable…):
             # listen again rather than sit in "thinking" forever.
             conversation.run_failed("send refused")
+
+    def _note_voice_words_go_to_draft(self) -> None:
+        """A draft is open, so the conversation stops sending on its own: say so where the
+        user sees it (the voice strip is hidden since 0.18.1)."""
+        self._set_banner(
+            "Added to your draft. While a draft is open, what you say is not sent automatically: "
+            "press Return to send.",
+            tone="info",
+            key="voice",
+        )
 
     def _on_voice_state(self, state: str) -> None:
         conversation = self._state("_voice_conversation")
@@ -11653,15 +11697,13 @@ class AssistantPalette(QMainWindow):
             text = f"Heard: “{preview[:60]}{'…' if len(preview) > 60 else ''}”"
         elif state == "speaking" and not self._voice_is_speaking():
             text = "Speech paused" if self._controller.voice_manager.is_paused() else "Preparing speech…"
-        elif state == "speaking" and conversation is not None and conversation.voice_mode == "full":
-            text = "Speaking… say “stop”; Esc ends voice"
         elif state == "error" and conversation is not None and conversation.error:
             text = f"Voice conversation stopped: {conversation.error}"
         strip.set_state(state, text)
         status_map = {
             "starting": ("Starting microphone…", "busy"),
             "listening": ("Listening", "voice"),
-            "heard": ("Heard you", "voice"),
+            "heard": (text or "Heard you", "voice"),
             "thinking": ("Thinking…", "busy"),
             "speaking": ("Speaking", "voice") if self._voice_is_speaking() else (text or "Preparing speech…", "info" if text == "Speech paused" else "busy"),
             "paused": ("Voice paused", "info"),
@@ -12449,10 +12491,9 @@ class AssistantPalette(QMainWindow):
         manager = getattr(self._state("_controller"), "voice_manager", None)
         playing = self._voice_is_speaking() or bool(manager and manager.is_paused())
         reason = "" if active or playing else self._voice_conversation_unavailable_reason()
-        action = "End voice conversation" if active else ("Stop speaking" if playing else "Start voice conversation")
         button.setEnabled(not reason)
-        button.setToolTip(reason or action)
-        button.setAccessibleName(action)
+        button.setToolTip(reason or ORB_TOOLTIP)
+        button.setAccessibleName("Voice")
 
     def _update_prompt_placeholder(self) -> None:
         if self._state("_automation_view_id", ""):
