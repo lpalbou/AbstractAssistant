@@ -37,6 +37,11 @@ Reasoning and MTP now follow the chat model, and a failed run shows the gateway'
   endpoint model that has no MTP, and the gateway refused every run. Your saved settings are not
   changed on disk: the value is simply not sent, and the next model change resets it.
 
+- **Connection and error tooltips show text as written**: a gateway error such as an HTML error page is shown as text,
+  never rendered.
+- **A cloned gateway-default voice that the gateway refuses** no longer stops for a manual Play: with the error-name
+  check gone, playback takes the normal fallback (one more attempt, then the default voice).
+
 ## [0.18.2] - 2026-11-07
 
 A press of the orb now asks one question by voice and then stops listening, like the Apple Watch

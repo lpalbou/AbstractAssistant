@@ -6420,7 +6420,8 @@ class AssistantPalette(QMainWindow):
             str(detail or "").strip() or "Checking gateway connection."
         )
         orb.set_state(self._connection_status_state)
-        orb.setToolTip(self._compose_connection_tooltip(self._connection_status_detail))
+        # Plain text: the detail can carry a gateway error (an HTML page would be rendered).
+        orb.setToolTip(plain_tooltip(self._compose_connection_tooltip(self._connection_status_detail)))
         orb.update()
 
     def _start_bootstrap(self) -> None:
