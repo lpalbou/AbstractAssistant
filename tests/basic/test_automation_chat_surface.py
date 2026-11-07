@@ -164,7 +164,7 @@ def test_a_chip_opens_the_structured_card_on_hover_and_focus() -> None:
     assert "Tokens · 15 total" in tokens.accessibleDescription()
     # Keyboard focus on a clickable chip opens the card after the tooltip dwell (at least
     # 200 ms, never instantly); Escape or leaving closes it. The dwell timer is driven
-    # through its seam (no wall-clock wait): it must be pending, then it fires.
+    # through its own timeout signal (no wall-clock wait): it must be pending, then it fires.
     def open_after_dwell(chip) -> None:
         QApplication.setActiveWindow(card)
         chip.setFocus(app_module.Qt.TabFocusReason)
@@ -173,7 +173,7 @@ def test_a_chip_opens_the_structured_card_on_hover_and_focus() -> None:
         assert not stat_detail_popup().isVisible(), "focus never opens the card instantly"
         assert hover._open.isActive() and hover._open.interval() >= MIN_TOOLTIP_DELAY_MS
         hover._open.stop()
-        hover._show_pending()
+        hover._open.timeout.emit()  # the real timer-to-slot connection, without waiting
 
     hover = _hover()
     tools = chips["tools"]
