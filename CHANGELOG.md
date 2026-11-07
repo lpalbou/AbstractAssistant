@@ -49,9 +49,9 @@ The desktop palette file now matches ui-kit 0.9.15; its colours did not change, 
   area below switches between the current conversation and Sessions / Automations without losing
   the current turn; sessions and automations open on the same screen, and **Discuss something
   else** goes back to the list so the orb starts a fresh conversation.
-- **Keep your sign-in when you disconnect (Watch and iPhone).** Disconnecting asks whether to keep
-  the sign-in on the device, to reconnect later, or to sign out and forget it. Keeping it works
-  even when the gateway cannot be reached.
+- **Keep your sign-in when you disconnect (Watch and iPhone).** On iPhone, Disconnect now asks, as
+  the watch already did, whether to keep the sign-in on the device to reconnect later or to sign
+  out and forget it. On both, keeping it works even when the gateway cannot be reached.
 
 ### Fixed
 
