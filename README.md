@@ -67,6 +67,11 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 
 ## What's new
 
+0.18.3 makes reasoning and MTP follow the chat model: MTP depths are offered only for a model the
+gateway says supports MTP, changing the model puts both back on Gateway default, and a saved value
+the model cannot use is never sent. A failed run now shows the gateway's own error, word for word.
+See the [0.18.3 release notes](CHANGELOG.md#0183---2026-11-07).
+
 0.18.2 makes a press of the orb one question by voice: it listens until you pause, sends what you
 said, reads the reply aloud, then stops listening until your next press. The orb sits on its own
 slightly transparent panel so it stays readable over any window, and a failed run now says why in

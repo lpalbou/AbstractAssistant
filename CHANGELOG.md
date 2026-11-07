@@ -5,6 +5,43 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+## [0.18.3] - 2026-11-07
+
+Reasoning and MTP now follow the chat model, and a failed run shows the gateway's own error.
+
+### Changed
+
+- **MTP only for models that support it.** Settings → Models offers **Off** and the MTP depths only
+  when the gateway's capability card for the selected chat model says MTP is supported. For any
+  other model the MTP depth list stays on **Gateway default**, is disabled, and says why: the
+  gateway's sentence, else "This model does not support MTP.", with the gateway's own reason under
+  **Technical details**. The words are the ones the other AbstractFramework apps use.
+- **Changing the model resets reasoning and MTP.** Choosing another chat provider or model, or going
+  back to Gateway default, puts Reasoning and MTP depth back on **Gateway default** and saves it.
+- **A failed run shows the actual error.** The line under the conversation reads "The run failed: "
+  followed by the gateway's own error text, word for word. A long error takes two lines ending with
+  "… Click to read the whole error"; the click opens all of it in a window you can scroll and copy
+  from, titled by what you clicked. The Assistant no longer guesses a cause from an error's text:
+  0.18.2's explanation for MTP errors is gone, a workflow catalog error is shown as the gateway
+  wrote it, a voice the gateway refused shows the gateway's reason, and `assistant run` recognises
+  a sign-in problem from the gateway's HTTP status only. Gateway words in tooltips and notices are
+  shown as text, never rendered as a web page.
+
+### Fixed
+
+- **A saved MTP depth no longer breaks every run with a model that has no MTP.** Before each run the
+  Assistant reads the capability card of the model that will answer and sends only the MTP value
+  and reasoning level that model can use; when the card cannot be read, no MTP depth is sent. MTP
+  **Off** is always sent as chosen, so a gateway default that turns MTP on never overrides it. A
+  depth saved for one model (for example depth 2 with "require acceleration") was sent with an
+  endpoint model that has no MTP, and the gateway refused every run. Your saved settings are not
+  changed on disk: the value is simply not sent, and the next model change resets it.
+
+- **Connection and error tooltips show text as written**: a gateway error such as an HTML error page is shown as text,
+  never rendered.
+- **A cloned gateway-default voice that the gateway refuses** no longer stops for a manual Play: with the error-name
+  check gone, playback takes the normal fallback (one more attempt, then the default voice).
+
 ## [0.18.2] - 2026-11-07
 
 A press of the orb now asks one question by voice and then stops listening, like the Apple Watch

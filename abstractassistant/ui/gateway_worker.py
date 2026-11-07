@@ -10,7 +10,7 @@ import json
 import os
 import threading
 import warnings
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:
     from PyQt5.QtCore import QThread, pyqtSignal
@@ -73,6 +73,7 @@ class GatewayWorker(QThread):
         media_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
         thinking: str = "",
         speculation: Any = None,
+        model_options_guard: Optional[Callable[[str, Any], Tuple[str, Any]]] = None,
         stream: Optional[bool] = None,
         workspace_root: str = "",
         debug: bool = False,
@@ -106,6 +107,9 @@ class GatewayWorker(QThread):
         self._thinking = str(thinking or "").strip().lower()
         from abstractassistant.speculation import normalize_speculation
         self._speculation = normalize_speculation(speculation)
+        # The send-time guard (controller.sendable_model_options): keeps only the reasoning
+        # level and MTP value the run's model can use. Network work, so it runs in `run()`.
+        self._model_options_guard = model_options_guard
         # Live replies (`_runtime.stream`): None = the gateway's default
         # (nothing sent), True/False = this app's explicit choice.
         if stream is not None and not isinstance(stream, bool):
@@ -917,6 +921,20 @@ class GatewayWorker(QThread):
             merged["_assistant_stats"] = {"run_id": rid, **stats}
         return merged
 
+    def _sendable_model_options(self) -> Tuple[str, Any]:
+        """(thinking, speculation) for this run: what the guard allows for the run's model, or
+        what was given when there is no guard. A guard that fails sends no MTP depth; an explicit
+        Off is kept (it only ever turns MTP off)."""
+        guard = self.__dict__.get("_model_options_guard")
+        if not callable(guard):
+            return self._thinking, self._speculation
+        try:
+            thinking, speculation = guard(self._thinking, self._speculation)
+        except Exception as exc:  # noqa: BLE001
+            warnings.warn(f"#FALLBACK: could not read the chat model's capability card, no MTP depth sent: {exc}")
+            return self._thinking, (False if self._speculation is False else None)
+        return str(thinking or ""), speculation
+
     def run(self) -> None:
         try:
             if self._gateway is None:
@@ -971,6 +989,7 @@ class GatewayWorker(QThread):
                         warnings.warn(f"Failed to append user message: {e}")
 
                 try:
+                    thinking, speculation = self._sendable_model_options()
                     primary_image_artifact = self._pick_primary_image_artifact(attachments)
                     input_data = build_run_input_data(
                         prompt=self._user_text,
@@ -983,8 +1002,8 @@ class GatewayWorker(QThread):
                         model=self._model_override,
                         base_url=self._base_url_override,
                         media_overrides=self._media_overrides,
-                        thinking=self._thinking,
-                        speculation=self._speculation,
+                        thinking=thinking,
+                        speculation=speculation,
                         stream=self._stream,
                         workspace_root=self._workspace_root,
                     )

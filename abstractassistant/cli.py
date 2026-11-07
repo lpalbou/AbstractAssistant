@@ -86,11 +86,40 @@ SIGN_IN_HINT = (
 )
 
 
+class WorkflowUnavailableError(RuntimeError):
+    """No runnable workflow; ``status`` is the HTTP status of the gateway's refusal behind it."""
+
+    def __init__(self, message: str, *, status: int = 0) -> None:
+        super().__init__(message)
+        self.status = int(status or 0)
+
+
 def _is_auth_failure(exc: BaseException) -> bool:
-    """A 401 from the gateway, directly or as the catalog's auth message."""
-    if int(getattr(exc, "status", 0) or 0) == 401:
+    """A 401 from the gateway, or a catalog the gateway refused with 401/403. Read from the HTTP
+    status, never from the error's words."""
+    status = int(getattr(exc, "status", 0) or 0)
+    if status == 401:
         return True
-    return "authentication failed" in str(exc).lower()
+    return isinstance(exc, WorkflowUnavailableError) and status in {401, 403}
+
+
+def _guarded_scope(controller: Any, scope: Dict[str, Any]) -> Dict[str, Any]:
+    """Only the reasoning level and MTP value the chat model can use (the tray's send-time guard,
+    ``controller.sendable_model_options``). When the guard cannot run, no MTP depth is sent; an
+    explicit Off is kept (it only ever turns MTP off)."""
+    out = dict(scope)
+    guard = getattr(controller, "sendable_model_options", None)
+    try:
+        guarded = guard(out.get("thinking"), out.get("speculation")) if callable(guard) else None
+    except Exception:
+        guarded = None
+    if isinstance(guarded, tuple) and len(guarded) == 2:
+        out["thinking"], out["speculation"] = guarded
+        if out["speculation"] is None:
+            out.pop("speculation")
+    elif out.get("speculation") is not False:
+        out.pop("speculation", None)
+    return out
 
 
 def _format_tool_arguments(arguments: Any) -> str:
@@ -235,8 +264,9 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
     llm_manager = controller.llm_manager
     selected_workflow = controller.current_workflow()
     if selected_workflow is None:
-        detail = controller.workflow_status().error or "Gateway exposes no runnable workflows for the assistant"
-        raise RuntimeError(detail)
+        status = controller.workflow_status()
+        detail = status.error or "Gateway exposes no runnable workflows for the assistant"
+        raise WorkflowUnavailableError(detail, status=int(getattr(status, "status", 0) or 0))
 
     llm_manager.append_message(role="user", content=args.prompt)
     # The terminal turn honors the same local, persistent overrides as the
@@ -252,6 +282,7 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
 
     text_override = dict(_call("route_override", "output.text", default=None) or {})
     scope = dict(_call("run_scope", default=None) or {})
+    scope = _guarded_scope(controller, scope)
     input_data = build_run_input_data(
         prompt=args.prompt,
         allowed_tools=controller.allowed_tools_for_run(),

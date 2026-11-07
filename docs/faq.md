@@ -29,8 +29,8 @@ you pin a different provider and model **for this app only**. The pin is stored 
 
 It sets the thinking level (none to extra high) sent with every run, using the gateway's own
 contract. The page shows which model it applies to and which levels that model reports; a level
-the model cannot honor is mapped to the nearest supported one by AbstractCore. "Gateway default"
-sends nothing.
+the model's capability card does not list is greyed out and never sent. Choosing another chat model
+puts it back on "Gateway default", which sends nothing.
 
 ## Can I choose which workspaces the assistant may use?
 

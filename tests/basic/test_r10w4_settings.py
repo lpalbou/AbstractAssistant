@@ -124,29 +124,32 @@ def test_non_mtp_model_shows_the_list_disabled_with_the_gateway_sentence() -> No
     dlg, ctl, editor = _mtp_editor(NOT_MTP)
     combo = editor.speculation_combo
     assert not combo.isEnabled()
-    assert [combo.itemData(i) for i in range(combo.count())] == [None, False]
-    assert editor.speculation_note.text() == "native_mtp_backend_unavailable"
-    # A pinned value stays changeable so it can go back to Gateway default.
+    # Operator rule 2026-11-07: no Off and no depth for a model without MTP.
+    assert [combo.itemData(i) for i in range(combo.count())] == [None]
+    assert editor.speculation_note.text() == "This model does not support MTP."
+    assert editor.speculation_detail.text() == "native_mtp_backend_unavailable"
+    # A saved depth stays unchosen and the list stays disabled: it is never sent.
     ctl.update_preferences(speculation={"mode": "native_mtp", "num_draft_tokens": 4})
     editor._apply_speculation_payload(editor._speculation_epoch, NOT_MTP)
-    assert combo.isEnabled()
-    assert combo.currentText() == "Depth 4 (saved; not available)"
+    assert not combo.isEnabled()
+    assert combo.currentText() == "Gateway default"
 
 
 @pytest.mark.basic
 def test_mtp_notes_are_the_kit_sentences() -> None:
-    from abstractassistant.speculation import speculation_options
+    from abstractassistant.speculation import speculation_view
 
     def note(caps):
-        return speculation_options({"execution": {"speculation": caps}})[1]
+        return speculation_view({"execution": {"speculation": caps}})["note"]
 
     assert note({"supported": True, "ready": False, "supported_depths": [2]}) == "MTP is supported but not ready on this instance."
     assert note({"supported": True, "supported_depths": [2]}) == "MTP support verified; loaded-instance readiness is unknown."
     assert note({"supported": True, "requires_reload": True, "supported_depths": [2]}) == "Model reload required before MTP can run."
-    assert note({"supported": False}) == "MTP is not supported on this model/backend."
-    assert speculation_options({})[1] == "MTP capability unknown; no depth is assumed."
+    assert note({"supported": False}) == "This model does not support MTP."
+    assert note({"supported": False, "message": "Load the MTP head first."}) == "Load the MTP head first."
+    assert speculation_view({})["note"] == "MTP is offered when the gateway confirms this model supports it."
     # No `supported` boolean = not described (kit speculationCapability → null).
-    assert speculation_options({"execution": {"speculation": {"supported_depths": [2]}}})[0] == [(None, "Gateway default"), (False, "Off")]
+    assert speculation_view({"execution": {"speculation": {"supported_depths": [2]}}})["choices"] == [(None, "Gateway default")]
 
 
 # --------------------------------------------------------------------------- #

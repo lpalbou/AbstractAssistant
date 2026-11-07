@@ -168,11 +168,14 @@ def test_reasoning_belongs_to_the_chat_model_not_the_page() -> None:
     values = [combo.itemData(i) for i in range(combo.count())]
     assert values == ["", "none", "low", "medium", "high"]
     assert combo.currentData() == ""  # gateway default until chosen
-    editor._on_reasoning_changed("high")
-    assert ctl.preferences.reasoning_effort == "high"
+    editor._on_reasoning_changed("medium")
+    assert ctl.preferences.reasoning_effort == "medium"
     note = editor.reasoning_note.toolTip()  # the full sentence; the label shows it elided
     assert "qwen/qwen3.8-27b" in note and "low, medium, xhigh" in note
-    assert "Currently sending: High" in note
+    assert "Currently sending: Medium" in note
+    # A level the model's card does not list is not sent (operator rule 2026-11-07).
+    editor._on_reasoning_changed("high")
+    assert "Currently sending" not in editor.reasoning_note.toolTip()
 
     # Every other route hides it: none of those models reasons.
     for key in ("output.voice", "input.voice", "output.image", "output.video", "output.music"):
@@ -202,8 +205,8 @@ def test_mtp_selector_preserves_off_and_rejects_stale_discovery(tmp_path) -> Non
     dlg.show_section("models", "output.text")
     editor = dlg.page_models.route_editor
     combo = editor.speculation_combo
-    assert [combo.itemData(i) for i in range(combo.count())] == [None, False]
-    assert "unknown" in editor.speculation_note.text()
+    assert [combo.itemData(i) for i in range(combo.count())] == [None]
+    assert editor.speculation_note.text() == "MTP is offered when the gateway confirms this model supports it."
     payload = {"execution": {"speculation": {
         "supported": True, "ready": False, "reason": "head_not_loaded",
         "supported_depths": [2, 3, 4, 5], "default": {"mode": "native_mtp", "num_draft_tokens": 2},
@@ -220,7 +223,10 @@ def test_mtp_selector_preserves_off_and_rejects_stale_discovery(tmp_path) -> Non
     combo.setCurrentIndex(3)
     assert ctl.preferences.speculation == {"mode": "native_mtp", "num_draft_tokens": 3, "require_acceleration": True}
     editor._apply_speculation_payload(editor._speculation_epoch, {})
-    assert combo.currentText() == "Depth 3 (saved; not available)"
+    # Unknown capability: the saved depth is not shown as chosen and nothing can be picked.
+    assert combo.currentText() == "Gateway default" and not combo.isEnabled()
+    editor._apply_speculation_payload(editor._speculation_epoch, payload)
+    assert combo.currentText() == "Depth 3"
     combo.setCurrentIndex(0)
     assert ctl.preferences.speculation is None
     editor._apply_speculation_payload(editor._speculation_epoch, payload)

@@ -11,7 +11,7 @@ import re
 import threading
 import time
 import warnings
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from abstractassistant.config import BUILTIN_GATEWAY_URL, Config, default_gateway_url
 from abstractassistant.core.tool_policy import ToolApprovalPolicy
@@ -948,6 +948,39 @@ class AssistantController:
             self._execution_capabilities_cache[key] = (time.monotonic(), result)
         return result
 
+    def sendable_model_options(self, thinking: Any, speculation: Any) -> Tuple[str, Any]:
+        """Send-time guard (the kit's ``resolveSendableModelOptions``, operator rule 2026-11-07):
+        the reasoning level and MTP value the model that will serve the run can use, as
+        ``(thinking, speculation)`` with "" / None meaning "send nothing".
+
+        Reads that model's capability card only when something is set. A card that cannot be
+        read sends no MTP depth (an explicit Off is kept, and so is the reasoning level: unknown
+        is not unsupported). This is
+        what makes a saved MTP depth harmless with a model that has no MTP (the incident: a
+        saved depth sent with an endpoint model was refused on every run). Network work: call
+        it off the GUI thread (the worker does)."""
+        from .model_options import sendable_model_options
+        from .speculation import normalize_speculation
+
+        reasoning = str(thinking or "").strip().lower()
+        try:
+            wanted = normalize_speculation(speculation)
+        except ValueError:
+            wanted = None
+        if not reasoning and wanted is None:
+            return "", None
+        payload: Any = None
+        try:
+            route = self.effective_chat_route()
+            model = str(route.get("model") or "").strip()
+            if model:
+                payload = self.execution_capabilities(str(route.get("provider") or ""), model)
+        except Exception:
+            payload = None
+        if not isinstance(payload, dict) or not payload or payload.get("error"):
+            payload = None
+        return sendable_model_options(reasoning, wanted, payload)
+
     def voice_defaults(self) -> Dict[str, Any]:
         """The gateway's default voice engines (``GET /voice/defaults``), as
         Settings → Voice shows them read-only: ``{"tts": {...}, "stt": {...}}``
@@ -1544,6 +1577,8 @@ class AssistantController:
             media_overrides=self.media_route_overrides() or None,
             thinking=str(scope.get("thinking") or ""),
             speculation=scope.get("speculation"),
+            # Applied by the worker, off the GUI thread, right before the run starts.
+            model_options_guard=self.sendable_model_options,
             stream=scope.get("stream"),
             workspace_root=str(scope.get("workspace_root") or ""),
             debug=self.debug,

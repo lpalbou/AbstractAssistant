@@ -324,6 +324,10 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
 - `ui/activity.py` — the run activity model (steps, durations, header copy) and the transcript card.
 - `ui/approval.py`, `core/tool_presenter.py`, `core/tool_risk.py` — tool approval sheet and
   post-hoc tool cards; presentation of calls and of the gateway's risk classification.
+- `speculation.py`, `model_options.py` — the MTP depth control's choices and sentences, and the rule
+  shared with the kit's controls: reasoning and MTP follow the selected chat model (offered and sent
+  only when its capability card allows them; `controller.sendable_model_options` is the send-time
+  guard the run worker applies).
 - `ui/settings/` — the settings window (sidebar, pages, extracted route editor). The About page
   builds its application rows and its gateway version rows with AbstractCore's framework identity
   helpers (`abstractcore.utils.identity`), so they match every other AbstractFramework About screen.

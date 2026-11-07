@@ -51,7 +51,8 @@ from PyQt5.QtWidgets import (
 
 from ...gateway_service import ROUTE_SPECS, CapabilityRouteRow
 from ...preferences import REASONING_EFFORT_LEVELS
-from ...speculation import speculation_configurable, speculation_options
+from ...model_options import reasoning_facts, usable_reasoning
+from ...speculation import speculation_view
 from ...icons import symbol_icon
 from ...theme import THEME
 from .common import LABEL_COLUMN_MIN, safe_attr, safe_call
@@ -474,13 +475,37 @@ class RouteOverrideEditor(QWidget):
         self.speculation_label = QLabel("MTP depth")
         self.speculation_combo = QComboBox()
         self.speculation_combo.currentIndexChanged.connect(self._on_speculation_changed)
+        # Under the list: why it offers what it offers (the gateway's sentence or the kit's), and
+        # the gateway's own reason code or discovery error one click away under "Technical
+        # details" — readable in full, never the main text (the kit's SpeculationSelect).
+        self.speculation_note_box = QWidget()
+        note_box = QVBoxLayout(self.speculation_note_box)
+        note_box.setContentsMargins(0, 0, 0, 0)
+        note_box.setSpacing(2)
         self.speculation_note = QLabel("")
         self.speculation_note.setObjectName("routeHelp")
         self.speculation_note.setTextFormat(Qt.PlainText)
         self.speculation_note.setWordWrap(True)
+        note_box.addWidget(self.speculation_note)
+        self.speculation_details_button = QPushButton("")
+        self.speculation_details_button.setObjectName("linkButton")
+        self.speculation_details_button.setFlat(True)
+        self.speculation_details_button.setCheckable(True)
+        self.speculation_details_button.setAutoDefault(False)
+        self.speculation_details_button.setCursor(Qt.PointingHandCursor)
+        self.speculation_details_button.toggled.connect(self._show_speculation_detail)
+        note_box.addWidget(self.speculation_details_button, 0, Qt.AlignLeft)
+        self.speculation_detail = QLabel("")
+        self.speculation_detail.setObjectName("routeHelp")
+        self.speculation_detail.setTextFormat(Qt.PlainText)
+        self.speculation_detail.setWordWrap(True)
+        self.speculation_detail.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        note_box.addWidget(self.speculation_detail)
+        self._speculation_supported = False
+        self._show_speculation_detail(False)
         form.addWidget(self.speculation_label, 6, 0)
         form.addWidget(self.speculation_combo, 6, 1)
-        form.addWidget(self.speculation_note, 7, 1)
+        form.addWidget(self.speculation_note_box, 7, 1)
 
         # Hidden: the per-run override pins carry provider/model only, so an
         # upscale resolution would be saved and silently ignored.
@@ -712,7 +737,8 @@ class RouteOverrideEditor(QWidget):
         self.sample_button.setEnabled(enabled)
         self.resolution_combo.setEnabled(enabled)
         self.reasoning_combo.setEnabled(enabled)
-        self.speculation_combo.setEnabled(enabled)
+        # MTP depth is choosable only for a model the gateway says supports MTP.
+        self.speculation_combo.setEnabled(enabled and bool(getattr(self, "_speculation_supported", False)))
 
     def _route_dot_icon(self, *, configured: bool) -> QIcon:
         size = 10
@@ -859,6 +885,7 @@ class RouteOverrideEditor(QWidget):
     def _on_provider_combo_changed(self) -> None:
         if bool(getattr(self, "_loading_route", False)):
             return
+        self._reset_model_options()
         # Repopulating the model list can restore the saved model (when the
         # provider is the one already stored), so apply AFTER it, not before.
         self._refresh_models_for_provider()
@@ -867,8 +894,29 @@ class RouteOverrideEditor(QWidget):
     def _on_model_combo_changed(self) -> None:
         if bool(getattr(self, "_loading_route", False)):
             return
+        self._reset_model_options()
         self._refresh_voice_choices()
         self._apply_selection()
+
+    def _reset_model_options(self) -> None:
+        """The person changed the chat route's provider or model: reasoning effort and MTP go
+        back to the gateway default (nothing sent), and that is saved — the operator's rule
+        (2026-11-07), the kit's ``resetModelOptions``. Both are properties of the model just
+        left, never of the one just chosen."""
+        row = self._active_row()
+        if row is None or row.key != "output.text":
+            return
+        prefs = _prefs(self._controller)
+        if not str(safe_attr(prefs, "reasoning_effort", "") or "") and safe_attr(prefs, "speculation", None) is None:
+            return
+        if not _update_prefs(self._controller, reasoning_effort="", speculation=None):
+            self._feedback("Not saved. Reasoning and MTP could not be put back on the gateway default.", tone="error")
+            return
+        for combo in (self.reasoning_combo, self.speculation_combo):
+            combo.blockSignals(True)
+            combo.setCurrentIndex(0)  # item 0 of both lists is "Gateway default"
+            combo.blockSignals(False)
+        self._set_reasoning_note(self._reasoning_caption(""))
 
     def _on_voice_combo_changed(self) -> None:
         if bool(getattr(self, "_loading_route", False)):
@@ -1127,34 +1175,28 @@ class RouteOverrideEditor(QWidget):
 
     def _refresh_reasoning(self) -> None:
         options = list(getattr(self, "_reasoning_options", None) or [("", "Gateway default")])
-        levels = [value for value, _label in options if value]
         prefs = _prefs(self._controller)
         current = str(safe_attr(prefs, "reasoning_effort", "") or "")
         if current not in dict(options):
             current = ""
-        supported = self._model_reasoning_levels()
+        card = self._chat_model_card()
+        facts = reasoning_facts(card) if card else {"levels": [], "support": None}
+        if card:
+            # A saved level this model's card rules out is not shown as chosen, and it is never
+            # sent (the kit's usableReasoning; the send-time guard drops it too).
+            current = usable_reasoning(current, card)
         model = self.reasoning_combo.model()
         self.reasoning_combo.blockSignals(True)
         for index in range(self.reasoning_combo.count()):
             value = str(self.reasoning_combo.itemData(index) or "")
-            # A level this model does not report stays listed but unselectable
-            # — except the one already saved, so the caption can explain that
-            # AbstractCore maps it to the nearest level it can honor.
-            usable = (
-                not value
-                or supported is None
-                or value in supported
-                or value == current
+            usable = not value or (
+                facts["support"] is not False and (not facts["levels"] or value in facts["levels"])
             )
             item = model.item(index) if hasattr(model, "item") else None
             if item is not None:
                 item.setEnabled(usable)
             self.reasoning_combo.setItemData(
-                index,
-                ""
-                if usable
-                else "Not reported by this model; AbstractCore maps it to the nearest level it can honor.",
-                Qt.ToolTipRole,
+                index, "" if usable else "This model does not advertise it", Qt.ToolTipRole
             )
         self.reasoning_combo.setCurrentIndex(max(0, self.reasoning_combo.findData(current)))
         self.reasoning_combo.blockSignals(False)
@@ -1197,16 +1239,12 @@ class RouteOverrideEditor(QWidget):
             "source": "gateway",
         }
 
-    def _model_reasoning_levels(self) -> Optional[set]:
-        """The reasoning levels the effective chat model reports, or None when
-        no capability card lists any (then every level stays selectable)."""
-        route = self._effective_chat_route()
-        model = str(route.get("model") or "").strip()
+    def _chat_model_card(self) -> Optional[Dict[str, Any]]:
+        """The capability card of the effective chat model, or None when there is none to read
+        (then every level stays selectable: unknown is not unsupported)."""
+        model = str(self._effective_chat_route().get("model") or "").strip()
         card = safe_call(self._controller, "model_capabilities", model, default=None) if model else None
-        if not isinstance(card, dict) or card.get("thinking_support") is not True:
-            return None
-        levels = {str(v).strip().lower() for v in (card.get("reasoning_levels") or []) if str(v).strip()}
-        return levels or None
+        return dict(card) if isinstance(card, dict) and card else None
 
     def _reasoning_caption(self, current: str) -> str:
         route = self._effective_chat_route()
@@ -1217,17 +1255,17 @@ class RouteOverrideEditor(QWidget):
             target = "the gateway's default chat model"
         else:
             target = f"{provider + ' / ' if provider else ''}{model} ({source})"
-        card = safe_call(self._controller, "model_capabilities", model, default=None) if model else None
+        card = self._chat_model_card() if model else None
         lines = [f"Applies to {target}."]
-        if isinstance(card, dict) and card:
-            supports = card.get("thinking_support")
-            levels = [str(v) for v in (card.get("reasoning_levels") or []) if str(v)]
-            if supports is True and levels:
-                lines.append(f"This model reports reasoning levels {', '.join(levels)}; other levels map to the nearest one AbstractCore can honor.")
-            elif supports is True:
+        if card:
+            facts = reasoning_facts(card)
+            current = usable_reasoning(current, card)
+            if facts["support"] is False:
+                lines.append("This model does not report reasoning support, so no level is sent.")
+            elif facts["levels"]:
+                lines.append(f"This model reports reasoning levels {', '.join(facts['levels'])}.")
+            elif facts["support"] is True:
                 lines.append("This model reports reasoning support; the level is passed as a best-effort hint.")
-            elif supports is False:
-                lines.append("This model does not report reasoning support — the setting is sent, but the model may ignore it.")
         elif model:
             lines.append("No capability card for this model; AbstractCore maps an unsupported level to the nearest one it can honor.")
         if current:
@@ -1256,7 +1294,7 @@ class RouteOverrideEditor(QWidget):
         fetch = getattr(self._controller, "execution_capabilities", None)
         if not callable(fetch) or not route.get("model"):
             return
-        self.speculation_note.setText("Checking MTP capability…")
+        self._show_speculation(speculation_view({}, loading=True))
         # Discovery is read-only and stays off the Qt thread. Stale results from
         # another provider/model selection can never replace the current choices.
         def discover():
@@ -1274,21 +1312,40 @@ class RouteOverrideEditor(QWidget):
         if epoch != self._speculation_epoch:
             return
         current = safe_attr(_prefs(self._controller), "speculation", None)
-        options, note = speculation_options(payload, current)
+        self._show_speculation(speculation_view(payload, current))
+
+    def _show_speculation(self, view: Dict[str, Any]) -> None:
+        """Operator rule 2026-11-07 (the kit's SpeculationSelect): Off and the depths are offered
+        only when the SELECTED model's capability card says MTP is supported. Otherwise the list
+        sits disabled on "Gateway default" and says why; a saved depth the model cannot use is
+        not shown as chosen (and the send-time guard never sends it)."""
         self.speculation_combo.blockSignals(True)
         self.speculation_combo.clear()
         selected = 0
-        for index, (value, label) in enumerate(options):
+        for index, (value, label) in enumerate(view["choices"]):
             self.speculation_combo.addItem(label, value)
-            if value == current:
+            if value is not None and value == view["selected"]:
                 selected = index
         self.speculation_combo.setCurrentIndex(selected)
         self.speculation_combo.blockSignals(False)
-        # Configurable when the selected model is MTP-capable (or discovery has
-        # not said otherwise); a model the gateway reports without MTP shows the
-        # list disabled with the gateway's sentence — never an invented depth.
-        self.speculation_combo.setEnabled(speculation_configurable(payload, current))
-        self.speculation_note.setText(str(payload.get("error") or note) if isinstance(payload, dict) else note)
+        self._speculation_supported = bool(view["enabled"])
+        self.speculation_combo.setEnabled(self._speculation_supported)
+        self.speculation_combo.setProperty("speculationState", view["state"])
+        self.speculation_note.setText(view["note"])
+        self.speculation_note.setVisible(bool(view["note"]))
+        self.speculation_detail.setText(view["detail"])
+        self.speculation_details_button.setVisible(bool(view["detail"]))
+        self._show_speculation_detail(self.speculation_details_button.isChecked())
+
+    def _show_speculation_detail(self, shown: bool) -> None:
+        """The disclosure says its state: "▸" closed, "▾" open."""
+        has_detail = bool(self.speculation_detail.text())
+        open_ = bool(shown) and has_detail
+        self.speculation_details_button.setText(("▾ " if open_ else "▸ ") + "Technical details")
+        self.speculation_details_button.setAccessibleName(
+            "Hide the technical details" if open_ else "Show the technical details"
+        )
+        self.speculation_detail.setVisible(open_)
 
     def _on_speculation_changed(self, _index: int) -> None:
         value = self.speculation_combo.currentData()
@@ -1307,7 +1364,7 @@ class RouteOverrideEditor(QWidget):
     def _apply_route_specific_state(self, row: CapabilityRouteRow) -> None:
         is_chat = row.key == "output.text"
         for widget in (self.reasoning_label, self.reasoning_combo, self.reasoning_note,
-                       self.speculation_label, self.speculation_combo, self.speculation_note):
+                       self.speculation_label, self.speculation_combo, self.speculation_note_box):
             widget.setVisible(is_chat)
         if is_chat:
             self._refresh_reasoning()

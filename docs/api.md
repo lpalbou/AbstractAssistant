@@ -123,8 +123,9 @@ The gateway's `resolved_workflow` for the last run start is shown in Settings �
 
 Executes one turn in the terminal through the same workflow choice as the tray. Tool approvals are asked
 interactively. The turn honors the same local overrides as the tray: chat model pin, media pins,
-reasoning effort and reply streaming from `preferences.json`; the workspaces come from the gateway
-(the chat's subset, else your account default, else the gateway policy).
+reasoning effort, MTP depth and reply streaming from `preferences.json` — reasoning and MTP only
+when the chat model's capability card allows them, as in the tray; the workspaces come from the
+gateway (the chat's subset, else your account default, else the gateway policy).
 
 `--stream on|off` overrides the app's **Stream replies** switch (on unless switched off in
 Settings) for this turn. The run always says `_runtime.stream` explicitly: `true` only to a gateway
@@ -176,7 +177,7 @@ default applies:
 |---|---|
 | `provider`, `model`, `base_url` and `_runtime.provider/model/base_url` | chat model override |
 | `_runtime.thinking` | reasoning effort |
-| `_runtime.speculation` | MTP depth: `false` for Off, `{"mode": "native_mtp", "num_draft_tokens": N, "require_acceleration": true}` for a depth; omitted to follow the gateway default |
+| `_runtime.speculation` | MTP depth: `false` for Off, `{"mode": "native_mtp", "num_draft_tokens": N, "require_acceleration": true}` for a depth; omitted to follow the gateway default, and omitted when the chat model's capability card does not say it supports MTP at that depth (or cannot be read) |
 | `_runtime.stream` | Stream replies, ALWAYS sent: `true` when the switch is on and the cached `/discovery/capabilities` answer advertises `streaming.deltas: true`, `false` otherwise (the gateway's `streaming.default` never decides for this app) |
 | `workspace_root` | the chat's private workspace, once the gateway gave it on the chat's first run (blank before); which other workspaces the run may use is resolved by the gateway at run start — the chat's subset (`/sessions/{id}/workspaces`) > the account default (`/workspace/policy/me`) > the gateway policy — never sent per run |
 | `image_provider/image_model`, `image_edit_*`, `image_upscale_*`, `video_*`, `image_to_video_*`, `music_*`, `sound_output` | media route overrides |

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 import warnings
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from .assistant_workflow import (
@@ -107,6 +107,9 @@ class GatewayDefaultWorkflow:
 class WorkflowCatalogStatus:
     source: str = "tenant_catalog"
     error: str = ""
+    # The HTTP status of the gateway's refusal behind ``error`` (401/403 = not signed in or not
+    # allowed), 0 when there was none: what callers branch on, never the error's words.
+    status: int = 0
 
 
 @dataclass(frozen=True)
@@ -379,7 +382,9 @@ class AssistantGatewayService:
             options = list(self._last_catalog_options)
         except Exception as exc:
             detail = self._describe_gateway_exception(exc)
-            self._last_workflow_status = WorkflowCatalogStatus(source="tenant_catalog", error=detail)
+            self._last_workflow_status = WorkflowCatalogStatus(
+                source="tenant_catalog", error=detail, status=int(getattr(exc, "status", 0) or 0)
+            )
             # Publishing the built-in failed, but the catalog was read: its
             # other workflows (and the gateway default) stay usable, and the
             # controller names this error if nothing else can run.
@@ -388,8 +393,9 @@ class AssistantGatewayService:
         if resolved:
             self._last_workflow_status = WorkflowCatalogStatus(source="tenant_catalog", error="")
             return resolved
-        detail = self._blocking_gateway_issue() or "No published AbstractAssistant workflow is available in the gateway catalog."
-        self._last_workflow_status = WorkflowCatalogStatus(source="tenant_catalog", error=detail)
+        issue, status = self._blocking_gateway_issue()
+        detail = issue or "No published AbstractAssistant workflow is available in the gateway catalog."
+        self._last_workflow_status = WorkflowCatalogStatus(source="tenant_catalog", error=detail, status=status)
         return []
 
     def workflow_status(self) -> WorkflowCatalogStatus:
@@ -729,18 +735,19 @@ class AssistantGatewayService:
         rows.sort(key=lambda o: (0 if self.is_managed_option(o) else 1, o.label.lower(), o.bundle_id, o.flow_id))
         return rows
 
-    def _blocking_gateway_issue(self) -> str:
+    def _blocking_gateway_issue(self) -> Tuple[str, int]:
+        """(what blocks the gateway, the HTTP status of its refusal or 0)."""
         gateway_me = getattr(self._gateway, "gateway_me", None)
         if not callable(gateway_me):
-            return ""
+            return "", 0
         try:
             payload = gateway_me()
         except Exception as exc:
-            return self._describe_gateway_exception(exc)
+            return self._describe_gateway_exception(exc), int(getattr(exc, "status", 0) or 0)
         if isinstance(payload, dict) and payload.get("ok") is False:
             detail = str(payload.get("detail") or "Gateway connection failed.").strip()
-            return detail
-        return ""
+            return detail, 0
+        return "", 0
 
     def _describe_gateway_exception(self, exc: Exception) -> str:
         status = int(getattr(exc, "status", 0) or 0)
