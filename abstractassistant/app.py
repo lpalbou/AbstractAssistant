@@ -11448,12 +11448,13 @@ class AssistantPalette(QMainWindow):
         action.setCheckable(True)
         action.setChecked(in_conversation)
         reason = "" if in_conversation else self._voice_conversation_unavailable_reason()
+        # Ticked exactly while a voice turn runs (listening, sending, speaking the reply);
+        # it unticks by itself when the turn is over.
         if reason:
             action.setEnabled(False)
-            action.setToolTip(reason)
-        # Ticked exactly while a voice turn runs (listening, sending, speaking the reply);
-        # it unticks by itself when the turn is over. Unticking it ends the turn early.
-        action.setToolTip("One question per press: it listens until you pause, sends, speaks the reply, then stops.")
+            action.setToolTip(reason)  # a disabled item says why, never what it would do
+        else:
+            action.setToolTip("One question per press: it listens until you pause, sends, speaks the reply, then stops.")
         action.triggered.connect(lambda _checked: self._toggle_voice_conversation())
         dictate = menu.addAction("Dictate into the message box")
         dictate.setCheckable(True)

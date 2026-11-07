@@ -272,3 +272,20 @@ def test_the_floating_orb_has_its_own_translucent_backdrop_in_every_theme(orb_pa
     # The desktop gap between the composer and the orb is untouched.
     gap_x = (window.composer_card.geometry().right() + button.x()) // 2
     assert image.pixelColor(int(gap_x * ratio), int(button.geometry().center().y() * ratio)).alpha() == 0
+
+
+@pytest.mark.basic
+def test_a_disabled_voice_conversation_item_says_why(orb_palette):
+    """Operator rule (a disabled item says why): with no gateway connection the greyed-out
+    item's tooltip is the reason, not the description of what it would do (review A1)."""
+    window, controller = orb_palette
+    connected = controller.current_workflow
+    controller.current_workflow = lambda: None
+    menu = window._build_voice_menu()
+    assert menu.toolTipsVisible()
+    item = {a.text(): a for a in menu.actions() if not a.isSeparator()}["Voice conversation (⌘⇧V)"]
+    assert not item.isEnabled()
+    assert item.toolTip() == "Connect to the gateway before starting a voice conversation."
+    controller.current_workflow = connected
+    item = {a.text(): a for a in window._build_voice_menu().actions() if not a.isSeparator()}["Voice conversation (⌘⇧V)"]
+    assert item.isEnabled() and item.toolTip().startswith("One question per press")
