@@ -317,11 +317,12 @@ def test_voice_strip_owns_its_state_tints() -> None:
         strip.set_state(state)
         assert strip.property("state") == state
         assert strip.status.property("state") == state
-        assert strip.pause_button.isHidden()  # a voice turn has no microphone to pause
+        assert not hasattr(strip, "pause_button")  # a voice turn has no microphone to pause
     for state in ("starting", "transcribing", "thinking", "error"):
         assert f'QFrame#voiceStrip[state="{state}"]' in VOICE_STRIP_QSS, state
     strip.set_state("speaking")
-    assert not strip.stop_button.isHidden() and strip.pause_button.isHidden()
+    assert not strip.stop_button.isHidden()
+    assert not hasattr(strip, "pause_toggled")
     assert strip.interrupt_button.toolTip().startswith("Stop the run")
 
 

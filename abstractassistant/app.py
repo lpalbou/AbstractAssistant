@@ -8933,7 +8933,7 @@ class AssistantPalette(QMainWindow):
         if active_modal is not None and active_modal.isVisible():
             return
         if bool(self._state("_voice_conversation_active", False)):
-            # A hands-free conversation is a control surface; keep it on screen.
+            # A voice question in progress is a control surface; keep it on screen.
             return
         for dialog in self._aux_dialogs():
             try:
@@ -12721,8 +12721,8 @@ class AssistantPalette(QMainWindow):
     def _install_speech_meter(self) -> None:
         """Own the voice manager's meter callback.
 
-        The hands-free conversation installs its own while it runs and clears
-        it on stop, so this is re-asserted afterwards; without it the tray
+        A voice question installs its own while it runs and clears it when the
+        turn ends, so this is re-asserted afterwards; without it the tray
         would go quiet for every speech after the first conversation ended.
         """
         manager = getattr(self._controller, "voice_manager", None)

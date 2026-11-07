@@ -144,7 +144,6 @@ class LevelMeter(QWidget):
 
 
 class VoiceStrip(QFrame):
-    pause_toggled = pyqtSignal()
     stop_speech_requested = pyqtSignal()
     interrupt_requested = pyqtSignal()
     end_requested = pyqtSignal()
@@ -186,8 +185,6 @@ class VoiceStrip(QFrame):
             row.addWidget(button, 0, Qt.AlignVCenter)
             return button
 
-        self.pause_button = _button("pause", "pause", "Pause the microphone")
-        self.pause_button.clicked.connect(self.pause_toggled.emit)
         self.stop_button = _button("stop", "stop", "Stop speaking")
         self.stop_button.clicked.connect(self.stop_speech_requested.emit)
         self.interrupt_button = _button("interrupt", "hand", "Stop the run (⌘.)")
@@ -219,8 +216,6 @@ class VoiceStrip(QFrame):
         self.meter.set_active(normalized in _METER_STATES)
         if normalized not in _METER_STATES:
             self.meter.set_level(0.0)
-        # A voice turn is one utterance: there is no microphone to pause between turns.
-        self.pause_button.setVisible(False)
         self.stop_button.setVisible(normalized == "speaking")
         self.interrupt_button.setVisible(normalized == "thinking")
         refresh_style(self)
