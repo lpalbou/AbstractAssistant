@@ -51,7 +51,7 @@ class _Ctl(tsp._Controller):
         return [ChoiceItem(id="mlx", label="mlx"), ChoiceItem(id="endpoint:airelays", label="airelays")]
 
     def model_choices(self, *, provider="", **kwargs):
-        return [ChoiceItem(id="mlx-mtp", label="mlx-mtp")] if provider == "mlx" else [
+        return [ChoiceItem(id="mlx-mtp", label="mlx-mtp"), ChoiceItem(id="mlx-plain", label="mlx-plain")] if provider == "mlx" else [
             ChoiceItem(id="gpt-5.6-terra", label="gpt-5.6-terra")]
 
     def route_map(self, **kwargs):
@@ -159,6 +159,19 @@ def test_changing_the_chat_model_resets_reasoning_and_mtp_to_the_gateway_default
 
 
 @pytest.mark.basic
+def test_changing_only_the_model_on_the_same_provider_resets_them() -> None:
+    """The MODEL-only path: provider stays mlx, the model changes."""
+    ctl = _with_choices(_Ctl())
+    ctl.overrides["output.text"] = {"provider": "mlx", "model": "mlx-mtp"}
+    dlg, ctl, editor = _editor(ctl)
+    assert editor.provider_combo.currentData() == "mlx" and editor.model_combo.currentData() == "mlx-mtp"
+    editor.model_combo.setCurrentIndex(editor.model_combo.findData("mlx-plain"))
+    assert ctl.overrides["output.text"] == {"provider": "mlx", "model": "mlx-plain"}
+    assert ctl.preferences.reasoning_effort == "" and ctl.preferences.speculation is None
+    assert editor.reasoning_combo.currentIndex() == 0 and editor.speculation_combo.currentIndex() == 0
+
+
+@pytest.mark.basic
 def test_going_back_to_the_gateway_default_model_resets_them_too() -> None:
     ctl = _with_choices(_Ctl())
     ctl.overrides["output.text"] = {"provider": "mlx", "model": "mlx-mtp"}
@@ -235,15 +248,18 @@ def test_the_send_guard_keeps_only_what_the_card_allows() -> None:
     assert controller.sendable_model_options("", False) == ("", False)
     assert controller.sendable_model_options("xhigh", {"mode": "native_mtp", "num_draft_tokens": 7}) == ("", None)
     no_reasoning, _ = _controller({**NO_MTP, "capabilities": {"thinking_support": False}})
-    assert no_reasoning.sendable_model_options("high", False) == ("", None)  # Off is not sent either
+    # Off is kept whatever the card says: it only ever turns MTP off.
+    assert no_reasoning.sendable_model_options("high", False) == ("", False)
     # Nothing set: no card is read.
     quiet, quiet_seen = _controller(MTP_CAPABLE)
     assert quiet.sendable_model_options("", None) == ("", None) and quiet_seen == []
-    # The card cannot be read: no MTP, the reasoning level is kept.
+    # The card cannot be read: no MTP depth, the reasoning level and an explicit Off are kept
+    # (an MLX model whose gateway default is MTP on must not override the person's Off).
     broken, _ = _controller(fails=True)
     assert broken.sendable_model_options("high", DEPTH_2) == ("high", None)
+    assert broken.sendable_model_options("", False) == ("", False)
     errored, _ = _controller({"error": "Gateway runtime does not expose AbstractCore discovery helpers."})
-    assert errored.sendable_model_options("low", False) == ("low", None)
+    assert errored.sendable_model_options("low", False) == ("low", False)
 
 
 @pytest.mark.basic
@@ -262,6 +278,28 @@ def test_the_worker_sends_what_the_guard_allows() -> None:
     )
     with pytest.warns(UserWarning):
         assert broken._sendable_model_options() == ("high", None)
+    # A guard that fails keeps an explicit Off (a gateway default of MTP on must not win).
+    off = worker_module.GatewayWorker(
+        llm_manager=None, user_text="hi", bundle_id="b", flow_id="f", thinking="", speculation=False,
+        model_options_guard=lambda *_: (_ for _ in ()).throw(TimeoutError("card read timed out")),
+    )
+    with pytest.warns(UserWarning):
+        assert off._sendable_model_options() == ("", False)
+
+
+@pytest.mark.basic
+def test_assistant_run_applies_the_guard_and_keeps_off_when_it_fails() -> None:
+    from abstractassistant import cli
+
+    def failing(*_):
+        raise TimeoutError("card read timed out")
+
+    scope = {"thinking": "high", "speculation": False, "stream": True}
+    assert cli._guarded_scope(SimpleNamespace(sendable_model_options=failing), scope)["speculation"] is False
+    depth = {"thinking": "high", "speculation": DEPTH_2}
+    assert "speculation" not in cli._guarded_scope(SimpleNamespace(sendable_model_options=failing), depth)
+    allowed = cli._guarded_scope(SimpleNamespace(sendable_model_options=lambda t, s: ("", None)), depth)
+    assert allowed["thinking"] == "" and "speculation" not in allowed
 
 
 @pytest.mark.basic
@@ -335,39 +373,116 @@ def test_the_error_mapping_is_gone() -> None:
         import abstractassistant.core.run_failure  # noqa: F401
 
 
-@pytest.mark.basic
-def test_a_long_failure_is_shown_in_full_and_opens_in_a_copyable_window() -> None:
-    from PyQt5.QtCore import QEvent, QPointF, Qt
-    from PyQt5.QtGui import QMouseEvent
-    from PyQt5.QtWidgets import QApplication
-
+def _real_palette():
     import test_palette_smoke as smoke
     from abstractassistant.app import AssistantPalette
 
     app = smoke._app()
     window = AssistantPalette(controller=smoke._Controller(), debug=False)
+    smoke._wait_for_bootstrap(window)
+    window.show()
+    app.processEvents()
+    return app, window
+
+
+def _close(app, window):
     try:
-        smoke._wait_for_bootstrap(window)
-        long_reason = "The run failed: " + SPECULATION_ERROR + " " + "x" * 400
-        window._set_history_status(long_reason, tone="error")
+        window.shutdown()
+    except Exception:
+        pass
+    window.deleteLater()
+    app.processEvents()
+
+
+def _click(widget):
+    from PyQt5.QtCore import QEvent, QPointF, Qt
+    from PyQt5.QtGui import QMouseEvent
+    from PyQt5.QtWidgets import QApplication
+
+    QApplication.sendEvent(widget, QMouseEvent(QEvent.MouseButtonRelease, QPointF(4, 4), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier))
+
+
+LONG_REASON = SPECULATION_ERROR + " | Caused by: HTTPError 400 from https://relay.example/v1/chat/completions: " + ("detail " * 80).strip()
+
+
+@pytest.mark.basic
+def test_a_long_failure_ends_visibly_and_opens_whole_in_a_scrollable_copyable_view() -> None:
+    from PyQt5.QtWidgets import QPlainTextEdit
+
+    from abstractassistant.app import ERROR_LINE_MORE
+
+    app, window = _real_palette()
+    try:
+        window._on_worker_event({"type": "run_error", "error": LONG_REASON, "run_id": "run-1"})
+        window._on_worker_event({"type": "status", "status": "failed"})
+        window._run_has_final_output = False
+        window._on_worker_finished()
+        app.processEvents()
         label = window.chat_status_label
-        assert label.text() == long_reason  # never cut
-        # However small the window, a click opens the whole text in a window it can be copied from.
-        release = QMouseEvent(QEvent.MouseButtonRelease, QPointF(4, 4), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
-        QApplication.sendEvent(label, release)
-        box = window._failure_text_box
-        assert box.text() == long_reason
-        assert box.textInteractionFlags() & Qt.TextSelectableByMouse
-        box.close()
+        whole = f"The run failed: {LONG_REASON}"
+        # One or two lines, ending in plain words that say there is more.
+        assert label.text().endswith(ERROR_LINE_MORE)
+        assert whole.startswith(label.text()[: -len(ERROR_LINE_MORE)].rstrip())
+        assert label.text() != whole and len(label.text()) > 20
+        # The click opens all of it, read-only, scrollable and copyable, titled by its subject.
+        _click(label)
+        dialog = window._failure_text_box
+        view = dialog.findChild(QPlainTextEdit, "errorTextView")
+        assert dialog.windowTitle() == "The run failed"
+        assert view.isReadOnly() and view.toPlainText() == whole
+        dialog.close()
+        # A short error is shown whole, with nothing added.
+        window._set_history_status("The run failed: upstream 502", tone="error", title="The run failed")
+        assert label.text() == "The run failed: upstream 502"
         # Any other line is not a link.
         window._set_history_status("Ready", tone="info")
         window._failure_text_box = None
-        QApplication.sendEvent(label, QMouseEvent(QEvent.MouseButtonRelease, QPointF(4, 4), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier))
+        _click(label)
         assert window._failure_text_box is None
     finally:
-        try:
-            window.shutdown()
-        except Exception:
-            pass
-        window.deleteLater()
-        app.processEvents()
+        _close(app, window)
+
+
+@pytest.mark.basic
+def test_the_whole_text_window_is_titled_by_what_was_clicked() -> None:
+    app, window = _real_palette()
+    try:
+        window._on_worker_event({"type": "replay_degraded", "message": "History bundle unavailable: HTTP 503"})
+        _click(window.chat_status_label)
+        assert window._failure_text_box.windowTitle() == "Replay degraded"
+        window._failure_text_box.close()
+    finally:
+        _close(app, window)
+
+
+@pytest.mark.basic
+def test_gateway_words_are_never_rendered_as_html() -> None:
+    from PyQt5.QtCore import Qt
+
+    app, window = _real_palette()
+    try:
+        page = "<html><h1>502 Bad Gateway</h1><img src='file:///etc/hosts'></html>"
+        window._set_history_status(f"The run failed: {page}", tone="error", title="The run failed")
+        tip = window.chat_status_label.toolTip()
+        assert "<h1>" not in tip and "<img" not in tip
+        assert "&lt;h1&gt;502 Bad Gateway&lt;/h1&gt;" in tip
+        assert window.chat_status_label.textFormat() == Qt.PlainText
+        window._set_banner(f"The run failed: {page}", tone="error")
+        assert window.banner_label.textFormat() == Qt.PlainText
+    finally:
+        _close(app, window)
+
+
+@pytest.mark.basic
+def test_a_workflow_catalog_error_is_shown_as_the_gateway_said_it() -> None:
+    app, window = _real_palette()
+    try:
+        detail = "Workflow catalog unavailable: GET /api/gateway/bundles returned 502"
+        controller = window._controller
+        controller.workflow_options = lambda: []
+        controller.current_workflow = lambda: None
+        controller.workflow_status = lambda: SimpleNamespace(error=detail)
+        window._refresh_workflows()
+        assert window.banner_label.text() == detail
+    finally:
+        _close(app, window)

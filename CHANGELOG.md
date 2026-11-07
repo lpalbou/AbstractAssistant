@@ -19,15 +19,20 @@ Reasoning and MTP now follow the chat model, and a failed run shows the gateway'
 - **Changing the model resets reasoning and MTP.** Choosing another chat provider or model, or going
   back to Gateway default, puts Reasoning and MTP depth back on **Gateway default** and saves it.
 - **A failed run shows the actual error.** The line under the conversation reads "The run failed: "
-  followed by the gateway's own error text, word for word and never shortened; click it to read the
-  whole text in a window you can copy from. The Assistant no longer guesses a cause from the
-  error's name (0.18.2's explanation for MTP errors is gone).
+  followed by the gateway's own error text, word for word. A long error takes two lines ending with
+  "… Click to read the whole error"; the click opens all of it in a window you can scroll and copy
+  from, titled by what you clicked. The Assistant no longer guesses a cause from an error's text:
+  0.18.2's explanation for MTP errors is gone, a workflow catalog error is shown as the gateway
+  wrote it, a voice the gateway refused shows the gateway's reason, and `assistant run` recognises
+  a sign-in problem from the gateway's HTTP status only. Gateway words in tooltips and notices are
+  shown as text, never rendered as a web page.
 
 ### Fixed
 
 - **A saved MTP depth no longer breaks every run with a model that has no MTP.** Before each run the
   Assistant reads the capability card of the model that will answer and sends only the MTP value
-  and reasoning level that model can use; when the card cannot be read, no MTP value is sent. A
+  and reasoning level that model can use; when the card cannot be read, no MTP depth is sent. MTP
+  **Off** is always sent as chosen, so a gateway default that turns MTP on never overrides it. A
   depth saved for one model (for example depth 2 with "require acceleration") was sent with an
   endpoint model that has no MTP, and the gateway refused every run. Your saved settings are not
   changed on disk: the value is simply not sent, and the next model change resets it.

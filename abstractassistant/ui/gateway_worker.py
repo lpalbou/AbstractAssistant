@@ -923,15 +923,16 @@ class GatewayWorker(QThread):
 
     def _sendable_model_options(self) -> Tuple[str, Any]:
         """(thinking, speculation) for this run: what the guard allows for the run's model, or
-        what was given when there is no guard. A guard that fails sends no MTP."""
+        what was given when there is no guard. A guard that fails sends no MTP depth; an explicit
+        Off is kept (it only ever turns MTP off)."""
         guard = self.__dict__.get("_model_options_guard")
         if not callable(guard):
             return self._thinking, self._speculation
         try:
             thinking, speculation = guard(self._thinking, self._speculation)
         except Exception as exc:  # noqa: BLE001
-            warnings.warn(f"#FALLBACK: could not read the chat model's capability card, no MTP sent: {exc}")
-            return self._thinking, None
+            warnings.warn(f"#FALLBACK: could not read the chat model's capability card, no MTP depth sent: {exc}")
+            return self._thinking, (False if self._speculation is False else None)
         return str(thinking or ""), speculation
 
     def run(self) -> None:

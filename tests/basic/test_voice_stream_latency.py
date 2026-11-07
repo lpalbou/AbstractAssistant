@@ -270,7 +270,7 @@ def test_pre_audio_stream_rejection_retries_unpinned_before_artifact_lane(monkey
 
 
 @pytest.mark.basic
-@pytest.mark.parametrize("selection", ["voice", "profile", "gateway_clone"])
+@pytest.mark.parametrize("selection", ["voice", "profile"])
 @pytest.mark.parametrize("transport_error", [False, True])
 def test_rejected_voice_waits_for_manual_retry_with_same_identity(monkeypatch, selection, transport_error):
     class RejectOnceGateway(_StreamingGateway):
@@ -281,10 +281,9 @@ def test_rejected_voice_waits_for_manual_retry_with_same_identity(monkeypatch, s
         def voice_tts_stream(self, **kwargs):
             self.requests.append(kwargs)
             if len(self.requests) == 1:
-                detail = (
-                    "ClonedVoiceNotAppliedError: speaker similarity 0.945, 0.941 below 0.950"
-                    if selection == "gateway_clone" else "selected voice unavailable"
-                )
+                # A cloned voice that failed its check: decided by the gateway's refusal of a
+                # voice chosen here, never by reading the exception name in the text.
+                detail = "ClonedVoiceNotAppliedError: speaker similarity 0.945, 0.941 below 0.950"
                 if transport_error:
                     # The gateway refused the request: the client raises its HTTP error.
                     raise GatewayHttpError(f"voice_tts_stream failed: {detail}", status=422, body_text=detail)
@@ -294,7 +293,7 @@ def test_rejected_voice_waits_for_manual_retry_with_same_identity(monkeypatch, s
 
     gateway = RejectOnceGateway()
     manager = _ManagerStub(gateway)
-    manager.current_tts_voice = "my-clone" if selection != "gateway_clone" else ""
+    manager.current_tts_voice = "my-clone"
     manager.current_tts_voice_mode = "profile" if selection == "profile" else "voice"
     vm = GatewayVoiceManager(llm_manager=manager, debug_mode=False)
     player = _wire_player(vm, monkeypatch)
@@ -309,6 +308,8 @@ def test_rejected_voice_waits_for_manual_retry_with_same_identity(monkeypatch, s
     assert len(gateway.requests) == 1
     assert not gateway.artifact_calls and not player.play_calls and not notices
     assert len(failures) == 1 and "Press Play to retry with the same voice" in failures[0]
+    # The gateway's own reason is shown as it is (operator ruling 2026-11-07), never read for a name.
+    assert "speaker similarity 0.945, 0.941 below 0.950" in failures[0]
     assert ends == [1]
 
     # A new user Play is the only trigger for generation, with a fresh id and
@@ -320,8 +321,7 @@ def test_rejected_voice_waits_for_manual_retry_with_same_identity(monkeypatch, s
     assert first["request_id"] != second["request_id"]
     for key in ("voice", "profile", "provider", "model", "text"):
         assert first[key] == second[key]
-    if selection != "gateway_clone":
-        assert second[selection] == "my-clone"
+    assert second[selection] == "my-clone"
     assert not gateway.artifact_calls and not notices
     assert len(failures) == 1 and ends == [1, 1]
 

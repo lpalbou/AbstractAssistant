@@ -720,8 +720,9 @@ Reasoning and MTP follow the chat model (the same rule as the other AbstractFram
 another provider or model, or going back to Gateway default, resets both to **Gateway default** and
 saves that. Before each run the Assistant reads the capability card of the model that will answer and
 sends only what that model can use: a saved MTP depth is never sent to a model without MTP, and a
-reasoning level the card does not list is not sent either. When the card cannot be read, no MTP
-value is sent and the reasoning level is (unknown is not unsupported).
+reasoning level the card does not list is not sent either. **Off** is always sent as chosen: it
+only turns MTP off, so a gateway default that turns MTP on never overrides it. When the card cannot
+be read, no MTP depth is sent, while Off and the reasoning level are (unknown is not unsupported).
 
 ### Live replies
 
@@ -2557,8 +2558,9 @@ switch on **Use my default** / **Follow the gateway policy**). See [settings.md]
 ## A reply ends with "The run failed…"
 
 The line under the conversation shows the gateway's own error text, word for word: "The run
-failed: " followed by what the gateway reported. Click the line to read the whole text in a
-window you can copy it from (useful in a small window or for a long error). When the gateway gave
+failed: " followed by what the gateway reported. A long error takes two lines and ends with
+"… Click to read the whole error": click the line to read all of it in a window you can scroll
+and copy from (**Copy** puts it on the clipboard). When the gateway gave
 no reason, the line says "The run failed; the gateway gave no reason." The line is about why the
 run itself failed, not an earlier step that recovered.
 
@@ -3364,15 +3366,20 @@ Reasoning and MTP now follow the chat model, and a failed run shows the gateway'
 - **Changing the model resets reasoning and MTP.** Choosing another chat provider or model, or going
   back to Gateway default, puts Reasoning and MTP depth back on **Gateway default** and saves it.
 - **A failed run shows the actual error.** The line under the conversation reads "The run failed: "
-  followed by the gateway's own error text, word for word and never shortened; click it to read the
-  whole text in a window you can copy from. The Assistant no longer guesses a cause from the
-  error's name (0.18.2's explanation for MTP errors is gone).
+  followed by the gateway's own error text, word for word. A long error takes two lines ending with
+  "… Click to read the whole error"; the click opens all of it in a window you can scroll and copy
+  from, titled by what you clicked. The Assistant no longer guesses a cause from an error's text:
+  0.18.2's explanation for MTP errors is gone, a workflow catalog error is shown as the gateway
+  wrote it, a voice the gateway refused shows the gateway's reason, and `assistant run` recognises
+  a sign-in problem from the gateway's HTTP status only. Gateway words in tooltips and notices are
+  shown as text, never rendered as a web page.
 
 ### Fixed
 
 - **A saved MTP depth no longer breaks every run with a model that has no MTP.** Before each run the
   Assistant reads the capability card of the model that will answer and sends only the MTP value
-  and reasoning level that model can use; when the card cannot be read, no MTP value is sent. A
+  and reasoning level that model can use; when the card cannot be read, no MTP depth is sent. MTP
+  **Off** is always sent as chosen, so a gateway default that turns MTP on never overrides it. A
   depth saved for one model (for example depth 2 with "require acceleration") was sent with an
   endpoint model that has no MTP, and the gateway refused every run. Your saved settings are not
   changed on disk: the value is simply not sent, and the next model change resets it.
@@ -8757,11 +8764,40 @@ SIGN_IN_HINT = (
 )
 
 
+class WorkflowUnavailableError(RuntimeError):
+    """No runnable workflow; ``status`` is the HTTP status of the gateway's refusal behind it."""
+
+    def __init__(self, message: str, *, status: int = 0) -> None:
+        super().__init__(message)
+        self.status = int(status or 0)
+
+
 def _is_auth_failure(exc: BaseException) -> bool:
-    """A 401 from the gateway, directly or as the catalog's auth message."""
-    if int(getattr(exc, "status", 0) or 0) == 401:
+    """A 401 from the gateway, or a catalog the gateway refused with 401/403. Read from the HTTP
+    status, never from the error's words."""
+    status = int(getattr(exc, "status", 0) or 0)
+    if status == 401:
         return True
-    return "authentication failed" in str(exc).lower()
+    return isinstance(exc, WorkflowUnavailableError) and status in {401, 403}
+
+
+def _guarded_scope(controller: Any, scope: Dict[str, Any]) -> Dict[str, Any]:
+    """Only the reasoning level and MTP value the chat model can use (the tray's send-time guard,
+    ``controller.sendable_model_options``). When the guard cannot run, no MTP depth is sent; an
+    explicit Off is kept (it only ever turns MTP off)."""
+    out = dict(scope)
+    guard = getattr(controller, "sendable_model_options", None)
+    try:
+        guarded = guard(out.get("thinking"), out.get("speculation")) if callable(guard) else None
+    except Exception:
+        guarded = None
+    if isinstance(guarded, tuple) and len(guarded) == 2:
+        out["thinking"], out["speculation"] = guarded
+        if out["speculation"] is None:
+            out.pop("speculation")
+    elif out.get("speculation") is not False:
+        out.pop("speculation", None)
+    return out
 
 
 def _format_tool_arguments(arguments: Any) -> str:
@@ -8906,8 +8942,9 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
     llm_manager = controller.llm_manager
     selected_workflow = controller.current_workflow()
     if selected_workflow is None:
-        detail = controller.workflow_status().error or "Gateway exposes no runnable workflows for the assistant"
-        raise RuntimeError(detail)
+        status = controller.workflow_status()
+        detail = status.error or "Gateway exposes no runnable workflows for the assistant"
+        raise WorkflowUnavailableError(detail, status=int(getattr(status, "status", 0) or 0))
 
     llm_manager.append_message(role="user", content=args.prompt)
     # The terminal turn honors the same local, persistent overrides as the
@@ -8923,12 +8960,7 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
 
     text_override = dict(_call("route_override", "output.text", default=None) or {})
     scope = dict(_call("run_scope", default=None) or {})
-    # Only the reasoning level and MTP value the chat model can use (the tray's send-time guard).
-    guarded = _call("sendable_model_options", scope.get("thinking"), scope.get("speculation"), default=None)
-    if isinstance(guarded, tuple) and len(guarded) == 2:
-        scope["thinking"], scope["speculation"] = guarded
-    else:
-        scope.pop("speculation", None)  # the guard could not run: no MTP is sent
+    scope = _guarded_scope(controller, scope)
     input_data = build_run_input_data(
         prompt=args.prompt,
         allowed_tools=controller.allowed_tools_for_run(),
@@ -11095,7 +11127,8 @@ class AssistantController:
         ``(thinking, speculation)`` with "" / None meaning "send nothing".
 
         Reads that model's capability card only when something is set. A card that cannot be
-        read sends no MTP (the reasoning level is kept: unknown is not unsupported). This is
+        read sends no MTP depth (an explicit Off is kept, and so is the reasoning level: unknown
+        is not unsupported). This is
         what makes a saved MTP depth harmless with a model that has no MTP (the incident: a
         saved depth sent with an endpoint model was refused on every run). Network work: call
         it off the GUI thread (the worker does)."""
@@ -17525,15 +17558,16 @@ class GatewayWorker(QThread):
 
     def _sendable_model_options(self) -> Tuple[str, Any]:
         """(thinking, speculation) for this run: what the guard allows for the run's model, or
-        what was given when there is no guard. A guard that fails sends no MTP."""
+        what was given when there is no guard. A guard that fails sends no MTP depth; an explicit
+        Off is kept (it only ever turns MTP off)."""
         guard = self.__dict__.get("_model_options_guard")
         if not callable(guard):
             return self._thinking, self._speculation
         try:
             thinking, speculation = guard(self._thinking, self._speculation)
         except Exception as exc:  # noqa: BLE001
-            warnings.warn(f"#FALLBACK: could not read the chat model's capability card, no MTP sent: {exc}")
-            return self._thinking, None
+            warnings.warn(f"#FALLBACK: could not read the chat model's capability card, no MTP depth sent: {exc}")
+            return self._thinking, (False if self._speculation is False else None)
         return str(thinking or ""), speculation
 
     def run(self) -> None:
@@ -19149,15 +19183,16 @@ class GatewayVoiceManager:
             # generating the reply again. A local or transport failure (player,
             # empty chunk, timeout) says nothing about the voice: it keeps its own
             # cause and the same-voice artifact lane below.
+            # Decided on structured facts only (a voice chosen here, a gateway refusal); the
+            # gateway's reason is shown as it is, never read for an exception name (operator
+            # ruling 2026-11-07). The gateway's TTS error event carries no typed field yet.
             voice_selected = bool(voice or profile)
-            clone_rejected = "ClonedVoiceNotAppliedError" in reason
-            if clone_rejected or (voice_selected and gateway_rejected):
+            if voice_selected and gateway_rejected:
                 warnings.warn(f"Gateway TTS stopped without automatic regeneration: {reason}")
-                message = (
-                    "The cloned voice didn't pass its voice check."
-                    if clone_rejected else "Couldn't generate speech with your selected voice."
+                self._report_speech_failure(
+                    f"Couldn't generate speech with your selected voice. The gateway said: {reason}. "
+                    "Press Play to retry with the same voice."
                 )
-                self._report_speech_failure(f"{message} Press Play to retry with the same voice.")
                 return False
             # Keep the streaming cause even when the artifact lane later fails
             # for its own reason: "the stream was rejected AND the fallback
@@ -23732,7 +23767,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 import warnings
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from .assistant_workflow import (
@@ -23834,6 +23869,9 @@ class GatewayDefaultWorkflow:
 class WorkflowCatalogStatus:
     source: str = "tenant_catalog"
     error: str = ""
+    # The HTTP status of the gateway's refusal behind ``error`` (401/403 = not signed in or not
+    # allowed), 0 when there was none: what callers branch on, never the error's words.
+    status: int = 0
 
 
 @dataclass(frozen=True)
@@ -24106,7 +24144,9 @@ class AssistantGatewayService:
             options = list(self._last_catalog_options)
         except Exception as exc:
             detail = self._describe_gateway_exception(exc)
-            self._last_workflow_status = WorkflowCatalogStatus(source="tenant_catalog", error=detail)
+            self._last_workflow_status = WorkflowCatalogStatus(
+                source="tenant_catalog", error=detail, status=int(getattr(exc, "status", 0) or 0)
+            )
             # Publishing the built-in failed, but the catalog was read: its
             # other workflows (and the gateway default) stay usable, and the
             # controller names this error if nothing else can run.
@@ -24115,8 +24155,9 @@ class AssistantGatewayService:
         if resolved:
             self._last_workflow_status = WorkflowCatalogStatus(source="tenant_catalog", error="")
             return resolved
-        detail = self._blocking_gateway_issue() or "No published AbstractAssistant workflow is available in the gateway catalog."
-        self._last_workflow_status = WorkflowCatalogStatus(source="tenant_catalog", error=detail)
+        issue, status = self._blocking_gateway_issue()
+        detail = issue or "No published AbstractAssistant workflow is available in the gateway catalog."
+        self._last_workflow_status = WorkflowCatalogStatus(source="tenant_catalog", error=detail, status=status)
         return []
 
     def workflow_status(self) -> WorkflowCatalogStatus:
@@ -24456,18 +24497,19 @@ class AssistantGatewayService:
         rows.sort(key=lambda o: (0 if self.is_managed_option(o) else 1, o.label.lower(), o.bundle_id, o.flow_id))
         return rows
 
-    def _blocking_gateway_issue(self) -> str:
+    def _blocking_gateway_issue(self) -> Tuple[str, int]:
+        """(what blocks the gateway, the HTTP status of its refusal or 0)."""
         gateway_me = getattr(self._gateway, "gateway_me", None)
         if not callable(gateway_me):
-            return ""
+            return "", 0
         try:
             payload = gateway_me()
         except Exception as exc:
-            return self._describe_gateway_exception(exc)
+            return self._describe_gateway_exception(exc), int(getattr(exc, "status", 0) or 0)
         if isinstance(payload, dict) and payload.get("ok") is False:
             detail = str(payload.get("detail") or "Gateway connection failed.").strip()
-            return detail
-        return ""
+            return detail, 0
+        return "", 0
 
     def _describe_gateway_exception(self, exc: Exception) -> str:
         status = int(getattr(exc, "status", 0) or 0)

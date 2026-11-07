@@ -74,8 +74,9 @@ switch on **Use my default** / **Follow the gateway policy**). See [settings.md]
 ## A reply ends with "The run failed…"
 
 The line under the conversation shows the gateway's own error text, word for word: "The run
-failed: " followed by what the gateway reported. Click the line to read the whole text in a
-window you can copy it from (useful in a small window or for a long error). When the gateway gave
+failed: " followed by what the gateway reported. A long error takes two lines and ends with
+"… Click to read the whole error": click the line to read all of it in a window you can scroll
+and copy from (**Copy** puts it on the clipboard). When the gateway gave
 no reason, the line says "The run failed; the gateway gave no reason." The line is about why the
 run itself failed, not an earlier step that recovered.
 

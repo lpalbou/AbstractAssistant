@@ -1,8 +1,10 @@
 """Reasoning effort and MTP follow the SELECTED model (operator rule 2026-11-07).
 
-- MTP is offered and sent only when the gateway's capability card for that model says it is
-  supported, at a depth the card lists. No card, an unsupported card or an unlisted depth sends
-  nothing (not even "Off").
+- An MTP depth is offered and sent only when the gateway's capability card for that model says
+  MTP is supported, at a depth the card lists. No card, an unsupported card or an unlisted depth
+  sends no depth. An explicit "Off" is always kept and sent, whatever the card says or when it
+  cannot be read: it only ever turns MTP off, and dropping it would let a gateway default that
+  turns MTP on override the person's Off.
 - Changing the model or provider resets reasoning and MTP to the gateway default (nothing sent).
 - A saved reasoning level or MTP depth the current model cannot use is never sent.
 
@@ -46,15 +48,16 @@ def reasoning_facts(payload: Any) -> Dict[str, Any]:
 
 
 def usable_speculation(value: Any, payload: Any) -> Optional[Union[bool, dict]]:
-    """The MTP value the model can use, or None (= send nothing)."""
+    """The MTP value the model can use, or None (= send nothing). Off is kept before the card is
+    looked at (the kit's ``usableSpeculation``)."""
     normalized = _safe_speculation(value)
     if normalized is None:
         return None
+    if normalized is False:
+        return False
     caps = speculation_capability(payload)
     if not caps or not caps["supported"]:
         return None
-    if normalized is False:
-        return False
     return normalized if normalized["num_draft_tokens"] in caps["supported_depths"] else None
 
 
@@ -73,8 +76,8 @@ def usable_reasoning(value: Any, payload: Any) -> str:
 
 def sendable_model_options(reasoning: Any, speculation: Any, payload: Any) -> Tuple[str, Optional[Union[bool, dict]]]:
     """Only the options the model's capability card allows: (reasoning, speculation), where ""
-    and None mean "send nothing". ``payload`` None = the card could not be read: then no MTP is
-    sent and the reasoning level is kept (unknown is not unsupported)."""
+    and None mean "send nothing". ``payload`` None = the card could not be read: then no MTP depth
+    is sent (Off still is) and the reasoning level is kept (unknown is not unsupported)."""
     return usable_reasoning(reasoning, payload), usable_speculation(speculation, payload)
 
 

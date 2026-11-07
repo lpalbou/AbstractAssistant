@@ -171,17 +171,19 @@ def test_run_command_uses_catalog_workflow_without_client_prompt_cache(monkeypat
 
 
 @pytest.mark.basic
-@pytest.mark.parametrize(
-    "error",
-    [
-        "gateway-401",
-        RuntimeError("Gateway authentication failed. Check the bearer token or sign-in session."),
-    ],
-)
+@pytest.mark.parametrize("error", ["gateway-401", "catalog-401", "catalog-403"])
 def test_run_without_a_sign_in_says_how_to_sign_in(monkeypatch: pytest.MonkeyPatch, capsys, error) -> None:
     from abstractassistant.gateway.client import GatewayHttpError
 
-    exc = GatewayHttpError("start_run failed: unauthorized", status=401) if error == "gateway-401" else error
+    # Read from the HTTP status of the refusal, never from the error's words.
+    exc = (
+        GatewayHttpError("start_run failed: unauthorized", status=401)
+        if error == "gateway-401"
+        else cli.WorkflowUnavailableError(
+            "Gateway authentication failed. Check the bearer token or sign-in session.",
+            status=int(error.rsplit("-", 1)[1]),
+        )
+    )
 
     def _fail(_args):
         raise exc
@@ -191,3 +193,25 @@ def test_run_without_a_sign_in_says_how_to_sign_in(monkeypatch: pytest.MonkeyPat
     assert cli.main() == 2
     out = capsys.readouterr().out
     assert "gateway console" in out and "Settings → Connection" in out and "--gateway-token" in out
+
+
+@pytest.mark.basic
+def test_an_error_that_only_mentions_authentication_is_not_read_as_a_sign_in_problem() -> None:
+    assert not cli._is_auth_failure(RuntimeError("Gateway authentication failed. Check the bearer token."))
+    assert not cli._is_auth_failure(cli.WorkflowUnavailableError("authentication failed", status=0))
+    assert not cli._is_auth_failure(type("Forbidden", (RuntimeError,), {"status": 403})("start_run failed: forbidden"))
+
+
+@pytest.mark.basic
+def test_the_catalog_status_carries_the_gateways_http_status() -> None:
+    from abstractassistant.gateway.client import GatewayHttpError
+    from abstractassistant.gateway_service import AssistantGatewayService
+
+    class _Gateway:
+        def gateway_me(self):
+            raise GatewayHttpError("gateway_me failed: forbidden", status=403)
+
+    service = AssistantGatewayService(_Gateway())
+    service.ensure_catalog_workflow = lambda: (_ for _ in ()).throw(GatewayHttpError("bundles failed", status=401))
+    service.list_workflows()
+    assert service.workflow_status().status == 401

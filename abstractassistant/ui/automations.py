@@ -870,9 +870,9 @@ class OccurrencePair(QWidget):
             nl.setContentsMargins(12, 10, 12, 12)
             nl.setSpacing(6)
             if failure is not None:
-                # The message in words; the attempts are on the run's badge (no raw code).
+                # The gateway's message as it is; the attempts are on the run's badge (no raw code).
                 message = str(failure.get("message") or "").strip()
-                if message.lower() in {"", "failed", "error"}:
+                if not message:
                     message = "This run failed; the gateway gave no reason."
                 nl.addWidget(_text_label(message, "autoTurnText", parent=self.note))
             # Pending waits, answered from here by their KIND (decision D1).

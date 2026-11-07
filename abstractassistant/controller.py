@@ -954,7 +954,8 @@ class AssistantController:
         ``(thinking, speculation)`` with "" / None meaning "send nothing".
 
         Reads that model's capability card only when something is set. A card that cannot be
-        read sends no MTP (the reasoning level is kept: unknown is not unsupported). This is
+        read sends no MTP depth (an explicit Off is kept, and so is the reasoning level: unknown
+        is not unsupported). This is
         what makes a saved MTP depth harmless with a model that has no MTP (the incident: a
         saved depth sent with an endpoint model was refused on every run). Network work: call
         it off the GUI thread (the worker does)."""

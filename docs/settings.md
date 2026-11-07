@@ -69,8 +69,9 @@ Reasoning and MTP follow the chat model (the same rule as the other AbstractFram
 another provider or model, or going back to Gateway default, resets both to **Gateway default** and
 saves that. Before each run the Assistant reads the capability card of the model that will answer and
 sends only what that model can use: a saved MTP depth is never sent to a model without MTP, and a
-reasoning level the card does not list is not sent either. When the card cannot be read, no MTP
-value is sent and the reasoning level is (unknown is not unsupported).
+reasoning level the card does not list is not sent either. **Off** is always sent as chosen: it
+only turns MTP off, so a gateway default that turns MTP on never overrides it. When the card cannot
+be read, no MTP depth is sent, while Off and the reasoning level are (unknown is not unsupported).
 
 ### Live replies
 

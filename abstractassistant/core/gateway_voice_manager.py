@@ -1113,15 +1113,16 @@ class GatewayVoiceManager:
             # generating the reply again. A local or transport failure (player,
             # empty chunk, timeout) says nothing about the voice: it keeps its own
             # cause and the same-voice artifact lane below.
+            # Decided on structured facts only (a voice chosen here, a gateway refusal); the
+            # gateway's reason is shown as it is, never read for an exception name (operator
+            # ruling 2026-11-07). The gateway's TTS error event carries no typed field yet.
             voice_selected = bool(voice or profile)
-            clone_rejected = "ClonedVoiceNotAppliedError" in reason
-            if clone_rejected or (voice_selected and gateway_rejected):
+            if voice_selected and gateway_rejected:
                 warnings.warn(f"Gateway TTS stopped without automatic regeneration: {reason}")
-                message = (
-                    "The cloned voice didn't pass its voice check."
-                    if clone_rejected else "Couldn't generate speech with your selected voice."
+                self._report_speech_failure(
+                    f"Couldn't generate speech with your selected voice. The gateway said: {reason}. "
+                    "Press Play to retry with the same voice."
                 )
-                self._report_speech_failure(f"{message} Press Play to retry with the same voice.")
                 return False
             # Keep the streaming cause even when the artifact lane later fails
             # for its own reason: "the stream was rejected AND the fallback
