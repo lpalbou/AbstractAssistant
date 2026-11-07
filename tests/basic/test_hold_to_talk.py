@@ -289,15 +289,16 @@ def test_microphone_failure_is_reported_in_the_status_line() -> None:
 
 
 @pytest.mark.basic
-def test_the_composer_has_one_mic_and_the_conversation_button_is_hidden() -> None:
-    """The source of truth: the composer row adds the mic, hides the conversation toggle."""
+def test_the_orb_is_the_composer_voice_control_and_the_mic_button_is_hidden() -> None:
+    """The source of truth since 0.18.1 (aa4c332, a84a8ea): the animated orb beside the
+    composer is the one voice control; the hold-to-talk mic button is no longer shown."""
     import inspect
 
     from abstractassistant import app as app_module
 
     src = inspect.getsource(app_module.AssistantPalette)
-    assert "self.mic_button.pressed.connect(self._begin_hold_to_talk)" in src
-    assert "self.mic_button.released.connect(self._end_hold_to_talk)" in src
-    assert "self.conversation_button.hide()" in src
-    assert "composer.addWidget(self.conversation_button)" not in src
+    assert "self.mic_button.hide()" in src
+    assert "self.conversation_button.clicked.connect(self._on_orb_clicked)" in src
+    assert "self.conversation_button.customContextMenuRequested.connect(self._show_mic_menu)" in src
+    assert "self.conversation_button.hide()" not in src
     assert "self.mic_button.clicked.connect(self._toggle_listening)" not in src
