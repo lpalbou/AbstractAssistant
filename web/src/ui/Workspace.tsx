@@ -1,4 +1,4 @@
-import {WorkflowChat, useWorkflowSession, conversationSnapshot, useAvatarConversationPreferences, playConversationCue, conversationReply, presentInteraction, chatAuthorOf, type ChatMentionCandidate, type ChatMentionSent} from "../vendor/abstractchat/conversation.js";
+import {WorkflowChat, useWorkflowSession, conversationSnapshot, useAvatarConversationPreferences, playConversationCue, conversationReply, presentInteraction, chatAuthorOf, type ChatAuthor, type ChatMentionCandidate, type ChatMentionSent} from "../vendor/abstractchat/conversation.js";
 import "../vendor/abstractchat/conversation.css";
 import { SessionReadMarker, sessionContentRevision, sessionReadTarget, sessionOpeningReceipts, type SessionReceipt, type SessionActivity } from "../vendor/abstractsessions/session_cards.js";
 /**
@@ -22,7 +22,6 @@ import {
   useAttachmentUploads,
   workflowPendingInteraction,
   workflowSourceLabel,
-  type ReplayView,
 } from "@abstractframework/panel-chat";
 import type { ChatMessage } from "../vendor/abstractchat/conversation.js";
 import {
@@ -50,7 +49,7 @@ import { buildRunInputData } from "../lib/run_input";
 import { selectWorkflow } from "../lib/workflow_selection";
 import type { AttentionSeen } from "./useConversations";
 import { assistantPresence, conversationPresentation, replyToRead } from "../lib/presentation";
-import { MENTIONS_UNAVAILABLE, deliverMentions, entityCandidates, gatewayLacksTurnAuthors, isMentionTurnView, matchCandidates, mentionNotice, mentionStatusLine, type MentionAnswer } from "../lib/mentions";
+import { MENTIONS_UNAVAILABLE, deliverMentions, entityCandidates, gatewayLacksTurnAuthors, matchCandidates, mentionNotice, mentionStatusLine, viewRepeatOf, type MentionAnswer } from "../lib/mentions";
 import { VoiceStage, Orb } from "./VoiceStage";
 import type { AssistantPreferences } from "./useAssistantPreferences";
 
@@ -141,12 +140,15 @@ export function Workspace(props: {
   const signedOut = useRef(props.onSignedOut);
   signedOut.current = props.onSignedOut;
   const onAuthError = useCallback(() => signedOut.current(), []);
-  // Session turns that are `@` mentions, learned from each view the transport reads.
-  const mentionTurns = useRef(new Set<string>());
+  // Turns whose prompt repeats another turn's words (`repeat_of`, an `@` mention), learned from
+  // each view the transport reads; who writes each live reply, from its frames.
+  const repeats = useRef(new Map<string, string>());
+  const liveAuthors = useRef(new Map<string, ChatAuthor | null>());
   const transport = useMemo(
     () => createAssistantTransport(client, {
       onDeltaError: (m) => setNotice(`A live reply frame was malformed and skipped: ${m}`),
-      onView: (view) => { if (isMentionTurnView(view)) mentionTurns.current.add(String((view as ReplayView).root_run_id)); },
+      onView: (view) => { const r = viewRepeatOf(view); if (r) repeats.current.set(r.runId, r.repeatOf); },
+      onLiveAuthor: (runId, author) => { if (runId) liveAuthors.current.set(runId, chatAuthorOf(author)); },
     }),
     [client],
   );
@@ -276,7 +278,8 @@ export function Workspace(props: {
   // conversation moves to another turn (then they are earlier turns, read by the controller).
   const [mentionAnswers, setMentionAnswers] = useState<{ anchor: string; messages: ChatMessage[] }>({ anchor: "", messages: [] });
 
-  /** Ask each mentioned entity, in order, after the person's own turn (or guidance) was sent. */
+  /** Ask each mentioned entity, in order, after the person's own turn (or guidance) was sent;
+   * `anchor` is that turn (`repeat_of`: the words are shown once, there). */
   const sendMentions = async (sid: string, anchor: string, text: string, mentions: readonly ChatMentionSent[], signal?: AbortSignal) => {
     const show = async (answer: MentionAnswer, mention: ChatMentionSent) => {
       // The answer is a session turn: read from its view, like a reload reads it.
@@ -289,11 +292,11 @@ export function Workspace(props: {
         if (signal?.aborted) throw error;
         shown = [{ id: `mention:${answer.run_id}:unshown`, role: "system", level: "warn", title: "Mention", content: `${mention.name} answered, but the answer cannot be shown here (${error instanceof Error ? error.message : String(error)}). It is kept in this conversation.` }];
       }
-      mentionTurns.current.add(answer.run_id);
+      repeats.current.set(answer.run_id, anchor);
       if (!mounted.current) return;
       setMentionAnswers((prev) => ({ anchor, messages: [...(prev.anchor === anchor ? prev.messages : []), ...shown] }));
     };
-    const outcome = await deliverMentions({ text, mentions, post: (req, s) => client.mention(sid, req, s), ...(signal ? { signal } : {}), onAnswer: show });
+    const outcome = await deliverMentions({ text, mentions, repeatOf: anchor, post: (req, s) => client.mention(sid, req, s), ...(signal ? { signal } : {}), onAnswer: show });
     if (!mounted.current) return;
     // A name the gateway refused (hidden, elsewhere) is read again on the next `@`.
     if (outcome.notes.length) entityNames.current = null;
@@ -358,14 +361,13 @@ export function Workspace(props: {
     [client, transport, ensureSession, uploads, props, busy, avatarMode, interaction, replyContext, controller, snapshot.view],
   );
 
-  // Who answered: the gateway's turn `author` on every reply (the kit's header); the followed
-  // turn's live text is named by the run's author; mention answers follow the turn they answer.
+  // Who answered: the gateway's turn `author` on every reply (the kit's header) and on every live
+  // reply frame; mention answers follow the turn they answer (`repeat_of`).
   const answersShown = mentionAnswers.anchor && mentionAnswers.anchor === props.runId ? mentionAnswers.messages : null;
-  const runAuthor = snapshot.run ? chatAuthorOf(snapshot.run.author) : null;
   const presentation = useMemo(
-    () => conversationPresentation(answersShown ? [...snapshot.messages, ...answersShown] : snapshot.messages, { mentionTurns: mentionTurns.current, liveAuthor: { runId: props.runId, author: runAuthor } }),
-    // runAuthor is derived from snapshot.run.
-    [snapshot.messages, answersShown, snapshot.run, props.runId],
+    () => conversationPresentation(answersShown ? [...snapshot.messages, ...answersShown] : snapshot.messages, { repeats: repeats.current, liveAuthors: liveAuthors.current }),
+    // The two maps are filled by the transport before the messages they label change.
+    [snapshot.messages, answersShown],
   );
   // An older gateway: no mention door (it answered 404) or turns without `author`.
   const mentionsUnavailable = mentionRouteMissing || gatewayLacksTurnAuthors(snapshot.messages) ? MENTIONS_UNAVAILABLE : null;

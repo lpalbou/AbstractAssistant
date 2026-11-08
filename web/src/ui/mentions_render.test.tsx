@@ -45,7 +45,7 @@ describe("who answered, on every left bubble", () => {
   ];
 
   it("names the entity (its orb, tag 'entity') and the agent (tag 'agent'); the mention's prompt shows once", () => {
-    const html = render(conversationPresentation(turn, { mentionTurns: new Set(["m"]) }).conversation);
+    const html = render(conversationPresentation(turn, { repeats: new Map([["m", "r"]]) }).conversation);
     expect(headers(html)).toEqual([["agent", "Basic agent", "agent"], ["entity", "Castor", "entity"]]);
     expect(html.match(/pc-chat-item--user/g)?.length).toBe(1);
     expect(html).toContain('data-design="watch-halo"');
@@ -62,7 +62,7 @@ describe("who answered, on every left bubble", () => {
   it("a reply still being written carries its run's name", () => {
     const html = render(conversationPresentation([
       { id: "live:r:c", runId: "r", role: "assistant", content: "Writing", live: { callId: "c", reasoning: "" } },
-    ], { liveAuthor: { runId: "r", author: agent } }).conversation);
+    ], { liveAuthors: new Map([["r", agent]]) }).conversation);
     expect(headers(html)).toEqual([["agent", "Basic agent", "agent"]]);
   });
 });

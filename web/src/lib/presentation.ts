@@ -2,33 +2,51 @@ import type { ChatAuthor, ChatMessage } from "../vendor/abstractchat/conversatio
 import type { AvatarPose } from "../vendor/abstractavatar/avatar_renderer.js";
 
 export type PresentationOptions = {
-  /** Session turns that are `@` mentions (their view's workflow is the mention door's). Such a
-   * turn's prompt is the message that mentioned the entity, already shown in the person's own
-   * turn: only the entity's answer is shown. */
-  mentionTurns?: ReadonlySet<string>;
-  /** The followed turn's answer author (`GET runs/{id}` `author`): a reply still being written
-   * (live text has no author of its own) is named like its finished answer will be. */
-  liveAuthor?: { runId: string; author: ChatAuthor | null };
+  /** Turns whose prompt repeats another turn's words (`repeat_of`): turn run id -> the turn it
+   * repeats. An `@` mention keeps the person's words as its prompt; they are shown once, in the
+   * repeated turn, when that turn is on screen. */
+  repeats?: ReadonlyMap<string, string>;
+  /** Who writes each run's live reply, from the live reply frames (`author`): live text is named
+   * like its finished answer will be. */
+  liveAuthors?: ReadonlyMap<string, ChatAuthor | null>;
 };
+
+const when = (m: ChatMessage): number => (typeof m.ts === "string" ? Date.parse(m.ts) : Number.NaN);
 
 /**
  * Transport diagnostics stay available in Details, outside the conversation. Errors stay visible.
  * Who answered is the gateway's turn `author` (the kit's header); without one (an older gateway)
- * the Assistant speaks as "Assistant" (the card's default is "Agent").
+ * the Assistant speaks as "Assistant" (the card's default is "Agent"). The answers to one message
+ * (its own turn's and those of the turns repeating it) are ordered by when they came.
  */
 export function conversationPresentation(messages: readonly ChatMessage[], opts: PresentationOptions = {}) {
   const diagnostics: ChatMessage[] = [];
   const conversation: ChatMessage[] = [];
-  const live = opts.liveAuthor;
+  const repeats = opts.repeats;
+  const asked = new Set(messages.filter((m) => m.role === "user" && m.runId).map((m) => m.runId as string));
+  const repeated = (runId: string | undefined) => {
+    const of = runId ? repeats?.get(runId) : undefined;
+    return of && asked.has(of) ? of : "";
+  };
   for (const message of messages) {
     if (message.role === "system" && message.level === "info" && String(message.id || "").startsWith("stream-unavailable:")) {
       diagnostics.push(message);
       continue;
     }
-    if (message.role === "user" && message.runId && opts.mentionTurns?.has(message.runId)) continue;
+    if (message.role === "user" && repeated(message.runId)) continue;
     let m = message;
-    if (m.role === "assistant" && m.live && live?.author && m.runId === live.runId && m.author === undefined) m = { ...m, author: live.author };
+    const live = m.role === "assistant" && m.live && m.author === undefined && m.runId ? opts.liveAuthors?.get(m.runId) : undefined;
+    if (live) m = { ...m, author: live };
     conversation.push(m.role === "assistant" && !m.title ? { ...m, title: "Assistant" } : m);
+  }
+  // The answers to one message, in the order they came (each answer's own time).
+  for (const anchor of new Set([...(repeats?.values() || [])].filter((of) => asked.has(of)))) {
+    const slots = conversation
+      .map((m, i) => (m.role === "assistant" && m.kind === "final" && (m.runId === anchor || repeated(m.runId) === anchor) ? i : -1))
+      .filter((i) => i >= 0);
+    if (slots.length < 2 || slots.some((i) => Number.isNaN(when(conversation[i])))) continue;
+    const answers = slots.map((i) => conversation[i]).sort((a, b) => when(a) - when(b));
+    slots.forEach((slot, k) => { conversation[slot] = answers[k]; });
   }
   return { conversation, diagnostics };
 }

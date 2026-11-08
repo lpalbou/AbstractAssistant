@@ -10,11 +10,11 @@ import {
   deliverMentions,
   entityCandidates,
   gatewayLacksTurnAuthors,
-  isMentionTurnView,
   matchCandidates,
   mentionNotice,
   mentionRefusal,
   mentionStatusLine,
+  viewRepeatOf,
   type MentionAnswer,
   type MentionRequest,
 } from "./mentions";
@@ -61,7 +61,7 @@ describe("the names the composer offers", () => {
 });
 
 describe("several mentions in one message", () => {
-  it("are sent one after the other, in order, each after the previous one returned and was shown", async () => {
+  it("are sent one after the other, in order, each after the previous one returned and was shown, naming the person's turn", async () => {
     const log: string[] = [];
     let release: (() => void) | null = null;
     const post = vi.fn((req: MentionRequest) => {
@@ -73,6 +73,7 @@ describe("several mentions in one message", () => {
     const done = deliverMentions({
       text: "which plan holds?",
       mentions: [castor, pollux],
+      repeatOf: "turn-person",
       post,
       onAnswer: (a) => { log.push(`shown ${a.run_id}`); },
     });
@@ -85,8 +86,8 @@ describe("several mentions in one message", () => {
     const outcome = await done;
     expect(log).toEqual(["start castor#0", "end castor", "shown turn-castor", "start pollux#1", "end pollux", "shown turn-pollux"]);
     expect(post.mock.calls.map(([req]) => req)).toEqual([
-      { entity: "castor", text: "which plan holds?", mention_index: 0 },
-      { entity: "pollux", text: "which plan holds?", mention_index: 1 },
+      { entity: "castor", text: "which plan holds?", mention_index: 0, repeat_of: "turn-person" },
+      { entity: "pollux", text: "which plan holds?", mention_index: 1, repeat_of: "turn-person" },
     ]);
     expect(outcome).toEqual({ answered: [answer({ entity: "castor", text: "", mention_index: 0 }), answer({ entity: "pollux", text: "", mention_index: 1 })], notes: [], unavailable: false, stopped: null });
   });
@@ -113,9 +114,9 @@ describe("several mentions in one message", () => {
     expect(post).toHaveBeenCalledTimes(2);
   });
 
-  it("a name this account may not mention (404, hidden is missing) is skipped with a sentence", async () => {
+  it("a name this account may not mention (404 entity_not_found, hidden is missing) is skipped with a sentence", async () => {
     const post = vi.fn(async (req: MentionRequest) => {
-      if (req.entity === "pollux") throw refused(404, "entity 'pollux' not found under /data/entities");
+      if (req.entity === "pollux") throw refused(404, "entity 'pollux' not found under /data/entities", "entity_not_found");
       return answer(req);
     });
     const outcome = await deliverMentions({ text: "hi", mentions: [castor, pollux, vega], post });
@@ -135,6 +136,19 @@ describe("several mentions in one message", () => {
     expect(outcome.answered.map((a) => a.run_id)).toEqual(["turn-castor"]);
   });
 
+  it("a repeat_of the gateway does not know (422) stops the rest with one sentence", async () => {
+    const post = vi.fn(async () => { throw refused(422, "repeat_of 'turn-x' is not a turn of this conversation", "repeat_of_unknown"); });
+    const outcome = await deliverMentions({ text: "hi", mentions: [castor, pollux], post, repeatOf: "turn-x" });
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(outcome.stopped).toBe("Castor was not asked: the gateway did not find your message in this conversation.");
+  });
+
+  it("without a repeated turn, no repeat_of is sent", async () => {
+    const post = vi.fn(async (req: MentionRequest) => answer(req));
+    await deliverMentions({ text: "hi", mentions: [castor], post });
+    expect(post.mock.calls[0][0]).toEqual({ entity: "castor", text: "hi", mention_index: 0 });
+  });
+
   it("any other failure stops the rest and names the entity", async () => {
     const post = vi.fn(async () => { throw refused(500, "Internal Server Error"); });
     const outcome = await deliverMentions({ text: "hi", mentions: [castor, pollux], post });
@@ -143,7 +157,7 @@ describe("several mentions in one message", () => {
   });
 
   it("a gateway without the mention route: one sentence, nothing more is sent", async () => {
-    for (const [status, detail] of [[404, "Not Found"], [405, "Method Not Allowed"]] as const) {
+    for (const [status, detail] of [[404, "Not Found"], [405, "Method Not Allowed"], [404, "anything"]] as const) {
       const post = vi.fn(async () => { throw refused(status, detail); });
       const outcome = await deliverMentions({ text: "hi", mentions: [castor, pollux], post });
       expect(post).toHaveBeenCalledTimes(1);
@@ -165,14 +179,14 @@ describe("several mentions in one message", () => {
 });
 
 describe("refusals, as the gateway sends them", () => {
-  it("only the framework's own unknown-route answer means 'no mention door'", () => {
+  it("every refusal of the door is coded; an uncoded 404/405 is a gateway without the route", () => {
     expect(mentionRefusal(refused(404, "Not Found"))).toBe("route_missing");
     expect(mentionRefusal(refused(405, "Method Not Allowed"))).toBe("route_missing");
-    // A coded 404 or an entity's 404 sentence is about the entity, not the route.
-    expect(mentionRefusal(refused(404, "Not Found", "entity_missing"))).toBe("not_offered");
-    expect(mentionRefusal(refused(404, "entity 'x' not found under /e"))).toBe("not_offered");
+    expect(mentionRefusal(refused(404, "entity 'x' not found under /e", "entity_not_found"))).toBe("not_offered");
     expect(mentionRefusal(refused(409, "busy", "in_another_conversation"))).toBe("elsewhere");
     expect(mentionRefusal(refused(503, "x cannot answer", "entity_cannot_answer"))).toBe("cannot_answer");
+    expect(mentionRefusal(refused(422, "repeat_of 'r' is not a turn", "repeat_of_unknown"))).toBe("repeat_unknown");
+    expect(mentionRefusal(refused(422, "text is empty"))).toBe("failed");
     expect(mentionRefusal(new TypeError("Failed to fetch"))).toBe("failed");
   });
 
@@ -210,6 +224,9 @@ describe("refusals, as the gateway sends them", () => {
       expect([second.status, second.code, second.detail, mentionRefusal(second)]).toEqual([503, "entity_cannot_answer", "Pollux cannot answer: no model", "cannot_answer"]);
       expect(await client.mention("s-1", { entity: "castor", text: "hi", mention_index: 0 })).toEqual({ run_id: "turn-1", reply: "Yes.", mention_index: 0 });
       expect(calls[0]).toEqual({ url: "api/gateway/sessions/s-1/mentions", body: { entity: "castor", text: "hi", mention_index: 0 } });
+      replies.push(new Response(JSON.stringify({ run_id: "turn-2", reply: "ok", mention_index: 0, repeat_of: "r-1" }), { status: 200 }));
+      await client.mention("s-1", { entity: "castor", text: "hi", mention_index: 0, repeat_of: "r-1" });
+      expect(calls.at(-1)?.body).toEqual({ entity: "castor", text: "hi", mention_index: 0, repeat_of: "r-1" });
     } finally {
       vi.unstubAllGlobals();
     }
@@ -224,9 +241,12 @@ describe("telling an older gateway and a mention turn apart", () => {
     expect(gatewayLacksTurnAuthors([])).toBe(false);
   });
 
-  it("a mention turn is known by its view's workflow", () => {
-    expect(isMentionTurnView({ root_run_id: "m", workflow: { id: "entity-mention", bundle_id: null, flow_id: "entity-mention" } })).toBe(true);
-    expect(isMentionTurnView({ root_run_id: "r", workflow: { id: "assistant@1:main" } })).toBe(false);
-    expect(isMentionTurnView({ root_run_id: "r", workflow: null })).toBe(false);
+  it("a turn repeating another's words says so on its view's input message (repeat_of)", () => {
+    const input = (extra: object) => ({ id: "m:input", role: "user", kind: "prompt", text: "hi", run_id: "m", ...extra });
+    expect(viewRepeatOf({ root_run_id: "m", workflow: { id: "entity-mention" }, messages: [input({ repeat_of: "r" }), { id: "m:final", role: "assistant", run_id: "m" }] })).toEqual({ runId: "m", repeatOf: "r" });
+    // A mention sent on its own (no repeat_of) keeps its prompt: nothing to fold, whatever its workflow.
+    expect(viewRepeatOf({ root_run_id: "m", workflow: { id: "entity-mention" }, messages: [input({})] })).toBeNull();
+    expect(viewRepeatOf({ root_run_id: "m", messages: [{ ...input({ repeat_of: "r" }), run_id: "child" }] })).toBeNull();
+    expect(viewRepeatOf(null)).toBeNull();
   });
 });

@@ -18,6 +18,9 @@ export function createAssistantTransport(
     /** Every replay view read (the loaded turn, each earlier turn): the Workspace learns which
      * turns are `@` mentions from the view's own `workflow` (lib/mentions.ts). */
     onView?: (view: unknown) => void;
+    /** Each live reply frame's `author` (the gateway names the turn's author on every frame), by
+     * the frame's run: live text is labelled before the saved message replaces it. */
+    onLiveAuthor?: (runId: string, author: unknown) => void;
   },
 ): WorkflowTransport {
   const views = createReplayViewTransport({ fetch: client.replayFetch });
@@ -44,7 +47,10 @@ export function createAssistantTransport(
                     opts.onDeltaError(err instanceof Error ? err.message : String(err));
                     return;
                   }
-                  if (parsed) onDelta(parsed);
+                  if (!parsed) return;
+                  const frame = JSON.parse(data) as Record<string, unknown>;
+                  if (opts.onLiveAuthor && frame.author !== undefined) opts.onLiveAuthor(String(frame.run_id || ""), frame.author);
+                  onDelta(parsed);
                 },
               }
             : {}),

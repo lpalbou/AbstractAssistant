@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { assistantPresence, conversationPresentation, replyToRead } from "./presentation";
+import type { ChatMessage } from "../vendor/abstractchat/conversation.js";
 import { parseAssistantPreferences } from "../ui/useAssistantPreferences";
 
 describe("a conversation contains exchanges, not transport diagnostics", () => {
@@ -27,28 +28,43 @@ describe("a conversation contains exchanges, not transport diagnostics", () => {
 
 describe("who answered (the gateway's turn author)", () => {
   const castor = { kind: "entity" as const, name: "Castor", entity_id: "entity:castor", identity_ref: "entity:castor#3", avatar: { style: "watch-halo", color: "#336699" } };
+  const pollux = { kind: "entity" as const, name: "Pollux", entity_id: "entity:pollux", identity_ref: null, avatar: null };
   const agent = { kind: "agent" as const, name: "Basic agent", entity_id: null, identity_ref: null, avatar: null };
   const person = { kind: "person" as const, name: "Laurent", entity_id: null, identity_ref: null, avatar: null };
+  const turn: ChatMessage[] = [
+    { id: "r:input", runId: "r", role: "user", kind: "prompt", content: "Which plan?", author: person, ts: "2026-11-08T10:00:00Z" },
+    { id: "r:final", runId: "r", role: "assistant", kind: "final", content: "The second.", author: agent, ts: "2026-11-08T10:00:20Z" },
+    { id: "m:input", runId: "m", role: "user", kind: "prompt", content: "Which plan?", author: person, ts: "2026-11-08T10:00:01Z" },
+    { id: "m:final", runId: "m", role: "assistant", kind: "final", content: "Agreed.", author: castor, ts: "2026-11-08T10:00:30Z" },
+  ];
 
-  it("shows a mention turn's answer, not its prompt (the message already shown in the person's turn)", () => {
-    const { conversation } = conversationPresentation([
-      { id: "r:input", runId: "r", role: "user", kind: "prompt", content: "Which plan?", author: person },
-      { id: "r:final", runId: "r", role: "assistant", kind: "final", content: "The second.", author: agent },
-      { id: "m:input", runId: "m", role: "user", kind: "prompt", content: "Which plan?", author: person },
-      { id: "m:final", runId: "m", role: "assistant", kind: "final", content: "Agreed.", author: castor },
-    ], { mentionTurns: new Set(["m"]) });
+  it("folds a mention's repeated words into the turn it repeats (repeat_of): the message shows once", () => {
+    const { conversation } = conversationPresentation(turn, { repeats: new Map([["m", "r"]]) });
     expect(conversation.map((m) => m.id)).toEqual(["r:input", "r:final", "m:final"]);
     expect(conversation.at(-1)?.author).toEqual(castor);
-    // Without the mention turn known, every prompt stays.
-    expect(conversationPresentation([{ id: "m:input", runId: "m", role: "user", content: "Which plan?" }]).conversation).toHaveLength(1);
   });
 
-  it("names the followed turn's live reply by the run's author; other runs and authored messages are left alone", () => {
+  it("keeps the words of a mention sent on its own, or whose repeated turn is not on screen", () => {
+    expect(conversationPresentation(turn).conversation).toHaveLength(4);
+    expect(conversationPresentation(turn.slice(2), { repeats: new Map([["m", "r"]]) }).conversation.map((m) => m.id)).toEqual(["m:input", "m:final"]);
+  });
+
+  it("orders the answers to one message by when each came", () => {
+    const fast = [...turn, { id: "p:input", runId: "p", role: "user", kind: "prompt", content: "Which plan?", author: person, ts: "2026-11-08T10:00:02Z" },
+      { id: "p:final", runId: "p", role: "assistant", kind: "final", content: "Pollux first.", author: pollux, ts: "2026-11-08T10:00:10Z" }] as ChatMessage[];
+    const { conversation } = conversationPresentation(fast, { repeats: new Map([["m", "r"], ["p", "r"]]) });
+    expect(conversation.map((m) => m.id)).toEqual(["r:input", "p:final", "r:final", "m:final"]);
+    // An answer without a time leaves the order as listed.
+    const untimed = fast.map((m) => (m.id === "r:final" ? { ...m, ts: undefined } : m));
+    expect(conversationPresentation(untimed, { repeats: new Map([["m", "r"], ["p", "r"]]) }).conversation.map((m) => m.id)).toEqual(["r:input", "r:final", "m:final", "p:final"]);
+  });
+
+  it("names a live reply by its frames' author; authored messages and unnamed runs are left alone", () => {
     const { conversation } = conversationPresentation([
       { id: "live:r:c1", runId: "r", role: "assistant", content: "Writ", live: { callId: "c1", reasoning: "" } },
-      { id: "live:child:c2", runId: "child", role: "assistant", content: "sub", live: { callId: "c2", reasoning: "", caption: "sub-agent · x" } },
+      { id: "live:other:c2", runId: "other", role: "assistant", content: "sub", live: { callId: "c2", reasoning: "" } },
       { id: "old:final", runId: "old", role: "assistant", content: "Before", author: null },
-    ], { liveAuthor: { runId: "r", author: agent } });
+    ], { liveAuthors: new Map([["r", agent], ["old", castor]]) });
     expect(conversation.map((m) => m.author)).toEqual([agent, undefined, null]);
   });
 
@@ -56,7 +72,7 @@ describe("who answered (the gateway's turn author)", () => {
     const { conversation } = conversationPresentation([
       { id: "live:r:c1", runId: "r", role: "assistant", content: "Writ", live: { callId: "c1", reasoning: "" } },
       { id: "r:final", runId: "r", role: "assistant", content: "Done" },
-    ], { liveAuthor: { runId: "r", author: null } });
+    ], { liveAuthors: new Map([["r", null]]) });
     expect(conversation.map((m) => [m.title, "author" in m])).toEqual([["Assistant", false], ["Assistant", false]]);
   });
 });

@@ -7,19 +7,18 @@
  * - The names come from `GET /api/gateway/entities` (the entities this account may see). A
  *   mention is the kit's structured chip; the text is never read for `@` (no-heuristics ruling).
  * - Several mentions in one message are sent one after the other, in their order, each after
- *   the previous one returned, so the second entity sees the first one's answer.
+ *   the previous one returned, so the second entity sees the first one's answer. Each names the
+ *   person's own turn that carries the same words (`repeat_of`): the mention turn keeps the words
+ *   as its prompt, and the conversation shows them once (lib/presentation.ts folds them).
  * - Refusals, per the contract: 409 = "<name> is in another conversation", go on with the next;
- *   404 = this name cannot be mentioned (hidden is missing), go on; 503 = the gateway's sentence,
- *   stop, the message goes back to the composer; a gateway without the route (404/405 with
- *   FastAPI's own "Not Found"/"Method Not Allowed" and no code) = "This gateway does not offer
- *   mentions yet", stop.
+ *   404 `entity_not_found` = this name cannot be mentioned (hidden is missing), go on; 503 = the
+ *   gateway's sentence, stop, the message goes back to the composer; 422 `repeat_of_unknown` =
+ *   one sentence, stop; a gateway without the route (a plain 404/405, no code) = "This gateway
+ *   does not offer mentions yet", stop.
  *
  * DOM-free; checked by mentions.test.ts.
  */
 import type { ChatMentionCandidate, ChatMentionSent, ChatMessage } from "../vendor/abstractchat/conversation.js";
-
-/** The workflow id of a mention's session turn (abstractgateway entity_mentions.MENTION_WORKFLOW_ID). */
-export const MENTION_WORKFLOW_ID = "entity-mention";
 
 /** The one sentence an older gateway gets (no mention route, or turns without `author`). */
 export const MENTIONS_UNAVAILABLE = "This gateway does not offer mentions yet.";
@@ -66,25 +65,26 @@ export function mentionNotice(candidate: ChatMentionCandidate): string | null {
 /** What the mention door answered (200): the session turn the answer is (its view carries `author`). */
 export type MentionAnswer = { run_id: string; reply: string; mention_index: number };
 
-export type MentionRequest = { entity: string; text: string; mention_index: number };
+/** `repeat_of`: the person's own turn of this session that carries the same words. */
+export type MentionRequest = { entity: string; text: string; mention_index: number; repeat_of?: string };
 
 /** One `POST sessions/{id}/mentions` (the client binds the session). */
 export type MentionPost = (request: MentionRequest, signal?: AbortSignal) => Promise<MentionAnswer>;
 
 /** How a refused mention is handled (see the module doc). */
-export type MentionRefusal = "route_missing" | "elsewhere" | "not_offered" | "cannot_answer" | "failed";
+export type MentionRefusal = "route_missing" | "elsewhere" | "not_offered" | "cannot_answer" | "repeat_unknown" | "failed";
 
-/** The refusal an error from the mention door stands for (`status`, `code`, `detail` of a GatewayHttpError). */
+/** The refusal an error from the mention door stands for (`status` and `code` of a GatewayHttpError). */
 export function mentionRefusal(error: unknown): MentionRefusal {
   const e = record(error);
   const status = typeof e?.status === "number" ? e.status : 0;
   const code = text(e?.code);
-  const detail = text(e?.detail);
-  // The framework's own answer for a route it does not have: no code, its fixed sentence.
-  if (!code && ((status === 404 && detail === "Not Found") || (status === 405 && detail === "Method Not Allowed"))) return "route_missing";
+  // Every refusal of the door is coded; an uncoded 404/405 is a gateway without the route.
+  if ((status === 404 || status === 405) && !code) return "route_missing";
   if (status === 409) return "elsewhere";
   if (status === 404) return "not_offered";
   if (status === 503) return "cannot_answer";
+  if (status === 422 && code === "repeat_of_unknown") return "repeat_unknown";
   return "failed";
 }
 
@@ -108,6 +108,8 @@ export async function deliverMentions(opts: {
   text: string;
   mentions: readonly ChatMentionSent[];
   post: MentionPost;
+  /** The person's own turn of this session that carries `text` (sent as `repeat_of`). */
+  repeatOf?: string;
   signal?: AbortSignal;
   onAnswer?: (answer: MentionAnswer, mention: ChatMentionSent) => void | Promise<void>;
 }): Promise<MentionDelivery> {
@@ -116,7 +118,7 @@ export async function deliverMentions(opts: {
     opts.signal?.throwIfAborted();
     let answer: MentionAnswer;
     try {
-      answer = await opts.post({ entity: mention.id, text: opts.text, mention_index: mention.index }, opts.signal);
+      answer = await opts.post({ entity: mention.id, text: opts.text, mention_index: mention.index, ...(opts.repeatOf ? { repeat_of: opts.repeatOf } : {}) }, opts.signal);
     } catch (error) {
       if (opts.signal?.aborted) throw error;
       const refusal = mentionRefusal(error);
@@ -131,6 +133,10 @@ export async function deliverMentions(opts: {
       if (refusal === "not_offered") {
         out.notes.push(`${mention.name} cannot be mentioned here.`);
         continue;
+      }
+      if (refusal === "repeat_unknown") {
+        out.stopped = `${mention.name} was not asked: the gateway did not find your message in this conversation.`;
+        return out;
       }
       const e = record(error);
       const detail = text(e?.detail) || (error instanceof Error ? error.message : String(error));
@@ -157,7 +163,17 @@ export function gatewayLacksTurnAuthors(messages: readonly ChatMessage[]): boole
   return messages.some((m) => m.role === "user" && !("author" in m));
 }
 
-/** A replay view of a mention's session turn (its workflow is the mention door's). */
-export function isMentionTurnView(view: unknown): boolean {
-  return text(record(record(view)?.workflow)?.id) === MENTION_WORKFLOW_ID;
+/**
+ * The turn a view's prompt repeats: the view's input message carries `repeat_of` (the person's
+ * own turn whose words a mention answers again). Null when the view's prompt is its own.
+ */
+export function viewRepeatOf(view: unknown): { runId: string; repeatOf: string } | null {
+  const v = record(view);
+  const runId = text(v?.root_run_id);
+  const messages = Array.isArray(v?.messages) ? v.messages : [];
+  for (const raw of messages) {
+    const m = record(raw);
+    if (m?.role === "user" && text(m.run_id) === runId && text(m.repeat_of)) return runId ? { runId, repeatOf: text(m.repeat_of) } : null;
+  }
+  return null;
 }

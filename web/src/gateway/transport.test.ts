@@ -61,6 +61,22 @@ describe("the workflow transport (panel-chat's controller over this app's gatewa
     expect(sent.mock.calls[0][0]).toMatchObject({ client_id: "abstractassistant-web", type: "resume" });
   });
 
+  it("reports the author each live reply frame carries, by the frame's run, before the kit gets the frame", async () => {
+    const client = new GatewayClient(host());
+    const agent = { kind: "agent", name: "Basic agent", entity_id: null, identity_ref: null, avatar: null };
+    const frame = (extra: object) => JSON.stringify({ kind: "llm.delta", run_id: "r", root_run_id: "r", node_id: "n", call_id: "c", seq: 0, text: "Hel", channel: "content", snapshot: false, ...extra });
+    vi.spyOn(client, "streamLedger").mockImplementation(async (_run, _after, handlers) => {
+      handlers.onDelta?.("llm.delta", frame({ author: agent }));
+      handlers.onDelta?.("llm.delta", frame({ seq: 1 }));
+      handlers.onDelta?.("llm.delta", "{not json");
+      return { cursor: 0, done: true };
+    });
+    const order: string[] = [];
+    const t = createAssistantTransport(client, { onDeltaError: () => {}, onLiveAuthor: (runId, author) => order.push(`author ${runId} ${(author as { name: string }).name}`) });
+    await t.streamLedger("r", 0, () => {}, new AbortController().signal, () => {}, () => order.push("delta"));
+    expect(order).toEqual(["author r Basic agent", "delta", "delta"]);
+  });
+
   it("reports every replay view it reads (how the Workspace learns which turns are @ mentions)", async () => {
     const view = { version: "replay_view_v1", root_run_id: "m", workflow: { id: "entity-mention" }, messages: [] };
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) =>

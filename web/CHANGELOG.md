@@ -14,7 +14,8 @@ need an AbstractGateway that has the mention door (not released yet).
 - **Mention an entity with `@`.** Type `@` in the message box and pick one of your entities (the
   ones your gateway lists for you); it becomes a chip. When you send, the Assistant gets your
   message as usual, then each entity you mentioned answers in turn, in the order you picked them,
-  and its answer appears in the conversation under its name. The first time you pick a name in a
+  and its answer appears in the conversation under its name. Your message shows once, and the
+  answers to it appear in the order they came. The first time you pick a name in a
   conversation, a line reminds you that it will read this conversation's history.
 - **When a mention cannot be answered, you are told.** An entity already in another conversation is
   skipped with one sentence ("Castor is in another conversation.") and the next one is still asked.
