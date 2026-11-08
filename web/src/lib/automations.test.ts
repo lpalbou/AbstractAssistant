@@ -72,11 +72,23 @@ describe("a new automation, as the watch writes it", () => {
     expect(body.policy).toEqual({ tool_approval: "ask", tool_policy: { auto_approve_tools: [], require_approval_tools: ["write_file"] } });
   });
 
-  it("titles: the task's first line, at most 120 characters; a title named by its task follows it", () => {
-    expect(titleOfTask("x".repeat(130))).toBe(`${"x".repeat(119)}…`);
+  it("titles: the task's whole first line, stored uncut (ADR 0054); a title named by its task follows it whole", () => {
+    const long = "x".repeat(300);
+    expect(titleOfTask(long)).toBe(long);
+    expect(titleOfTask(`  ${long}\nsecond line`)).toBe(long);
+    // A new automation from a 300-character task stores the 300-character title.
+    const body = newAutomationBody({ requestId: "q3", task: long, workflow: null, when: { kind: "every", every: "1h" },
+      buildsOnEarlierRuns: false, growingMaxTokens: null, tools });
+    expect(body.title).toBe(long);
+    expect(String(body.title).length).toBe(300);
     expect(titleAfterTask("New task", "Old task", "Old task")).toBe("New task");
     expect(titleAfterTask("New task", "My own name", "Old task")).toBeNull();
-    expect(titleAfterTask("y".repeat(200), "x".repeat(120), "x".repeat(130))).toBe("y".repeat(120));
+    expect(titleAfterTask("y".repeat(300), long, long)).toBe("y".repeat(300));
+    expect(titleAfterTask("New task\nmore", "Old task", "Old task\nmore")).toBe("New task");
+    // Titles older clients cut at 120 still follow the task, now whole.
+    expect(titleAfterTask("y".repeat(300), "x".repeat(120), "x".repeat(130))).toBe("y".repeat(300));
+    expect(titleAfterTask("y".repeat(300), `${"x".repeat(119)}…`, "x".repeat(130))).toBe("y".repeat(300));
+    expect(titleAfterTask("y".repeat(300), `${"z".repeat(119)}…`, "x".repeat(130))).toBeNull();
   });
 });
 

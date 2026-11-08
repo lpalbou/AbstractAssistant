@@ -5,6 +5,13 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+### Fixed
+
+- **Automation titles are saved whole (web).** A new automation named after its task used to be saved
+  with the task's first line cut at 120 characters and "…"; it is now saved whole, and the list folds
+  a long name on screen only. Editing the task of an automation named after it keeps the name in step,
+  whole, including names an earlier version cut (backlog 1154; the Apple apps are a separate change).
+
 ## [0.18.3] - 2026-11-07
 
 Reasoning and MTP now follow the chat model, and a failed run shows the gateway's own error.

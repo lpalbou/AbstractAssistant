@@ -79,20 +79,27 @@ export function clockOf(value: string): string {
 /** When a new automation runs: every `every`, or daily at `at` (the account's time zone). */
 export type NewAutomationWhen = { kind: "every"; every: string } | { kind: "daily"; at: string };
 
-/** The default title: the task's first line, at most 120 characters (the other clients' default). */
+/**
+ * The default title: the task's whole first line. Stored whole (root ADR 0054: stored text is never
+ * cut); a list that needs a shorter form folds it at render (the kit card clamps it to two lines).
+ */
 export function titleOfTask(task: string): string {
-  const line = (task.trim().split("\n")[0] ?? "").trim();
-  return line.length <= 120 ? line : `${line.slice(0, 119)}…`;
+  return (task.trim().split("\n")[0] ?? "").trim();
 }
 
 /**
- * The title after the task is edited: an automation named by its task (the title is the task, or
- * its first 120 characters) keeps that name in step; a title of its own is left alone (null).
+ * The title after the task is edited: an automation named by its task (the title is the task, its
+ * first line, or a form older clients cut at 120 characters: the first 120 characters, or 119 and
+ * "…") keeps that name in step, whole; a title of its own is left alone (null).
  */
 export function titleAfterTask(newTask: string, oldTitle: string | undefined, oldTask: string | undefined): string | null {
   if (oldTitle === undefined || oldTask === undefined) return null;
-  const namedByTask = oldTitle === oldTask || (oldTitle.length === 120 && oldTask.startsWith(oldTitle));
-  return namedByTask ? newTask.slice(0, 120) : null;
+  const firstLine = titleOfTask(oldTask);
+  const legacyCut =
+    (oldTitle.length === 120 && oldTask.startsWith(oldTitle)) ||
+    (oldTitle.length === 120 && oldTitle.endsWith("…") && firstLine.startsWith(oldTitle.slice(0, 119)));
+  const namedByTask = oldTitle === oldTask || oldTitle === firstLine || legacyCut;
+  return namedByTask ? titleOfTask(newTask) : null;
 }
 
 /**
