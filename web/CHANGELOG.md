@@ -6,6 +6,30 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 
 ## [Unreleased]
 
+Built on panel-chat 0.9.9 and ui-kit 0.9.25 (AbstractUIC local builds, not yet published). Mentions
+need an AbstractGateway that has the mention door (not released yet).
+
+### Added
+
+- **Mention an entity with `@`.** Type `@` in the message box and pick one of your entities (the
+  ones your gateway lists for you); it becomes a chip. When you send, the Assistant gets your
+  message as usual, then each entity you mentioned answers in turn, in the order you picked them,
+  and its answer appears in the conversation under its name. The first time you pick a name in a
+  conversation, a line reminds you that it will read this conversation's history.
+- **When a mention cannot be answered, you are told.** An entity already in another conversation is
+  skipped with one sentence ("Castor is in another conversation.") and the next one is still asked.
+  An entity that cannot answer says why, and your message goes back to the message box. A gateway
+  without mentions says "This gateway does not offer mentions yet" instead of listing names.
+- **Every answer says who wrote it.** The top of each reply shows the agent's name (the workflow's
+  name) or the entity's name and look, with a small "agent" or "entity" tag. It comes from the
+  gateway, so a reload or another device shows the same. On an older gateway replies keep their
+  "Assistant" header.
+
+### Changed
+
+- **The tool permission card offers Deny, Allow and Allow All**, the shared card of AbstractUIC
+  (operator ruling 2026-11-07). The per-toolset "Allow all … tools for this chat" choice is gone.
+
 ## [0.1.3] - 2026-11-07
 
 On `@abstractframework/ui-kit` ^0.9.16 (AbstractUIC 0.10.3).

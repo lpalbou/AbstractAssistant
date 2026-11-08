@@ -53,9 +53,9 @@ errors and unanswered approval requests remain visible.
 It is composed from the AbstractFramework UI kit (AbstractUIC `ui-kit` + `panel-chat`, ADR 0001
 there): the app shell and its top-right cluster (docs assistant, appearance, about, who is signed
 in, the connection pill), the chat (`WorkflowChat` + `useWorkflowSession`: thread, live replies,
-Stop, attachment chips, copy/export), the one approval panel (`presentInteraction`: Deny / Allow
-once / Allow for this chat / Decide later; the chat's tool policy is stored on the gateway when it
-offers `session_tool_policy`), the run's tool plan, and voice (Settings → Voice, read aloud,
+Stop, attachment chips, `@` mentions, who answered on each reply, copy/export), the one approval
+panel (`presentInteraction`: Deny / Allow / Allow All / Decide later; the chat's tool policy is
+stored on the gateway when it offers `session_tool_policy`), the run's tool plan, and voice (Settings → Voice, read aloud,
 Tap/Hold to talk). What stays here: the gateway calls (`src/gateway/`), the conversation list and
 its titles, the workflow choice and the run input (desktop parity ports).
 

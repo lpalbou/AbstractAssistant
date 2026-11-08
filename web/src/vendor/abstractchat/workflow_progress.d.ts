@@ -8,5 +8,5 @@ export type WorkflowProgress = {
     totalTokens?: number;
 };
 /** Presentation from evidence, never a replacement for authoritative run state. */
-export declare function workflowProgress(snapshot: Pick<WorkflowSessionSnapshot, "status" | "loading" | "connection" | "error" | "interaction" | "records" | "run" | "displayStatus"> & Partial<Pick<WorkflowSessionSnapshot, "toolApprovalGranted" | "view">>): WorkflowProgress;
+export declare function workflowProgress(snapshot: Pick<WorkflowSessionSnapshot, "status" | "loading" | "connection" | "error" | "interaction" | "records" | "run" | "displayStatus"> & Partial<Pick<WorkflowSessionSnapshot, "toolApprovalGranted" | "view" | "stop">>): WorkflowProgress;
 //# sourceMappingURL=workflow_progress.d.ts.map

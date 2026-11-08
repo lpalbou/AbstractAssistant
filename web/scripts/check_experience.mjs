@@ -134,7 +134,7 @@ async function checkAvatar({page, runs, calls, report, shots}) {
   await page.reload();
   await page.locator(".aa-session").filter({hasText:"Find a place for lunch"}).click();
   await page.getByRole("button",{name:"Deny",exact:true}).waitFor();
-  assert.equal(await page.getByRole("button",{name:"Allow once",exact:true}).count(),0,"An undescribed reservation requires detailed review before approval");
+  assert.equal(await page.getByRole("button",{name:"Allow",exact:true}).count(),0,"An undescribed reservation requires detailed review before approval");
   await composer.fill("I am still thinking about it.");
   const before = calls.commands.length;
   await page.getByRole("button",{name:"Send",exact:true}).click();
@@ -436,14 +436,14 @@ try {
   await page.getByRole("button", { name: "Open Conversations", exact: true }).click();
   await page.locator(".aa-session").filter({ hasText: "An earlier question" }).click();
   await page.getByRole("heading", { name: "Needs you", exact: true }).waitFor();
-  await page.getByRole("button", { name: "Allow once", exact: true }).waitFor();
-  const approvalBox = await page.getByRole("button", { name: "Allow once", exact: true }).boundingBox();
+  await page.getByRole("button", { name: "Allow", exact: true }).waitFor();
+  const approvalBox = await page.getByRole("button", { name: "Allow", exact: true }).boundingBox();
   assert.ok(approvalBox && approvalBox.x >= 0 && approvalBox.x + approvalBox.width <= 420);
   if (shots) await page.screenshot({ path: `${shots}/approval-phone.png` });
   await page.getByRole("button", { name: "Decide later", exact: true }).click();
   assert.equal(calls.commands.length, 0, "Deferring an approval must not authorize or deny it");
   await page.getByRole("button", { name: "Review", exact: true }).click();
-  await page.getByRole("button", { name: "Allow once", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Allow", exact: true }).waitFor();
   report.phoneApprovalAndDefer = true;
   // The Docs panel fills its drawer; the composer is anchored at the bottom on both sizes.
   failSend = false;

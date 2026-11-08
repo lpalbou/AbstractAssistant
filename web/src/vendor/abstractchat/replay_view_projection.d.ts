@@ -47,6 +47,15 @@ export type ReplayProjection = {
     runStatus: Map<string, string>;
     statistics: WorkflowStatistics;
 };
+/**
+ * An open event wait the view lists as a machine `signal` (runtime replay `wait_kind`: an event
+ * wait with no prompt and no choices is not person-facing, so `view.interaction` is null), as
+ * the raw runtime wait it is: `reason: "event"` on its canonical `evt:` key. The conversation then
+ * reads "Waiting for an event" (never "Working") and the host can still deliver that event by hand
+ * (`presentInteraction` resolves its route from the key and the run, and no `command` is
+ * invented). Only `evt:` keys: other signals carry no event to deliver.
+ */
+export declare function replaySignalWait(view: ReplayView): WorkflowWaitInteraction | null;
 /** Project a whole view. */
 export declare function projectReplayView(view: ReplayView): ReplayProjection;
 //# sourceMappingURL=replay_view_projection.d.ts.map

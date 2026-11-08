@@ -1,4 +1,4 @@
-import {WorkflowChat, useWorkflowSession, conversationSnapshot, useAvatarConversationPreferences, playConversationCue, conversationReply, presentInteraction} from "../vendor/abstractchat/conversation.js";
+import {WorkflowChat, useWorkflowSession, conversationSnapshot, useAvatarConversationPreferences, playConversationCue, conversationReply, presentInteraction, chatAuthorOf, type ChatMentionCandidate, type ChatMentionSent} from "../vendor/abstractchat/conversation.js";
 import "../vendor/abstractchat/conversation.css";
 import { SessionReadMarker, sessionContentRevision, sessionReadTarget, sessionOpeningReceipts, type SessionReceipt, type SessionActivity } from "../vendor/abstractsessions/session_cards.js";
 /**
@@ -11,15 +11,20 @@ import { SessionReadMarker, sessionContentRevision, sessionReadTarget, sessionOp
  *   `useAttachmentUploads`, Stop, a transcript toolbar);
  * - `presentInteraction` is the approval / question panel, with the ONE wording set and the
  *   chat's tool policy on the gateway when it advertises `session_tool_policy`;
- * - `useGatewayVoice` + `AfVoiceMicButton` read replies aloud and dictate.
+ * - `useGatewayVoice` + `AfVoiceMicButton` read replies aloud and dictate;
+ * - `@` mentions (lib/mentions.ts): the composer offers the entities of `GET entities`; a send
+ *   with mentions starts the person's turn, then asks each entity in order through the gateway's
+ *   mention door; each answer is a turn of the session, shown from its own view.
  * Everything comes from the gateway; this page keeps no conversation and no token.
  */
 import {
+  projectReplayView,
   useAttachmentUploads,
   workflowPendingInteraction,
   workflowSourceLabel,
-  type ChatMessage,
+  type ReplayView,
 } from "@abstractframework/panel-chat";
+import type { ChatMessage } from "../vendor/abstractchat/conversation.js";
 import {
   Icon,
   AfVoiceMicButton,
@@ -45,6 +50,7 @@ import { buildRunInputData } from "../lib/run_input";
 import { selectWorkflow } from "../lib/workflow_selection";
 import type { AttentionSeen } from "./useConversations";
 import { assistantPresence, conversationPresentation, replyToRead } from "../lib/presentation";
+import { MENTIONS_UNAVAILABLE, deliverMentions, entityCandidates, gatewayLacksTurnAuthors, isMentionTurnView, matchCandidates, mentionNotice, mentionStatusLine, type MentionAnswer } from "../lib/mentions";
 import { VoiceStage, Orb } from "./VoiceStage";
 import type { AssistantPreferences } from "./useAssistantPreferences";
 
@@ -55,22 +61,6 @@ export function mintSessionId(): string {
 }
 
 const TERMINAL = new Set(["completed", "failed", "cancelled"]);
-
-/** The served `toolset` of each tool (`GET discovery/tools` rows), for the approval panel's
- * "Allow all <toolset> tools for this chat". A row without a served toolset gets none: the
- * panel never guesses a kind. */
-export function toolsetsFromDiscovery(payload: unknown): Map<string, string> {
-  const out = new Map<string, string>();
-  const items = payload && typeof payload === "object" && Array.isArray((payload as { items?: unknown }).items) ? (payload as { items: unknown[] }).items : [];
-  for (const row of items) {
-    if (!row || typeof row !== "object") continue;
-    const r = row as Record<string, unknown>;
-    const name = typeof r.name === "string" ? r.name.trim() : "";
-    const toolset = typeof r.toolset === "string" ? r.toolset.trim() : "";
-    if (name && toolset) out.set(name, toolset);
-  }
-  return out;
-}
 
 /**
  * What the ended turn says when the transcript cannot: a failure's reason, or no written reply.
@@ -151,8 +141,13 @@ export function Workspace(props: {
   const signedOut = useRef(props.onSignedOut);
   signedOut.current = props.onSignedOut;
   const onAuthError = useCallback(() => signedOut.current(), []);
+  // Session turns that are `@` mentions, learned from each view the transport reads.
+  const mentionTurns = useRef(new Set<string>());
   const transport = useMemo(
-    () => createAssistantTransport(client, { onDeltaError: (m) => setNotice(`A live reply frame was malformed and skipped: ${m}`) }),
+    () => createAssistantTransport(client, {
+      onDeltaError: (m) => setNotice(`A live reply frame was malformed and skipped: ${m}`),
+      onView: (view) => { if (isMentionTurnView(view)) mentionTurns.current.add(String((view as ReplayView).root_run_id)); },
+    }),
     [client],
   );
   const { controller, snapshot } = useWorkflowSession({ transport, runId: props.runId, clientId: "abstractassistant-web", onAuthError });
@@ -184,19 +179,6 @@ export function Workspace(props: {
     };
   }, [controller, client, props.sessionId]);
 
-  // Toolsets for "Allow all <toolset> tools for this chat" (the served `toolset`, never guessed).
-  const [toolsets, setToolsets] = useState<Map<string, string>>(new Map());
-  useEffect(() => {
-    let cancelled = false;
-    client.discoveryTools().then(
-      (payload) => !cancelled && setToolsets(toolsetsFromDiscovery(payload)),
-      () => undefined,
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [client]);
-
   // When a turn ends, the list refreshes (its state and recency changed).
   const ended = useRef("");
   useEffect(() => {
@@ -219,10 +201,10 @@ export function Workspace(props: {
       currentRun: snapshot.run,
       allowSkip: true,
       onDefer: () => setDeferred(pendingKey),
-      sessionPolicy: { toolsetOf: (name) => toolsets.get(name) },
+      sessionPolicy: true,
     });
     // The policy mode, reason and clamped list are the controller's: re-present when they change.
-  }, [pending, controller, snapshot.records, snapshot.run, snapshot.sessionPolicyMode, snapshot.sessionPolicyReason, snapshot.sessionPolicyClamped, snapshot.sessionPolicy, toolsets, pendingKey]);
+  }, [pending, controller, snapshot.records, snapshot.run, snapshot.sessionPolicyMode, snapshot.sessionPolicyReason, snapshot.sessionPolicyClamped, snapshot.sessionPolicy, pendingKey]);
   const shown = interaction && deferred !== pendingKey && !answeredElsewhere ? interaction : null;
 
   // ---- voice: read aloud and dictation, on the gateway's engines ----------------------
@@ -276,10 +258,59 @@ export function Workspace(props: {
 
   const busy = Boolean(props.runId) && !TERMINAL.has(snapshot.status) && !(snapshot.error && !snapshot.run);
 
+  // ---- @ mentions ---------------------------------------------------------------------------
+  // The names: the entities this account may see, read once per conversation view.
+  const entityNames = useRef<Promise<ChatMentionCandidate[]> | null>(null);
+  const mentionCandidates = useCallback((query: string) => {
+    const names = (entityNames.current ??= client.listEntities().then(entityCandidates));
+    names.catch(() => { if (entityNames.current === names) entityNames.current = null; });
+    return names.then((list) => matchCandidates(list, query));
+  }, [client]);
+  // The conversation a first pick counts in: fixed for this view, so a new chat's first send
+  // (which mints its session id) does not repeat the notice.
+  const [mentionScope] = useState(() => props.sessionId || `new:${mintSessionId()}`);
+  // A sentence about the mentions just sent; typing the next message dismisses it.
+  const [mentionStatus, setMentionStatus] = useState("");
+  const [mentionRouteMissing, setMentionRouteMissing] = useState(false);
+  // The answers to this view's own mentions, shown after the turn that mentioned them until the
+  // conversation moves to another turn (then they are earlier turns, read by the controller).
+  const [mentionAnswers, setMentionAnswers] = useState<{ anchor: string; messages: ChatMessage[] }>({ anchor: "", messages: [] });
+
+  /** Ask each mentioned entity, in order, after the person's own turn (or guidance) was sent. */
+  const sendMentions = async (sid: string, anchor: string, text: string, mentions: readonly ChatMentionSent[], signal?: AbortSignal) => {
+    const show = async (answer: MentionAnswer, mention: ChatMentionSent) => {
+      // The answer is a session turn: read from its view, like a reload reads it.
+      let shown: ChatMessage[];
+      try {
+        const read = await transport.replayView!.getView(answer.run_id, signal ? { signal } : {});
+        if (read.notModified) throw new Error("the gateway answered without a view");
+        shown = projectReplayView(read.view).messages as ChatMessage[];
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        shown = [{ id: `mention:${answer.run_id}:unshown`, role: "system", level: "warn", title: "Mention", content: `${mention.name} answered, but the answer cannot be shown here (${error instanceof Error ? error.message : String(error)}). It is kept in this conversation.` }];
+      }
+      mentionTurns.current.add(answer.run_id);
+      if (!mounted.current) return;
+      setMentionAnswers((prev) => ({ anchor, messages: [...(prev.anchor === anchor ? prev.messages : []), ...shown] }));
+    };
+    const outcome = await deliverMentions({ text, mentions, post: (req, s) => client.mention(sid, req, s), ...(signal ? { signal } : {}), onAnswer: show });
+    if (!mounted.current) return;
+    // A name the gateway refused (hidden, elsewhere) is read again on the next `@`.
+    if (outcome.notes.length) entityNames.current = null;
+    if (outcome.unavailable) setMentionRouteMissing(true);
+    setMentionStatus(mentionStatusLine(outcome));
+    // Each answer is a new turn of the session: the list's turns and latest turn moved.
+    if (outcome.answered.length) props.onTurnEnded();
+    // An entity that could not answer: the message goes back to the composer.
+    if (outcome.stopped) setDraft((current) => (current.trim() ? current : text));
+  };
+
   // ---- send ---------------------------------------------------------------------------------
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, ctx?: { signal?: AbortSignal; mentions?: readonly ChatMentionSent[] }) => {
+      const mentions = ctx?.mentions ?? [];
       voiceRef.current.stop_tts();
+      setMentionStatus("");
       if (busy) {
         if (!avatarMode) throw new Error("The assistant is still working.");
         if (interaction?.kind === "ask-user") {
@@ -293,6 +324,7 @@ export function Workspace(props: {
         if (!mounted.current) return;
         setDraft(""); setReplyContext(null);
         setNotice("Sent. Your message is available to the assistant.");
+        if (mentions.length) await sendMentions(ensureSession(), props.runId, text, mentions, ctx?.signal);
         return;
       }
       const sid = ensureSession();
@@ -320,15 +352,23 @@ export function Workspace(props: {
       setDraft("");
       setNotice("");
       props.onStarted(run_id, sid);
+      if (mentions.length) await sendMentions(sid, run_id, text, mentions, ctx?.signal);
     },
-    [client, ensureSession, uploads, props, busy, avatarMode, interaction, replyContext, controller, snapshot.view],
+    // sendMentions reads refs, state setters, the client and the transport.
+    [client, transport, ensureSession, uploads, props, busy, avatarMode, interaction, replyContext, controller, snapshot.view],
   );
 
-  // The Assistant speaks as "Assistant" (the card's default is "Agent").
+  // Who answered: the gateway's turn `author` on every reply (the kit's header); the followed
+  // turn's live text is named by the run's author; mention answers follow the turn they answer.
+  const answersShown = mentionAnswers.anchor && mentionAnswers.anchor === props.runId ? mentionAnswers.messages : null;
+  const runAuthor = snapshot.run ? chatAuthorOf(snapshot.run.author) : null;
   const presentation = useMemo(
-    () => conversationPresentation(snapshot.messages),
-    [snapshot.messages],
+    () => conversationPresentation(answersShown ? [...snapshot.messages, ...answersShown] : snapshot.messages, { mentionTurns: mentionTurns.current, liveAuthor: { runId: props.runId, author: runAuthor } }),
+    // runAuthor is derived from snapshot.run.
+    [snapshot.messages, answersShown, snapshot.run, props.runId],
   );
+  // An older gateway: no mention door (it answered 404) or turns without `author`.
+  const mentionsUnavailable = mentionRouteMissing || gatewayLacksTurnAuthors(snapshot.messages) ? MENTIONS_UNAVAILABLE : null;
   const messages = presentation.conversation;
   const reply = replyToRead(messages, props.runId);
   useEffect(() => {
@@ -390,10 +430,15 @@ export function Workspace(props: {
       className="aa-chat"
       messages={messages}
       draft={draft}
-      onDraftChange={setDraft}
+      onDraftChange={(next) => { setDraft(next); if (mentionStatus) setMentionStatus(""); }}
       onSend={send}
+      mentionCandidates={mentionCandidates}
+      mentionNotice={mentionNotice}
+      mentionSessionKey={mentionScope}
+      mentionStatus={mentionStatus || null}
+      mentionsUnavailable={mentionsUnavailable}
       busy={busy}
-      steer={avatarMode && busy ? { modes: ["guide"], onSteer: async (text) => { await send(text); return { accepted: true }; }, parked: snapshot.status === "waiting" } : undefined}
+      steer={avatarMode && busy ? { modes: ["guide"], onSteer: async (text, _mode, ctx) => { await send(text, { mentions: ctx?.mentions ?? [] }); return { accepted: true }; }, parked: snapshot.status === "waiting" } : undefined}
       busyLabel={pending && !answeredElsewhere ? "Waiting for you…" : snapshot.loading ? "Opening…" : presence.pose === "working" ? "Working…" : "Thinking…"}
       onCancel={() => controller.cancel()}
       stopState={snapshot.stop || null}

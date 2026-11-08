@@ -11,7 +11,17 @@ import { createReplayViewTransport, llmDeltaFromSse, type WorkflowTransport } fr
 
 import type { GatewayClient } from "./client";
 
-export function createAssistantTransport(client: GatewayClient, opts: { onDeltaError: (message: string) => void }): WorkflowTransport {
+export function createAssistantTransport(
+  client: GatewayClient,
+  opts: {
+    onDeltaError: (message: string) => void;
+    /** Every replay view read (the loaded turn, each earlier turn): the Workspace learns which
+     * turns are `@` mentions from the view's own `workflow` (lib/mentions.ts). */
+    onView?: (view: unknown) => void;
+  },
+): WorkflowTransport {
+  const views = createReplayViewTransport({ fetch: client.replayFetch });
+  const onView = opts.onView;
   return {
     getRun: (runId) => client.getRun(runId),
     getHistory: (runId) => client.historyBundle(runId),
@@ -43,6 +53,15 @@ export function createAssistantTransport(client: GatewayClient, opts: { onDeltaE
       );
     },
     submitCommand: (command) => client.submitCommand({ ...command, client_id: command.client_id || "abstractassistant-web" }),
-    replayView: createReplayViewTransport({ fetch: client.replayFetch }),
+    replayView: onView
+      ? {
+          ...views,
+          async getView(runId, options) {
+            const read = await views.getView(runId, options);
+            if (!read.notModified) onView(read.view);
+            return read;
+          },
+        }
+      : views,
   };
 }

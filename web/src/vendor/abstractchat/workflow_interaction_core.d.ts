@@ -5,13 +5,7 @@ export type WorkflowInteractionSubmission = {
     kind: "choice" | "free-text";
     answer: string;
 } | {
-    kind: "approve" | "deny" | "approve-all" | "approve-session" | "skip";
-} | {
-    kind: "approve-kind";
-    toolset: string;
-} | {
-    kind: "deny-chat";
-    key: string;
+    kind: "approve" | "deny" | "approve-all" | "skip";
 } | {
     kind: "event";
     payload: string;

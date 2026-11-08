@@ -14,10 +14,19 @@ Sending a new message interrupts the previous spoken reply. New and switching
 conversations also stop local audio. Opening history does not read it aloud.
 
 The page shows tool approvals and questions inside the conversation when the agent
-needs you. Review the tool and its arguments before allowing it. **Allow once**
-applies to that request. **Allow for this chat**, when available, uses Gateway's
-session policy. **Decide later** postpones the choice and grants no permission.
-Use Review to return to the pending request. Stop ends the current request or playback.
+needs you. Review the tool and its arguments before allowing it. **Allow** lets that
+tool run for the rest of this chat when Gateway keeps the chat's permissions; otherwise
+it covers this request only, and the card says so. **Allow All** lets every tool run
+for the rest of this chat. **Deny** refuses. **Decide later** postpones the choice and
+grants no permission. Use Review to return to the pending request. Stop ends the current
+request or playback.
+
+Type `@` in the message field to mention one of your entities: pick a name and it becomes
+a chip. When you send, the Assistant answers as usual, then each entity you mentioned
+answers in turn, under its own name. The first time you pick a name in a conversation, a
+line reminds you that the entity will read this conversation's history. If an entity is
+in another conversation, or cannot answer, one sentence under the message field says so.
+Every reply shows who wrote it: the agent's name, or the entity's name and look.
 
 ## Automations
 

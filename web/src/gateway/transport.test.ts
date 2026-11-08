@@ -60,6 +60,24 @@ describe("the workflow transport (panel-chat's controller over this app's gatewa
     await createAssistantTransport(client, { onDeltaError: () => {} }).submitCommand({ command_id: "c", run_id: "r", type: "resume", payload: {} });
     expect(sent.mock.calls[0][0]).toMatchObject({ client_id: "abstractassistant-web", type: "resume" });
   });
+
+  it("reports every replay view it reads (how the Workspace learns which turns are @ mentions)", async () => {
+    const view = { version: "replay_view_v1", root_run_id: "m", workflow: { id: "entity-mention" }, messages: [] };
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) =>
+      (init.headers as Record<string, string>)["If-None-Match"] ? new Response(null, { status: 304, headers: { etag: '"e"' } }) : new Response(JSON.stringify(view), { status: 200, headers: { etag: '"e"' } })));
+    try {
+      const seen: unknown[] = [];
+      const t = createAssistantTransport(new GatewayClient(host()), { onDeltaError: () => {}, onView: (v) => seen.push(v) });
+      const read = await t.replayView!.getView("m");
+      expect(read.notModified).toBe(false);
+      expect(seen).toEqual([view]);
+      await t.replayView!.getView("m", { ifNoneMatch: '"e"' });
+      expect(seen).toHaveLength(1); // a 304 carries no view
+      expect(typeof t.replayView!.listSessionTurns).toBe("function");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
 
 describe("the kit's fetches go through the host", () => {

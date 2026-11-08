@@ -5,6 +5,21 @@ import type { ChatMessage, SpeakState } from "./chat_message_card.js";
 export declare function microphoneUnavailableReason(): string | null;
 export declare function docsVoiceAvailable(defaults: VoiceDefaults | null, preferences?: VoiceClientPreferences): boolean;
 export declare function docsSpeech(fetchGateway: GatewayFetch, message: Pick<ChatMessage, "runId" | "content">, preferences: VoiceClientPreferences, signal?: AbortSignal): Promise<ArrayBuffer>;
+/**
+ * The voice options the Docs assistant runs with: the person's devices, volume and voice, but it
+ * never reads by itself, so it keeps no player open for Read aloud (the host's own hook does; a
+ * page keeps one such player).
+ */
+export declare function docsVoiceOptions(preferences: VoiceClientPreferences): {
+    unlock_on_gesture: boolean;
+    muted?: boolean | undefined;
+    output_device_id?: string | undefined;
+    volume?: number | undefined;
+    input_device_id?: string | undefined;
+    input_gain?: number | undefined;
+    capture_mode?: import("@abstractframework/ui-kit").VoiceCaptureMode | undefined;
+    tts_voice?: (Record<string, unknown> | string | null) | undefined;
+};
 export declare function useDocsVoice(props: {
     fetchGateway: GatewayFetch;
     connected: boolean;

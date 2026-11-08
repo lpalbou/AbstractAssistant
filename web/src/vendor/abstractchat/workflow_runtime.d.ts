@@ -141,12 +141,12 @@ export type SessionToolPolicyClient = {
     }>;
 };
 /**
- * Where "Allow for this chat" is stored:
- * - `"gateway"`: on the gateway (every run and client of the chat);
+ * Where a session grant (the approval card's Allow / Allow All) is stored:
+ * - `"gateway"`: on the gateway (every run and client of the session);
  * - `"local-fallback"`: the gateway has no such capability (older gateway, or no client
- *   injected): the client-side grant, labeled as such;
- * - `"unavailable"`: the capability read failed (`sessionPolicyReason`); no chat grant is
- *   made (Allow once still works).
+ *   injected): no session grant; the card's Allow covers the shown request only;
+ * - `"unavailable"`: the capability read failed (`sessionPolicyReason`); no session grant is
+ *   made (Allow still answers the shown request).
  */
 export type SessionPolicyMode = "gateway" | "local-fallback" | "unavailable";
 /** The controller's session-policy state, the ONE source the approval controls read. */
@@ -203,6 +203,12 @@ export type WorkflowToolApprovalPolicy = {
     autoApproveTools: readonly string[];
 };
 export type WorkflowConnection = "idle" | "connecting" | "connected" | "reconnecting" | "disconnected";
+/** See `WorkflowSessionSnapshot.unreachable`. */
+export type WorkflowUnreachable = {
+    reason: string;
+    retrying: boolean;
+    since: string;
+};
 export type WorkflowSessionSnapshot = {
     messages: ChatMessage[];
     records: WorkflowRecord[];
@@ -219,6 +225,13 @@ export type WorkflowSessionSnapshot = {
     historyLoading?: boolean;
     error: string | null;
     connection: WorkflowConnection;
+    /**
+     * This client cannot reach the gateway right now (a live stream or the view re-read failed):
+     * the reason, whether it is retrying on its own, and when it last had the gateway's word
+     * (ISO). A client-side notice only (operator 2026-11-08): the run's state and its waits stay
+     * what the ledger view last said. Null while the gateway answers.
+     */
+    unreachable?: WorkflowUnreachable | null;
     /** Browser/controller-local consent only; never persisted or a policy bypass. */
     autoApproveTools?: boolean;
     /**
@@ -288,6 +301,12 @@ export type WorkflowSessionControllerOptions = {
     /** Called with the stored policy and its `clamped` list after every write/read/reset. */
     onSessionPolicy?: (policy: SessionToolPolicy | null, clamped: SessionToolPolicyClamp[]) => void;
 };
+/**
+ * The wait before reconnection attempt `failures` (1, 2, …) of a live stream: 150 ms doubling to a
+ * 30 s ceiling. There is no last attempt while the run is live (backlog 1163: a server restart
+ * under an open page must never leave it stale).
+ */
+export declare function reconnectDelay(failures: number): number;
 export declare class WorkflowSessionController {
     private readonly transport;
     private readonly options;
@@ -356,6 +375,10 @@ export declare class WorkflowSessionController {
     private viewTerminalRuns;
     /** The view stream ended (done, or gave up): the live-reply stream stops with it. */
     private viewStreamEnded;
+    /** "Stop retrying" (operator 2026-11-08): no automatic reconnection until "Retry now". */
+    private retryPaused;
+    /** The waits of the reconnection loops, woken by "Retry now". */
+    private readonly retryWakers;
     /** Replay view mode: the conversation's EARLIER turns (one view read each, oldest first),
      * shown before the loaded run's own messages. */
     private viewEarlier;
@@ -400,7 +423,16 @@ export declare class WorkflowSessionController {
      */
     private writeThenAnswer;
     /**
-     * "Allow for this chat". Gateway mode: merge `{approve:{all:true}}` into the
+     * "Allow" on the approval card: the named tools for the rest of this session. Gateway mode
+     * only: merge `{approve:{tools}}` into the session's policy, then answer the shown wait
+     * `{approved:true}`. The gateway stores only tools it authorizes for the caller; the rest
+     * come back in `clamped`.
+     */
+    approveToolsForSession(target: WorkflowApprovalTarget, tools: readonly string[], options?: {
+        ask?: readonly string[];
+    }): Promise<SessionToolPolicy>;
+    /**
+     * "Allow All" on the approval card (every tool for the session). Gateway mode: merge `{approve:{all:true}}` into the
      * conversation's policy, then answer the shown wait `{approved:true}`; later
      * calls of every run of the conversation run without a wait. Local fallback
      * (no supported client): the existing client-side grant
@@ -411,7 +443,7 @@ export declare class WorkflowSessionController {
         maxRiskRank?: number;
         ask?: readonly string[];
     }): Promise<SessionToolPolicy | null>;
-    /** "Allow all <toolset> tools for this chat": merge `{approve:{kinds:[kind]}}`, then answer `{approved:true}`. Gateway mode only. */
+    /** Allow one toolset for the session: merge `{approve:{kinds:[kind]}}`, then answer `{approved:true}`. Gateway mode only; no panel control (hosts expose it). */
     approveKindForSession(target: WorkflowApprovalTarget, kind: string, options?: {
         ask?: readonly string[];
     }): Promise<SessionToolPolicy>;
@@ -582,6 +614,12 @@ export declare class WorkflowSessionController {
      */
     private pollRootLifecycle;
     private waitForRetry;
+    /** The gateway did not answer a live stream or the view re-read: a client-side notice. */
+    private unreach;
+    /** "Retry now": the waiting reconnection runs at once (it re-reads the view first). */
+    retryNow(): void;
+    /** "Stop retrying": no automatic attempt until `retryNow()`. */
+    stopRetrying(): void;
 }
 export {};
 //# sourceMappingURL=workflow_runtime.d.ts.map

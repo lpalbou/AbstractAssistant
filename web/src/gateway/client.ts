@@ -13,15 +13,22 @@
 import { sseFrames } from "@abstractframework/panel-chat";
 
 import type { AssistantHost } from "../host";
+import type { MentionAnswer, MentionRequest } from "../lib/mentions";
 
 export class GatewayHttpError extends Error {
   readonly status: number;
   readonly reasonCode: string;
-  constructor(message: string, status: number, reasonCode = "") {
+  /** The gateway's `code` (`{detail, code}` body or `X-Gateway-Error-Code`), "" without one. */
+  readonly code: string;
+  /** The gateway's own sentence (`detail`), without the label. */
+  readonly detail: string;
+  constructor(message: string, status: number, reasonCode = "", extra: { code?: string; detail?: string } = {}) {
     super(message);
     this.name = "GatewayHttpError";
     this.status = status;
     this.reasonCode = reasonCode;
+    this.code = extra.code || "";
+    this.detail = extra.detail || "";
   }
 }
 
@@ -34,6 +41,7 @@ function isObject(v: unknown): v is Json {
 async function errorFrom(resp: Response, label: string): Promise<GatewayHttpError> {
   let detail = "";
   let reason = "";
+  let code = String(resp.headers.get("X-Gateway-Error-Code") || "").trim();
   try {
     const text = await resp.text();
     try {
@@ -45,6 +53,7 @@ async function errorFrom(resp: Response, label: string): Promise<GatewayHttpErro
         reason = String(d.reason_code || "");
       } else if (isObject(body) && typeof body.message === "string") detail = body.message;
       if (!reason && isObject(body) && typeof body.reason_code === "string") reason = body.reason_code;
+      if (!code && isObject(body) && typeof body.code === "string") code = body.code.trim();
       if (!detail) detail = text;
     } catch {
       detail = text;
@@ -52,7 +61,7 @@ async function errorFrom(resp: Response, label: string): Promise<GatewayHttpErro
   } catch {
     detail = "";
   }
-  return new GatewayHttpError(`${label}: ${detail || `HTTP ${resp.status}`}`, resp.status, reason);
+  return new GatewayHttpError(`${label}: ${detail || `HTTP ${resp.status}`}`, resp.status, reason, { code, detail: detail.trim() });
 }
 
 export type StartRunRequest = {
@@ -150,7 +159,7 @@ export class GatewayClient {
     return body;
   };
 
-  private async request(method: string, route: string, body?: unknown, label?: string): Promise<Json> {
+  private async request(method: string, route: string, body?: unknown, label?: string, signal?: AbortSignal): Promise<Json> {
     const mutating = method !== "GET" && method !== "HEAD";
     const headers: Record<string, string> = { Accept: "application/json", ...this.host.auth.headers(mutating) };
     if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -159,6 +168,7 @@ export class GatewayClient {
       headers,
       credentials: this.host.auth.credentials,
       body: body === undefined ? undefined : JSON.stringify(body),
+      ...(signal ? { signal } : {}),
     });
     if (!resp.ok) throw await errorFrom(resp, label || `${method} ${route}`);
     const parsed = await resp.json();
@@ -210,6 +220,30 @@ export class GatewayClient {
     const runId = typeof out.run_id === "string" ? out.run_id.trim() : "";
     if (!runId) throw new Error("The gateway accepted the message but returned no run id.");
     return { run_id: runId, resolved_workflow: isObject(out.resolved_workflow) ? out.resolved_workflow : null };
+  }
+
+  /** `GET entities`: the entities this account may see (`{entities: [...]}`), for `@` mentions. */
+  listEntities() {
+    return this.request("GET", "entities", undefined, "Entities");
+  }
+
+  /**
+   * `POST sessions/{id}/mentions {entity, text, mention_index}`: one `@entity` mention of this
+   * conversation (AbstractGateway's mention door). The entity answers as a turn of the session
+   * (`run_id`), which carries its `author` wherever the turn is read. Refusals throw
+   * GatewayHttpError with the gateway's `code`. Never retried here.
+   */
+  async mention(sessionId: string, req: MentionRequest, signal?: AbortSignal): Promise<MentionAnswer> {
+    const sid = String(sessionId || "").trim();
+    if (!sid) throw new Error("mention: a session_id is required");
+    const out = await this.request("POST", `sessions/${encodeURIComponent(sid)}/mentions`, req, `Mention of ${req.entity}`, signal);
+    const runId = typeof out.run_id === "string" ? out.run_id.trim() : "";
+    if (!runId) throw new Error(`The gateway answered the mention of ${req.entity} without a run id.`);
+    return {
+      run_id: runId,
+      reply: typeof out.reply === "string" ? out.reply : "",
+      mention_index: typeof out.mention_index === "number" ? out.mention_index : req.mention_index,
+    };
   }
 
   inputData(runId: string) {

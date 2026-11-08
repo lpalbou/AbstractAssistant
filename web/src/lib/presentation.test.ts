@@ -25,6 +25,42 @@ describe("a conversation contains exchanges, not transport diagnostics", () => {
   });
 });
 
+describe("who answered (the gateway's turn author)", () => {
+  const castor = { kind: "entity" as const, name: "Castor", entity_id: "entity:castor", identity_ref: "entity:castor#3", avatar: { style: "watch-halo", color: "#336699" } };
+  const agent = { kind: "agent" as const, name: "Basic agent", entity_id: null, identity_ref: null, avatar: null };
+  const person = { kind: "person" as const, name: "Laurent", entity_id: null, identity_ref: null, avatar: null };
+
+  it("shows a mention turn's answer, not its prompt (the message already shown in the person's turn)", () => {
+    const { conversation } = conversationPresentation([
+      { id: "r:input", runId: "r", role: "user", kind: "prompt", content: "Which plan?", author: person },
+      { id: "r:final", runId: "r", role: "assistant", kind: "final", content: "The second.", author: agent },
+      { id: "m:input", runId: "m", role: "user", kind: "prompt", content: "Which plan?", author: person },
+      { id: "m:final", runId: "m", role: "assistant", kind: "final", content: "Agreed.", author: castor },
+    ], { mentionTurns: new Set(["m"]) });
+    expect(conversation.map((m) => m.id)).toEqual(["r:input", "r:final", "m:final"]);
+    expect(conversation.at(-1)?.author).toEqual(castor);
+    // Without the mention turn known, every prompt stays.
+    expect(conversationPresentation([{ id: "m:input", runId: "m", role: "user", content: "Which plan?" }]).conversation).toHaveLength(1);
+  });
+
+  it("names the followed turn's live reply by the run's author; other runs and authored messages are left alone", () => {
+    const { conversation } = conversationPresentation([
+      { id: "live:r:c1", runId: "r", role: "assistant", content: "Writ", live: { callId: "c1", reasoning: "" } },
+      { id: "live:child:c2", runId: "child", role: "assistant", content: "sub", live: { callId: "c2", reasoning: "", caption: "sub-agent · x" } },
+      { id: "old:final", runId: "old", role: "assistant", content: "Before", author: null },
+    ], { liveAuthor: { runId: "r", author: agent } });
+    expect(conversation.map((m) => m.author)).toEqual([agent, undefined, null]);
+  });
+
+  it("an older gateway (no author anywhere) keeps today's 'Assistant' header", () => {
+    const { conversation } = conversationPresentation([
+      { id: "live:r:c1", runId: "r", role: "assistant", content: "Writ", live: { callId: "c1", reasoning: "" } },
+      { id: "r:final", runId: "r", role: "assistant", content: "Done" },
+    ], { liveAuthor: { runId: "r", author: null } });
+    expect(conversation.map((m) => [m.title, "author" in m])).toEqual([["Assistant", false], ["Assistant", false]]);
+  });
+});
+
 describe("the avatar reflects the current job", () => {
   const ready = { recording: false, transcribing: false, playback: "idle", pending: false, busy: false, working: false, failed: false, loading: false };
   it("gives user interaction and new work priority over old speech", () => {

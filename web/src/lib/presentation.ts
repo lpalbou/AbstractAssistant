@@ -1,16 +1,34 @@
-import type { ChatMessage } from "@abstractframework/panel-chat";
+import type { ChatAuthor, ChatMessage } from "../vendor/abstractchat/conversation.js";
 import type { AvatarPose } from "../vendor/abstractavatar/avatar_renderer.js";
 
-/** Transport diagnostics stay available in Details, outside the conversation. Errors stay visible. */
-export function conversationPresentation(messages: readonly ChatMessage[]) {
+export type PresentationOptions = {
+  /** Session turns that are `@` mentions (their view's workflow is the mention door's). Such a
+   * turn's prompt is the message that mentioned the entity, already shown in the person's own
+   * turn: only the entity's answer is shown. */
+  mentionTurns?: ReadonlySet<string>;
+  /** The followed turn's answer author (`GET runs/{id}` `author`): a reply still being written
+   * (live text has no author of its own) is named like its finished answer will be. */
+  liveAuthor?: { runId: string; author: ChatAuthor | null };
+};
+
+/**
+ * Transport diagnostics stay available in Details, outside the conversation. Errors stay visible.
+ * Who answered is the gateway's turn `author` (the kit's header); without one (an older gateway)
+ * the Assistant speaks as "Assistant" (the card's default is "Agent").
+ */
+export function conversationPresentation(messages: readonly ChatMessage[], opts: PresentationOptions = {}) {
   const diagnostics: ChatMessage[] = [];
   const conversation: ChatMessage[] = [];
+  const live = opts.liveAuthor;
   for (const message of messages) {
     if (message.role === "system" && message.level === "info" && String(message.id || "").startsWith("stream-unavailable:")) {
       diagnostics.push(message);
-    } else {
-      conversation.push(message.role === "assistant" && !message.title ? { ...message, title: "Assistant" } : message);
+      continue;
     }
+    if (message.role === "user" && message.runId && opts.mentionTurns?.has(message.runId)) continue;
+    let m = message;
+    if (m.role === "assistant" && m.live && live?.author && m.runId === live.runId && m.author === undefined) m = { ...m, author: live.author };
+    conversation.push(m.role === "assistant" && !m.title ? { ...m, title: "Assistant" } : m);
   }
   return { conversation, diagnostics };
 }
