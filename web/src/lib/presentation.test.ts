@@ -68,6 +68,14 @@ describe("who answered (the gateway's turn author)", () => {
     expect(conversation.map((m) => m.author)).toEqual([agent, undefined, null]);
   });
 
+  it("an entity answer without a name is never titled 'Assistant' (review 2026-11-09 N7); an agent's still is", () => {
+    const { conversation } = conversationPresentation([
+      { id: "m:final", runId: "m", role: "assistant", content: "Hi", author: { ...castor, name: null } },
+      { id: "a:final", runId: "a", role: "assistant", content: "Done", author: { kind: "agent", name: null, entity_id: null, identity_ref: null, avatar: null } },
+    ]);
+    expect(conversation.map((m) => m.title)).toEqual([undefined, "Assistant"]);
+  });
+
   it("an older gateway (no author anywhere) keeps today's 'Assistant' header", () => {
     const { conversation } = conversationPresentation([
       { id: "live:r:c1", runId: "r", role: "assistant", content: "Writ", live: { callId: "c1", reasoning: "" } },

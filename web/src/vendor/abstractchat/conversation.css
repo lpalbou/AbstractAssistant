@@ -2116,6 +2116,13 @@ button.pc-ws__name:hover {
   container: pc-composer / inline-size;
 }
 
+/* The @ list spans a narrow composer (a phone): its 22rem cap left a gap on the right. */
+@container pc-composer (max-width: 28rem) {
+  .pc-mention-popover {
+    width: 100%;
+  }
+}
+
 .pc-workflow-chat,
 .pc-assistant {
   container: pc-chat / inline-size;

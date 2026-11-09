@@ -7,7 +7,8 @@
  * - The names come from `GET /api/gateway/entities` (the entities this account may see). A
  *   mention is the kit's structured chip; the text is never read for `@` (no-heuristics ruling).
  * - Several mentions in one message are sent one after the other, in their order, each after
- *   the previous one returned, so the second entity sees the first one's answer. Each names the
+ *   the previous one returned, so the second entity sees the first one's answer (an entity named
+ *   twice is asked once). Each names the
  *   person's own turn that carries the same words (`repeat_of`): the mention turn keeps the words
  *   as its prompt, and the conversation shows them once (lib/presentation.ts folds them).
  * - Refusals, per the contract: 409 = "<name> is in another conversation", go on with the next;
@@ -18,7 +19,7 @@
  *
  * DOM-free; checked by mentions.test.ts.
  */
-import type { ChatMentionCandidate, ChatMentionSent, ChatMessage } from "../vendor/abstractchat/conversation.js";
+import { uniqueMentions, type ChatMentionCandidate, type ChatMentionSent, type ChatMessage } from "../vendor/abstractchat/conversation.js";
 
 /** The one sentence an older gateway gets (no mention route, or turns without `author`). */
 export const MENTIONS_UNAVAILABLE = "This gateway does not offer mentions yet.";
@@ -97,6 +98,9 @@ export type MentionDelivery = {
   unavailable: boolean;
   /** Why the remaining mentions were not sent (an entity could not answer, or the call failed). */
   stopped: string | null;
+  /** Not answered because of `stopped`: that mention and every one after it, with their index
+   * (the chips the composer keeps; a resend asks only these, with the same `repeat_of`). */
+  unsent: ChatMentionSent[];
 };
 
 /**
@@ -113,8 +117,9 @@ export async function deliverMentions(opts: {
   signal?: AbortSignal;
   onAnswer?: (answer: MentionAnswer, mention: ChatMentionSent) => void | Promise<void>;
 }): Promise<MentionDelivery> {
-  const out: MentionDelivery = { answered: [], notes: [], unavailable: false, stopped: null };
-  for (const mention of opts.mentions) {
+  const out: MentionDelivery = { answered: [], notes: [], unavailable: false, stopped: null, unsent: [] };
+  const mentions = uniqueMentions(opts.mentions);
+  for (const [at, mention] of mentions.entries()) {
     opts.signal?.throwIfAborted();
     let answer: MentionAnswer;
     try {
@@ -134,6 +139,7 @@ export async function deliverMentions(opts: {
         out.notes.push(`${mention.name} cannot be mentioned here.`);
         continue;
       }
+      out.unsent = mentions.slice(at);
       if (refusal === "repeat_unknown") {
         out.stopped = `${mention.name} was not asked: the gateway did not find your message in this conversation.`;
         return out;

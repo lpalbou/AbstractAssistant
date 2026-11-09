@@ -1,4 +1,4 @@
-import type { ChatAuthor, ChatMessage } from "../vendor/abstractchat/conversation.js";
+import { chatAuthorOf, type ChatAuthor, type ChatMessage } from "../vendor/abstractchat/conversation.js";
 import type { AvatarPose } from "../vendor/abstractavatar/avatar_renderer.js";
 
 export type PresentationOptions = {
@@ -16,7 +16,9 @@ const when = (m: ChatMessage): number => (typeof m.ts === "string" ? Date.parse(
 /**
  * Transport diagnostics stay available in Details, outside the conversation. Errors stay visible.
  * Who answered is the gateway's turn `author` (the kit's header); without one (an older gateway)
- * the Assistant speaks as "Assistant" (the card's default is "Agent"). The answers to one message
+ * the Assistant speaks as "Assistant" (the card's default is "Agent"), and so does an agent author
+ * without a name. An entity's (or person's) answer is never titled "Assistant": without a name the
+ * kit says its kind ("Entity"). The answers to one message
  * (its own turn's and those of the turns repeating it) are ordered by when they came.
  */
 export function conversationPresentation(messages: readonly ChatMessage[], opts: PresentationOptions = {}) {
@@ -37,7 +39,8 @@ export function conversationPresentation(messages: readonly ChatMessage[], opts:
     let m = message;
     const live = m.role === "assistant" && m.live && m.author === undefined && m.runId ? opts.liveAuthors?.get(m.runId) : undefined;
     if (live) m = { ...m, author: live };
-    conversation.push(m.role === "assistant" && !m.title ? { ...m, title: "Assistant" } : m);
+    const who = m.role === "assistant" ? chatAuthorOf(m.author) : null;
+    conversation.push(m.role === "assistant" && !m.title && (!who || who.kind === "agent") ? { ...m, title: "Assistant" } : m);
   }
   // The answers to one message, in the order they came (each answer's own time).
   for (const anchor of new Set([...(repeats?.values() || [])].filter((of) => asked.has(of)))) {

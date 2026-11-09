@@ -1,4 +1,4 @@
-import {WorkflowChat, useWorkflowSession, conversationSnapshot, useAvatarConversationPreferences, playConversationCue, conversationReply, presentInteraction, chatAuthorOf, type ChatAuthor, type ChatMentionCandidate, type ChatMentionSent} from "../vendor/abstractchat/conversation.js";
+import {WorkflowChat, useWorkflowSession, conversationSnapshot, useAvatarConversationPreferences, playConversationCue, conversationReply, presentInteraction, chatAuthorOf, mentionResend, type ChatAuthor, type ChatMentionCandidate, type ChatMentionSent, type ChatMentionsUnsent, type MentionResend} from "../vendor/abstractchat/conversation.js";
 import "../vendor/abstractchat/conversation.css";
 import { SessionReadMarker, sessionContentRevision, sessionReadTarget, sessionOpeningReceipts, type SessionReceipt, type SessionActivity } from "../vendor/abstractsessions/session_cards.js";
 /**
@@ -277,10 +277,15 @@ export function Workspace(props: {
   // The answers to this view's own mentions, shown after the turn that mentioned them until the
   // conversation moves to another turn (then they are earlier turns, read by the controller).
   const [mentionAnswers, setMentionAnswers] = useState<{ anchor: string; messages: ChatMessage[] }>({ anchor: "", messages: [] });
+  // A message whose mentions stopped partway (an entity could not answer): its words, its turn
+  // (`repeat_of`) and the mentions not answered. Sending the same words again with chips asks only
+  // those (`mentionResend`): never a new turn of the person, never an entity that already answered.
+  const pendingResend = useRef<{ sid: string; resend: MentionResend } | null>(null);
 
   /** Ask each mentioned entity, in order, after the person's own turn (or guidance) was sent;
-   * `anchor` is that turn (`repeat_of`: the words are shown once, there). */
-  const sendMentions = async (sid: string, anchor: string, text: string, mentions: readonly ChatMentionSent[], signal?: AbortSignal) => {
+   * `anchor` is that turn (`repeat_of`: the words are shown once, there). Returns the mentions not
+   * answered when an entity could not answer (the chips the composer keeps), else []. */
+  const sendMentions = async (sid: string, anchor: string, text: string, mentions: readonly ChatMentionSent[], signal?: AbortSignal): Promise<ChatMentionSent[]> => {
     const show = async (answer: MentionAnswer, mention: ChatMentionSent) => {
       // The answer is a session turn: read from its view, like a reload reads it.
       let shown: ChatMessage[];
@@ -297,23 +302,36 @@ export function Workspace(props: {
       setMentionAnswers((prev) => ({ anchor, messages: [...(prev.anchor === anchor ? prev.messages : []), ...shown] }));
     };
     const outcome = await deliverMentions({ text, mentions, repeatOf: anchor, post: (req, s) => client.mention(sid, req, s), ...(signal ? { signal } : {}), onAnswer: show });
-    if (!mounted.current) return;
+    if (outcome.stopped && outcome.unsent.length) pendingResend.current = { sid, resend: { text, repeatOf: anchor || null, unsent: outcome.unsent } };
+    if (!mounted.current) return outcome.unsent;
     // A name the gateway refused (hidden, elsewhere) is read again on the next `@`.
     if (outcome.notes.length) entityNames.current = null;
     if (outcome.unavailable) setMentionRouteMissing(true);
     setMentionStatus(mentionStatusLine(outcome));
     // Each answer is a new turn of the session: the list's turns and latest turn moved.
     if (outcome.answered.length) props.onTurnEnded();
-    // An entity that could not answer: the message goes back to the composer.
+    // An entity that could not answer: the message goes back to the composer, with the chips not
+    // answered (the send resolves naming them; the kit keeps only those).
     if (outcome.stopped) setDraft((current) => (current.trim() ? current : text));
+    return outcome.unsent;
   };
+  const unsentResult = (unsent: ChatMentionSent[]): ChatMentionsUnsent | undefined => (unsent.length ? { unsentMentions: unsent } : undefined);
 
   // ---- send ---------------------------------------------------------------------------------
   const send = useCallback(
-    async (text: string, ctx?: { signal?: AbortSignal; mentions?: readonly ChatMentionSent[] }) => {
+    async (text: string, ctx?: { signal?: AbortSignal; mentions?: readonly ChatMentionSent[] }): Promise<ChatMentionsUnsent | undefined> => {
       const mentions = ctx?.mentions ?? [];
       voiceRef.current.stop_tts();
       setMentionStatus("");
+      // The same words again, with chips, after a stop: only those mentions, nothing else.
+      const held = pendingResend.current;
+      pendingResend.current = null;
+      const again = held && held.sid === ensureSession() ? mentionResend(held.resend, text, mentions) : null;
+      if (held && again) {
+        const unsent = await sendMentions(held.sid, held.resend.repeatOf ?? "", held.resend.text, again, ctx?.signal);
+        if (mounted.current && !unsent.length) setDraft("");
+        return unsentResult(unsent);
+      }
       if (busy) {
         if (!avatarMode) throw new Error("The assistant is still working.");
         if (interaction?.kind === "ask-user") {
@@ -327,7 +345,7 @@ export function Workspace(props: {
         if (!mounted.current) return;
         setDraft(""); setReplyContext(null);
         setNotice("Sent. Your message is available to the assistant.");
-        if (mentions.length) await sendMentions(ensureSession(), props.runId, text, mentions, ctx?.signal);
+        if (mentions.length) return unsentResult(await sendMentions(ensureSession(), props.runId, text, mentions, ctx?.signal));
         return;
       }
       const sid = ensureSession();
@@ -355,7 +373,8 @@ export function Workspace(props: {
       setDraft("");
       setNotice("");
       props.onStarted(run_id, sid);
-      if (mentions.length) await sendMentions(sid, run_id, text, mentions, ctx?.signal);
+      if (mentions.length) return unsentResult(await sendMentions(sid, run_id, text, mentions, ctx?.signal));
+      return undefined;
     },
     // sendMentions reads refs, state setters, the client and the transport.
     [client, transport, ensureSession, uploads, props, busy, avatarMode, interaction, replyContext, controller, snapshot.view],
@@ -440,7 +459,7 @@ export function Workspace(props: {
       mentionStatus={mentionStatus || null}
       mentionsUnavailable={mentionsUnavailable}
       busy={busy}
-      steer={avatarMode && busy ? { modes: ["guide"], onSteer: async (text, _mode, ctx) => { await send(text, { mentions: ctx?.mentions ?? [] }); return { accepted: true }; }, parked: snapshot.status === "waiting" } : undefined}
+      steer={avatarMode && busy ? { modes: ["guide"], onSteer: async (text, _mode, ctx) => ({ ...(await send(text, { mentions: ctx?.mentions ?? [] })), accepted: true }), parked: snapshot.status === "waiting" } : undefined}
       busyLabel={pending && !answeredElsewhere ? "Waiting for you…" : snapshot.loading ? "Opening…" : presence.pose === "working" ? "Working…" : "Thinking…"}
       onCancel={() => controller.cancel()}
       stopState={snapshot.stop || null}

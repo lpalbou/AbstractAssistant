@@ -1,7 +1,7 @@
 /** Canonical conversation presenter, including tool activity, links and message files. */
 export { WorkflowChat, type WorkflowChatProps } from "./workflow_chat.js";
 export { ChatComposer, type ChatComposerProps, type ChatComposerVariant } from "./chat_composer.js";
-export { mentionSendPayload, type ChatComposerSend, type ChatMention, type ChatMentionCandidate, type ChatMentionKind, type ChatMentionSent } from "./mentions.js";
+export { mentionSendPayload, mentionResend, mentionsStoppedError, uniqueMentions, unsentMentionsOf, type ChatComposerSend, type ChatMention, type ChatMentionCandidate, type ChatMentionKind, type ChatMentionSent, type ChatMentionsUnsent, type MentionResend } from "./mentions.js";
 export { chatAuthorOf, chatAuthorView, type ChatAuthor, type ChatAuthorKind, type ChatAvatarLook } from "./chat_author.js";
 export { ChatAuthorMark, type ChatAuthorMarkProps } from "./author_mark.js";
 export { ChatThread, type ChatThreadProps } from "./chat_thread.js";

@@ -6,8 +6,9 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 
 ## [Unreleased]
 
-Built on panel-chat 0.9.9 and ui-kit 0.9.25 (AbstractUIC local builds, not yet published). Mentions
-need an AbstractGateway that has the mention door (not released yet).
+Built on panel-chat 0.9.9 and ui-kit 0.9.26 (AbstractUIC local builds, not yet published; panel-chat
+packed from AbstractUIC aca0b07, both installed together `--no-save`). Mentions need an AbstractGateway
+that has the mention door (not released yet).
 
 ### Added
 
@@ -25,6 +26,16 @@ need an AbstractGateway that has the mention door (not released yet).
   name) or the entity's name and look, with a small "agent" or "entity" tag. It comes from the
   gateway, so a reload or another device shows the same. On an older gateway replies keep their
   "Assistant" header.
+
+### Fixed
+
+- **Mentions, client review 2026-11-09.** When an entity could not answer (503), the box keeps the words AND
+  the chips not answered (they were dropped before), and sending the same words again asks only those entities,
+  with the same `repeat_of` and their first `mention_index`: it no longer starts a second turn of the Assistant
+  nor asks an entity that already answered. Other words are a new message. An entity picked twice is asked once.
+  An entity's answer without a name reads "Entity", never "Assistant". Kit fixes from AbstractUIC 9aad042 and
+  aca0b07 (vendored copy re-synced): a chip picked while a send is in flight stays, Enter waits while the `@` list
+  loads, a picked name is not offered again, and the list spans the box on a phone.
 
 ### Changed
 

@@ -18,6 +18,7 @@ import {
   type MentionAnswer,
   type MentionRequest,
 } from "./mentions";
+import { mentionResend } from "../vendor/abstractchat/conversation.js";
 
 const castor = { id: "castor", name: "Castor", kind: "entity" as const, index: 0 };
 const pollux = { id: "pollux", name: "Pollux", kind: "entity" as const, index: 1 };
@@ -89,7 +90,7 @@ describe("several mentions in one message", () => {
       { entity: "castor", text: "which plan holds?", mention_index: 0, repeat_of: "turn-person" },
       { entity: "pollux", text: "which plan holds?", mention_index: 1, repeat_of: "turn-person" },
     ]);
-    expect(outcome).toEqual({ answered: [answer({ entity: "castor", text: "", mention_index: 0 }), answer({ entity: "pollux", text: "", mention_index: 1 })], notes: [], unavailable: false, stopped: null });
+    expect(outcome).toEqual({ answered: [answer({ entity: "castor", text: "", mention_index: 0 }), answer({ entity: "pollux", text: "", mention_index: 1 })], notes: [], unavailable: false, stopped: null, unsent: [] });
   });
 
   it("an entity in another conversation is said once and the next one is still asked", async () => {
@@ -134,6 +135,32 @@ describe("several mentions in one message", () => {
     expect(post).toHaveBeenCalledTimes(2);
     expect(outcome.stopped).toBe("Pollux cannot answer: no model is chosen for this entity");
     expect(outcome.answered.map((a) => a.run_id)).toEqual(["turn-castor"]);
+    expect(outcome.unsent).toEqual([pollux, vega]);
+  });
+
+  it("review 2026-11-09 S1: after a 503 the resend asks only the unsent, same words, same repeat_of, first index", async () => {
+    const sent: MentionRequest[] = [];
+    let polluxOk = false;
+    const post = vi.fn(async (req: MentionRequest) => {
+      sent.push(req);
+      if (req.entity === "pollux" && !polluxOk) throw refused(503, "Pollux cannot answer right now.", "entity_cannot_answer");
+      return answer(req);
+    });
+    const first = await deliverMentions({ text: "is the plan sound?", mentions: [castor, pollux], post, repeatOf: "turn-a" });
+    expect(first.unsent).toEqual([pollux]);
+    // The kit keeps only @Pollux and numbers it 0; the resend gives it back its first index.
+    const again = mentionResend({ text: "is the plan sound?", repeatOf: "turn-a", unsent: first.unsent }, "is the plan sound?", [{ ...pollux, index: 0 }]);
+    polluxOk = true;
+    sent.length = 0;
+    const second = await deliverMentions({ text: "is the plan sound?", mentions: again!, post, repeatOf: "turn-a" });
+    expect(sent).toEqual([{ entity: "pollux", text: "is the plan sound?", mention_index: 1, repeat_of: "turn-a" }]);
+    expect(second.unsent).toEqual([]);
+  });
+
+  it("an entity named twice is asked once, at its first index", async () => {
+    const post = vi.fn(async (req: MentionRequest) => answer(req));
+    await deliverMentions({ text: "hi", mentions: [castor, pollux, { ...castor, index: 2 }], post });
+    expect(post.mock.calls.map((c) => `${c[0].entity}#${c[0].mention_index}`)).toEqual(["castor#0", "pollux#1"]);
   });
 
   it("a repeat_of the gateway does not know (422) stops the rest with one sentence", async () => {

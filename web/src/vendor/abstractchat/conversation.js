@@ -1360,6 +1360,49 @@ function mentionSendPayload(text6, mentions) {
     mentions: mentions.map((m, index) => ({ id: m.id, name: m.name, kind: m.kind, index }))
   };
 }
+function unsentMentionsOf(settled) {
+  if (!settled || typeof settled !== "object")
+    return null;
+  const list = settled.unsentMentions;
+  if (!Array.isArray(list))
+    return null;
+  return list.filter((m) => Boolean(m) && typeof m === "object" && typeof m.id === "string" && (m.kind === "entity" || m.kind === "agent"));
+}
+function mentionsStoppedError(sentence, unsent) {
+  return Object.assign(new Error(sentence), { unsentMentions: unsent.map((m) => ({ ...m })) });
+}
+function mentionsAfterSend(now, sent, keep = []) {
+  const gone = new Set(sent.map(mentionKey));
+  for (const m of keep)
+    gone.delete(mentionKey(m));
+  return now.filter((m) => !gone.has(mentionKey(m)));
+}
+function mentionResend(pending, text6, mentions) {
+  if (!pending || !mentions.length || String(text6 ?? "").trim() !== String(pending.text ?? "").trim())
+    return null;
+  const first = new Map(pending.unsent.map((m) => [mentionKey(m), m.index]));
+  let next = pending.unsent.reduce((top, m) => Math.max(top, m.index + 1), 0);
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const m of mentions) {
+    const key = mentionKey(m);
+    if (seen.has(key))
+      continue;
+    seen.add(key);
+    out.push({ id: m.id, name: m.name, kind: m.kind, index: first.get(key) ?? next++ });
+  }
+  return out.sort((a, b) => a.index - b.index);
+}
+function uniqueMentions(mentions) {
+  const seen = /* @__PURE__ */ new Set();
+  return mentions.filter((m) => {
+    const key = mentionKey(m);
+    if (seen.has(key))
+      return false;
+    seen.add(key);
+    return true;
+  });
+}
 function moveMentionActive(active, count2, delta) {
   if (count2 <= 0)
     return -1;
@@ -1499,7 +1542,10 @@ var ChatComposer = React3.forwardRef(function ChatComposer2(props, ref) {
         setFound({ query, items: [], status: "error" });
     });
   }, [query]);
-  const shown = query === null ? NOTHING_FOUND : found.query === query ? found : { query, items: found.items, status: "loading" };
+  const loaded = query === null ? NOTHING_FOUND : found.query === query ? found : { query, items: found.items, status: "loading" };
+  const pickedKeys = new Set(mentions.map(mentionKey));
+  const shown = { ...loaded, items: loaded.items.filter((c) => !pickedKeys.has(mentionKey(c))) };
+  const alreadyPicked = loaded.items.length > 0 && shown.items.length === 0;
   const activeIndex = shown.items.length ? Math.min(Math.max(active, 0), shown.items.length - 1) : -1;
   const listId = `${useId()}mentions`;
   const optionId = (i) => `${listId}-${i}`;
@@ -1543,14 +1589,24 @@ var ChatComposer = React3.forwardRef(function ChatComposer2(props, ref) {
       p.onSubmit?.();
       return;
     }
-    const result = p.onSend(mentionSendPayload(p.value, mentionsOn ? mentionsRef.current : NO_MENTIONS));
+    const held = mentionsOn ? mentionsRef.current : NO_MENTIONS;
+    const usable = mentionsOn && !String(p.mentionsUnavailable || "").trim();
+    const result = p.onSend(mentionSendPayload(p.value, usable ? held : NO_MENTIONS));
     if (p.mentions !== void 0 || !mentionsOn)
       return;
-    const clear = () => setOwnMentions(NO_MENTIONS);
+    const settle = (settled, failed) => {
+      const keep = unsentMentionsOf(settled);
+      if (failed && keep === null)
+        return;
+      setMentions(mentionsAfterSend(mentionsRef.current, held, keep ?? []));
+    };
     if (result && typeof result.then === "function")
-      void result.then(clear);
+      void result.then((value) => settle(value, false), (reason) => {
+        settle(reason, true);
+        throw reason;
+      });
     else
-      clear();
+      settle(result, false);
   };
   const mentionChips = mentionsOn && (mentions.length || mentionStatus) ? _jsxs5("div", { className: "pc-mention-chips", role: "group", "aria-label": "Mentioned", children: [mentionStatus ? _jsxs5("div", { className: "pc-mention-notice pc-mention-notice--status", role: "status", children: [_jsx8(Icon5, { name: "info", size: 13 }), _jsx8("span", { children: mentionStatus })] }) : null, mentions.map((m) => _jsxs5(AfChip, { tone: "accent", className: "pc-mention-chip", title: m.kind === "entity" ? `${m.name} (entity)` : `${m.name} (agent)`, ...disabled ? {} : { onRemove: () => setMentions(removeMention(mentionsRef.current, mentionKey(m))), removeLabel: `Remove ${m.name}` }, children: [_jsx8(ChatAuthorMark, { mark: m.kind, look: m.avatar, initial: m.name, size: 14 }), _jsxs5("span", { className: "pc-mention-chip__name", "data-mention-kind": m.kind, children: ["@", m.name] })] }, mentionKey(m))), visibleNotices.map((n) => _jsxs5("div", { className: "pc-mention-notice", role: "status", children: [_jsx8(Icon5, { name: "info", size: 13 }), _jsx8("span", { children: n.text })] }, n.key)), unavailable && mentions.length ? _jsxs5("div", { className: "pc-mention-notice pc-mention-notice--unavailable", role: "status", children: [_jsx8(Icon5, { name: "warning", size: 13 }), _jsx8("span", { children: unavailable })] }) : null] }) : null;
   const mentionList = open && unavailable ? _jsx8("div", { className: "pc-mention-popover", "data-status": "unavailable", children: _jsx8("div", { className: "pc-mention-empty", role: "status", children: unavailable }) }) : open ? _jsx8("div", { className: "pc-mention-popover", "data-status": shown.status, children: shown.items.length ? _jsx8("ul", { id: listId, className: "pc-mention-list", role: "listbox", "aria-label": "Mention someone", children: shown.items.map((c, i) => _jsxs5("li", {
@@ -1564,7 +1620,7 @@ var ChatComposer = React3.forwardRef(function ChatComposer2(props, ref) {
     onMouseEnter: () => setActive(i),
     onClick: () => pick(c),
     children: [_jsx8(ChatAuthorMark, { mark: c.kind, look: c.avatar, initial: c.name, size: 22 }), _jsxs5("span", { className: "pc-mention-option__text", children: [_jsx8("span", { className: "pc-mention-option__name", children: c.name }), c.hint ? _jsx8("span", { className: "pc-mention-option__hint", children: c.hint }) : null] }), _jsx8("span", { className: "pc-mention-option__kind", children: c.kind })]
-  }, mentionKey(c))) }) : _jsx8("div", { className: "pc-mention-empty", role: "status", children: shown.status === "loading" ? "Looking for names\u2026" : shown.status === "error" ? "The names could not be loaded." : shown.query ? `No name matches \u201C${shown.query}\u201D.` : "No one to mention here." }) }) : null;
+  }, mentionKey(c))) }) : _jsx8("div", { className: "pc-mention-empty", role: "status", children: shown.status === "loading" ? "Looking for names\u2026" : shown.status === "error" ? "The names could not be loaded." : alreadyPicked ? "Already mentioned." : shown.query ? `No name matches \u201C${shown.query}\u201D.` : "No one to mention here." }) }) : null;
   return _jsxs5("div", { className: ["pc-composer", compact ? "pc-composer--compact" : "", props.className].filter(Boolean).join(" "), children: [props.leading, mentionChips, _jsx8("textarea", {
     id: props.textareaId,
     ref: setTextarea,
@@ -1611,6 +1667,10 @@ var ChatComposer = React3.forwardRef(function ChatComposer2(props, ref) {
         if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey && activeIndex >= 0) {
           e.preventDefault();
           pick(shown.items[activeIndex]);
+          return;
+        }
+        if (e.key === "Enter" && !e.shiftKey && !unavailable && shown.status === "loading") {
+          e.preventDefault();
           return;
         }
         if (e.key === "Escape") {
@@ -3522,7 +3582,13 @@ function WorkflowChat(props) {
   const [copyState, setCopyState] = useState16("idle");
   const [mentions, setMentions] = useState16([]);
   const mentionsOn = typeof props.mentionCandidates === "function";
-  const sentMentions = () => mentionsOn ? mentionSendPayload("", mentions).mentions : [];
+  const sentMentions = () => mentionsOn && !String(props.mentionsUnavailable || "").trim() ? mentionSendPayload("", mentions).mentions : [];
+  const settleMentions = (held, settled, failed) => {
+    const keep = unsentMentionsOf(settled);
+    if (failed && keep === null)
+      return;
+    setMentions((now) => mentionsAfterSend(now, held, keep ?? []));
+  };
   const sendAbortRef = useRef11(null);
   const mountedRef = useRef11(true);
   const sendInFlightRef = useRef11(false);
@@ -3716,6 +3782,7 @@ function WorkflowChat(props) {
     setError(null);
     setSteerStatus(null);
     setSendPending(true);
+    const held = mentionsOn ? mentions : [];
     try {
       const result = await steer.onSteer(draft, mode, { mentions: sentMentions() });
       if (!mountedRef.current || sendSequenceRef.current !== sequence)
@@ -3732,11 +3799,14 @@ function WorkflowChat(props) {
         ...typeof result.seq === "number" ? { seq: result.seq } : {},
         duplicate: Boolean(result.duplicate)
       });
-      setMentions([]);
-      props.onDraftChange("");
+      settleMentions(held, result, false);
+      if (!unsentMentionsOf(result)?.length)
+        props.onDraftChange("");
     } catch (reason) {
-      if (mountedRef.current && sendSequenceRef.current === sequence)
+      if (mountedRef.current && sendSequenceRef.current === sequence) {
         setError({ action: "steer", message: messageFor(reason) });
+        settleMentions(held, reason, true);
+      }
     } finally {
       if (mountedRef.current && sendSequenceRef.current === sequence) {
         sendInFlightRef.current = false;
@@ -3764,13 +3834,16 @@ function WorkflowChat(props) {
     setError(null);
     setSteerStatus(null);
     setSendPending(true);
+    const held = mentionsOn ? mentions : [];
     try {
-      await props.onSend(draft, { signal: abort.signal, mentions: sentMentions() });
+      const result = await props.onSend(draft, { signal: abort.signal, mentions: sentMentions() });
       if (mountedRef.current && sendSequenceRef.current === sequence)
-        setMentions([]);
+        settleMentions(held, result, false);
     } catch (reason) {
       if (mountedRef.current && sendSequenceRef.current === sequence && !abort.signal.aborted)
         setError({ action: "send", message: messageFor(reason) });
+      if (mountedRef.current && sendSequenceRef.current === sequence)
+        settleMentions(held, reason, true);
     } finally {
       if (sendAbortRef.current === abort)
         sendAbortRef.current = null;
@@ -7320,13 +7393,17 @@ export {
   conversationReply,
   conversationSnapshot,
   conversationState,
+  mentionResend,
   mentionSendPayload,
+  mentionsStoppedError,
   outputArtifacts,
   playConversationCue,
   presentInteraction,
   publicApprovalRequest,
   publicUpdate,
   submittedArtifacts,
+  uniqueMentions,
+  unsentMentionsOf,
   useAvatarConversationPreferences,
   useWorkflowSession
 };
