@@ -1,6 +1,7 @@
 // `@entity` mentions (lib/mentions.ts): the names offered, the order mentions are sent in, and how
 // each refusal of the gateway's mention door is handled (contract: abstractgateway
 // docs/entities.md "Mentioning an entity from any chat").
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AssistantHost } from "../host";
@@ -11,8 +12,11 @@ import {
   entityCandidates,
   gatewayLacksTurnAuthors,
   matchCandidates,
+  mentionId,
+  mentionMessageKey,
   mentionNotice,
   mentionRefusal,
+  mintMessageId,
   mentionStatusLine,
   viewRepeatOf,
   type MentionAnswer,
@@ -87,10 +91,10 @@ describe("several mentions in one message", () => {
     const outcome = await done;
     expect(log).toEqual(["start castor#0", "end castor", "shown turn-castor", "start pollux#1", "end pollux", "shown turn-pollux"]);
     expect(post.mock.calls.map(([req]) => req)).toEqual([
-      { entity: "castor", text: "which plan holds?", mention_index: 0, repeat_of: "turn-person" },
-      { entity: "pollux", text: "which plan holds?", mention_index: 1, repeat_of: "turn-person" },
+      { entity: "castor", text: "which plan holds?", mention_index: 0, repeat_of: "turn-person", mention_id: "turn-person:castor:0" },
+      { entity: "pollux", text: "which plan holds?", mention_index: 1, repeat_of: "turn-person", mention_id: "turn-person:pollux:1" },
     ]);
-    expect(outcome).toEqual({ answered: [answer({ entity: "castor", text: "", mention_index: 0 }), answer({ entity: "pollux", text: "", mention_index: 1 })], notes: [], unavailable: false, stopped: null, unsent: [] });
+    expect(outcome).toEqual({ message: "turn-person", answered: [answer({ entity: "castor", text: "", mention_index: 0, mention_id: "" }), answer({ entity: "pollux", text: "", mention_index: 1, mention_id: "" })], notes: [], unavailable: false, stopped: null, unsent: [] });
   });
 
   it("an entity in another conversation is said once and the next one is still asked", async () => {
@@ -152,9 +156,39 @@ describe("several mentions in one message", () => {
     const again = mentionResend({ text: "is the plan sound?", repeatOf: "turn-a", unsent: first.unsent }, "is the plan sound?", [{ ...pollux, index: 0 }]);
     polluxOk = true;
     sent.length = 0;
-    const second = await deliverMentions({ text: "is the plan sound?", mentions: again!, post, repeatOf: "turn-a" });
-    expect(sent).toEqual([{ entity: "pollux", text: "is the plan sound?", mention_index: 1, repeat_of: "turn-a" }]);
+    const second = await deliverMentions({ text: "is the plan sound?", mentions: again!, post, repeatOf: "turn-a", message: first.message });
+    expect(sent).toEqual([{ entity: "pollux", text: "is the plan sound?", mention_index: 1, repeat_of: "turn-a", mention_id: "turn-a:pollux:1" }]);
     expect(second.unsent).toEqual([]);
+  });
+
+  it("one answer per mention (gateway f0f23bb0): a resend after a lost answer names the same mention_id; a new message another", async () => {
+    const sent: MentionRequest[] = [];
+    let lost = true;
+    const post = vi.fn(async (req: MentionRequest) => {
+      sent.push(req);
+      if (req.entity === "pollux" && lost) throw new TypeError("Failed to fetch");
+      return answer(req);
+    });
+    for (const repeatOf of ["turn-a", undefined]) {
+      sent.length = 0;
+      lost = true;
+      const first = await deliverMentions({ text: "is the plan sound?", mentions: [castor, pollux], post, ...(repeatOf ? { repeatOf } : {}) });
+      expect(first.unsent).toEqual([pollux]);
+      lost = false;
+      await deliverMentions({ text: "is the plan sound?", mentions: first.unsent, post, ...(repeatOf ? { repeatOf } : {}), message: first.message });
+      expect(sent.map((r) => r.mention_id)).toEqual([`${first.message}:castor:0`, `${first.message}:pollux:1`, `${first.message}:pollux:1`]);
+      if (repeatOf) expect(first.message).toBe(repeatOf);
+    }
+    // A new message: another turn, or another minted id.
+    const a = await deliverMentions({ text: "hi", mentions: [castor], post, repeatOf: "turn-b" });
+    const b = await deliverMentions({ text: "hi", mentions: [castor], post, repeatOf: "turn-c" });
+    const c = await deliverMentions({ text: "hi", mentions: [castor], post });
+    const d = await deliverMentions({ text: "hi", mentions: [castor], post });
+    expect(new Set([a.message, b.message, c.message, d.message]).size).toBe(4);
+    expect(mentionMessageKey("turn-a", () => "msg-x")).toBe("turn-a");
+    expect(mentionMessageKey(undefined, () => "msg-x")).toBe("msg-x");
+    expect(mintMessageId()).not.toBe(mintMessageId());
+    expect(() => mentionId("", castor)).toThrow();
   });
 
   it("an entity named twice is asked once, at its first index", async () => {
@@ -170,10 +204,11 @@ describe("several mentions in one message", () => {
     expect(outcome.stopped).toBe("Castor was not asked: the gateway did not find your message in this conversation.");
   });
 
-  it("without a repeated turn, no repeat_of is sent", async () => {
+  it("without a repeated turn, no repeat_of is sent (the mention_id names an id minted for the message)", async () => {
     const post = vi.fn(async (req: MentionRequest) => answer(req));
-    await deliverMentions({ text: "hi", mentions: [castor], post });
-    expect(post.mock.calls[0][0]).toEqual({ entity: "castor", text: "hi", mention_index: 0 });
+    const out = await deliverMentions({ text: "hi", mentions: [castor], post });
+    expect(out.message).toMatch(/^msg-[0-9a-f]{24}$/);
+    expect(post.mock.calls[0][0]).toEqual({ entity: "castor", text: "hi", mention_index: 0, mention_id: `${out.message}:castor:0` });
   });
 
   it("any other failure stops the rest and names the entity", async () => {
@@ -275,5 +310,14 @@ describe("telling an older gateway and a mention turn apart", () => {
     expect(viewRepeatOf({ root_run_id: "m", workflow: { id: "entity-mention" }, messages: [input({})] })).toBeNull();
     expect(viewRepeatOf({ root_run_id: "m", messages: [{ ...input({ repeat_of: "r" }), run_id: "child" }] })).toBeNull();
     expect(viewRepeatOf(null)).toBeNull();
+  });
+});
+
+describe("the workspace keeps a stopped message's mention_id key for its resend", () => {
+  const ws = readFileSync(new URL("../ui/Workspace.tsx", import.meta.url), "utf8");
+  it("holds the key the first send used and passes it back on the resend (never a new one)", () => {
+    expect(ws).toContain("pendingResend.current = { sid, message: outcome.message, resend: { text, repeatOf: anchor || null, unsent: outcome.unsent } };");
+    expect(ws).toContain("await sendMentions(held.sid, held.resend.repeatOf ?? \"\", held.resend.text, again, ctx?.signal, held.message);");
+    expect(ws).toContain("...(message ? { message } : {}), post: (req, s) => client.mention(sid, req, s)");
   });
 });

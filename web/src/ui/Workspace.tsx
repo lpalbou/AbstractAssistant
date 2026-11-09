@@ -280,12 +280,13 @@ export function Workspace(props: {
   // A message whose mentions stopped partway (an entity could not answer): its words, its turn
   // (`repeat_of`) and the mentions not answered. Sending the same words again with chips asks only
   // those (`mentionResend`): never a new turn of the person, never an entity that already answered.
-  const pendingResend = useRef<{ sid: string; resend: MentionResend } | null>(null);
+  const pendingResend = useRef<{ sid: string; message: string; resend: MentionResend } | null>(null);
 
   /** Ask each mentioned entity, in order, after the person's own turn (or guidance) was sent;
-   * `anchor` is that turn (`repeat_of`: the words are shown once, there). Returns the mentions not
-   * answered when an entity could not answer (the chips the composer keeps), else []. */
-  const sendMentions = async (sid: string, anchor: string, text: string, mentions: readonly ChatMentionSent[], signal?: AbortSignal): Promise<ChatMentionSent[]> => {
+   * `anchor` is that turn (`repeat_of`: the words are shown once, there). `message`: a resend's key
+   * (the `mention_id`s it was first sent with, so the gateway answers each once). Returns the
+   * mentions not answered when an entity could not answer (the chips the composer keeps), else []. */
+  const sendMentions = async (sid: string, anchor: string, text: string, mentions: readonly ChatMentionSent[], signal?: AbortSignal, message?: string): Promise<ChatMentionSent[]> => {
     const show = async (answer: MentionAnswer, mention: ChatMentionSent) => {
       // The answer is a session turn: read from its view, like a reload reads it.
       let shown: ChatMessage[];
@@ -301,8 +302,8 @@ export function Workspace(props: {
       if (!mounted.current) return;
       setMentionAnswers((prev) => ({ anchor, messages: [...(prev.anchor === anchor ? prev.messages : []), ...shown] }));
     };
-    const outcome = await deliverMentions({ text, mentions, repeatOf: anchor, post: (req, s) => client.mention(sid, req, s), ...(signal ? { signal } : {}), onAnswer: show });
-    if (outcome.stopped && outcome.unsent.length) pendingResend.current = { sid, resend: { text, repeatOf: anchor || null, unsent: outcome.unsent } };
+    const outcome = await deliverMentions({ text, mentions, repeatOf: anchor, ...(message ? { message } : {}), post: (req, s) => client.mention(sid, req, s), ...(signal ? { signal } : {}), onAnswer: show });
+    if (outcome.stopped && outcome.unsent.length) pendingResend.current = { sid, message: outcome.message, resend: { text, repeatOf: anchor || null, unsent: outcome.unsent } };
     if (!mounted.current) return outcome.unsent;
     // A name the gateway refused (hidden, elsewhere) is read again on the next `@`.
     if (outcome.notes.length) entityNames.current = null;
@@ -328,7 +329,7 @@ export function Workspace(props: {
       pendingResend.current = null;
       const again = held && held.sid === ensureSession() ? mentionResend(held.resend, text, mentions) : null;
       if (held && again) {
-        const unsent = await sendMentions(held.sid, held.resend.repeatOf ?? "", held.resend.text, again, ctx?.signal);
+        const unsent = await sendMentions(held.sid, held.resend.repeatOf ?? "", held.resend.text, again, ctx?.signal, held.message);
         if (mounted.current && !unsent.length) setDraft("");
         return unsentResult(unsent);
       }

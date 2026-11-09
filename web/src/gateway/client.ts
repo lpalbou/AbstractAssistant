@@ -228,7 +228,7 @@ export class GatewayClient {
   }
 
   /**
-   * `POST sessions/{id}/mentions {entity, text, mention_index}`: one `@entity` mention of this
+   * `POST sessions/{id}/mentions {entity, text, mention_index, repeat_of?, mention_id}`: one `@entity` mention of this
    * conversation (AbstractGateway's mention door). The entity answers as a turn of the session
    * (`run_id`), which carries its `author` wherever the turn is read. Refusals throw
    * GatewayHttpError with the gateway's `code`. Never retried here.

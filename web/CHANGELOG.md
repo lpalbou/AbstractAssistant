@@ -29,6 +29,11 @@ that has the mention door (not released yet).
 
 ### Fixed
 
+- **A mention is answered once, even when sent again.** Each mention now carries its own id (your
+  message's turn, the entity, its place in the message). If the answer was lost on the way back (a
+  timeout, a dropped connection) and you send the same words again, the gateway returns the answer
+  the entity already gave instead of asking it twice; a new message is asked as new. Needs an
+  AbstractGateway that keeps mention ids (main f0f23bb0 or later).
 - **Mentions, client review 2026-11-09.** When an entity could not answer (503), the box keeps the words AND
   the chips not answered (they were dropped before), and sending the same words again asks only those entities,
   with the same `repeat_of` and their first `mention_index`: it no longer starts a second turn of the Assistant
