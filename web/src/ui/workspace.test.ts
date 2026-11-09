@@ -39,4 +39,12 @@ describe("an ended turn says what happened when the transcript cannot", () => {
     expect(turnOutcome("r", "running", {}, [])).toBe("");
     expect(turnOutcome("", "completed", {}, [])).toBe("");
   });
+  it("a turn addressed to entities whose agent said nothing shows no line; its failure still does", () => {
+    // AbstractGateway c26d38a2: an empty reply is served as no answer (the view holds only the words).
+    const words = [{ id: "r:user", runId: "r", role: "user", content: "@Castor does the bridge hold?" }];
+    expect(turnOutcome("r", "completed", {}, words, { entitiesAnswer: true })).toBe("");
+    expect(turnOutcome("r", "completed", {}, words, { entitiesAnswer: false })).toBe("The run ended without a written reply.");
+    expect(turnOutcome("r", "completed", {}, words)).toBe("The run ended without a written reply.");
+    expect(turnOutcome("r", "failed", { error: "provider down" }, words, { entitiesAnswer: true })).toBe("The run failed: provider down");
+  });
 });

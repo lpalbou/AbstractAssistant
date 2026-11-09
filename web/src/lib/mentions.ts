@@ -70,6 +70,19 @@ export function mentionNotice(candidate: ChatMentionCandidate): string | null {
   return candidate.kind === "entity" ? `${candidate.name} will read this conversation's history.` : null;
 }
 
+/**
+ * `mentions` of `POST runs/start` (AbstractGateway c26d38a2): the entities the message mentions, by
+ * the id the mention door is sent (`entity`, the chip's slug), in the order they were picked
+ * (`index`), each once. With it the gateway tells the conversation's agent that the mentioned
+ * entities answer for themselves: it answers only the part addressed to it, or says nothing (an
+ * empty reply, which the gateway serves as no answer). `{}` for a message that mentions no entity:
+ * the body then carries no `mentions` key.
+ */
+export function startRunMentions(mentions: readonly ChatMentionSent[]): { mentions?: string[] } {
+  const ids = uniqueMentions([...mentions].filter((m) => m.kind === "entity").sort((a, b) => a.index - b.index)).map((m) => m.id);
+  return ids.length ? { mentions: ids } : {};
+}
+
 /** What the mention door answered (200): the session turn the answer is (its view carries `author`). */
 export type MentionAnswer = { run_id: string; reply: string; mention_index: number };
 

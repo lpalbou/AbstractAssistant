@@ -73,6 +73,9 @@ export type StartRunRequest = {
   bundle_id?: string;
   bundle_version?: string;
   registry_scope?: string;
+  /** The entities the message mentions, in pick order (lib/mentions.ts `startRunMentions`); absent
+   * when it mentions none. */
+  mentions?: string[];
 };
 
 export type LedgerStep = { cursor: number; record: Json };

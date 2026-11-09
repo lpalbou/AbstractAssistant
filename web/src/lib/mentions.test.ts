@@ -19,6 +19,7 @@ import {
   mintMessageId,
   mentionStatusLine,
   mentionTurn,
+  startRunMentions,
   viewRepeatOf,
   type MentionAnswer,
   type MentionRequest,
@@ -367,5 +368,51 @@ describe("the workspace keeps a stopped message's mention_id key for its resend"
     expect(ws).toContain("sendMentions(ensureSession(), mentionTurn({ steered: props.runId }), text, mentions, ctx?.signal)");
     expect(ws).toContain("deliverMentions({ text, mentions, repeatOf: turn.repeatOf,");
     expect(ws).toContain("const anchor = turn.anchor;");
+  });
+});
+
+describe("the session agent stays silent for what is addressed to entities (AbstractGateway c26d38a2)", () => {
+  const ws = readFileSync(new URL("../ui/Workspace.tsx", import.meta.url), "utf8");
+  it("the start names the mentioned entities in pick order, each once; no entity, no key", () => {
+    expect(startRunMentions([vega, castor, pollux, { ...castor, index: 3 }])).toEqual({ mentions: ["castor", "pollux", "vega"] });
+    expect(startRunMentions([pollux, castor])).toEqual({ mentions: ["castor", "pollux"] });
+    const none = startRunMentions([]);
+    expect(none).toEqual({});
+    expect("mentions" in none).toBe(false);
+  });
+  it("POST runs/start carries them as sent; a message without mentions sends no key", async () => {
+    const client = new GatewayClient({
+      kind: "browser",
+      gatewayUrl: (route) => `api/gateway/${route}`,
+      auth: { kind: "app-cookie-session", credentials: "same-origin", headers: () => ({}) },
+      signIn: "app-server-modal",
+      capabilities: {
+        tray: { available: false, reason: "" },
+        globalHotkey: { available: false, reason: "" },
+        systemNotifications: { available: false, reason: "" },
+        autostart: { available: false, reason: "" },
+        microphone: { available: true },
+        audioPlayback: { available: true },
+      },
+    } as AssistantHost);
+    const bodies: Record<string, unknown>[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)));
+      return new Response(JSON.stringify({ run_id: `r-${bodies.length}` }), { status: 200 });
+    }));
+    try {
+      await client.startRun({ flow_id: "@default", interface: "abstractassistant.agent.v1", session_id: "s-1", input_data: { prompt: "hi" }, ...startRunMentions([pollux, castor]) });
+      await client.startRun({ flow_id: "@default", interface: "abstractassistant.agent.v1", session_id: "s-1", input_data: { prompt: "hi" }, ...startRunMentions([]) });
+      expect(bodies[0].mentions).toEqual(["castor", "pollux"]);
+      expect("mentions" in bodies[1]).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+  it("the workspace sends them with both workflow choices and remembers the turn they started", () => {
+    expect(ws).toContain("const mentioned = startRunMentions(mentions);");
+    expect(ws.match(/input_data, \.\.\.\(avatarMode \? \{ conversation: true \} : \{\}\), \.\.\.mentioned \}/g)?.length).toBe(2);
+    expect(ws).toContain("if (mentioned.mentions) entitiesAnswer.current.add(run_id);");
+    expect(ws).toContain("turnOutcome(props.runId, snapshot.status, snapshot.run, snapshot.messages, { entitiesAnswer: entitiesAnswer.current.has(props.runId) })");
   });
 });

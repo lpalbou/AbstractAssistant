@@ -50,7 +50,7 @@ import { buildRunInputData } from "../lib/run_input";
 import { selectWorkflow } from "../lib/workflow_selection";
 import type { AttentionSeen } from "./useConversations";
 import { assistantPresence, conversationPresentation, replyToRead } from "../lib/presentation";
-import { MENTIONS_UNAVAILABLE, deliverMentions, entityCandidates, gatewayLacksTurnAuthors, matchCandidates, mentionNotice, mentionStatusLine, mentionTurn, viewRepeatOf, type MentionAnswer, type MentionTurn } from "../lib/mentions";
+import { MENTIONS_UNAVAILABLE, deliverMentions, entityCandidates, gatewayLacksTurnAuthors, matchCandidates, mentionNotice, mentionStatusLine, mentionTurn, startRunMentions, viewRepeatOf, type MentionAnswer, type MentionTurn } from "../lib/mentions";
 import { VoiceStage, Orb } from "./VoiceStage";
 import type { AssistantPreferences } from "./useAssistantPreferences";
 
@@ -65,9 +65,12 @@ const TERMINAL = new Set(["completed", "failed", "cancelled"]);
 /**
  * What the ended turn says when the transcript cannot: a failure's reason, or no written reply.
  * (Kit gap: the controller adds no line for a root run that ended failed or without an answer.)
- * A stop is the kit's own Stop state ("Stopped"), not repeated here.
+ * A stop is the kit's own Stop state ("Stopped"), not repeated here. `entitiesAnswer`: the turn was
+ * started with `mentions` (its message mentioned entities): its agent may say nothing (an empty
+ * reply, which the gateway serves as no answer) and the entities' answers follow, so a turn without
+ * a reply of its own says nothing.
  */
-export function turnOutcome(runId: string, status: string, run: Record<string, unknown> | null, messages: ReadonlyArray<{ id?: string; role: string; runId?: string; live?: unknown; toolActivity?: unknown; content?: string }>): string {
+export function turnOutcome(runId: string, status: string, run: Record<string, unknown> | null, messages: ReadonlyArray<{ id?: string; role: string; runId?: string; live?: unknown; toolActivity?: unknown; content?: string }>, turn: { entitiesAnswer?: boolean } = {}): string {
   if (!runId || !TERMINAL.has(status) || status === "cancelled") return "";
   if (status === "failed") {
     const why = typeof run?.error === "string" ? run.error.trim() : "";
@@ -75,7 +78,7 @@ export function turnOutcome(runId: string, status: string, run: Record<string, u
   }
   const answered = messages.some((m) => m.role === "assistant" && !m.live && !m.toolActivity &&
     (m.id === `final:${runId}` || String(m.id || "").startsWith(`answer:${runId}:`) || (m.runId === runId && Boolean(m.content?.trim()))));
-  return answered ? "" : "The run ended without a written reply.";
+  return answered || turn.entitiesAnswer ? "" : "The run ended without a written reply.";
 }
 
 /** Whether a `me/events` `attention.seen` names the wait shown here. */
@@ -144,6 +147,8 @@ export function Workspace(props: {
   // Turns whose prompt repeats another turn's words (`repeat_of`, an `@` mention), learned from
   // each view the transport reads; who writes each live reply, from its frames.
   const repeats = useRef(new Map<string, string>());
+  // Turns started here with `mentions`: the entities answer for themselves, the agent may say nothing.
+  const entitiesAnswer = useRef(new Set<string>());
   const liveAuthors = useRef(new Map<string, ChatAuthor | null>());
   const transport = useMemo(
     () => createAssistantTransport(client, {
@@ -368,12 +373,16 @@ export function Workspace(props: {
       // The tools the gateway offers (the kit's plan, backlog 0033). No layer of the person's
       // own yet, so approvals follow the gateway's defaults (its grant at run start).
       const input_data = withRunTools(buildRunInputData({ prompt: text, attachments: refs, primary_image_artifact: image ?? null, stream: true }), planRunTools(normalizeToolCatalog(tools)));
+      // The entities the message mentions ride the start (`mentions`): its agent is told they answer
+      // for themselves, and may say nothing.
+      const mentioned = startRunMentions(mentions);
       // Never retried here: a failure keeps the draft and says why; the person resends.
       const { run_id } = await client.startRun(
         start.source === "gateway_default"
-          ? { flow_id: "@default", interface: start.interface, session_id: sid, input_data, ...(avatarMode ? { conversation: true } : {}) }
-          : { flow_id: start.flow_id, bundle_id: start.bundle_id, bundle_version: start.bundle_version, registry_scope: start.registry_scope, session_id: sid, input_data, ...(avatarMode ? { conversation: true } : {}) },
+          ? { flow_id: "@default", interface: start.interface, session_id: sid, input_data, ...(avatarMode ? { conversation: true } : {}), ...mentioned }
+          : { flow_id: start.flow_id, bundle_id: start.bundle_id, bundle_version: start.bundle_version, registry_scope: start.registry_scope, session_id: sid, input_data, ...(avatarMode ? { conversation: true } : {}), ...mentioned },
       );
+      if (mentioned.mentions) entitiesAnswer.current.add(run_id);
       if (!mounted.current) return;
       startedHere.current = run_id;
       uploads.clear();
@@ -406,7 +415,9 @@ export function Workspace(props: {
       void voice.toggle_tts(String(reply.id || props.runId), reply.content);
   }, [snapshot.status, props.runId, props.voicePrefs.read_aloud, props.voicePrefs.reply_muted, reply, voice]);
   const listWords = pending && !answeredElsewhere ? "Needs you" : "";
-  const outcome = turnOutcome(props.runId, snapshot.status, snapshot.run, snapshot.messages);
+  // A turn started here with `mentions`: an agent that said nothing shows no answer and no line; the
+  // entities' answers follow.
+  const outcome = turnOutcome(props.runId, snapshot.status, snapshot.run, snapshot.messages, { entitiesAnswer: entitiesAnswer.current.has(props.runId) });
   const presence = assistantPresence({ recording: voice.voice_ptt_recording, transcribing: voice.voice_ptt_busy,
     playback: voice.tts_playback.status === "playing" && !voice.tts_speaking ? "loading" : voice.tts_playback.status, pending: Boolean(pending && !answeredElsewhere), busy,
     working: messages.some((m) => m.toolActivity?.status === "running"), failed: snapshot.status === "failed", loading: snapshot.loading });

@@ -26,6 +26,12 @@ that has the mention door (not released yet).
   name) or the entity's name and look, with a small "agent" or "entity" tag. It comes from the
   gateway, so a reload or another device shows the same. On an older gateway replies keep their
   "Assistant" header.
+- **The Assistant leaves what you ask an entity to that entity.** A message that mentions entities
+  now tells the gateway who is mentioned when it starts the Assistant's turn (`mentions` on
+  `POST runs/start`, in the order you picked them). The Assistant answers only the part meant for
+  it, or says nothing: then the conversation shows your words and the entities' answers, with no
+  empty reply and no "ended without a written reply" line. Needs AbstractGateway main c26d38a2 or
+  later, and an agent that accepts an empty reply (AbstractAgent still asks again today).
 
 ### Fixed
 
