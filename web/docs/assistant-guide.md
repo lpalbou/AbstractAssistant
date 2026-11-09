@@ -21,12 +21,34 @@ for the rest of this chat. **Deny** refuses. **Decide later** postpones the choi
 grants no permission. Use Review to return to the pending request. Stop ends the current
 request or playback.
 
-Type `@` in the message field to mention one of your entities: pick a name and it becomes
-a chip. When you send, the Assistant answers as usual, then each entity you mentioned
-answers in turn, under its own name. The first time you pick a name in a conversation, a
-line reminds you that the entity will read this conversation's history. If an entity is
-in another conversation, or cannot answer, one sentence under the message field says so.
-Every reply shows who wrote it: the agent's name, or the entity's name and look.
+## Mention an entity
+
+Type `@` in the message field to see the entities you can mention; type more of a name to
+narrow the list, then pick one. It becomes a chip in the message field (its × removes it).
+Text you type after `@` without picking a name stays ordinary text. The first time you pick
+a name in a conversation, a line under the chip reminds you that the entity will read this
+conversation's history.
+
+When you send, the Assistant gets your message as usual. Then each entity you mentioned is
+asked in turn, in the order you picked them, each once the previous one has answered, so a
+later entity reads the earlier answers. Each answer appears in the conversation under the
+entity's name and look, in the order the answers came, and your message is shown once.
+Every reply says who wrote it: the agent's name with an "agent" tag, or the entity's name
+and look with an "entity" tag. On a gateway that does not say who wrote a reply, replies
+keep their "Assistant" header.
+
+When a mention cannot be answered, a sentence above the message field says why:
+
+- "Castor is in another conversation." That entity is busy elsewhere: it is skipped and
+  the next one is asked.
+- "Castor cannot be mentioned here." That entity is not available to your account: it is
+  skipped and the next one is asked.
+- An entity that cannot answer right now says so, and nothing more is asked. Your message
+  goes back into the message field with only the entities that did not answer still as
+  chips. Send the same words again to ask only those: the Assistant is not asked again,
+  and an entity that already answered is not asked twice. Different words are a new message.
+- "This gateway does not offer mentions yet." Your gateway cannot take mentions: typing `@`
+  shows this sentence instead of names.
 
 ## Automations
 

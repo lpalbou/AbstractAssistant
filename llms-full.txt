@@ -43,6 +43,7 @@ Included files (in order):
 - watch/apple/docs/architecture.md
 - watch/apple/BUILD.md
 - web/README.md
+- web/docs/assistant-guide.md
 - web/CHANGELOG.md
 - pyproject.toml
 - abstractassistant/cli.py
@@ -90,7 +91,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 
 - [phone/iphone/docs/troubleshooting.md](phone/iphone/docs/troubleshooting.md): dated automation runs, failure explanations, provider versus phone authentication, notifications and Apple push (the push forwarder, generic words on development builds), installed version/build and Apple-managed updates
 - [docs/macos-signing.md](docs/macos-signing.md): signing and notarizing the macOS app bundle (`build-macos-app --sign`, `--notarize`, `--dmg`, `--local-test`)
-- [web/README.md](web/README.md): Assistant (web), the npm package `@abstractframework/assistant` registered as `assistant-web` in Gateway's console and tray Apps menu (install with `abstractgateway apps install assistant-web`, or `npx @abstractframework/assistant`); renders conversations from the gateway's replay view, folding the ledger itself on a gateway before 0.17.0, and automations as on the Apple Watch (list, page, Run/Stop, Edit, New); [web/CHANGELOG.md](web/CHANGELOG.md) records its npm release history
+- [web/README.md](web/README.md): Assistant (web), the npm package `@abstractframework/assistant` registered as `assistant-web` in Gateway's console and tray Apps menu (install with `abstractgateway apps install assistant-web`, or `npx @abstractframework/assistant`); renders conversations from the gateway's replay view, folding the ledger itself on a gateway before 0.17.0; automations as on the Apple Watch (list, page, Run/Stop, Edit, New); `@` mentions of your entities in a conversation (picked as chips, asked in order, each reply labelled with who wrote it; only the unanswered entities are asked again after an error); [web/docs/assistant-guide.md](web/docs/assistant-guide.md) is the in-app browser guide; [web/CHANGELOG.md](web/CHANGELOG.md) records its npm release history
 
 ## Design Records
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records
@@ -3351,6 +3352,13 @@ All notable changes to AbstractAssistant are documented in this file. Entries de
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
 ## [Unreleased]
+
+### Fixed
+
+- **Automation titles are saved whole (web).** A new automation named after its task used to be saved
+  with the task's first line cut at 120 characters and "…"; it is now saved whole, and the list folds
+  a long name on screen only. Editing the task of an automation named after it keeps the name in step,
+  whole, including names an earlier version cut (backlog 1154; the Apple apps are a separate change).
 
 ## [0.18.3] - 2026-11-07
 
@@ -8239,6 +8247,19 @@ calls, the flow picker, the tool editor and the edit and Approve all rules are t
 (`createAutomationsClient`, `AutomationWorkflowPicker`, `ToolModeEditor`, `reviseChanges`,
 `trustAfterApproveAll`). Run-finished notifications stay on the native apps.
 
+**Mention an entity.** Type `@` in the message box and pick one of your entities (the ones the
+gateway lists for your account); it becomes a chip. When you send, the Assistant gets your message
+as usual, then each entity you mentioned is asked in turn, in the order you picked them, each once
+the previous one answered, and its answer appears in the conversation under its name and look.
+Every reply says who wrote it: the agent's name or the entity's, with an "agent" or "entity" tag,
+from the gateway, so a reload or another device shows the same. An entity in another conversation
+is skipped with one sentence ("Castor is in another conversation.") and the next one is asked. An
+entity that cannot answer says why: the words go back into the box with only the entities that
+did not answer, and sending the same words again asks only those (the Assistant is not asked
+again, and an entity is never asked twice for one message). A gateway without mentions says "This
+gateway does not offer mentions yet." instead of listing names. See the
+[browser guide](docs/assistant-guide.md#mention-an-entity).
+
 The Docs drawer keeps its question field at the bottom and scrolls the conversation
 above it. Its questions use Assistant documentation and stay separate from your
 main conversation. The [browser guide](docs/assistant-guide.md) is bundled as
@@ -8252,9 +8273,9 @@ errors and unanswered approval requests remain visible.
 It is composed from the AbstractFramework UI kit (AbstractUIC `ui-kit` + `panel-chat`, ADR 0001
 there): the app shell and its top-right cluster (docs assistant, appearance, about, who is signed
 in, the connection pill), the chat (`WorkflowChat` + `useWorkflowSession`: thread, live replies,
-Stop, attachment chips, copy/export), the one approval panel (`presentInteraction`: Deny / Allow
-once / Allow for this chat / Decide later; the chat's tool policy is stored on the gateway when it
-offers `session_tool_policy`), the run's tool plan, and voice (Settings → Voice, read aloud,
+Stop, attachment chips, `@` mentions, who answered on each reply, copy/export), the one approval
+panel (`presentInteraction`: Deny / Allow / Allow All / Decide later; the chat's tool policy is
+stored on the gateway when it offers `session_tool_policy`), the run's tool plan, and voice (Settings → Voice, read aloud,
 Tap/Hold to talk). What stays here: the gateway calls (`src/gateway/`), the conversation list and
 its titles, the workflow choice and the run input (desktop parity ports).
 
@@ -8428,6 +8449,149 @@ it does not manufacture missing updates. Tool details remain available in the or
 view. Public updates describe the assistant's communicated conclusions, not private
 reasoning, and source references establish provenance rather than proof of correctness.
 
+--- web/docs/assistant-guide.md ---
+# AbstractAssistant in your browser
+
+AbstractAssistant is a voice and conversation interface for AbstractGateway. Open
+**Assistant (web)** from Gateway's Apps page or tray Apps menu. Sign in to the same
+Gateway to use your existing conversations. The Gateway runs the agent, keeps
+history and decides tool permissions; closing this page does not cancel a run.
+
+## Start or continue a conversation
+
+Select a conversation from the sidebar, or use New to start one. On a phone, the
+menu button opens Conversations. Search finds loaded conversations by their title.
+Type in the message field and send your question. Replies appear in the conversation.
+Sending a new message interrupts the previous spoken reply. New and switching
+conversations also stop local audio. Opening history does not read it aloud.
+
+The page shows tool approvals and questions inside the conversation when the agent
+needs you. Review the tool and its arguments before allowing it. **Allow** lets that
+tool run for the rest of this chat when Gateway keeps the chat's permissions; otherwise
+it covers this request only, and the card says so. **Allow All** lets every tool run
+for the rest of this chat. **Deny** refuses. **Decide later** postpones the choice and
+grants no permission. Use Review to return to the pending request. Stop ends the current
+request or playback.
+
+## Mention an entity
+
+Type `@` in the message field to see the entities you can mention; type more of a name to
+narrow the list, then pick one. It becomes a chip in the message field (its × removes it).
+Text you type after `@` without picking a name stays ordinary text. The first time you pick
+a name in a conversation, a line under the chip reminds you that the entity will read this
+conversation's history.
+
+When you send, the Assistant gets your message as usual. Then each entity you mentioned is
+asked in turn, in the order you picked them, each once the previous one has answered, so a
+later entity reads the earlier answers. Each answer appears in the conversation under the
+entity's name and look, in the order the answers came, and your message is shown once.
+Every reply says who wrote it: the agent's name with an "agent" tag, or the entity's name
+and look with an "entity" tag. On a gateway that does not say who wrote a reply, replies
+keep their "Assistant" header.
+
+When a mention cannot be answered, a sentence above the message field says why:
+
+- "Castor is in another conversation." That entity is busy elsewhere: it is skipped and
+  the next one is asked.
+- "Castor cannot be mentioned here." That entity is not available to your account: it is
+  skipped and the next one is asked.
+- An entity that cannot answer right now says so, and nothing more is asked. Your message
+  goes back into the message field with only the entities that did not answer still as
+  chips. Send the same words again to ask only those: the Assistant is not asked again,
+  and an entity that already answered is not asked twice. Different words are a new message.
+- "This gateway does not offer mentions yet." Your gateway cannot take mentions: typing `@`
+  shows this sentence instead of names.
+
+## Automations
+
+**Automations** in the sidebar (behind the menu button on a phone) lists the tasks that run on
+their own: the active ones first, the most recently active at the top, then **Paused** and
+**Archived**, each opening on a click. Each card shows how many times it ran, how often it runs
+and when it runs next; a number marks results you have not seen, and **Needs you** a run that
+waits for you. The archive button asks first; **Restore** under Archived brings one back.
+
+Open an automation to see its latest ten runs as a conversation: what it was asked, then the
+answer. Opening it marks its new results seen. **Run** starts a run now; while one runs, **Stop**
+ends it (the automation keeps its schedule). **Edit** changes its title, its task, whether it is
+active, how often it runs and whether each run builds on its earlier runs (and how much of them
+it reads); a change made elsewhere meanwhile is refused, so open it again. Type in the message
+field to talk about its latest run: this opens a new conversation about it and never changes
+the automation. When a run asks to use a tool, its page shows the request: **Approve** or **Deny**
+it, or **Approve all** to allow those tools for this automation's runs. They are listed under
+**Allowed for its runs**, and this browser approves them when it sees them, until **Ask again**.
+Another kind of request opens with **Answer**, where you can review it.
+
+**New** creates one: what it should do, the flow that runs it (the gateway's default unless you
+choose another), its **Tools** (each Off, Ask or Auto; a tool on Ask waits for you), how often it
+runs or every day at a time, and whether each run builds on the earlier ones.
+
+## Speak and listen
+
+Tap the orb to begin recording, then tap again to finish. With Hold selected in
+Voice settings, hold the orb to record and release it to finish. The browser needs
+microphone permission and a secure page: HTTPS, localhost or 127.0.0.1. A plain
+HTTP page on another machine cannot use the microphone.
+
+By default, recognized words go into the draft so you can correct them. Enable
+**Send what you say automatically** to submit recognized words directly. Microphone
+mode, input device and available transcription settings are under Settings → Voice.
+The browser records locally; Gateway handles transcription through its configured
+speech capability. This is explicit recording, not an always-listening wake word.
+
+Enable **Read new replies aloud** using the speaker control or Voice settings.
+It reads new replies from this tab's requests. Use the orb or pause/play control
+to pause or resume a selected reply; Stop ends it. A message's speaker control
+reads that message on demand. In Voice settings, choose the speaking route and
+voice offered by Gateway, or keep its default. Available voices and capabilities
+depend on Gateway's installed providers. Browser autoplay rules can require a
+click before playback is allowed.
+
+## Appearance and avatars
+
+Settings lets you select an avatar and preview Ready, Listening, Thinking, Working,
+Speaking, Waiting and Error silently. Watch particle forms, the iPhone woven orb
+and shaded characters remain separate choices. Preview sample loudness does not
+record or play audio. Your choice applies immediately. The animation switch and
+your system's reduced-motion preference control motion. Hidden pages stop animating.
+Avatars with eyes, such as the Hover robot and the Rover, look toward your mouse while
+Ready; the orb and every other avatar stay still.
+The top-bar appearance button changes the theme.
+
+Listening reacts to measured microphone loudness. Speaking reacts to the reply's
+actual playback level after volume and mute. Pauses and silence produce zero
+voice level; the avatar never invents a voice signal to appear active.
+
+Ready means the assistant is available. Listening means recording. Thinking and
+Working reflect the current request. Speaking follows reply playback. Waiting
+means an approval or answer needs you. Error indicates a failed action. The avatar
+is a visual representation; it does not run an independent agent.
+
+## Documentation and conversation details
+
+The book button opens the Docs assistant. Ask how to use the browser Assistant;
+answers are grounded in this guide. Docs has its own conversation and does not
+automatically see or control your main conversation, files or tools. Use New
+conversation in its header to start a fresh documentation chat, or Past
+conversations to reopen one. Its question field stays at the bottom while messages
+scroll above it. Attachment availability depends on Gateway.
+
+Details in the main conversation reveals optional usage, timing and delivery
+diagnostics. A structured-output model call may return its text all at once;
+this does not mean the reply failed. Errors and pending approvals remain visible.
+Copy and export controls use the conversation loaded in the page.
+
+## Settings, privacy and limitations
+
+Gateway owns sign-in, conversations, workflows, model routing and permissions.
+This browser keeps appearance, voice and panel preferences locally. Selecting an
+avatar does not change an entity's shared identity or voice on other devices.
+Use the same Gateway account across clients to access the same conversations.
+
+The desktop, iPhone and Watch apps have their
+own interfaces; a native-only feature is not automatically available here.
+An unavailable workflow, voice route or connection must be configured on Gateway.
+If disconnected, check Gateway connectivity and sign-in before retrying.
+
 --- web/CHANGELOG.md ---
 # Changelog: AbstractAssistant for the web
 
@@ -8436,6 +8600,47 @@ in this file. It is versioned and released independently of the Python package, 
 in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package are `web-vX.Y.Z`.
 
 ## [Unreleased]
+
+Built on panel-chat 0.9.9 and ui-kit 0.9.26 (AbstractUIC local builds, not yet published; panel-chat
+packed from AbstractUIC aca0b07, both installed together `--no-save`). Mentions need an AbstractGateway
+that has the mention door (not released yet).
+
+### Added
+
+- **Mention an entity with `@`.** Type `@` in the message box and pick one of your entities (the
+  ones your gateway lists for you); it becomes a chip. When you send, the Assistant gets your
+  message as usual, then each entity you mentioned answers in turn, in the order you picked them,
+  and its answer appears in the conversation under its name. Your message shows once, and the
+  answers to it appear in the order they came. The first time you pick a name in a
+  conversation, a line reminds you that it will read this conversation's history.
+- **When a mention cannot be answered, you are told.** An entity already in another conversation is
+  skipped with one sentence ("Castor is in another conversation.") and the next one is still asked.
+  An entity that cannot answer says why, and your message goes back to the message box. A gateway
+  without mentions says "This gateway does not offer mentions yet" instead of listing names.
+- **Every answer says who wrote it.** The top of each reply shows the agent's name (the workflow's
+  name) or the entity's name and look, with a small "agent" or "entity" tag. It comes from the
+  gateway, so a reload or another device shows the same. On an older gateway replies keep their
+  "Assistant" header.
+
+### Fixed
+
+- **A mention is answered once, even when sent again.** Each mention now carries its own id (your
+  message's turn, the entity, its place in the message). If the answer was lost on the way back (a
+  timeout, a dropped connection) and you send the same words again, the gateway returns the answer
+  the entity already gave instead of asking it twice; a new message is asked as new. Needs an
+  AbstractGateway that keeps mention ids (main f0f23bb0 or later).
+- **Mentions, client review 2026-11-09.** When an entity could not answer (503), the box keeps the words AND
+  the chips not answered (they were dropped before), and sending the same words again asks only those entities,
+  with the same `repeat_of` and their first `mention_index`: it no longer starts a second turn of the Assistant
+  nor asks an entity that already answered. Other words are a new message. An entity picked twice is asked once.
+  An entity's answer without a name reads "Entity", never "Assistant". Kit fixes from AbstractUIC 9aad042 and
+  aca0b07 (vendored copy re-synced): a chip picked while a send is in flight stays, Enter waits while the `@` list
+  loads, a picked name is not offered again, and the list spans the box on a phone.
+
+### Changed
+
+- **The tool permission card offers Deny, Allow and Allow All**, the shared card of AbstractUIC
+  (operator ruling 2026-11-07). The per-toolset "Allow all … tools for this chat" choice is gone.
 
 ## [0.1.3] - 2026-11-07
 
@@ -24858,6 +25063,7 @@ INCLUDED_FILES: list[str] = [
     "watch/apple/docs/architecture.md",
     "watch/apple/BUILD.md",
     "web/README.md",
+    "web/docs/assistant-guide.md",
     "web/CHANGELOG.md",
     "pyproject.toml",
     "abstractassistant/cli.py",
