@@ -29,6 +29,12 @@ that has the mention door (not released yet).
 
 ### Fixed
 
+- **A mention sent while the Assistant is working is answered.** In the Avatar conversation view, a
+  message sent while a reply is being written (it reaches the running turn, it starts no new one)
+  was refused with "the gateway did not find your message in this conversation": its mentions
+  named the running turn, whose words are an earlier message. They now name no earlier turn, so the
+  entity is asked your words and its answer shows after the running turn. The same for an answer to
+  the Assistant's question.
 - **A mention is answered once, even when sent again.** Each mention now carries its own id (your
   message's turn, the entity, its place in the message). If the answer was lost on the way back (a
   timeout, a dropped connection) and you send the same words again, the gateway returns the answer

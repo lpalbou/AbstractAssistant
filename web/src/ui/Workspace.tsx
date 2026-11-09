@@ -13,8 +13,9 @@ import { SessionReadMarker, sessionContentRevision, sessionReadTarget, sessionOp
  *   chat's tool policy on the gateway when it advertises `session_tool_policy`;
  * - `useGatewayVoice` + `AfVoiceMicButton` read replies aloud and dictate;
  * - `@` mentions (lib/mentions.ts): the composer offers the entities of `GET entities`; a send
- *   with mentions starts the person's turn, then asks each entity in order through the gateway's
- *   mention door; each answer is a turn of the session, shown from its own view.
+ *   with mentions starts the person's turn (or steers the running one), then asks each entity in
+ *   order through the gateway's mention door; each answer is a turn of the session, shown from its
+ *   own view.
  * Everything comes from the gateway; this page keeps no conversation and no token.
  */
 import {
@@ -49,7 +50,7 @@ import { buildRunInputData } from "../lib/run_input";
 import { selectWorkflow } from "../lib/workflow_selection";
 import type { AttentionSeen } from "./useConversations";
 import { assistantPresence, conversationPresentation, replyToRead } from "../lib/presentation";
-import { MENTIONS_UNAVAILABLE, deliverMentions, entityCandidates, gatewayLacksTurnAuthors, matchCandidates, mentionNotice, mentionStatusLine, viewRepeatOf, type MentionAnswer } from "../lib/mentions";
+import { MENTIONS_UNAVAILABLE, deliverMentions, entityCandidates, gatewayLacksTurnAuthors, matchCandidates, mentionNotice, mentionStatusLine, mentionTurn, viewRepeatOf, type MentionAnswer, type MentionTurn } from "../lib/mentions";
 import { VoiceStage, Orb } from "./VoiceStage";
 import type { AssistantPreferences } from "./useAssistantPreferences";
 
@@ -278,15 +279,19 @@ export function Workspace(props: {
   // conversation moves to another turn (then they are earlier turns, read by the controller).
   const [mentionAnswers, setMentionAnswers] = useState<{ anchor: string; messages: ChatMessage[] }>({ anchor: "", messages: [] });
   // A message whose mentions stopped partway (an entity could not answer): its words, its turn
-  // (`repeat_of`) and the mentions not answered. Sending the same words again with chips asks only
-  // those (`mentionResend`): never a new turn of the person, never an entity that already answered.
-  const pendingResend = useRef<{ sid: string; message: string; resend: MentionResend } | null>(null);
+  // (`turn`: shown after, `repeat_of`) and the mentions not answered. Sending the same words again
+  // with chips asks only those (`mentionResend`): never a new turn of the person, never an entity
+  // that already answered.
+  const pendingResend = useRef<{ sid: string; message: string; turn: MentionTurn; resend: MentionResend } | null>(null);
 
   /** Ask each mentioned entity, in order, after the person's own turn (or guidance) was sent;
-   * `anchor` is that turn (`repeat_of`: the words are shown once, there). `message`: a resend's key
-   * (the `mention_id`s it was first sent with, so the gateway answers each once). Returns the
-   * mentions not answered when an entity could not answer (the chips the composer keeps), else []. */
-  const sendMentions = async (sid: string, anchor: string, text: string, mentions: readonly ChatMentionSent[], signal?: AbortSignal, message?: string): Promise<ChatMentionSent[]> => {
+   * `turn` (`mentionTurn`): `anchor` is the turn the answers are shown after (the words are shown
+   * once, there), `repeatOf` the turn sent as `repeat_of`, none for guidance (no turn carries its
+   * words). `message`: a resend's key (the `mention_id`s it was first sent with, so the gateway
+   * answers each once). Returns the mentions not answered when an entity could not answer (the
+   * chips the composer keeps), else []. */
+  const sendMentions = async (sid: string, turn: MentionTurn, text: string, mentions: readonly ChatMentionSent[], signal?: AbortSignal, message?: string): Promise<ChatMentionSent[]> => {
+    const anchor = turn.anchor;
     const show = async (answer: MentionAnswer, mention: ChatMentionSent) => {
       // The answer is a session turn: read from its view, like a reload reads it.
       let shown: ChatMessage[];
@@ -302,8 +307,8 @@ export function Workspace(props: {
       if (!mounted.current) return;
       setMentionAnswers((prev) => ({ anchor, messages: [...(prev.anchor === anchor ? prev.messages : []), ...shown] }));
     };
-    const outcome = await deliverMentions({ text, mentions, repeatOf: anchor, ...(message ? { message } : {}), post: (req, s) => client.mention(sid, req, s), ...(signal ? { signal } : {}), onAnswer: show });
-    if (outcome.stopped && outcome.unsent.length) pendingResend.current = { sid, message: outcome.message, resend: { text, repeatOf: anchor || null, unsent: outcome.unsent } };
+    const outcome = await deliverMentions({ text, mentions, repeatOf: turn.repeatOf, ...(message ? { message } : {}), post: (req, s) => client.mention(sid, req, s), ...(signal ? { signal } : {}), onAnswer: show });
+    if (outcome.stopped && outcome.unsent.length) pendingResend.current = { sid, message: outcome.message, turn, resend: { text, repeatOf: turn.repeatOf || null, unsent: outcome.unsent } };
     if (!mounted.current) return outcome.unsent;
     // A name the gateway refused (hidden, elsewhere) is read again on the next `@`.
     if (outcome.notes.length) entityNames.current = null;
@@ -329,7 +334,7 @@ export function Workspace(props: {
       pendingResend.current = null;
       const again = held && held.sid === ensureSession() ? mentionResend(held.resend, text, mentions) : null;
       if (held && again) {
-        const unsent = await sendMentions(held.sid, held.resend.repeatOf ?? "", held.resend.text, again, ctx?.signal, held.message);
+        const unsent = await sendMentions(held.sid, held.turn, held.resend.text, again, ctx?.signal, held.message);
         if (mounted.current && !unsent.length) setDraft("");
         return unsentResult(unsent);
       }
@@ -346,7 +351,8 @@ export function Workspace(props: {
         if (!mounted.current) return;
         setDraft(""); setReplyContext(null);
         setNotice("Sent. Your message is available to the assistant.");
-        if (mentions.length) return unsentResult(await sendMentions(ensureSession(), props.runId, text, mentions, ctx?.signal));
+        // Guidance (or an answer) starts no turn: its mentions name no `repeat_of` (`mentionTurn`).
+        if (mentions.length) return unsentResult(await sendMentions(ensureSession(), mentionTurn({ steered: props.runId }), text, mentions, ctx?.signal));
         return;
       }
       const sid = ensureSession();
@@ -374,7 +380,7 @@ export function Workspace(props: {
       setDraft("");
       setNotice("");
       props.onStarted(run_id, sid);
-      if (mentions.length) return unsentResult(await sendMentions(sid, run_id, text, mentions, ctx?.signal));
+      if (mentions.length) return unsentResult(await sendMentions(sid, mentionTurn({ started: run_id }), text, mentions, ctx?.signal));
       return undefined;
     },
     // sendMentions reads refs, state setters, the client and the transport.

@@ -10,7 +10,9 @@
  *   the previous one returned, so the second entity sees the first one's answer (an entity named
  *   twice is asked once). Each names the
  *   person's own turn that carries the same words (`repeat_of`): the mention turn keeps the words
- *   as its prompt, and the conversation shows them once (lib/presentation.ts folds them).
+ *   as its prompt, and the conversation shows them once (lib/presentation.ts folds them). Only a
+ *   message that started a turn has one (`mentionTurn`): guidance, or an answer to the running
+ *   turn's question, starts none, so its mentions name no `repeat_of`.
  * - One answer per mention (gateway f0f23bb0, `mention_id`): each mention carries its own id,
  *   `<message>:<entity>:<mention_index>`, the message being the person's turn (`repeat_of`), or an
  *   id minted once for the message when it has none. A resend of the message (the same words after
@@ -87,6 +89,23 @@ export function mentionMessageKey(repeatOf: string | null | undefined, mint: () 
   return text(repeatOf) || mint();
 }
 
+/** The turn a message's mentions are shown after (`anchor`) and name as `repeat_of` ("" = none). */
+export type MentionTurn = { anchor: string; repeatOf: string };
+
+/**
+ * The gateway takes a `repeat_of` only for the caller's own turn of this session whose prompt is the
+ * mention's text (AbstractGateway entity_mentions `_check_repeat_of`: both trimmed, then compared
+ * exactly), else 422 `repeat_of_unknown`. A message that STARTED a turn names it: that turn's prompt
+ * is the typed words, as the mention's text is. A message that STEERED the running turn (guidance
+ * through `inject_guidance`, or an answer to its question) names none: the running turn's prompt is
+ * an earlier message and the guidance travels in the steer's own field, so no turn carries these
+ * words. The mention turn then keeps them as its own prompt, its `mention_id`s take a key minted for
+ * the message, and its answers are shown after the running turn.
+ */
+export function mentionTurn(sent: { started: string } | { steered: string }): MentionTurn {
+  return "started" in sent ? { anchor: text(sent.started), repeatOf: text(sent.started) } : { anchor: text(sent.steered), repeatOf: "" };
+}
+
 /** One mention's `mention_id`: `<message>:<entity>:<mention_index>`. An empty message key throws. */
 export function mentionId(message: string, mention: Pick<ChatMentionSent, "id" | "index">): string {
   const key = text(message);
@@ -140,7 +159,7 @@ export async function deliverMentions(opts: {
   text: string;
   mentions: readonly ChatMentionSent[];
   post: MentionPost;
-  /** The person's own turn of this session that carries `text` (sent as `repeat_of`). */
+  /** The person's own turn of this session that carries `text` (sent as `repeat_of`; `mentionTurn`). */
   repeatOf?: string;
   /** The message's key for `mention_id`: a resend passes the first send's (`MentionDelivery.message`);
    * a new message leaves it out (then `mentionMessageKey(repeatOf)`). */

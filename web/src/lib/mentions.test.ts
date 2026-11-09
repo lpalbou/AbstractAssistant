@@ -18,6 +18,7 @@ import {
   mentionRefusal,
   mintMessageId,
   mentionStatusLine,
+  mentionTurn,
   viewRepeatOf,
   type MentionAnswer,
   type MentionRequest,
@@ -240,6 +241,47 @@ describe("several mentions in one message", () => {
   });
 });
 
+describe("a mention sent with guidance (docs audit 2026-11-09: it was refused 422 repeat_of_unknown)", () => {
+  // The gateway's rule (AbstractGateway entity_mentions `_check_repeat_of`): a `repeat_of` must be
+  // the caller's own turn of this session whose prompt, trimmed, IS the text, trimmed.
+  const prompts = new Map([["turn-running", "plan the trip to Lyon"]]);
+  const door = () => vi.fn(async (req: MentionRequest) => {
+    if (req.repeat_of !== undefined && (prompts.get(req.repeat_of) ?? "").trim() !== req.text.trim())
+      throw refused(422, "That earlier message is not one of your own turns in this conversation.", "repeat_of_unknown");
+    return answer(req);
+  });
+
+  it("the door refuses a repeat_of whose turn carries other words (the old guidance wiring)", async () => {
+    const post = door();
+    const out = await deliverMentions({ text: "and the weather?", mentions: [castor], post, repeatOf: "turn-running" });
+    expect(out.stopped).toMatch(/did not find your message/);
+  });
+
+  it("guidance starts no turn: its mentions name none, carry the typed words and a key minted per message; shown after the running turn", async () => {
+    const turn = mentionTurn({ steered: "turn-running" });
+    expect(turn).toEqual({ anchor: "turn-running", repeatOf: "" });
+    const post = door();
+    const first = await deliverMentions({ text: "and the weather?", mentions: [castor], post, repeatOf: turn.repeatOf });
+    expect(first.stopped).toBeNull();
+    expect(first.answered.map((a) => a.run_id)).toEqual(["turn-castor"]);
+    expect(first.message).toMatch(/^msg-[0-9a-f]{24}$/);
+    expect(post.mock.calls[0][0]).toEqual({ entity: "castor", text: "and the weather?", mention_index: 0, mention_id: `${first.message}:castor:0` });
+    // A second guidance to the same running turn is a new message: its own ids, its own answer.
+    const second = await deliverMentions({ text: "and the trains?", mentions: [castor], post, repeatOf: mentionTurn({ steered: "turn-running" }).repeatOf });
+    expect(second.message).not.toBe(first.message);
+  });
+
+  it("a message that started a turn names it (that turn's prompt is the words), and the door takes it", async () => {
+    prompts.set("turn-new", "and the weather?");
+    const turn = mentionTurn({ started: "turn-new" });
+    expect(turn).toEqual({ anchor: "turn-new", repeatOf: "turn-new" });
+    const post = door();
+    const out = await deliverMentions({ text: " and the weather? ", mentions: [castor], post, repeatOf: turn.repeatOf });
+    expect(out.stopped).toBeNull();
+    expect(post.mock.calls[0][0]).toMatchObject({ repeat_of: "turn-new", mention_id: "turn-new:castor:0" });
+  });
+});
+
 describe("refusals, as the gateway sends them", () => {
   it("every refusal of the door is coded; an uncoded 404/405 is a gateway without the route", () => {
     expect(mentionRefusal(refused(404, "Not Found"))).toBe("route_missing");
@@ -316,8 +358,14 @@ describe("telling an older gateway and a mention turn apart", () => {
 describe("the workspace keeps a stopped message's mention_id key for its resend", () => {
   const ws = readFileSync(new URL("../ui/Workspace.tsx", import.meta.url), "utf8");
   it("holds the key the first send used and passes it back on the resend (never a new one)", () => {
-    expect(ws).toContain("pendingResend.current = { sid, message: outcome.message, resend: { text, repeatOf: anchor || null, unsent: outcome.unsent } };");
-    expect(ws).toContain("await sendMentions(held.sid, held.resend.repeatOf ?? \"\", held.resend.text, again, ctx?.signal, held.message);");
+    expect(ws).toContain("pendingResend.current = { sid, message: outcome.message, turn, resend: { text, repeatOf: turn.repeatOf || null, unsent: outcome.unsent } };");
+    expect(ws).toContain("await sendMentions(held.sid, held.turn, held.resend.text, again, ctx?.signal, held.message);");
     expect(ws).toContain("...(message ? { message } : {}), post: (req, s) => client.mention(sid, req, s)");
+  });
+  it("a started turn names itself; guidance (or an answer) names no repeat_of, its answers still follow the running turn", () => {
+    expect(ws).toContain("sendMentions(sid, mentionTurn({ started: run_id }), text, mentions, ctx?.signal)");
+    expect(ws).toContain("sendMentions(ensureSession(), mentionTurn({ steered: props.runId }), text, mentions, ctx?.signal)");
+    expect(ws).toContain("deliverMentions({ text, mentions, repeatOf: turn.repeatOf,");
+    expect(ws).toContain("const anchor = turn.anchor;");
   });
 });
