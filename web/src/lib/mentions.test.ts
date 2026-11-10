@@ -447,7 +447,7 @@ describe("@agent and the agent staying out (operator 2026-11-10)", () => {
     expect(matchCandidates(roster, "AG").map((c) => c.id)).toEqual(["agent"]);
     expect(matchCandidates(roster, "ca").map((c) => c.id)).toEqual(["castor"]);
     expect(agentCandidate("Basic agent")).toEqual({ id: "agent", name: "Basic agent", kind: "agent" });
-    expect(ws).toContain("client.listEntities().then((listed) => mentionRoster(entityCandidates(listed)))");
+    expect(ws).toMatch(/client\.listEntities\(\)\.then\(\(listed\) => \{\s*entityCards\.current = entityMentionCards\(listed\);\s*return mentionRoster\(entityCandidates\(listed\)\);/);
   });
 
   it("the start sends the agent chip as the reserved slug, in pick order with the entities, each once", () => {
@@ -522,7 +522,7 @@ describe("@agent and the agent staying out (operator 2026-11-10)", () => {
     expect(ws).toContain("notAddressed.current.add(started.turn_id);");
     expect(ws).toContain("const turn = mentionTurn({ unaddressed: started.turn_id, after: props.runId });");
     expect(ws).toContain("return unsentResult(await sendMentions(sid, turn, text, mentions, ctx?.signal));");
-    expect(ws).toContain("const words: ChatMessage = { id: `kept:${started.turn_id}`, role: \"user\", kind: \"prompt\", content: text };");
+    expect(ws).toContain("const words: ChatMessage = { id: `kept:${started.turn_id}`, role: \"user\", kind: \"prompt\", content: text, ...mentionsField };");
     expect(ws).toContain("keptWords.current.set(words.id!, started.turn_id);");
     expect(ws).toContain("liveAuthors: liveAuthors.current, kept: keptWords.current, notAddressed: notAddressed.current })");
     expect(ws).toContain("setMentionAnswers((prev) => ({ anchor: turn.anchor, messages: [...(prev.anchor === turn.anchor ? prev.messages : []), words] }));");

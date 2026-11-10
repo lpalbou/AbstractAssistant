@@ -1,4 +1,4 @@
-import {WorkflowChat, useWorkflowSession, conversationSnapshot, useAvatarConversationPreferences, playConversationCue, conversationReply, presentInteraction, chatAuthorOf, mentionResend, type ChatAuthor, type ChatMentionCandidate, type ChatMentionSent, type ChatMentionsUnsent, type MentionResend} from "../vendor/abstractchat/conversation.js";
+import {WorkflowChat, useWorkflowSession, conversationSnapshot, useAvatarConversationPreferences, playConversationCue, conversationReply, presentInteraction, chatAuthorOf, mentionResend, type ChatAuthor, type ChatMentionCandidate, type ChatMentionSent, type ChatMentionsUnsent, type ChatMessageMention, type MentionResend} from "../vendor/abstractchat/conversation.js";
 import "../vendor/abstractchat/conversation.css";
 import { SessionReadMarker, sessionContentRevision, sessionReadTarget, sessionOpeningReceipts, type SessionReceipt, type SessionActivity } from "../vendor/abstractsessions/session_cards.js";
 /**
@@ -52,7 +52,8 @@ import { buildRunInputData } from "../lib/run_input";
 import { selectWorkflow } from "../lib/workflow_selection";
 import type { AttentionSeen } from "./useConversations";
 import { assistantPresence, conversationPresentation, replyToRead } from "../lib/presentation";
-import { MENTIONS_UNAVAILABLE, deliverMentions, entityCandidates, gatewayLacksTurnAuthors, matchCandidates, mentionRoster, mentionStatusLine, mentionTurn, mentionedEntities, startRunMentions, viewAgentNotAddressed, viewRepeatOf, type MentionAnswer, type MentionTurn } from "../lib/mentions";
+import { MENTIONS_UNAVAILABLE, deliverMentions, entityCandidates, entityMentionCards, gatewayLacksTurnAuthors, matchCandidates, mentionRoster, mentionStatusLine, mentionTurn, mentionedEntities, sentMessageMentions, startRunMentions, viewAgentNotAddressed, viewRepeatOf, withSentMentions, type EntityMentionCard, type MentionAnswer, type MentionTurn } from "../lib/mentions";
+import { mentionCard } from "./MentionCard";
 import { VoiceStage, Orb } from "./VoiceStage";
 import type { AssistantPreferences } from "./useAssistantPreferences";
 
@@ -285,8 +286,15 @@ export function Workspace(props: {
   // ---- @ mentions ---------------------------------------------------------------------------
   // The names: `@agent`, then the entities this account may see, read once per conversation view.
   const entityNames = useRef<Promise<ChatMentionCandidate[]> | null>(null);
+  // The same rows as cards (name, orb, state sentence), for the card on a mention chip; and the
+  // mentions each turn this page started carried, by run (a sent message shows them as chips).
+  const entityCards = useRef<Map<string, EntityMentionCard> | null>(null);
+  const sentMentions = useRef(new Map<string, ChatMessageMention[]>());
   const mentionCandidates = useCallback((query: string) => {
-    const names = (entityNames.current ??= client.listEntities().then((listed) => mentionRoster(entityCandidates(listed))));
+    const names = (entityNames.current ??= client.listEntities().then((listed) => {
+      entityCards.current = entityMentionCards(listed);
+      return mentionRoster(entityCandidates(listed));
+    }));
     names.catch(() => { if (entityNames.current === names) entityNames.current = null; });
     return names.then((list) => matchCandidates(list, query));
   }, [client]);
@@ -402,6 +410,9 @@ export function Workspace(props: {
           ? { flow_id: "@default", interface: start.interface, session_id: sid, input_data, ...(avatarMode ? { conversation: true } : {}), ...mentioned }
           : { flow_id: start.flow_id, bundle_id: start.bundle_id, bundle_version: start.bundle_version, registry_scope: start.registry_scope, session_id: sid, input_data, ...(avatarMode ? { conversation: true } : {}), ...mentioned },
       );
+      // The message shows the chips its send carried (panel-chat 0.9.13), with their looks.
+      const shown = sentMessageMentions(mentions, (m) => (m.kind === "entity" ? entityCards.current?.get(m.id)?.avatar : null));
+      const mentionsField = shown.length ? { mentions: shown } : {};
       if (started.agentNotAddressed) {
         // No agent run: the gateway kept the words as a turn (`turn_id`) no run shows. The words
         // follow the turn on screen, the entities' answers after them; the mentions name that turn.
@@ -412,12 +423,13 @@ export function Workspace(props: {
         setNotice("");
         const turn = mentionTurn({ unaddressed: started.turn_id, after: props.runId });
         // No `runId` on the words: the kit reads a run's input for each one (`kept` folds instead).
-        const words: ChatMessage = { id: `kept:${started.turn_id}`, role: "user", kind: "prompt", content: text };
+        const words: ChatMessage = { id: `kept:${started.turn_id}`, role: "user", kind: "prompt", content: text, ...mentionsField };
         keptWords.current.set(words.id!, started.turn_id);
         setMentionAnswers((prev) => ({ anchor: turn.anchor, messages: [...(prev.anchor === turn.anchor ? prev.messages : []), words] }));
         return unsentResult(await sendMentions(sid, turn, text, mentions, ctx?.signal));
       }
       const { run_id } = started;
+      if (shown.length) sentMentions.current.set(run_id, shown);
       if (mentionedEntities(mentions).length) entitiesAnswer.current.add(run_id);
       if (!mounted.current) return;
       startedHere.current = run_id;
@@ -437,7 +449,7 @@ export function Workspace(props: {
   // ("" = a new conversation: a message the agent was not addressed in starts no run to follow.)
   const answersShown = mentionAnswers.messages.length && mentionAnswers.anchor === props.runId ? mentionAnswers.messages : null;
   const presentation = useMemo(
-    () => conversationPresentation(answersShown ? [...snapshot.messages, ...answersShown] : snapshot.messages, { repeats: repeats.current, liveAuthors: liveAuthors.current, kept: keptWords.current, notAddressed: notAddressed.current }),
+    () => conversationPresentation(answersShown ? [...withSentMentions(snapshot.messages, sentMentions.current), ...answersShown] : withSentMentions(snapshot.messages, sentMentions.current), { repeats: repeats.current, liveAuthors: liveAuthors.current, kept: keptWords.current, notAddressed: notAddressed.current }),
     // The maps and the set are filled by the transport before the messages they label change.
     [snapshot.messages, answersShown],
   );
@@ -575,6 +587,7 @@ export function Workspace(props: {
       onRemoveAttachment={uploads.remove}
       onRetryAttachment={uploads.retry}
       messageProps={{
+        renderMentionCard: (mention) => mentionCard(mention, entityCards.current),
         renderFooter: (m) => {
           const status = m.runId === props.runId ? snapshot.status : props.sessionActivity?.content.find((c) => c.runId === m.runId)?.status;
           if (!status) return null;

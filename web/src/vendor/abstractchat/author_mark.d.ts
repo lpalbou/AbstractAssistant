@@ -9,6 +9,9 @@ export type ChatAuthorMarkProps = {
     initial?: string;
     size: number;
     className?: string;
+    /** The disc's letter is drawn, not written (`data-initial`, CSS), so a selection around the
+     * mark never copies it (a mention chip inside a message's words). Default: written. */
+    drawnInitial?: boolean;
 };
 /**
  * The small mark beside an author's name: an entity's orb (its AbstractAvatar design in its

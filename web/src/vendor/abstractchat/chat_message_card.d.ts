@@ -7,6 +7,7 @@ import type { WorkflowStatistics, WorkflowToolActivity } from "./workflow_eviden
 import { type ChatStat } from "./chat_stats.js";
 import { type ChatAuthor } from "./chat_author.js";
 import type { ChatNotice } from "./chat_notices.js";
+import type { ChatMessageMention } from "./mentions.js";
 export type ChatMessageLevel = "info" | "warn" | "error";
 export type ChatMessage = {
     id?: string;
@@ -70,6 +71,12 @@ export type ChatMessage = {
      * `notices` here; a host sets it from its own lane (`notices` / `reply_notices`).
      */
     notices?: ChatNotice[];
+    /**
+     * The mentions the message carries, as its send did ({id, name, kind, index, start}; `avatar`:
+     * the chip's look when the host knows it). Each is drawn in the words as the composer's chip,
+     * placed by its `start` (the text is never read for "@"); copy and read-aloud keep "@Name".
+     */
+    mentions?: ChatMessageMention[];
 };
 /**
  * One generated media item. `src` is supplied by the HOST (typically a
@@ -161,6 +168,13 @@ export type ChatMessageCardProps = {
      * words). Without it every badge opens its own panel.
      */
     onNoticeOpen?: (notice: ChatNotice, message: ChatMessage) => void | boolean;
+    /**
+     * The card for a mention chip in a message's words (`message.mentions`), e.g. the entity's
+     * card from your roster: shown in a small popover below the chip after a 150 ms rest on it
+     * (pointer or keyboard focus), gone on leave, blur or Escape. Called only then, with the
+     * mention ({id, name, kind, index, start, avatar?}); null shows nothing. Absent: no card.
+     */
+    renderMentionCard?: (mention: ChatMessageMention) => React.ReactNode | null;
 };
 /** The read-aloud state a host reports for a message (`useGatewayVoice().tts_playback.status`). */
 export type SpeakState = "idle" | "loading" | "playing" | "paused";

@@ -33,7 +33,7 @@
  *
  * DOM-free; checked by mentions.test.ts.
  */
-import { uniqueMentions, type ChatMentionCandidate, type ChatMentionSent, type ChatMessage } from "../vendor/abstractchat/conversation.js";
+import { uniqueMentions, type ChatAvatarLook, type ChatMentionCandidate, type ChatMentionSent, type ChatMessage, type ChatMessageMention } from "../vendor/abstractchat/conversation.js";
 
 /** The one sentence an older gateway gets (no mention route, or turns without `author`). */
 export const MENTIONS_UNAVAILABLE = "This gateway does not offer mentions yet.";
@@ -76,6 +76,60 @@ export function agentCandidate(name = "Assistant"): ChatMentionCandidate {
 /** The names the composer offers: the agent first, then the entities. */
 export function mentionRoster(entities: readonly ChatMentionCandidate[], agentName?: string): ChatMentionCandidate[] {
   return [agentCandidate(agentName), ...entities];
+}
+
+/** What the card on a mention chip shows (panel-chat 0.9.13 `renderMentionCard`): the entity's
+ * name, its orb and one sentence of its state, from the same `GET /entities` row the `@` list
+ * offers. */
+export type EntityMentionCard = { id: string; name: string; avatar: ChatAvatarLook | null; sentence: string };
+
+/** The state sentence of a roster row (`state`: the record `GET /state` serves): "Castor is in a
+ * conversation." while visited (`mode: "visiting"`), else "Castor is <state>."; "" without a state. */
+export function entityStateSentence(name: string, state: unknown): string {
+  const row = record(state);
+  if (text(row?.mode) === "visiting") return `${name} is in a conversation.`;
+  const word = text(row?.state);
+  return word ? `${name} is ${word}.` : "";
+}
+
+/** The cards of the `GET /entities` rows the `@` list offers (`entityCandidates`), by slug. */
+export function entityMentionCards(payload: unknown): Map<string, EntityMentionCard> {
+  const rows = record(payload)?.entities;
+  const looks = new Map(entityCandidates(payload).map((c) => [c.id, c]));
+  const out = new Map<string, EntityMentionCard>();
+  for (const raw of Array.isArray(rows) ? rows : []) {
+    const row = record(raw);
+    const candidate = looks.get(text(row?.slug));
+    if (!row || !candidate || out.has(candidate.id)) continue;
+    out.set(candidate.id, { id: candidate.id, name: candidate.name, avatar: candidate.avatar ?? null, sentence: entityStateSentence(candidate.name, row.state) });
+  }
+  return out;
+}
+
+/** The mentions a sent message shows as chips in its bubble (panel-chat 0.9.13
+ * `ChatMessage.mentions`): every chip the send carried ({id, name, kind, index, start}; the words
+ * are sent as typed, so `start` stays), with the chip's look from the `@` list (`lookOf`). */
+export function sentMessageMentions(mentions: readonly ChatMentionSent[], lookOf: (m: ChatMentionSent) => ChatAvatarLook | null | undefined): ChatMessageMention[] {
+  return mentions.map((m): ChatMessageMention => {
+    const look = lookOf(m);
+    return { id: m.id, name: m.name, kind: m.kind, index: m.index, ...(typeof m.start === "number" ? { start: m.start } : {}), ...(look ? { avatar: look } : {}) };
+  });
+}
+
+/** The prompt of each turn this page started with mentions, given those mentions (by run id: the
+ * view's prompt message names its run). The stored conversation carries none, so a reloaded turn
+ * shows none (never rebuilt from its words). Unchanged list when nothing is to add. */
+export function withSentMentions(messages: ChatMessage[], sent: ReadonlyMap<string, ChatMessageMention[]>): ChatMessage[] {
+  if (!sent.size) return messages;
+  let changed = false;
+  const out = messages.map((m) => {
+    if (m.role !== "user" || m.kind !== "prompt" || !m.runId || m.mentions) return m;
+    const mentions = sent.get(m.runId);
+    if (!mentions?.length) return m;
+    changed = true;
+    return { ...m, mentions };
+  });
+  return changed ? out : messages;
 }
 
 /** The entity chips of a message (the ones the mention door is asked about). */

@@ -1,0 +1,25 @@
+/* The card on a mention chip in a message (MentionCard.tsx; the kit's .pc-mention-card popover
+   gives the box, border and shadow): the entity's orb, its name, one sentence of its state. */
+.aa-mention-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.aa-mention-card__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.aa-mention-card__name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.aa-mention-card__state {
+  color: var(--text-secondary, rgba(255, 255, 255, 0.8));
+  font-size: var(--font-size-sm, 12px);
+}

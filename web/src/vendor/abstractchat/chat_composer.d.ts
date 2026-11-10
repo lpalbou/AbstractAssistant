@@ -31,9 +31,10 @@ export type ChatComposerProps = {
     mentions?: ChatMention[];
     onMentionsChange?: (mentions: ChatMention[]) => void;
     /**
-     * The sentence shown above the field the first time a name is picked in this conversation
-     * (e.g. "Castor will read this conversation's history"), while its chip is in the text. The
-     * host writes it; null = none.
+     * A sentence shown above the field the first time a name is picked in this conversation,
+     * while its chip is in the text. The host writes it; null = none. Leave it out unless it says
+     * something the chip does not (the "… will read this conversation's history" line was removed,
+     * operator 2026-11-10).
      */
     mentionNotice?: (candidate: ChatMentionCandidate) => string | null | undefined;
     /** The conversation "the first time" counts in (e.g. the session id); a new key starts over. */

@@ -189,4 +189,37 @@ export declare function uniqueMentions<M extends Pick<ChatMentionCandidate, "kin
 export declare function moveMentionActive(active: number, count: number, delta: number): number;
 /** Candidates the list can show: an id, a name and a known kind; the rest are dropped. */
 export declare function usableCandidates(value: unknown): ChatMentionCandidate[];
+/**
+ * A mention in a message the thread shows (`ChatMessage.mentions`): as the send carried it
+ * ({id, name, kind, index, start}, `start` = the UTF-16 offset of its "@Name" in the message's
+ * text), plus the look of its chip (`avatar`) when the host knows it (e.g. from its roster).
+ */
+export type ChatMessageMention = ChatMentionSent & {
+    avatar?: ChatAvatarLook | null;
+};
+/**
+ * Where a message's mentions sit: `placed` are those whose "@Name" is at their `start` in
+ * `text` (structural offsets, the text is never scanned for "@"), in text order; one that
+ * overlaps an earlier one is not placed. `unplaced` are the rest (no valid `start`, another
+ * text there, or not a mention at all): their words stay plain text.
+ */
+export declare function messageMentionsPlaced<M extends ChatMessageMention>(text: string, mentions: readonly M[] | null | undefined): {
+    placed: M[];
+    unplaced: M[];
+};
+/**
+ * The card draws a message's chips through its Markdown: each placed "@Name" is swapped for a
+ * token (two Unicode noncharacters around its number in `placed`, characters reserved for a
+ * program's internal use and inert to Markdown), and the rendered words put the chip where its
+ * token landed (`mentionTokenParts`); anything that is not shown as words (a code block, an
+ * attribute) gets "@Name" back (`mentionTokensPlain`). Null: the text already holds one of
+ * those characters, so no token can be told apart from it.
+ */
+export declare const MENTION_TOKEN_OPEN = "\uFDD0";
+export declare const MENTION_TOKEN_CLOSE = "\uFDD1";
+export declare function mentionTokenText(text: string, placed: readonly ChatMessageMention[]): string | null;
+/** A string of rendered words split at its tokens: words, and each token's number. */
+export declare function mentionTokenParts(s: string): Array<string | number>;
+/** `s` with each token back to its "@Name" (a token of no mention: removed). */
+export declare function mentionTokensPlain(s: string, placed: readonly Pick<ChatMessageMention, "name">[]): string;
 //# sourceMappingURL=mentions.d.ts.map
