@@ -60,8 +60,8 @@
     "@abstractframework/app-server": "^0.1.13"
   },
   "devDependencies": {
-    "@abstractframework/panel-chat": "^0.9.11",
-    "@abstractframework/ui-kit": "^0.9.27",
+    "@abstractframework/panel-chat": "^0.9.12",
+    "@abstractframework/ui-kit": "^0.9.28",
     "@types/react": "18.3.27",
     "@types/react-dom": "18.3.7",
     "@vitejs/plugin-react": "4.7.0",

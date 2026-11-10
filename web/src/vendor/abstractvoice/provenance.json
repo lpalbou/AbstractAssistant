@@ -2,16 +2,16 @@
   "schema_version": 1,
   "owner": "@abstractframework/ui-kit",
   "sources": {
-    "dist/use_gateway_voice.d.ts": "1840667053838bdf0bbe524ec8d5330e0f18fe55a1c3e7b0a64c0f2e4adbb4a6",
+    "dist/use_gateway_voice.d.ts": "99fa357ca2deaabefcde601b00db59ecdcde80a7ead3919022eae2cdc81add14",
     "dist/random_id.js": "f2712445bdf59fc488f2165ba2ef62f358f528abb900857ae24ddec0631dd4ee",
-    "dist/voice_devices.js": "abbe9a2bc67f70bed443ea0e5a0d917f1552644ecf00d4a0999bb59e3b4c8f59",
-    "dist/use_gateway_voice.js": "40f8d757a40ec58202abcbfb441631fa1e474c44b334a224acfb7babd6330c82",
+    "dist/voice_devices.js": "63b58475dab75f33149c370945efd8e92b58772387863fb8e642e820a88b6cca",
+    "dist/use_gateway_voice.js": "1658241d374003d9de88c5d9661b79427b18de9b8d918ea8cd5df7b6f02fd59f",
     "dist/af_voice_level_meter.d.ts": "70d5d8dd4ef79f9bdce3aa03f7203ef4969db724b7ad7e8c2158cca53ef5da5f",
     "dist/af_voice_level_meter.js": "5710e0d9a82a01791a9f2a781ec75c9a5c95aea76eb5c3e3cabf7f70b617c666"
   },
   "artifacts": {
-    "use_gateway_voice.js": "7c630dd1ac284a98b4b99742e2b61a8c8dfe1b55a7ddaed994bf9df8d5058ec7",
-    "use_gateway_voice.d.ts": "1840667053838bdf0bbe524ec8d5330e0f18fe55a1c3e7b0a64c0f2e4adbb4a6",
+    "use_gateway_voice.js": "d56964f6dccaddf2b7923f66195dc67110c5635e2101fbc9ad155011d539d486",
+    "use_gateway_voice.d.ts": "99fa357ca2deaabefcde601b00db59ecdcde80a7ead3919022eae2cdc81add14",
     "af_voice_level_meter.js": "667d81b076f4b23f4c34ae4b6164320e7b29f75eb7a5ce48b9e211ab5568c538",
     "af_voice_level_meter.d.ts": "70d5d8dd4ef79f9bdce3aa03f7203ef4969db724b7ad7e8c2158cca53ef5da5f"
   }

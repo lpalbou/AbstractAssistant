@@ -53,6 +53,13 @@ export type GatewayVoiceOptions = {
      */
     tts_voice?: Record<string, unknown> | string | null;
     /**
+     * Replies are spoken by themselves (the `read_aloud` preference; `gatewayVoiceOptions` maps it).
+     * Safari starts sound only from a click or a key press, and a reply arrives seconds after one:
+     * with this set, the person's clicks and key presses open the reply player (or re-open it on the
+     * current system output after a device change or 30 s of silence), so the next reply can play.
+     */
+    unlock_on_gesture?: boolean;
+    /**
      * Transcribe a recorded blob (absent = PTT unsupported). Returns the text,
      * or the text with the route that ran (shown beside the transcript).
      */
@@ -145,6 +152,12 @@ export declare function voiceErrorSentence(prefix: string, e: unknown): string;
 export declare const MIN_RECORDING_MS = 350;
 /** The browser can route Web Audio to a chosen speaker (`AudioContext.setSinkId`). */
 export declare function audioOutputSelectable(): boolean;
+/**
+ * Silence after which a Play click (or, with `unlock_on_gesture`, any click or key press) opens a
+ * new reply player instead of reusing the old one: a context kept across a change of the system
+ * output can stay on an output unit that no longer reaches it (Safari), and nothing reports it.
+ */
+export declare const TTS_REOPEN_AFTER_IDLE_MS = 30000;
 export declare function useGatewayVoice(opts: GatewayVoiceOptions): GatewayVoice;
 export default useGatewayVoice;
 //# sourceMappingURL=use_gateway_voice.d.ts.map

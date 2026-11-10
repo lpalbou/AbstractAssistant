@@ -93,6 +93,47 @@ function watchAudioNodeLevel(ctx, source, onLevel, gain = 1) {
     onLevel(0);
   };
 }
+var audioOutputListeners = /* @__PURE__ */ new Set();
+var stopDeviceWatch = null;
+function notifyAudioOutput(event) {
+  const pending = [];
+  for (const fn of Array.from(audioOutputListeners)) {
+    try {
+      pending.push(Promise.resolve(fn(event)).catch(() => void 0));
+    } catch {
+    }
+  }
+  return Promise.all(pending).then(() => void 0);
+}
+function onAudioOutputEvent(fn) {
+  audioOutputListeners.add(fn);
+  if (!stopDeviceWatch) {
+    const m = md();
+    if (m && typeof m.addEventListener === "function") {
+      const onChange = () => void notifyAudioOutput("devicechange");
+      m.addEventListener("devicechange", onChange);
+      stopDeviceWatch = () => m.removeEventListener?.("devicechange", onChange);
+    }
+  }
+  return () => {
+    audioOutputListeners.delete(fn);
+    if (!audioOutputListeners.size && stopDeviceWatch) {
+      stopDeviceWatch();
+      stopDeviceWatch = null;
+    }
+  };
+}
+function closeAudioContext(ctx, ms = 1e3) {
+  if (!ctx || ctx.state === "closed" || typeof ctx.close !== "function")
+    return Promise.resolve();
+  let closing;
+  try {
+    closing = Promise.resolve(ctx.close()).catch(() => void 0);
+  } catch {
+    return Promise.resolve();
+  }
+  return Promise.race([closing, new Promise((resolve) => setTimeout(resolve, ms))]).then(() => void 0);
+}
 function clampVolume(v) {
   const n = Number(v);
   if (v === void 0 || v === null || v === "" || !Number.isFinite(n))
@@ -274,6 +315,11 @@ function audioOutputSelectable() {
   const Ctx = w?.AudioContext;
   return Boolean(Ctx && Ctx.prototype && typeof Ctx.prototype.setSinkId === "function");
 }
+function user_gesture() {
+  return globalThis.navigator?.userActivation?.isActive === true;
+}
+var TTS_REOPEN_AFTER_IDLE_MS = 3e4;
+var read_aloud_owner = null;
 var applied_sinks = /* @__PURE__ */ new WeakMap();
 function apply_sink(ctx, device) {
   const anyCtx = ctx;
@@ -324,6 +370,12 @@ function useGatewayVoice(opts) {
   const tts_loading_key_ref = useRef("");
   const tts_ctx_ref = useRef(null);
   const tts_gain_ref = useRef(null);
+  const tts_ctx_stale_ref = useRef(false);
+  const tts_last_rate_ref = useRef(0);
+  const tts_ctx_opened_at_ref = useRef(0);
+  const owner_token = useRef({});
+  const tts_idle_since_ref = useRef(Date.now());
+  const stop_tts_ref = useRef(() => void 0);
   const start_playback_meter = useCallback(() => {
     if (!playback_listeners.current.size || playback_meter_stop.current || tts_playback_ref.current.status !== "playing")
       return;
@@ -397,16 +449,55 @@ function useGatewayVoice(opts) {
         set_error?.("Audio playback is paused by the browser. Press Play to try again.");
       }
     };
+    const refused = setTimeout(() => {
+      if (ctx.state !== "running" && ctx.state !== "closed")
+        failed();
+    }, 1500);
     try {
       void ctx.resume().then(() => {
+        clearTimeout(refused);
         if (attempt !== tts_resume_attempt_ref.current)
           return;
         sync_tts_playback();
         if (ctx.state === "running")
           clear_tts_resume_error();
-      }, failed);
+      }, () => {
+        clearTimeout(refused);
+        failed();
+      });
     } catch {
+      clearTimeout(refused);
       failed();
+    }
+  };
+  const release_tts_ctx = () => {
+    const ctx = tts_ctx_ref.current;
+    const gain = tts_gain_ref.current;
+    tts_ctx_stale_ref.current = false;
+    if (!ctx)
+      return;
+    stop_playback_meter();
+    tts_ctx_ref.current = null;
+    tts_gain_ref.current = null;
+    tts_last_rate_ref.current = Number(ctx.sampleRate) || 0;
+    try {
+      ctx.onstatechange = null;
+    } catch {
+    }
+    try {
+      gain?.disconnect();
+    } catch {
+    }
+    void closeAudioContext(ctx);
+  };
+  const replace_tts_ctx = () => {
+    release_tts_ctx();
+    const engine = ensure_tts_webaudio();
+    if (!engine)
+      return;
+    try {
+      void Promise.resolve(engine.ctx.resume()).catch(() => void 0);
+    } catch {
     }
   };
   const ensure_tts_webaudio = () => {
@@ -416,7 +507,15 @@ function useGatewayVoice(opts) {
       if (!Ctx)
         return null;
       if (!tts_ctx_ref.current) {
-        const ctx2 = new Ctx();
+        const avoid = tts_last_rate_ref.current;
+        let ctx2;
+        try {
+          ctx2 = avoid ? new Ctx({ sampleRate: avoid === 48e3 ? 44100 : 48e3 }) : new Ctx();
+        } catch {
+          ctx2 = new Ctx();
+        }
+        tts_idle_since_ref.current = Date.now();
+        tts_ctx_opened_at_ref.current = Date.now();
         const gain2 = ctx2.createGain();
         gain2.gain.value = 1;
         gain2.connect(ctx2.destination);
@@ -435,6 +534,66 @@ function useGatewayVoice(opts) {
       return null;
     }
   };
+  const tts_supported_ref = useRef(false);
+  tts_supported_ref.current = tts_supported;
+  const owns_read_aloud = () => read_aloud_owner === owner_token.current;
+  useEffect(() => onAudioOutputEvent((event) => {
+    if (event === "reopen") {
+      stop_tts_ref.current();
+      if (owns_read_aloud() && tts_supported_ref.current)
+        replace_tts_ctx();
+      else
+        release_tts_ctx();
+      return;
+    }
+    if (!tts_ctx_ref.current)
+      return;
+    if (tts_playback_ref.current.status === "idle")
+      release_tts_ctx();
+    else
+      tts_ctx_stale_ref.current = true;
+  }), []);
+  useEffect(() => {
+    if (tts_playback.status !== "idle")
+      return;
+    tts_idle_since_ref.current = Date.now();
+    if (tts_ctx_stale_ref.current || !owns_read_aloud())
+      release_tts_ctx();
+  }, [tts_playback.status]);
+  const unlock_on_gesture = opts.unlock_on_gesture === true;
+  useEffect(() => {
+    if (!unlock_on_gesture || typeof window === "undefined" || typeof window.addEventListener !== "function")
+      return;
+    if (read_aloud_owner && read_aloud_owner !== owner_token.current)
+      return;
+    read_aloud_owner = owner_token.current;
+    const onGesture = (e) => {
+      if (e.type === "pointerdown" && e.pointerType === "touch")
+        return;
+      if (!tts_supported_ref.current || tts_playback_ref.current.status !== "idle")
+        return;
+      const ctx = tts_ctx_ref.current;
+      if (ctx && Date.now() - tts_ctx_opened_at_ref.current < 1e3)
+        return;
+      const fresh = ctx && !tts_ctx_stale_ref.current && ctx.state === "running" && Date.now() - tts_idle_since_ref.current <= TTS_REOPEN_AFTER_IDLE_MS;
+      if (!fresh)
+        replace_tts_ctx();
+    };
+    const events = ["pointerdown", "touchend", "click", "keydown"];
+    for (const type of events)
+      window.addEventListener(type, onGesture, true);
+    return () => {
+      for (const type of events)
+        window.removeEventListener(type, onGesture, true);
+      if (read_aloud_owner === owner_token.current)
+        read_aloud_owner = null;
+      const status = tts_playback_ref.current.status;
+      if (status === "loading" || status === "paused")
+        stop_tts_ref.current();
+      if (status !== "playing")
+        release_tts_ctx();
+    };
+  }, [unlock_on_gesture]);
   useEffect(() => {
     const gain = tts_gain_ref.current;
     if (gain) {
@@ -497,6 +656,7 @@ function useGatewayVoice(opts) {
     clear_tts_resume_error();
     apply_tts_playback({ key: "", status: "idle" });
   }, [stop_tts_source, apply_tts_playback]);
+  stop_tts_ref.current = stop_tts;
   const voice_key = ttsVoiceKey(opts.tts_voice);
   const voice_key_ref = useRef(voice_key);
   useEffect(() => {
@@ -701,6 +861,12 @@ function useGatewayVoice(opts) {
     if (typeof tts !== "function" && typeof tts_stream !== "function") {
       set_error?.("Reading aloud is not available on this gateway.");
       return;
+    }
+    const before = tts_playback_ref.current;
+    const old_ctx = tts_ctx_ref.current;
+    if (user_gesture() && old_ctx && before.status !== "playing" && !tts_paused_ref.current && (tts_ctx_stale_ref.current || old_ctx.state !== "running" || before.status === "idle" && Date.now() - tts_idle_since_ref.current > TTS_REOPEN_AFTER_IDLE_MS)) {
+      stop_tts();
+      replace_tts_ctx();
     }
     const engine = ensure_tts_webaudio();
     if (!engine) {
@@ -1080,6 +1246,7 @@ function useGatewayVoice(opts) {
 var use_gateway_voice_default = useGatewayVoice;
 export {
   MIN_RECORDING_MS,
+  TTS_REOPEN_AFTER_IDLE_MS,
   audioOutputSelectable,
   use_gateway_voice_default as default,
   streamTtsJsonl,

@@ -1973,6 +1973,8 @@ function bindAfTooltips(root, options = {}) {
   let hideTimer = null;
   let keyboard = false;
   let describedBefore = null;
+  const MO = win.MutationObserver;
+  let watch = null;
   const clearShow = () => {
     if (showTimer)
       clearTimeout(showTimer);
@@ -2007,6 +2009,8 @@ function bindAfTooltips(root, options = {}) {
         anchor.removeAttribute("aria-describedby");
     }
     describedBefore = null;
+    watch?.disconnect();
+    watch = null;
     anchor = null;
     tip.hidden = true;
     tip.textContent = "";
@@ -2028,6 +2032,14 @@ function bindAfTooltips(root, options = {}) {
       const prev = el.getAttribute("aria-describedby");
       describedBefore = prev && prev !== tipId ? prev : null;
       el.setAttribute("aria-describedby", describedBefore ? `${describedBefore} ${tipId}` : tipId);
+    }
+    if (typeof MO === "function") {
+      const observer = new MO(() => {
+        if (anchor === el)
+          hide();
+      });
+      observer.observe(el, { attributes: true, attributeFilter: [AF_TOOLTIP_ATTR, AF_TOOLTIP_CONTENT_ATTR] });
+      watch = observer;
     }
     place();
   };
