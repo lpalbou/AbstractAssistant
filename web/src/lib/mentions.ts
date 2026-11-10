@@ -41,9 +41,6 @@ export const MENTIONS_UNAVAILABLE = "This gateway does not offer mentions yet.";
 /** The reserved slug that names the conversation's own agent in `mentions` (the gateway's rule). */
 export const AGENT_MENTION = "agent";
 
-/** The line above the message field after a message the agent was not addressed in. */
-export const AGENT_STAYS_OUT = "The assistant stays out of this message.";
-
 const text = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
 const record = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
@@ -93,10 +90,6 @@ export function matchCandidates(list: readonly ChatMentionCandidate[], query: st
   return list.filter((c) => c.name.toLowerCase().startsWith(q) || c.id.toLowerCase().startsWith(q));
 }
 
-/** The sentence under a chip the first time a name is picked in a conversation. */
-export function mentionNotice(candidate: ChatMentionCandidate): string | null {
-  return candidate.kind === "entity" ? `${candidate.name} will read this conversation's history.` : null;
-}
 
 /**
  * `mentions` of `POST runs/start` (AbstractGateway c26d38a2; operator 2026-11-10): the chips of the
@@ -150,7 +143,7 @@ export function mentionMessageKey(repeatOf: string | null | undefined, mint: () 
 }
 
 /** The turn a message's mentions are shown after (`anchor`) and name as `repeat_of` ("" = none);
- * `agentOut`: the message did not reach the agent (`AGENT_STAYS_OUT`). */
+ * `agentOut`: the message did not reach the agent (no line says so: operator 2026-11-10 23:02). */
 export type MentionTurn = { anchor: string; repeatOf: string; agentOut?: boolean };
 
 /**
@@ -272,10 +265,11 @@ export async function deliverMentions(opts: {
   return out;
 }
 
-/** The one line above the composer about the mentions just sent ("" = nothing to say); `lead`
- * opens it (`AGENT_STAYS_OUT` when the agent was not addressed). */
-export function mentionStatusLine(outcome: MentionDelivery, lead = ""): string {
-  return [lead, ...outcome.notes, outcome.unavailable ? MENTIONS_UNAVAILABLE : "", outcome.stopped || ""].filter(Boolean).join(" ");
+/** The one line above the composer about the mentions just sent: their refusals and stops ("" =
+ * nothing to say). No informational line (operator 2026-11-10 23:02: "do not add the text above…
+ * remove that"): never "The assistant stays out of this message." */
+export function mentionStatusLine(outcome: MentionDelivery): string {
+  return [...outcome.notes, outcome.unavailable ? MENTIONS_UNAVAILABLE : "", outcome.stopped || ""].filter(Boolean).join(" ");
 }
 
 /**

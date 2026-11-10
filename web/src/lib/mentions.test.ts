@@ -8,7 +8,6 @@ import type { AssistantHost } from "../host";
 import { GatewayClient, GatewayHttpError } from "../gateway/client";
 import {
   AGENT_MENTION,
-  AGENT_STAYS_OUT,
   MENTIONS_UNAVAILABLE,
   agentCandidate,
   deliverMentions,
@@ -17,7 +16,6 @@ import {
   matchCandidates,
   mentionId,
   mentionMessageKey,
-  mentionNotice,
   mentionRefusal,
   mentionRoster,
   mentionedEntities,
@@ -67,9 +65,10 @@ describe("the names the composer offers", () => {
     expect(matchCandidates(names, "x")).toEqual([]);
   });
 
-  it("warns, on the first pick, that an entity reads the conversation", () => {
-    expect(mentionNotice({ id: "castor", name: "Castor", kind: "entity" })).toBe("Castor will read this conversation's history.");
-    expect(mentionNotice({ id: "a", name: "An agent", kind: "agent" })).toBeNull();
+  it("says nothing on the first pick (operator 2026-11-10 23:02: no text above the typed text)", async () => {
+    const mod = await import("./mentions");
+    expect(mod).not.toHaveProperty("mentionNotice");
+    expect(mod).not.toHaveProperty("AGENT_STAYS_OUT");
   });
 });
 
@@ -448,7 +447,6 @@ describe("@agent and the agent staying out (operator 2026-11-10)", () => {
     expect(matchCandidates(roster, "AG").map((c) => c.id)).toEqual(["agent"]);
     expect(matchCandidates(roster, "ca").map((c) => c.id)).toEqual(["castor"]);
     expect(agentCandidate("Basic agent")).toEqual({ id: "agent", name: "Basic agent", kind: "agent" });
-    expect(mentionNotice(agentCandidate())).toBeNull();
     expect(ws).toContain("client.listEntities().then((listed) => mentionRoster(entityCandidates(listed)))");
   });
 
@@ -512,14 +510,14 @@ describe("@agent and the agent staying out (operator 2026-11-10)", () => {
     expect(viewAgentNotAddressed({ messages: "x" })).toEqual([]);
   });
 
-  it("the line above the field opens with the agent staying out, before what the mentions said", () => {
+  it("the line above the field says only what the mentions said, never that the agent stays out", () => {
     const quiet = { message: "m", answered: [], notes: [], unavailable: false, stopped: null, unsent: [] };
-    expect(mentionStatusLine(quiet, AGENT_STAYS_OUT)).toBe("The assistant stays out of this message.");
-    expect(mentionStatusLine({ ...quiet, notes: ["Pollux is in another conversation."] }, AGENT_STAYS_OUT)).toBe("The assistant stays out of this message. Pollux is in another conversation.");
     expect(mentionStatusLine(quiet)).toBe("");
+    expect(mentionStatusLine({ ...quiet, notes: ["Pollux is in another conversation."] })).toBe("Pollux is in another conversation.");
+    expect(mentionStatusLine.length).toBe(1); // no lead line
   });
 
-  it("the workspace: the start's mark and every view's mark, no spinner, the line, @agent is never a resend", () => {
+  it("the workspace: the start's mark and every view's mark, no spinner, no agent line, @agent is never a resend", () => {
     expect(ws).toContain("const started = await client.startRun(");
     expect(ws).toContain("notAddressed.current.add(started.turn_id);");
     expect(ws).toContain("const turn = mentionTurn({ unaddressed: started.turn_id, after: props.runId });");
@@ -532,9 +530,8 @@ describe("@agent and the agent staying out (operator 2026-11-10)", () => {
     expect(ws).toContain("const answersShown = mentionAnswers.messages.length && mentionAnswers.anchor === props.runId ? mentionAnswers.messages : null;");
     expect(ws).toContain("for (const runId of viewAgentNotAddressed(view)) notAddressed.current.add(runId);");
     expect(ws).toContain("const busy = Boolean(props.runId) && !notAddressed.current.has(props.runId) && !TERMINAL.has(snapshot.status)");
-    expect(ws).toContain("const lead = turn.agentOut ? AGENT_STAYS_OUT : \"\";");
-    expect(ws).toContain("if (lead && mounted.current) setMentionStatus(lead);");
-    expect(ws).toContain("setMentionStatus(mentionStatusLine(outcome, lead));");
+    expect(ws).not.toMatch(/AGENT_STAYS_OUT|mentionNotice|stays out of this message|will read this conversation/);
+    expect(ws).toContain("setMentionStatus(mentionStatusLine(outcome));");
     expect(ws).toContain("held.sid === ensureSession() && !mentions.some((m) => m.kind === \"agent\") ? mentionResend(held.resend, text, mentions) : null;");
     expect(ws).toContain("if (mentionedEntities(mentions).length) return unsentResult(await sendMentions(sid, mentionTurn({ started: run_id }), text, mentions, ctx?.signal));");
   });

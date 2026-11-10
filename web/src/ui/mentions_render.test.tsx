@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 import { projectReplayView } from "@abstractframework/panel-chat";
 import { WorkflowChat, type ChatMessage } from "../vendor/abstractchat/conversation.js";
 import { conversationPresentation } from "../lib/presentation";
-import { AGENT_STAYS_OUT, MENTIONS_UNAVAILABLE, deliverMentions, mentionNotice, mentionStatusLine, viewAgentNotAddressed } from "../lib/mentions";
+import { MENTIONS_UNAVAILABLE, deliverMentions, mentionStatusLine, viewAgentNotAddressed } from "../lib/mentions";
 import { GatewayHttpError } from "../gateway/client";
 
 const castor = { kind: "entity" as const, name: "Castor", entity_id: "entity:castor", identity_ref: "entity:castor#3", avatar: { style: "watch-halo", color: "#336699" } };
@@ -19,7 +19,7 @@ const person = { kind: "person" as const, name: "Laurent", entity_id: null, iden
 
 function render(messages: ChatMessage[], extra: Partial<React.ComponentProps<typeof WorkflowChat>> = {}): string {
   return renderToStaticMarkup(
-    <WorkflowChat messages={messages} draft="" onDraftChange={() => {}} onSend={async () => {}} mentionCandidates={async () => []} mentionNotice={mentionNotice} mentionSessionKey="s" {...extra} />,
+    <WorkflowChat messages={messages} draft="" onDraftChange={() => {}} onSend={async () => {}} mentionCandidates={async () => []} mentionSessionKey="s" {...extra} />,
   );
 }
 
@@ -89,16 +89,16 @@ describe("an older gateway's mention attempt", () => {
 describe("a message the agent was not addressed in (operator 2026-11-10)", () => {
   const answered = { message: "m", answered: [{ run_id: "m1", reply: "The bridge holds.", mention_index: 0 }], notes: [], unavailable: false, stopped: null, unsent: [] };
 
-  it("one line above the field, the kit's mention status; no other line", () => {
-    const html = render([], { mentionStatus: mentionStatusLine(answered, AGENT_STAYS_OUT) });
-    expect(html.split(AGENT_STAYS_OUT).length - 1).toBe(1);
-    expect(html.match(/pc-mention-notice--status/g)?.length).toBe(1);
+  it("no line above the field says the assistant stays out (operator 2026-11-10 23:02: \"remove that\")", () => {
+    const html = render([], { mentionStatus: mentionStatusLine(answered) || null });
+    expect(html).not.toContain("stays out of this message");
+    expect(html).not.toContain("pc-mention-notice");
   });
 
-  it("with @agent, or without chips, there is no such line", () => {
-    const html = render([], { mentionStatus: mentionStatusLine(answered) || null });
-    expect(html).not.toContain(AGENT_STAYS_OUT);
-    expect(html).not.toContain("pc-mention-notice");
+  it("a refusal still shows, alone, in the kit's mention status", () => {
+    const html = render([], { mentionStatus: mentionStatusLine({ ...answered, notes: ["Pollux is in another conversation."] }) });
+    expect(html.match(/pc-mention-notice--status/g)?.length).toBe(1);
+    expect(html).toContain("Pollux is in another conversation.");
   });
 
   it("the kept turn's words show once, then the entity's answer; no reply of the agent, no working dots", () => {

@@ -52,7 +52,7 @@ import { buildRunInputData } from "../lib/run_input";
 import { selectWorkflow } from "../lib/workflow_selection";
 import type { AttentionSeen } from "./useConversations";
 import { assistantPresence, conversationPresentation, replyToRead } from "../lib/presentation";
-import { AGENT_STAYS_OUT, MENTIONS_UNAVAILABLE, deliverMentions, entityCandidates, gatewayLacksTurnAuthors, matchCandidates, mentionNotice, mentionRoster, mentionStatusLine, mentionTurn, mentionedEntities, startRunMentions, viewAgentNotAddressed, viewRepeatOf, type MentionAnswer, type MentionTurn } from "../lib/mentions";
+import { MENTIONS_UNAVAILABLE, deliverMentions, entityCandidates, gatewayLacksTurnAuthors, matchCandidates, mentionRoster, mentionStatusLine, mentionTurn, mentionedEntities, startRunMentions, viewAgentNotAddressed, viewRepeatOf, type MentionAnswer, type MentionTurn } from "../lib/mentions";
 import { VoiceStage, Orb } from "./VoiceStage";
 import type { AssistantPreferences } from "./useAssistantPreferences";
 
@@ -314,9 +314,6 @@ export function Workspace(props: {
    * chips the composer keeps), else []. */
   const sendMentions = async (sid: string, turn: MentionTurn, text: string, mentions: readonly ChatMentionSent[], signal?: AbortSignal, message?: string): Promise<ChatMentionSent[]> => {
     const anchor = turn.anchor;
-    // The message reached no agent: one line says so while the entities answer, and stays after.
-    const lead = turn.agentOut ? AGENT_STAYS_OUT : "";
-    if (lead && mounted.current) setMentionStatus(lead);
     const show = async (answer: MentionAnswer, mention: ChatMentionSent) => {
       // The answer is a session turn: read from its view, like a reload reads it.
       let shown: ChatMessage[];
@@ -340,7 +337,7 @@ export function Workspace(props: {
     // A name the gateway refused (hidden, elsewhere) is read again on the next `@`.
     if (outcome.notes.length) entityNames.current = null;
     if (outcome.unavailable) setMentionRouteMissing(true);
-    setMentionStatus(mentionStatusLine(outcome, lead));
+    setMentionStatus(mentionStatusLine(outcome));
     // Each answer is a new turn of the session: the list's turns and latest turn moved.
     if (outcome.answered.length) props.onTurnEnded();
     // An entity that could not answer: the message goes back to the composer, with the chips not
@@ -512,7 +509,6 @@ export function Workspace(props: {
       onDraftChange={(next) => { setDraft(next); if (mentionStatus) setMentionStatus(""); }}
       onSend={send}
       mentionCandidates={mentionCandidates}
-      mentionNotice={mentionNotice}
       mentionSessionKey={mentionScope}
       mentionStatus={mentionStatus || null}
       mentionsUnavailable={mentionsUnavailable}
