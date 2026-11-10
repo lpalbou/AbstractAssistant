@@ -526,7 +526,7 @@ describe("@agent and the agent staying out (operator 2026-11-10)", () => {
     expect(ws).toContain("return unsentResult(await sendMentions(sid, turn, text, mentions, ctx?.signal));");
     expect(ws).toContain("const words: ChatMessage = { id: `kept:${started.turn_id}`, role: \"user\", kind: \"prompt\", content: text };");
     expect(ws).toContain("keptWords.current.set(words.id!, started.turn_id);");
-    expect(ws).toContain("liveAuthors: liveAuthors.current, kept: keptWords.current })");
+    expect(ws).toContain("liveAuthors: liveAuthors.current, kept: keptWords.current, notAddressed: notAddressed.current })");
     expect(ws).toContain("setMentionAnswers((prev) => ({ anchor: turn.anchor, messages: [...(prev.anchor === turn.anchor ? prev.messages : []), words] }));");
     expect(ws).toContain("repeats.current.set(answer.run_id, turn.repeatOf || anchor);");
     expect(ws).toContain("const answersShown = mentionAnswers.messages.length && mentionAnswers.anchor === props.runId ? mentionAnswers.messages : null;");

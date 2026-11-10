@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 import { projectReplayView } from "@abstractframework/panel-chat";
 import { WorkflowChat, type ChatMessage } from "../vendor/abstractchat/conversation.js";
 import { conversationPresentation } from "../lib/presentation";
-import { AGENT_STAYS_OUT, MENTIONS_UNAVAILABLE, deliverMentions, mentionNotice, mentionStatusLine } from "../lib/mentions";
+import { AGENT_STAYS_OUT, MENTIONS_UNAVAILABLE, deliverMentions, mentionNotice, mentionStatusLine, viewAgentNotAddressed } from "../lib/mentions";
 import { GatewayHttpError } from "../gateway/client";
 
 const castor = { kind: "entity" as const, name: "Castor", entity_id: "entity:castor", identity_ref: "entity:castor#3", avatar: { style: "watch-halo", color: "#336699" } };
@@ -120,6 +120,33 @@ describe("a message the agent was not addressed in (operator 2026-11-10)", () =>
     expect(headers(html)).toEqual([["entity", "Castor", "entity"], ["entity", "Pollux", "entity"]]);
     expect(html.match(/pc-chat-item--user/g)?.length).toBe(1);
     expect(html).not.toContain("pc-chat-working");
+  });
+
+  it("after a reload the kept turn reads no run's input (its id is a turn's) and shows as it did live", () => {
+    // The gateway's view, read back: the kept turn's words (`agent_addressed: false`, its TURN id as
+    // run_id), then the entity's turn repeating them.
+    const view = {
+      version: "replay_view_v1", root_run_id: "m", status: "completed", cursor: { token: "t", records: 3, runs: { m: 2 } }, runs: [], interaction: null,
+      messages: [
+        { id: "turn-7:p", role: "user", kind: "prompt", text: "Does the bridge hold?", run_id: "turn-7", order: ["2026-11-10T08:00:00Z", 1], agent_addressed: false },
+        { id: "m:p", role: "user", kind: "prompt", text: "Does the bridge hold?", run_id: "m", order: ["2026-11-10T08:00:01Z", 2] },
+        { id: "m:s2:answer_user", role: "assistant", kind: "answer", text: "The bridge holds.", run_id: "m", order: ["2026-11-10T08:00:05Z", 3], author: castor },
+      ],
+      activities: [], artifacts: [],
+    };
+    const repeats = new Map([["m", "turn-7"]]);
+    const reloaded = conversationPresentation(projectReplayView(view as Parameters<typeof projectReplayView>[0]).messages as ChatMessage[],
+      { repeats, notAddressed: new Set(viewAgentNotAddressed(view)) }).conversation;
+    // The kit reads `GET runs/{id}/input_data` for each user message with a `runId` (its
+    // attachments): none here, so no request for the turn (the gateway answers 404, it is no run).
+    expect(reloaded.filter((m) => m.role === "user" && m.runId)).toEqual([]);
+    expect(reloaded.filter((m) => m.role === "user").map((m) => [m.id, m.content])).toEqual([["turn-7:p", "Does the bridge hold?"]]);
+    // As live (the words the workspace showed for the kept turn, then the entity's answer); the turn row adds its time.
+    const live = conversationPresentation([
+      { id: "kept:turn-7", role: "user", kind: "prompt", content: "Does the bridge hold?", ts: "2026-11-10T08:00:00Z" },
+      ...(projectReplayView(view as Parameters<typeof projectReplayView>[0]).messages as ChatMessage[]).slice(1),
+    ], { repeats, kept: new Map([["kept:turn-7", "turn-7"]]) }).conversation;
+    expect(render(reloaded, { busy: false })).toBe(render(live, { busy: false }));
   });
 });
 

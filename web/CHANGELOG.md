@@ -49,7 +49,8 @@ says "This gateway does not offer mentions yet."
   message box says "The assistant stays out of this message.", and the conversation shows your words
   once, then the entities' answers, with no spinner, no empty reply and no "ended without a written
   reply" line (a turn marked `agent_addressed: false` in its view is never shown as waiting for a
-  reply). To ask the Assistant as well, pick **Assistant**, first in the `@` list (an "agent" chip,
+  reply; after a reload its words show as they did live, from the turn's own fields, and the app
+  asks no run's input for it: the turn is not a run). To ask the Assistant as well, pick **Assistant**, first in the `@` list (an "agent" chip,
   sent as the reserved `agent` in `mentions`, in the order you picked): it answers only the part
   meant for it, or says nothing. A message without mentions goes to the Assistant as always. A
   message with `@Assistant` is a new message, never a resend of a stopped one. A message sent while

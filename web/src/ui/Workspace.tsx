@@ -440,8 +440,8 @@ export function Workspace(props: {
   // ("" = a new conversation: a message the agent was not addressed in starts no run to follow.)
   const answersShown = mentionAnswers.messages.length && mentionAnswers.anchor === props.runId ? mentionAnswers.messages : null;
   const presentation = useMemo(
-    () => conversationPresentation(answersShown ? [...snapshot.messages, ...answersShown] : snapshot.messages, { repeats: repeats.current, liveAuthors: liveAuthors.current, kept: keptWords.current }),
-    // The two maps are filled by the transport before the messages they label change.
+    () => conversationPresentation(answersShown ? [...snapshot.messages, ...answersShown] : snapshot.messages, { repeats: repeats.current, liveAuthors: liveAuthors.current, kept: keptWords.current, notAddressed: notAddressed.current }),
+    // The maps and the set are filled by the transport before the messages they label change.
     [snapshot.messages, answersShown],
   );
   // An older gateway: no mention door (it answered 404) or turns without `author`.

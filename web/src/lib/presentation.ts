@@ -13,6 +13,11 @@ export type PresentationOptions = {
    * gateway as `turn_id`): message id -> that turn. The message carries no `runId` (the kit would
    * read a run's input for it); a mention repeating the turn folds into it like into a run's. */
   kept?: ReadonlyMap<string, string>;
+  /** The same turns read back from a view (`agent_addressed: false` on the turn's message,
+   * lib/mentions.ts viewAgentNotAddressed): their words carry the TURN id as `runId`, which names
+   * no run (`GET runs/{id}/input_data` stays run-only and answers 404). They are shown as live:
+   * the turn's own fields (words, author, notices), no `runId`, folded like `kept`. */
+  notAddressed?: ReadonlySet<string>;
 };
 
 const when = (m: ChatMessage): number => (typeof m.ts === "string" ? Date.parse(m.ts) : Number.NaN);
@@ -41,6 +46,10 @@ export function conversationPresentation(messages: readonly ChatMessage[], opts:
     }
     if (message.role === "user" && repeated(message.runId)) continue;
     let m = message;
+    if (m.role === "user" && m.runId && opts.notAddressed?.has(m.runId)) {
+      const { runId: _turn, ...words } = m;
+      m = words;
+    }
     const live = m.role === "assistant" && m.live && m.author === undefined && m.runId ? opts.liveAuthors?.get(m.runId) : undefined;
     if (live) m = { ...m, author: live };
     const who = m.role === "assistant" ? chatAuthorOf(m.author) : null;
