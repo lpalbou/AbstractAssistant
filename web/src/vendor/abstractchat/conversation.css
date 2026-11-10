@@ -1707,6 +1707,151 @@
   font-family: var(--font-mono, ui-monospace, monospace);
 }
 
+/* Turn notices (chat_notice_badges.tsx): what a reply formed, one badge each under its words.
+   A badge wraps with its row and never widens the card; the label shows the first words of a
+   long title or text (the whole string stays in the DOM and opens in the panel). */
+.pc-chat-notices {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pc-chat-notices__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pc-chat-notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--ui-border-1, rgba(255, 255, 255, 0.10));
+  background: var(--ui-surface-2, rgba(255, 255, 255, 0.06));
+  color: var(--text-secondary, rgba(255, 255, 255, 0.80));
+  font: inherit;
+  font-size: var(--font-size-sm, 12px);
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease, color 150ms ease;
+}
+
+.pc-chat-notice:hover,
+.pc-chat-notice[aria-expanded="true"] {
+  border-color: var(--accent-border, rgba(233, 69, 96, 0.35));
+  background: var(--accent-subtle, rgba(233, 69, 96, 0.10));
+  color: var(--text-primary, rgba(255, 255, 255, 0.92));
+}
+
+.pc-chat-notice:focus-visible {
+  outline: 2px solid var(--accent, rgba(233, 69, 96, 0.95));
+  outline-offset: 2px;
+}
+
+.pc-chat-notice > svg {
+  flex: 0 0 auto;
+  opacity: 0.85;
+}
+
+.pc-chat-notice__kind {
+  flex: 0 0 auto;
+  font-size: var(--font-size-xxs, 10px);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted, rgba(255, 255, 255, 0.60));
+}
+
+.pc-chat-notice__label {
+  min-width: 0;
+  max-width: 36ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pc-chat-notice--private .pc-chat-notice__label,
+.pc-chat-notice__label[data-from-text] {
+  font-style: italic;
+}
+
+/* Staged for the visit's close: soft, not yet a record. */
+.pc-chat-notice--staged {
+  border-style: dashed;
+}
+
+.pc-chat-notice__staged {
+  flex: 0 0 auto;
+  font-style: italic;
+  color: var(--text-muted, rgba(255, 255, 255, 0.60));
+}
+
+.pc-chat-notice-pop {
+  box-sizing: border-box;
+  max-width: min(36rem, 100%);
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--ui-border-2, rgba(255, 255, 255, 0.14));
+  background: var(--bg-secondary, #16213e);
+  color: var(--text-secondary, rgba(255, 255, 255, 0.80));
+  font-size: var(--font-size-sm, 12px);
+  line-height: 1.45;
+}
+
+.pc-chat-notice-pop__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  min-width: 0;
+}
+
+.pc-chat-notice-pop__title {
+  flex: 1 1 12rem;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--text-primary, rgba(255, 255, 255, 0.92));
+  overflow-wrap: anywhere;
+}
+
+.pc-chat-notice-pop__close {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--ui-border-1, rgba(255, 255, 255, 0.10));
+  background: transparent;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.80));
+  font: inherit;
+  cursor: pointer;
+}
+
+.pc-chat-notice-pop__close:hover,
+.pc-chat-notice-pop__close:focus-visible {
+  color: var(--text-primary, rgba(255, 255, 255, 0.92));
+  border-color: var(--ui-border-2, rgba(255, 255, 255, 0.14));
+}
+
+.pc-chat-notice-pop__text {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-primary, rgba(255, 255, 255, 0.92));
+}
+
+.pc-chat-notice-pop__note {
+  margin: 6px 0 0;
+  color: var(--text-muted, rgba(255, 255, 255, 0.60));
+}
+
 /* Stat chip detail panel (0.1.11): opens on hover/focus, rendered in a body
    portal with position: fixed, so it needs an OPAQUE surface of its own. */
 .pc-chat-stat--detail {

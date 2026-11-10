@@ -86,6 +86,8 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
  * app's tokens reach it through --ui-surface-1/--ui-border-1/--accent-*. Only the type size is ours. */
 .aa-chat .pc-composer__textarea { font-size: 15px; }
 @media (pointer: coarse) { .aa-chat .pc-composer__textarea { font-size: 16px; } }
+/* The kit's badges under a reply (what an entity's reply kept) and their panel's Close: 44 px touch targets. */
+@media (pointer: coarse) { .pc-chat-notices .pc-chat-notice, .pc-chat-notices .pc-chat-notice-pop__close { min-height: var(--tap-min, 44px); } }
 .aa-chat .pc-workflow-chat__footer { padding: 0 24px; border: 0; }
 .aa-chat__notes { display: grid; gap: 6px; }
 .aa-note { margin: 0; font-size: 13px; line-height: 1.6; color: var(--aa-text-muted); overflow-wrap: anywhere; }

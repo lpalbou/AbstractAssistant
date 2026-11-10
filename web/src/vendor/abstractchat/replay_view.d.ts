@@ -19,6 +19,7 @@
  * `scripts/regen_replay_view_fixtures.py` against a real gateway).
  */
 import type { ChatAuthor } from "./chat_author.js";
+import type { ChatNotice } from "./chat_notices.js";
 export type ReplayViewJson = Record<string, unknown>;
 /** `replay_view_v1.interaction`: the newest open person-facing wait of the tree. */
 export type ReplayViewInteraction = {
@@ -67,6 +68,10 @@ export type ReplayViewMessage = {
     /** Who wrote the turn (gateway turn surfaces, 2026-11-08): `{kind, name, entity_id,
      * identity_ref, avatar: {style, color}}`; null or absent on an older gateway. */
     author?: ChatAuthor | null;
+    /** What the answering turn formed, served beside its words on an `answer` message (AbstractRuntime
+     * 09cbad7, turn notices): `[{kind, record_id, title, text?, visibility?, staged?}]`; absent or null
+     * when it formed nothing. */
+    notices?: ChatNotice[] | null;
 };
 export type ReplayViewToolCall = {
     id?: string;

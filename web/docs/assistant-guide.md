@@ -37,6 +37,18 @@ Every reply says who wrote it: the agent's name with an "agent" tag, or the enti
 and look with an "entity" tag. On a gateway that does not say who wrote a reply, replies
 keep their "Assistant" header.
 
+The Assistant knows which entities you mentioned and leaves what you ask them to them: it
+answers only the part of your message meant for it, or says nothing. When it says nothing,
+the conversation shows your words and the entities' answers, with no empty reply.
+
+When an entity keeps something from the exchange (a diary entry, a question, a lesson, an
+interest or a realization), its reply shows one badge for each under its words: the kind and
+its title. A private diary entry reads "private diary entry" and shows no words; one kept
+when a visit closes reads "forming…". Click a badge to read it whole.
+
+A message with mentions sent while the Assistant is still working (in the Avatar view, or an
+answer to its question) is answered too: the entities' answers show after the running reply.
+
 When a mention cannot be answered, a sentence above the message field says why:
 
 - "Castor is in another conversation." That entity is busy elsewhere: it is skipped and

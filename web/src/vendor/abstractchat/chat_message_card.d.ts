@@ -6,6 +6,7 @@ import type { MarkdownImages } from "./markdown.js";
 import type { WorkflowStatistics, WorkflowToolActivity } from "./workflow_evidence.js";
 import { type ChatStat } from "./chat_stats.js";
 import { type ChatAuthor } from "./chat_author.js";
+import type { ChatNotice } from "./chat_notices.js";
 export type ChatMessageLevel = "info" | "warn" | "error";
 export type ChatMessage = {
     id?: string;
@@ -62,6 +63,13 @@ export type ChatMessage = {
     /** Unlisted replay refs require explicit output recovery, never raw-ID chips. */
     artifactReferencesUnresolved?: boolean;
     artifactRefs?: MessageArtifact[];
+    /**
+     * What the reply formed (AbstractRuntime turn notices: a diary entry, a lesson, an interest,
+     * a question, a realization), served BESIDE the reply text, never parsed out of it: one badge
+     * each under the text (`ChatNoticeBadges`). The replay projection carries a view answer's
+     * `notices` here; a host sets it from its own lane (`notices` / `reply_notices`).
+     */
+    notices?: ChatNotice[];
 };
 /**
  * One generated media item. `src` is supplied by the HOST (typically a
@@ -140,13 +148,19 @@ export type ChatMessageCardProps = {
      * Per-message presentation. `"hint"` renders the message as one discreet
      * line (no avatar, header or copy): a system note such as "Rejoined the
      * open visit". `"caption"` renders the message's content only (Markdown, media, files and
-     * attachments; no header, speaker, copy, reasoning, stats or footer) for subtitle-like
+     * attachments; no header, speaker, copy, reasoning, stats, notice badges or footer) for subtitle-like
      * surfaces such as the Avatar view's live line and findings. `undefined` keeps the full card.
      */
     variant?: (message: ChatMessage) => "hint" | "caption" | undefined;
     /** Host opener for `media` items of kind `"file"` (e.g. a side drawer).
      * Without it the file opens inline in the shared viewer. */
     onOpenMedia?: (item: ChatMedia) => void;
+    /**
+     * Host opener for a notice badge (`message.notices`), e.g. the record's detail panel by its
+     * `record_id`. Return `false` when nothing was opened: the badge opens its own panel (title and
+     * words). Without it every badge opens its own panel.
+     */
+    onNoticeOpen?: (notice: ChatNotice, message: ChatMessage) => void | boolean;
 };
 /** The read-aloud state a host reports for a message (`useGatewayVoice().tts_playback.status`). */
 export type SpeakState = "idle" | "loading" | "playing" | "paused";

@@ -9,6 +9,8 @@ export { ChatAuthorMark, type ChatAuthorMarkProps } from "./author_mark.js";
 export { Markdown, sameOriginImage, type MarkdownImages, type MarkdownProps } from "./markdown.js";
 export { JsonViewer } from "./json_viewer.js";
 export { ChatMessageCard, speakButtonView } from "./chat_message_card.js";
+export { CHAT_NOTICE_KINDS, CHAT_NOTICE_WORDS, chatNoticesOf, chatNoticeView, type ChatNotice, type ChatNoticeKind, type ChatNoticeView } from "./chat_notices.js";
+export { ChatNoticeBadges, type ChatNoticeBadgesProps } from "./chat_notice_badges.js";
 export { READ_ALOUD_INITIAL, readAloudPhase, readAloudStep } from "./read_aloud.js";
 export type { ReadAloudInput, ReadAloudPhase, ReadAloudReply, ReadAloudState } from "./read_aloud.js";
 export { formatMessageStamp, messageStampTitle, messageStampIso, localDayKey, useLocalDay } from "./message_footer.js";

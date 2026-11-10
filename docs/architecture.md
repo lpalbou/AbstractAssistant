@@ -460,7 +460,7 @@ flowchart LR
     Face["Assistant complication\n….watchkitapp.orbclock"]
   end
   Keys[("Keychain item, shared through\ngroup.ai.abstractframework.assistant")]
-  Web["Web app (scaffold)\nweb/"]
+  Web["Web app (npm @abstractframework/assistant)\nweb/"]
   GW["AbstractGateway\nruns · waits · automations\n/me/events · /me/push/devices"]
   Fwd["Push forwarder\n(the publisher's, or your own)"]
   APNs["Apple Push Notification service"]
@@ -493,7 +493,8 @@ flowchart LR
   your gateway and shows it as the app would. See the
   [iPhone architecture](../phone/iphone/docs/architecture.md#the-sign-in-apple-push-and-the-watch)
   and the [watch architecture](../watch/apple/docs/architecture.md).
-- **Web** (`web/`): a scaffold on the framework's app server, not a release
+- **Web** (`web/`): the browser Assistant on the framework's app server, published on npm as
+  `@abstractframework/assistant` and installed from Gateway's Apps menu
   ([web/README.md](../web/README.md), [ADR 0007](adr/0007_web_assistant.md)).
 - Notes are captured and recalled in the Apple apps, while AbstractNote stays a gateway service
   ([ADR 0004](adr/0004_notes_inside_the_assistant_abstractnote_stays_a_service.md)); the Notes

@@ -72,7 +72,9 @@ function viewFor(runId) {
     interaction: null, open_waits: [],
     messages: [
       { id: `${runId}:input`, role: "user", kind: "prompt", text: titles[runId] || "Hello", run_id: runId, step_ids: [], seqs: [], source: "run_input", artifact_ids: [], order: order("2026-10-26T08:00:00Z", 0) },
-      { id: `${runId}:final`, role: "assistant", kind: "final", text: "Here is the list:\n\n```\n" + "x".repeat(300) + "\n```\n\nDone.", run_id: runId, step_ids: ["done"], seqs: [2], source: "ledger", artifact_ids: [], order: order("2026-10-26T09:00:00Z", 2) },
+      { id: `${runId}:final`, role: "assistant", kind: "final", text: "Here is the list:\n\n```\n" + "x".repeat(300) + "\n```\n\nDone.", run_id: runId, step_ids: ["done"], seqs: [2], source: "ledger", artifact_ids: [], order: order("2026-10-26T09:00:00Z", 2),
+        // What the turn kept (AbstractRuntime turn notices): the kit's badges under the reply, long titles included.
+        notices: [{ kind: "diary", record_id: "ex:diary-1", title: "The first durable visit, and what it changed in how the garden is watered" }, { kind: "lesson", record_id: null, title: "Visits are durable", staged: true }, { kind: "diary", record_id: "ex:diary-2", title: "", visibility: "private" }] },
     ],
     activities: [{ id: `${runId}:t1`, run_id: runId, execution_id: "t1", node_id: "act", kind: "tool", effect_type: "tool_calls", name: "fetch_url", status: "completed", started_at: "2026-10-26T08:30:00Z", ended_at: "2026-10-26T08:31:00Z", seqs: [1], step_ids: ["t1"], order: order("2026-10-26T08:30:00Z", 1), tool_calls: [{ id: "c1", name: "fetch_url", arguments: { url: "https://example.org/a/very/long/path/that/does/not/break/anywhere/at/all" }, status: "completed", output: "ok" }] }],
     artifacts: [], usage: { input_tokens: 10, output_tokens: 20, total_tokens: 30, llm_calls: 1 }, warnings: [],
@@ -156,6 +158,8 @@ try {
       }
       await page.locator(".aa-session").first().click();
       await page.locator(".pc-chat-item--user").first().waitFor();
+      // A reply's notice badge opened: its panel and its Close are measured with the rest.
+      if (mode === "replay_view") await page.locator(".pc-chat-notice").first().click();
       await page.waitForTimeout(150);
       const m = await page.evaluate(() => {
         const vw = window.innerWidth;
@@ -215,6 +219,8 @@ try {
       if (mode === "replay_view" && seen.turns === 0) failures.push(`${tag}: the conversation's turns were not listed (panel-chat 0.6.2)`);
       if (mode === "replay_view" && !(await page.getByText("could not be restored", { exact: false }).count())) failures.push(`${tag}: the unreadable earlier turn is not labeled`);
       if (mode === "replay_view" && hint) failures.push(`${tag}: the ledger-fold label shows while the view is used`);
+      if (mode === "replay_view" && (await page.locator(".pc-chat-notice").count()) < 3) failures.push(`${tag}: the reply's notice badges are not shown`);
+      if (mode === "replay_view" && !(await page.locator(".pc-chat-notice-pop__close").count())) failures.push(`${tag}: a notice badge did not open its panel`);
       if (mode === "ledger_fold" && !hint) failures.push(`${tag}: the ledger fold is not labeled`);
       if (touch && !m.coarse) failures.push(`${tag}: the touch emulation did not give a coarse pointer`);
       if (m.scrollWidth > m.clientWidth) failures.push(`${tag}: the page scrolls sideways (scrollWidth ${m.scrollWidth} > clientWidth ${m.clientWidth})`);

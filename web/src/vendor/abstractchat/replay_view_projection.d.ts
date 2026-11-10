@@ -5,7 +5,7 @@
  * it directly.
  *
  * Mapping (panel-chat README "Messages from the replay view"):
- * - `messages[]` -> `ChatMessage` (`id`, `runId`, `kind`, `artifactIds`; `ts` = the item's time).
+ * - `messages[]` -> `ChatMessage` (`id`, `runId`, `kind`, `artifactIds`, `notices`; `ts` = the item's time).
  *   A `final` that `repeats` an earlier answer is shown once (the answer carries the turn's
  *   statistics). The open question's own message is not repeated above its card.
  * - `activities[]` of kind `tool` -> one tool row per call (`ToolActivityGroup`), statuses as

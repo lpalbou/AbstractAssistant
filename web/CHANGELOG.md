@@ -6,9 +6,14 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 
 ## [Unreleased]
 
-Built on panel-chat 0.9.9 and ui-kit 0.9.26 (AbstractUIC local builds, not yet published; panel-chat
-packed from AbstractUIC aca0b07, both installed together `--no-save`). Mentions need an AbstractGateway
-that has the mention door (not released yet).
+## [0.2.0] - 2026-11-10
+
+Mention your entities in a conversation, see who wrote each reply, and see what an entity's reply
+kept. Built on `@abstractframework/ui-kit` 0.9.27 and `@abstractframework/panel-chat` 0.9.11 from
+npm. Mentions, reply authors and the badges need AbstractGateway 0.21.0 or later; the Assistant
+staying out of what you ask an entity also needs AbstractAgent 0.6.1 or later. On an older gateway
+the app works as in 0.1.3: replies keep their "Assistant" header, and typing `@` says "This gateway
+does not offer mentions yet."
 
 ### Added
 
@@ -17,47 +22,45 @@ that has the mention door (not released yet).
   message as usual, then each entity you mentioned answers in turn, in the order you picked them,
   and its answer appears in the conversation under its name. Your message shows once, and the
   answers to it appear in the order they came. The first time you pick a name in a
-  conversation, a line reminds you that it will read this conversation's history.
+  conversation, a line reminds you that it will read this conversation's history. A name you
+  already picked is not offered again, an entity picked twice is asked once, and the list spans
+  the message box on a phone.
 - **When a mention cannot be answered, you are told.** An entity already in another conversation is
   skipped with one sentence ("Castor is in another conversation.") and the next one is still asked.
-  An entity that cannot answer says why, and your message goes back to the message box. A gateway
-  without mentions says "This gateway does not offer mentions yet" instead of listing names.
+  An entity that cannot answer says why, and your words go back to the message box with only the
+  entities that did not answer still as chips. A gateway without mentions says "This gateway does
+  not offer mentions yet" instead of listing names.
+- **Sending the same words again asks only who did not answer.** After an entity could not answer,
+  sending the same words again asks only the entities still shown as chips: the Assistant is not
+  asked again and an entity that already answered is not asked twice. If an answer was lost on the
+  way back (a timeout, a dropped connection), sending the same words again returns the answer the
+  entity already gave instead of asking it again. Different words are a new message.
+- **A mention sent while the Assistant is working is answered.** In the Avatar conversation view,
+  a message with mentions sent while a reply is being written (it guides the running turn), or an
+  answer to the Assistant's question, asks each entity your words, and the answers show after the
+  running turn.
 - **Every answer says who wrote it.** The top of each reply shows the agent's name (the workflow's
   name) or the entity's name and look, with a small "agent" or "entity" tag. It comes from the
-  gateway, so a reload or another device shows the same. On an older gateway replies keep their
-  "Assistant" header.
-- **The Assistant leaves what you ask an entity to that entity.** A message that mentions entities
-  now tells the gateway who is mentioned when it starts the Assistant's turn (`mentions` on
+  gateway, so a reload or another device shows the same. An entity's answer without a name reads
+  "Entity". On an older gateway replies keep their "Assistant" header.
+- **The Assistant leaves what you ask an entity to that entity.** When your message mentions
+  entities, the gateway tells the Assistant who is mentioned when it starts its turn (`mentions` on
   `POST runs/start`, in the order you picked them). The Assistant answers only the part meant for
   it, or says nothing: then the conversation shows your words and the entities' answers, with no
-  empty reply and no "ended without a written reply" line. Needs AbstractGateway main c26d38a2 or
-  later, and an agent that accepts an empty reply (AbstractAgent still asks again today).
-
-### Fixed
-
-- **A mention sent while the Assistant is working is answered.** In the Avatar conversation view, a
-  message sent while a reply is being written (it reaches the running turn, it starts no new one)
-  was refused with "the gateway did not find your message in this conversation": its mentions
-  named the running turn, whose words are an earlier message. They now name no earlier turn, so the
-  entity is asked your words and its answer shows after the running turn. The same for an answer to
-  the Assistant's question.
-- **A mention is answered once, even when sent again.** Each mention now carries its own id (your
-  message's turn, the entity, its place in the message). If the answer was lost on the way back (a
-  timeout, a dropped connection) and you send the same words again, the gateway returns the answer
-  the entity already gave instead of asking it twice; a new message is asked as new. Needs an
-  AbstractGateway that keeps mention ids (main f0f23bb0 or later).
-- **Mentions, client review 2026-11-09.** When an entity could not answer (503), the box keeps the words AND
-  the chips not answered (they were dropped before), and sending the same words again asks only those entities,
-  with the same `repeat_of` and their first `mention_index`: it no longer starts a second turn of the Assistant
-  nor asks an entity that already answered. Other words are a new message. An entity picked twice is asked once.
-  An entity's answer without a name reads "Entity", never "Assistant". Kit fixes from AbstractUIC 9aad042 and
-  aca0b07 (vendored copy re-synced): a chip picked while a send is in flight stays, Enter waits while the `@` list
-  loads, a picked name is not offered again, and the list spans the box on a phone.
+  empty reply and no "ended without a written reply" line.
+- **What an entity's reply kept, as badges under its words.** When an entity keeps something from
+  the exchange (a diary entry, a question, a lesson, an interest or a realization), its reply shows
+  one badge for each under the text: the kind and its title. A private diary entry reads "private
+  diary entry" and shows no words; one kept when a visit closes reads "forming…". Click a badge to
+  read it whole. The badges come from the gateway with the reply, so a reload or another device
+  shows the same.
 
 ### Changed
 
-- **The tool permission card offers Deny, Allow and Allow All**, the shared card of AbstractUIC
-  (operator ruling 2026-11-07). The per-toolset "Allow all … tools for this chat" choice is gone.
+- **The tool permission card offers Deny, Allow and Allow All**, the shared card of AbstractUIC.
+  The per-toolset "Allow all … tools for this chat" choice is gone.
+- **Built on ui-kit 0.9.27 and panel-chat 0.9.11 from npm** (from ui-kit 0.9.16 and panel-chat
+  0.8.2); the shared conversation bundled with the app is panel-chat 0.9.11's.
 
 ## [0.1.3] - 2026-11-07
 

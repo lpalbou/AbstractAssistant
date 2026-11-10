@@ -1,7 +1,8 @@
 # AbstractAssistant for the web
 
 The Assistant's conversation surface in a browser: your conversations, live answers, tool
-approvals and questions in the conversation, attachments, dictation and read aloud. It is a thin
+approvals and questions in the conversation, attachments, `@` mentions of your entities, dictation
+and read aloud. It is a thin
 client of [AbstractGateway](../../abstractgateway/docs/apps.md): the gateway keeps every
 conversation, runs the Assistant's workflow and holds your sign-in. This page keeps no token and
 no copy of your chats; it keeps your display and voice preferences (appearance, panel widths,
@@ -49,8 +50,14 @@ from the gateway, so a reload or another device shows the same. An entity in ano
 is skipped with one sentence ("Castor is in another conversation.") and the next one is asked. An
 entity that cannot answer says why: the words go back into the box with only the entities that
 did not answer, and sending the same words again asks only those (the Assistant is not asked
-again, and an entity is never asked twice for one message). A gateway without mentions says "This
-gateway does not offer mentions yet." instead of listing names. See the
+again, and an entity is never asked twice for one message). The Assistant leaves what you ask an
+entity to that entity: it answers only the part meant for it, or says nothing, and then the
+conversation shows your words and the entities' answers. When an entity keeps something from the
+exchange (a diary entry, a question, a lesson, an interest or a realization), its reply shows one
+badge for each under its words; click one to read it. Mentions, reply authors and the badges need
+AbstractGateway 0.21.0 or later (the Assistant staying out of what you ask an entity also needs
+AbstractAgent 0.6.1); a gateway without mentions says "This gateway does not offer mentions yet."
+instead of listing names. See the
 [browser guide](docs/assistant-guide.md#mention-an-entity).
 
 The Docs drawer keeps its question field at the bottom and scrolls the conversation
@@ -66,7 +73,8 @@ errors and unanswered approval requests remain visible.
 It is composed from the AbstractFramework UI kit (AbstractUIC `ui-kit` + `panel-chat`, ADR 0001
 there): the app shell and its top-right cluster (docs assistant, appearance, about, who is signed
 in, the connection pill), the chat (`WorkflowChat` + `useWorkflowSession`: thread, live replies,
-Stop, attachment chips, `@` mentions, who answered on each reply, copy/export), the one approval
+Stop, attachment chips, `@` mentions, who answered on each reply, the badges for what an entity's
+reply kept, copy/export), the one approval
 panel (`presentInteraction`: Deny / Allow / Allow All / Decide later; the chat's tool policy is
 stored on the gateway when it offers `session_tool_policy`), the run's tool plan, and voice (Settings → Voice, read aloud,
 Tap/Hold to talk). What stays here: the gateway calls (`src/gateway/`), the conversation list and
@@ -74,6 +82,8 @@ its titles, the workflow choice and the run input (desktop parity ports).
 
 Published on npm as [`@abstractframework/assistant`](https://www.npmjs.com/package/@abstractframework/assistant)
 (release history: [CHANGELOG.md](CHANGELOG.md); design: [ADR 0007](../docs/adr/0007_web_assistant.md)).
+What's new in 0.2.0: `@` mentions of your entities, who wrote each reply, and badges for what an
+entity's reply kept, on ui-kit 0.9.27 and panel-chat 0.9.11 ([changelog](CHANGELOG.md#020---2026-11-10)).
 Gateway's catalog and tray list it as **Assistant (web)**, next to the desktop Assistant.
 
 ## Install
@@ -142,8 +152,9 @@ npm run test:experience      # real UI: virtual mic, draft review, speech owners
 `test:layout` needs Playwright's Chromium (`npx playwright install chromium`); add
 `-- --shots <dir>` to `node scripts/check_layout.mjs` to save the screenshots. Below 1024 px it
 emulates a touch device and every target must reach 44 px; from 1024 px (a mouse) the rule covers
-the app's own controls and the kit sizes its own for a fine pointer. It also opens Settings →
-Voice and checks that it names the gateway default and fits, then the automations at
+the app's own controls and the kit sizes its own for a fine pointer. It also opens a reply's
+notice badge (its panel must fit), then Settings → Voice and checks that it names the gateway
+default and fits, then the automations at
 400/760/1024/1440 px: the list with Paused and Archived opened, an automation's page, Edit and New.
 
 `test:experience` uses a virtual Chromium microphone, silent generated WAV data
@@ -168,7 +179,7 @@ PYTHONPATH=. python -P web/scripts/gen_tool_policy_parity.py   # needs the packa
 | `src/gateway/` | Gateway calls (SSE over fetch, framed by the kit's `sseFrames`) and the kit's `WorkflowTransport` over them, with `replayView` (panel-chat 0.6.2: the conversation, every turn of it, is rendered from the gateway's replay view on AbstractGateway >= 0.17.0, the ledger fold otherwise) |
 | `src/lib/` | Pure logic with tests: session fold, titles, workflow choice, run input, theme group, automations (the list's sections, a new automation's body, runs as messages, its tools and "Allowed for its runs") |
 | `src/ui/` | The Assistant space on the kit: the conversation (`WorkflowChat`), the conversation and automation lists (the shell's navigation), an automation's page, Edit and New, Settings → Voice |
-| `src/vendor/abstractavatar/`, `src/vendor/abstractdocs/` | Generated, hash-checked shared rendering and Docs artifacts; standalone builds use these pinned snapshots |
+| `src/vendor/` | Generated, hash-checked AbstractUIC snapshots (`abstractchat` conversation, `abstractdocs` Docs, `abstractsessions` cards, `abstractvoice`, `abstractavatar` rendering); standalone builds use these pinned snapshots |
 | `src/styles/index.css` | App styles on the design tokens of `web/design/tokens.css` |
 | `design/` | Design tokens and mockups (owned separately) |
 

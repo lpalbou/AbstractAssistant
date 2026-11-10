@@ -1,11 +1,13 @@
 // The conversation as this app renders it (the vendored kit's WorkflowChat, fed by this app's
 // presentation and mention outcome): every left bubble says who answered, from the gateway's turn
 // `author`; no author (an older gateway) is today's header; an older gateway's mention attempt
-// leaves one visible sentence.
+// leaves one visible sentence; what an entity's reply kept shows as badges under its words (the
+// npm kit's projectReplayView carries the view's `notices`, the vendored card renders them).
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
+import { projectReplayView } from "@abstractframework/panel-chat";
 import { WorkflowChat, type ChatMessage } from "../vendor/abstractchat/conversation.js";
 import { conversationPresentation } from "../lib/presentation";
 import { MENTIONS_UNAVAILABLE, deliverMentions, mentionNotice, mentionStatusLine } from "../lib/mentions";
@@ -81,5 +83,41 @@ describe("an older gateway's mention attempt", () => {
 
   it("says nothing when no mention was sent", () => {
     expect(render([], { mentionStatus: null, mentionsUnavailable: MENTIONS_UNAVAILABLE })).not.toContain(MENTIONS_UNAVAILABLE);
+  });
+});
+
+describe("what an entity's reply kept, as badges under its words", () => {
+  // An entity's answer as the gateway's replay view serves it (AbstractRuntime turn notices).
+  const diary = { kind: "diary", record_id: "ex:diary-1", title: "the first durable visit" };
+  const lesson = { kind: "lesson", record_id: null, title: "Visits are durable", staged: true };
+  const secret = { kind: "diary", record_id: "ex:diary-2", title: "", visibility: "private" };
+  const view = (notices: unknown) => ({
+    version: "replay_view_v1", root_run_id: "m", status: "completed", cursor: { token: "t", records: 2, runs: { m: 2 } }, runs: [], interaction: null,
+    messages: [
+      { id: "m:p", role: "user", kind: "prompt", text: "Which plan holds?", run_id: "m", order: ["2026-11-10T08:00:00Z", 1] },
+      { id: "m:s2:answer_user", role: "assistant", kind: "answer", text: "The bridge holds.", run_id: "m", order: ["2026-11-10T08:00:05Z", 2], author: castor, notices },
+    ],
+    activities: [], artifacts: [],
+  });
+  const shown = (notices: unknown) =>
+    render(conversationPresentation(projectReplayView(view(notices) as Parameters<typeof projectReplayView>[0]).messages as ChatMessage[]).conversation);
+
+  it("one badge per notice, under the entity's reply: its title, a private entry without words, a forming one", () => {
+    const html = shown([diary, lesson, secret]);
+    const [answer] = cards(html, "pc-chat-item--assistant");
+    expect(answer.body.match(/class="pc-chat-notice /g)?.length).toBe(3);
+    expect(answer.body).toContain("the first durable visit");
+    expect(answer.body).toContain("Visits are durable");
+    expect(answer.body).toContain("forming…");
+    expect(answer.body).toContain("private diary entry");
+    expect(answer.body).toContain("The bridge holds.");
+  });
+
+  it("a reply that kept nothing (no notices, or the operator's log lines) shows no badge row", () => {
+    for (const notices of [undefined, null, [], ["#FALLBACK kept nothing"]]) {
+      const html = shown(notices);
+      expect(html).toContain("The bridge holds.");
+      expect(html).not.toContain("pc-chat-notice");
+    }
   });
 });
