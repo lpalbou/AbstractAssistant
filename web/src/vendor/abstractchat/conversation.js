@@ -1295,7 +1295,7 @@ import { Icon as Icon12, useAfTooltips } from "@abstractframework/ui-kit";
 // dist/chat_composer.js
 import { jsx as _jsx8, jsxs as _jsxs5 } from "react/jsx-runtime";
 import React3, { useCallback as useCallback2, useEffect as useEffect7, useId, useLayoutEffect, useRef as useRef5, useState as useState7 } from "react";
-import { AfChip, Icon as Icon5 } from "@abstractframework/ui-kit";
+import { Icon as Icon5 } from "@abstractframework/ui-kit";
 
 // dist/author_mark.js
 import { jsx as _jsx7 } from "react/jsx-runtime";
@@ -1333,32 +1333,150 @@ function mentionTriggerAt(text6, caret) {
   }
   return null;
 }
-function applyMentionPick(text6, trigger, caret) {
-  const value = String(text6 || "");
-  const end = Math.max(trigger.start, Math.min(Math.trunc(Number(caret) || 0), value.length));
-  let after = value.slice(end);
-  const before = value.slice(0, trigger.start);
-  if ((before === "" || before.endsWith(" ")) && after.startsWith(" "))
-    after = after.slice(1);
-  return { text: before + after, caret: before.length };
-}
 function mentionKey(m) {
   return `${m.kind}:${m.id}`;
 }
-function addMention(list, candidate) {
-  const key = mentionKey(candidate);
-  if (list.some((m) => mentionKey(m) === key))
-    return [...list];
-  return [...list, { ...candidate }];
-}
-function removeMention(list, key) {
-  return list.filter((m) => mentionKey(m) !== key);
-}
 function mentionSendPayload(text6, mentions) {
+  const value = String(text6 ?? "");
   return {
-    text: String(text6 ?? ""),
-    mentions: mentions.map((m, index) => ({ id: m.id, name: m.name, kind: m.kind, index }))
+    text: value,
+    mentions: mentionsInText(value, mentions).map((m, index) => ({ id: m.id, name: m.name, kind: m.kind, index, start: m.start }))
   };
+}
+function mentionText(m) {
+  return `@${m.name}`;
+}
+function startOf(m) {
+  const s = m.start;
+  return typeof s === "number" && Number.isInteger(s) && s >= 0 ? s : null;
+}
+function mentionEnd(m) {
+  return (startOf(m) ?? 0) + mentionText(m).length;
+}
+function mentionsInText(text6, mentions) {
+  const value = String(text6 ?? "");
+  const placed = mentions.filter((m) => {
+    const s = startOf(m);
+    return s !== null && value.startsWith(mentionText(m), s);
+  }).sort((a, b) => a.start - b.start);
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  let end = 0;
+  for (const m of placed) {
+    const key = mentionKey(m);
+    if (seen.has(key) || m.start < end)
+      continue;
+    seen.add(key);
+    out.push(m);
+    end = mentionEnd(m);
+  }
+  return out;
+}
+function mentionEditSpan(prev, next, caret) {
+  const a = String(prev ?? "");
+  const b = String(next ?? "");
+  const max = Math.min(a.length, b.length);
+  let p = 0;
+  while (p < max && a.charCodeAt(p) === b.charCodeAt(p))
+    p += 1;
+  if (typeof caret === "number" && Number.isInteger(caret) && caret >= 0 && caret <= b.length) {
+    const tail = b.length - caret;
+    if (tail <= a.length && a.endsWith(b.slice(caret))) {
+      const start = Math.min(p, a.length - tail, caret);
+      return { start, prevEnd: a.length - tail, nextEnd: caret };
+    }
+  }
+  let s = 0;
+  while (s < max - p && a.charCodeAt(a.length - 1 - s) === b.charCodeAt(b.length - 1 - s))
+    s += 1;
+  return { start: p, prevEnd: a.length - s, nextEnd: b.length - s };
+}
+function mentionsAfterEdit(prev, next, mentions, caret) {
+  const span = mentionEditSpan(prev, next, caret);
+  const delta = span.nextEnd - span.prevEnd;
+  const out = [];
+  for (const m of mentionsInText(prev, mentions)) {
+    const start = m.start;
+    if (mentionEnd(m) <= span.start)
+      out.push(m);
+    else if (start >= span.prevEnd)
+      out.push(delta ? { ...m, start: start + delta } : m);
+  }
+  return mentionsInText(next, out);
+}
+function mentionsWithInserted(text6, mentions, at, added) {
+  const here = mentionsInText(text6, mentions);
+  const keys = new Set(here.map(mentionKey));
+  const placed = added.filter((m) => !keys.has(mentionKey(m))).map((m) => ({ ...m, start: at + (startOf(m) ?? 0) }));
+  return mentionsInText(text6, [...here, ...placed]);
+}
+function mentionPickEdit(text6, trigger, caret, candidate) {
+  const value = String(text6 ?? "");
+  const from = Math.max(0, Math.min(trigger.start, value.length));
+  const to = Math.max(from, Math.min(Math.trunc(Number(caret) || 0), value.length));
+  const spaced = isSpace(value.charAt(to));
+  const insert = mentionText(candidate) + (spaced ? "" : " ");
+  return { from, to, insert, text: value.slice(0, from) + insert + value.slice(to), caret: from + insert.length + (spaced ? 1 : 0) };
+}
+function mentionAtCaret(text6, mentions, caret, side) {
+  return mentionsInText(text6, mentions).find((m) => side === "before" ? mentionEnd(m) === caret : m.start === caret) ?? null;
+}
+function mentionSelection(text6, mentions, start, end, from) {
+  let s = start;
+  let e = end;
+  for (const m of mentionsInText(text6, mentions)) {
+    const a = m.start;
+    const b = mentionEnd(m);
+    if (s === e) {
+      if (s <= a || s >= b)
+        continue;
+      const nearer = s - a <= b - s ? a : b;
+      const to = typeof from === "number" && Math.abs(s - from) === 1 ? from <= a ? b : from >= b ? a : nearer : nearer;
+      return { start: to, end: to };
+    }
+    if (s > a && s < b)
+      s = a;
+    if (e > a && e < b)
+      e = b;
+  }
+  return { start: s, end: e };
+}
+var MENTION_CLIPBOARD_TYPE = "application/x-abstractframework-mentions+json";
+function mentionClipboard(text6, mentions, from, to) {
+  const value = String(text6 ?? "");
+  const inside = mentionsInText(value, mentions).filter((m) => m.start >= from && mentionEnd(m) <= to);
+  if (!inside.length)
+    return null;
+  return JSON.stringify({
+    v: 1,
+    text: value.slice(from, to),
+    mentions: inside.map((m) => ({ id: m.id, name: m.name, kind: m.kind, ...m.avatar ? { avatar: m.avatar } : {}, ...m.hint ? { hint: m.hint } : {}, start: m.start - from }))
+  });
+}
+function mentionsFromClipboard(data, plain) {
+  if (!data)
+    return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(data);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object")
+    return null;
+  const box = parsed;
+  if (box.v !== 1 || typeof box.text !== "string" || box.text !== plain || !Array.isArray(box.mentions))
+    return null;
+  const out = [];
+  for (const raw of box.mentions) {
+    const [candidate] = usableCandidates([raw]);
+    const start = raw && typeof raw === "object" ? startOf(raw) : null;
+    if (!candidate || start === null || !plain.startsWith(mentionText(candidate), start))
+      continue;
+    out.push({ ...candidate, start });
+  }
+  const placed = mentionsInText(plain, out);
+  return placed.length ? placed : null;
 }
 function unsentMentionsOf(settled) {
   if (!settled || typeof settled !== "object")
@@ -1389,7 +1507,7 @@ function mentionResend(pending, text6, mentions) {
     if (seen.has(key))
       continue;
     seen.add(key);
-    out.push({ id: m.id, name: m.name, kind: m.kind, index: first.get(key) ?? next++ });
+    out.push({ id: m.id, name: m.name, kind: m.kind, index: first.get(key) ?? next++, ...typeof m.start === "number" ? { start: m.start } : {} });
   }
   return out.sort((a, b) => a.index - b.index);
 }
@@ -1437,6 +1555,40 @@ function usableCandidates(value) {
 
 // dist/chat_composer.js
 var NO_MENTIONS = [];
+var HISTORY_MAX = 200;
+var MIRROR_STYLE = [
+  "font-family",
+  "font-size",
+  "font-weight",
+  "font-style",
+  "font-variant",
+  "font-stretch",
+  "font-kerning",
+  "font-feature-settings",
+  "font-variation-settings",
+  "font-optical-sizing",
+  "line-height",
+  "letter-spacing",
+  "word-spacing",
+  "text-indent",
+  "text-transform",
+  "text-align",
+  "text-rendering",
+  "tab-size",
+  "white-space",
+  "word-break",
+  "overflow-wrap",
+  "hyphens",
+  "direction",
+  "unicode-bidi",
+  "padding-top",
+  "padding-right",
+  "padding-bottom",
+  "padding-left",
+  "color",
+  "-webkit-font-smoothing"
+];
+var sameChips = (a, b) => a.length === b.length && a.every((m, i) => mentionKey(m) === mentionKey(b[i]) && m.start === b[i].start);
 var NOTHING_FOUND = { query: "", items: [], status: "loading" };
 var useCaretEffect = typeof window === "undefined" ? useEffect7 : useLayoutEffect;
 var ChatComposer = React3.forwardRef(function ChatComposer2(props, ref) {
@@ -1505,10 +1657,29 @@ var ChatComposer = React3.forwardRef(function ChatComposer2(props, ref) {
       setOwnMentions(next);
     latest.current.onMentionsChange?.(next);
   }, []);
+  const inText = mentionsOn ? mentionsInText(String(props.value ?? ""), mentions) : NO_MENTIONS;
+  const overlay = inText.length > 0;
+  const textRef = useRef5(String(props.value ?? ""));
+  textRef.current = String(props.value ?? "");
+  const history = useRef5([]);
+  const remember = (text6, chips) => {
+    const h = history.current;
+    const last = h[h.length - 1];
+    if (last && last.text === text6 && sameChips(last.mentions, chips))
+      return;
+    h.push({ text: text6, mentions: chips });
+    if (h.length > HISTORY_MAX)
+      h.splice(0, h.length - HISTORY_MAX);
+  };
+  const pendingInsert = useRef5(null);
+  const composingRef = useRef5(false);
+  const [composing, setComposing] = useState7(false);
+  const lastCaret = useRef5(null);
   const [caret, setCaret] = useState7(null);
   const [focused, setFocused] = useState7(false);
   const [dismissedAt, setDismissedAt] = useState7(null);
-  const trigger = mentionsOn && focused && !disabled && caret !== null ? mentionTriggerAt(props.value, caret) : null;
+  const typed = mentionsOn && focused && !disabled && caret !== null ? mentionTriggerAt(props.value, caret) : null;
+  const trigger = typed && !inText.some((m) => typed.start >= m.start && typed.start < mentionEnd(m)) ? typed : null;
   const open = Boolean(trigger) && trigger?.start !== dismissedAt;
   const unavailable = mentionsOn ? String(props.mentionsUnavailable || "").trim() : "";
   const mentionStatus = mentionsOn ? String(props.mentionStatus || "").trim() : "";
@@ -1543,7 +1714,7 @@ var ChatComposer = React3.forwardRef(function ChatComposer2(props, ref) {
     });
   }, [query]);
   const loaded = query === null ? NOTHING_FOUND : found.query === query ? found : { query, items: found.items, status: "loading" };
-  const pickedKeys = new Set(mentions.map(mentionKey));
+  const pickedKeys = new Set(inText.map(mentionKey));
   const shown = { ...loaded, items: loaded.items.filter((c) => !pickedKeys.has(mentionKey(c))) };
   const alreadyPicked = loaded.items.length > 0 && shown.items.length === 0;
   const activeIndex = shown.items.length ? Math.min(Math.max(active, 0), shown.items.length - 1) : -1;
@@ -1557,7 +1728,7 @@ var ChatComposer = React3.forwardRef(function ChatComposer2(props, ref) {
     if (!mentions.length && notices.length)
       setNotices([]);
   }, [mentions.length, notices.length]);
-  const chipKeys = new Set(mentions.map(mentionKey));
+  const chipKeys = new Set(inText.map(mentionKey));
   const visibleNotices = notices.filter((n) => chipKeys.has(n.key));
   const pendingCaret = useRef5(null);
   useCaretEffect(() => {
@@ -1568,21 +1739,169 @@ var ChatComposer = React3.forwardRef(function ChatComposer2(props, ref) {
     pendingCaret.current = null;
     element.setSelectionRange(at, at);
   }, [props.value]);
+  const edited = (next, caretNow, inputType) => {
+    const prev = textRef.current;
+    const now = mentionsRef.current;
+    remember(prev, mentionsInText(prev, now));
+    const pending = pendingInsert.current;
+    pendingInsert.current = null;
+    let chips;
+    const back = inputType === "historyUndo" || inputType === "historyRedo" ? [...history.current].reverse().find((h) => h.text === next) : void 0;
+    if (back)
+      chips = mentionsInText(next, back.mentions);
+    else
+      chips = mentionsAfterEdit(prev, next, now, caretNow);
+    if (pending)
+      chips = mentionsWithInserted(next, chips, pending.at, pending.mentions);
+    textRef.current = next;
+    remember(next, chips);
+    if (!sameChips(now, chips))
+      setMentions(chips);
+  };
+  const typeIn = (text6, chips, range, caretAfter) => {
+    const element = textarea.current;
+    if (element && typeof document !== "undefined" && typeof document.execCommand === "function") {
+      if (document.activeElement !== element)
+        element.focus();
+      pendingInsert.current = { at: range.from, mentions: chips };
+      let typedIn = false;
+      if (document.activeElement === element) {
+        element.setSelectionRange(range.from, range.to);
+        try {
+          typedIn = document.execCommand(text6 ? "insertText" : "delete", false, text6);
+        } catch {
+          typedIn = false;
+        }
+      }
+      if (typedIn && pendingInsert.current === null) {
+        if (typeof caretAfter === "number" && caretAfter !== element.selectionEnd)
+          element.setSelectionRange(caretAfter, caretAfter);
+        setCaret(element.selectionEnd);
+        return;
+      }
+      pendingInsert.current = null;
+    }
+    const value = textRef.current;
+    const next = value.slice(0, range.from) + text6 + value.slice(range.to);
+    const at = typeof caretAfter === "number" ? caretAfter : range.from + text6.length;
+    pendingInsert.current = { at: range.from, mentions: chips };
+    edited(next, range.from + text6.length, "insertText");
+    pendingCaret.current = at;
+    setCaret(at);
+    latest.current.onChange(next);
+  };
   const pick = (candidate) => {
     if (!trigger)
       return;
     const at = textarea.current ? textarea.current.selectionStart : caret ?? props.value.length;
-    const next = applyMentionPick(props.value, trigger, at);
-    pendingCaret.current = next.caret;
-    setCaret(next.caret);
-    props.onChange(next.text);
+    const edit = mentionPickEdit(textRef.current, trigger, at, candidate);
     const key = mentionKey(candidate);
     const noticeText = noticed.current.seen.has(key) ? "" : String(props.mentionNotice?.(candidate) || "").trim();
     noticed.current.seen.add(key);
     if (noticeText)
       setNotices((prev) => [...prev.filter((n) => n.key !== key), { key, text: noticeText }]);
-    setMentions(addMention(mentionsRef.current, candidate));
+    typeIn(edit.insert, [{ ...candidate, start: 0 }], { from: edit.from, to: edit.to }, edit.caret);
   };
+  const keepOffChips = (element) => {
+    const from = lastCaret.current;
+    lastCaret.current = element.selectionEnd;
+    if (composingRef.current || !inText.length)
+      return;
+    const kept = mentionSelection(element.value, mentionsRef.current, element.selectionStart, element.selectionEnd, from);
+    if (kept.start === element.selectionStart && kept.end === element.selectionEnd)
+      return;
+    element.setSelectionRange(kept.start, kept.end, element.selectionDirection || "none");
+    lastCaret.current = kept.end;
+  };
+  const keepOff = useRef5(keepOffChips);
+  keepOff.current = keepOffChips;
+  useEffect7(() => {
+    if (!overlay || typeof document === "undefined")
+      return;
+    const onSelection = () => {
+      const element = textarea.current;
+      if (element && document.activeElement === element)
+        keepOff.current(element);
+    };
+    document.addEventListener("selectionchange", onSelection, true);
+    return () => document.removeEventListener("selectionchange", onSelection, true);
+  }, [overlay]);
+  const copyChips = (e, cut) => {
+    const element = e.currentTarget;
+    const from = element.selectionStart;
+    const to = element.selectionEnd;
+    if (!mentionsOn || from === to || !e.clipboardData)
+      return;
+    const data = mentionClipboard(element.value, mentionsRef.current, from, to);
+    if (!data)
+      return;
+    e.preventDefault();
+    e.clipboardData.setData("text/plain", element.value.slice(from, to));
+    e.clipboardData.setData(MENTION_CLIPBOARD_TYPE, data);
+    if (cut && !disabled)
+      typeIn("", [], { from, to });
+  };
+  const mirror = useRef5(null);
+  const placeMirror = useCallback2(() => {
+    const element = textarea.current;
+    const layer = mirror.current;
+    if (!element || !layer || typeof getComputedStyle !== "function")
+      return;
+    const style = getComputedStyle(element);
+    for (const name of MIRROR_STYLE)
+      layer.style.setProperty(name, style.getPropertyValue(name));
+    const parent = layer.offsetParent;
+    const box = element.getBoundingClientRect();
+    const origin = parent ? parent.getBoundingClientRect() : { left: 0, top: 0 };
+    const px = (name) => parseFloat(style.getPropertyValue(name)) || 0;
+    const [bl, br, bt, bb] = [px("border-left-width"), px("border-right-width"), px("border-top-width"), px("border-bottom-width")];
+    const barX = Math.max(0, element.offsetWidth - element.clientWidth - Math.round(bl + br));
+    const barY = Math.max(0, element.offsetHeight - element.clientHeight - Math.round(bt + bb));
+    layer.style.left = `${box.left - origin.left - (parent ? parent.clientLeft : 0) + bl}px`;
+    layer.style.top = `${box.top - origin.top - (parent ? parent.clientTop : 0) + bt}px`;
+    layer.style.width = `${box.width - bl - br - barX}px`;
+    layer.style.height = `${box.height - bt - bb - barY}px`;
+    layer.scrollTop = element.scrollTop;
+    layer.scrollLeft = element.scrollLeft;
+  }, []);
+  useCaretEffect(() => {
+    if (overlay)
+      placeMirror();
+  });
+  useEffect7(() => {
+    const element = textarea.current;
+    if (!overlay || !element)
+      return;
+    element.addEventListener("scroll", placeMirror);
+    window.addEventListener("resize", placeMirror);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(placeMirror);
+    observer?.observe(element);
+    return () => {
+      observer?.disconnect();
+      element.removeEventListener("scroll", placeMirror);
+      window.removeEventListener("resize", placeMirror);
+    };
+  }, [overlay, placeMirror]);
+  const mirrorDescription = `${useId()}mentioned`;
+  const mirrorText = (() => {
+    if (!overlay)
+      return null;
+    const value = String(props.value ?? "");
+    const parts = [];
+    let at = 0;
+    for (const m of inText) {
+      const start = m.start;
+      if (start > at)
+        parts.push(value.slice(at, start));
+      parts.push(_jsxs5("span", { className: "pc-mention-chip pc-mention-chip--inline", "data-mention-key": mentionKey(m), "data-mention-kind": m.kind, children: [_jsxs5("span", { className: "pc-mention-chip__at", children: ["@", _jsx8("span", { className: "pc-mention-chip__mark", children: _jsx8(ChatAuthorMark, { mark: m.kind, look: m.avatar, initial: m.name, size: 14 }) })] }), _jsx8("span", { className: "pc-mention-chip__name", "data-mention-kind": m.kind, children: m.name })] }, mentionKey(m)));
+      at = mentionEnd(m);
+    }
+    if (at < value.length)
+      parts.push(value.slice(at));
+    if (value.endsWith("\n"))
+      parts.push("\u200B");
+    return parts;
+  })();
   const submit = () => {
     const p = latest.current;
     if (!p.onSend) {
@@ -1608,7 +1927,7 @@ var ChatComposer = React3.forwardRef(function ChatComposer2(props, ref) {
     else
       settle(result, false);
   };
-  const mentionChips = mentionsOn && (mentions.length || mentionStatus) ? _jsxs5("div", { className: "pc-mention-chips", role: "group", "aria-label": "Mentioned", children: [mentionStatus ? _jsxs5("div", { className: "pc-mention-notice pc-mention-notice--status", role: "status", children: [_jsx8(Icon5, { name: "info", size: 13 }), _jsx8("span", { children: mentionStatus })] }) : null, mentions.map((m) => _jsxs5(AfChip, { tone: "accent", className: "pc-mention-chip", title: m.kind === "entity" ? `${m.name} (entity)` : `${m.name} (agent)`, ...disabled ? {} : { onRemove: () => setMentions(removeMention(mentionsRef.current, mentionKey(m))), removeLabel: `Remove ${m.name}` }, children: [_jsx8(ChatAuthorMark, { mark: m.kind, look: m.avatar, initial: m.name, size: 14 }), _jsxs5("span", { className: "pc-mention-chip__name", "data-mention-kind": m.kind, children: ["@", m.name] })] }, mentionKey(m))), visibleNotices.map((n) => _jsxs5("div", { className: "pc-mention-notice", role: "status", children: [_jsx8(Icon5, { name: "info", size: 13 }), _jsx8("span", { children: n.text })] }, n.key)), unavailable && mentions.length ? _jsxs5("div", { className: "pc-mention-notice pc-mention-notice--unavailable", role: "status", children: [_jsx8(Icon5, { name: "warning", size: 13 }), _jsx8("span", { children: unavailable })] }) : null] }) : null;
+  const mentionLines = mentionsOn && (mentionStatus || visibleNotices.length || unavailable && inText.length) ? _jsxs5("div", { className: "pc-mention-notices", children: [mentionStatus ? _jsxs5("div", { className: "pc-mention-notice pc-mention-notice--status", role: "status", children: [_jsx8(Icon5, { name: "info", size: 13 }), _jsx8("span", { children: mentionStatus })] }) : null, visibleNotices.map((n) => _jsxs5("div", { className: "pc-mention-notice", role: "status", children: [_jsx8(Icon5, { name: "info", size: 13 }), _jsx8("span", { children: n.text })] }, n.key)), unavailable && inText.length ? _jsxs5("div", { className: "pc-mention-notice pc-mention-notice--unavailable", role: "status", children: [_jsx8(Icon5, { name: "warning", size: 13 }), _jsx8("span", { children: unavailable })] }) : null] }) : null;
   const mentionList = open && unavailable ? _jsx8("div", { className: "pc-mention-popover", "data-status": "unavailable", children: _jsx8("div", { className: "pc-mention-empty", role: "status", children: unavailable }) }) : open ? _jsx8("div", { className: "pc-mention-popover", "data-status": shown.status, children: shown.items.length ? _jsx8("ul", { id: listId, className: "pc-mention-list", role: "listbox", "aria-label": "Mention someone", children: shown.items.map((c, i) => _jsxs5("li", {
     id: optionId(i),
     role: "option",
@@ -1621,14 +1940,18 @@ var ChatComposer = React3.forwardRef(function ChatComposer2(props, ref) {
     onClick: () => pick(c),
     children: [_jsx8(ChatAuthorMark, { mark: c.kind, look: c.avatar, initial: c.name, size: 22 }), _jsxs5("span", { className: "pc-mention-option__text", children: [_jsx8("span", { className: "pc-mention-option__name", children: c.name }), c.hint ? _jsx8("span", { className: "pc-mention-option__hint", children: c.hint }) : null] }), _jsx8("span", { className: "pc-mention-option__kind", children: c.kind })]
   }, mentionKey(c))) }) : _jsx8("div", { className: "pc-mention-empty", role: "status", children: shown.status === "loading" ? "Looking for names\u2026" : shown.status === "error" ? "The names could not be loaded." : alreadyPicked ? "Already mentioned." : shown.query ? `No name matches \u201C${shown.query}\u201D.` : "No one to mention here." }) }) : null;
-  return _jsxs5("div", { className: ["pc-composer", compact ? "pc-composer--compact" : "", props.className].filter(Boolean).join(" "), children: [props.leading, mentionChips, _jsx8("textarea", {
+  return _jsxs5("div", { className: ["pc-composer", compact ? "pc-composer--compact" : "", props.className].filter(Boolean).join(" "), children: [props.leading, mentionLines, _jsx8("textarea", {
     id: props.textareaId,
     ref: setTextarea,
     className: ["pc-composer__textarea", props.textareaClassName].filter(Boolean).join(" "),
     value: props.value,
     onChange: (e) => {
-      if (mentionsOn)
-        setCaret(e.target.selectionStart);
+      if (mentionsOn) {
+        const field = e.target;
+        const at = typeof field.selectionEnd === "number" ? field.selectionEnd : field.selectionStart;
+        setCaret(typeof field.selectionStart === "number" ? field.selectionStart : null);
+        edited(field.value, typeof at === "number" ? at : null, String(e.nativeEvent?.inputType || ""));
+      }
       props.onChange(e.target.value);
     },
     rows: rows2,
@@ -1641,22 +1964,56 @@ var ChatComposer = React3.forwardRef(function ChatComposer2(props, ref) {
     autoComplete: "off",
     placeholder: props.placeholder || "",
     "aria-label": props.ariaLabel || props.placeholder || "Message",
-    "aria-describedby": props.ariaDescribedBy,
+    "aria-describedby": [props.ariaDescribedBy, overlay ? mirrorDescription : ""].filter(Boolean).join(" ") || void 0,
     ...mentionsOn ? {
       "aria-autocomplete": "list",
       ...open && shown.items.length ? { "aria-controls": listId } : {},
       ...open && activeIndex >= 0 ? { "aria-activedescendant": optionId(activeIndex) } : {},
-      onSelect: (e) => setCaret(e.currentTarget.selectionStart),
+      ...overlay ? { "data-mention-overlay": "" } : {},
+      ...overlay && composing ? { "data-composing": "" } : {},
+      onSelect: (e) => {
+        keepOffChips(e.currentTarget);
+        setCaret(e.currentTarget.selectionStart);
+      },
       onFocus: (e) => {
         setFocused(true);
         setCaret(e.currentTarget.selectionStart);
       },
-      onBlur: () => setFocused(false)
+      onBlur: () => setFocused(false),
+      onCopy: (e) => copyChips(e, false),
+      onCut: (e) => copyChips(e, true),
+      onCompositionStart: () => {
+        composingRef.current = true;
+        setComposing(true);
+      },
+      onCompositionEnd: () => {
+        composingRef.current = false;
+        setComposing(false);
+      }
     } : {},
     disabled,
     autoFocus: Boolean(props.autoFocus),
-    onPaste: props.onPaste,
+    onPaste: (e) => {
+      props.onPaste?.(e);
+      if (e.defaultPrevented || !mentionsOn || !e.clipboardData)
+        return;
+      const plain = e.clipboardData.getData("text/plain");
+      const chips = mentionsFromClipboard(e.clipboardData.getData(MENTION_CLIPBOARD_TYPE), plain);
+      if (!chips)
+        return;
+      e.preventDefault();
+      const field = e.currentTarget;
+      typeIn(plain, chips, { from: field.selectionStart, to: field.selectionEnd });
+    },
     onKeyDown: (e) => {
+      if (mentionsOn && (e.key === "Backspace" || e.key === "Delete") && !(e.nativeEvent.isComposing || e.keyCode === 229)) {
+        const field = e.currentTarget;
+        if (field && field.selectionStart === field.selectionEnd) {
+          const chip = mentionAtCaret(field.value, mentionsRef.current, field.selectionStart, e.key === "Backspace" ? "before" : "after");
+          if (chip)
+            field.setSelectionRange(chip.start, mentionEnd(chip));
+        }
+      }
       if (open && !(e.nativeEvent.isComposing || e.keyCode === 229)) {
         const count2 = shown.items.length;
         if ((e.key === "ArrowDown" || e.key === "ArrowUp") && count2) {
@@ -1691,7 +2048,7 @@ var ChatComposer = React3.forwardRef(function ChatComposer2(props, ref) {
         return;
       submit();
     }
-  }), _jsxs5("div", { className: "pc-composer__row", children: [_jsxs5("div", { className: "pc-composer__actions", children: [props.onAttach ? _jsxs5("button", { type: "button", className: compact ? "pc-composer__icon-action" : "pc-composer__icon-action pc-workflow-chat__icon-button", "aria-label": props.attachLabel || "Attach files", "data-af-tip": props.attachLabel || "Attach files", "aria-busy": props.attachPending || void 0, disabled: disabled || props.attachDisabled || props.attachPending, onClick: props.onAttach, children: [_jsx8(Icon5, { name: props.attachPending ? "loader" : compact ? "plus" : "paperclip", size: 16 }), _jsx8("span", { className: compact ? "pc-sr-only" : void 0, children: props.attachPending ? "Attaching\u2026" : props.attachLabel || "Attach" })] }) : null, props.actions] }), props.trailingActions ? _jsx8("div", { className: "pc-composer__trailing", children: props.trailingActions }) : null, _jsx8("button", { type: "button", className: [props.sendButtonClassName || "pc-btn", compact ? "pc-composer__send--compact" : ""].filter(Boolean).join(" "), "aria-label": compact ? stopMode ? stopSpec?.label || "Stop" : sendLabel : void 0, "data-af-tip": compact ? stopMode ? stopping ? "Stopping\u2026" : stopSpec?.label || "Stop" : sendLabel : void 0, "aria-busy": compact ? stopMode ? stopping : busy : void 0, "data-mode": stopSpec ? stopping ? "stopping" : stopMode ? "stop" : "send" : void 0, disabled: stopMode ? disabled || stopping : !can_submit, onClick: () => stopMode ? stopSpec?.onStop() : submit(), children: compact ? stopSpec ? _jsxs5("span", { className: "pc-composer__morph", "aria-hidden": "true", children: [_jsx8(Icon5, { name: "send", size: 17 }), _jsx8(Icon5, { name: "stop", size: 17 }), _jsx8(Icon5, { name: "loader", size: 17 })] }) : _jsx8(Icon5, { name: busy ? "loader" : "send", size: 17 }) : sendLabel })] }), mentionList, props.overlay] });
+  }), _jsxs5("div", { className: "pc-composer__row", children: [_jsxs5("div", { className: "pc-composer__actions", children: [props.onAttach ? _jsxs5("button", { type: "button", className: compact ? "pc-composer__icon-action" : "pc-composer__icon-action pc-workflow-chat__icon-button", "aria-label": props.attachLabel || "Attach files", "data-af-tip": props.attachLabel || "Attach files", "aria-busy": props.attachPending || void 0, disabled: disabled || props.attachDisabled || props.attachPending, onClick: props.onAttach, children: [_jsx8(Icon5, { name: props.attachPending ? "loader" : compact ? "plus" : "paperclip", size: 16 }), _jsx8("span", { className: compact ? "pc-sr-only" : void 0, children: props.attachPending ? "Attaching\u2026" : props.attachLabel || "Attach" })] }) : null, props.actions] }), props.trailingActions ? _jsx8("div", { className: "pc-composer__trailing", children: props.trailingActions }) : null, _jsx8("button", { type: "button", className: [props.sendButtonClassName || "pc-btn", compact ? "pc-composer__send--compact" : ""].filter(Boolean).join(" "), "aria-label": compact ? stopMode ? stopSpec?.label || "Stop" : sendLabel : void 0, "data-af-tip": compact ? stopMode ? stopping ? "Stopping\u2026" : stopSpec?.label || "Stop" : sendLabel : void 0, "aria-busy": compact ? stopMode ? stopping : busy : void 0, "data-mode": stopSpec ? stopping ? "stopping" : stopMode ? "stop" : "send" : void 0, disabled: stopMode ? disabled || stopping : !can_submit, onClick: () => stopMode ? stopSpec?.onStop() : submit(), children: compact ? stopSpec ? _jsxs5("span", { className: "pc-composer__morph", "aria-hidden": "true", children: [_jsx8(Icon5, { name: "send", size: 17 }), _jsx8(Icon5, { name: "stop", size: 17 }), _jsx8(Icon5, { name: "loader", size: 17 })] }) : _jsx8(Icon5, { name: busy ? "loader" : "send", size: 17 }) : sendLabel })] }), overlay ? _jsx8("div", { ref: mirror, className: "pc-composer__mirror", "aria-hidden": "true", "data-composing": composing ? "" : void 0, children: mirrorText }) : null, overlay ? _jsx8("span", { id: mirrorDescription, className: "pc-sr-only", children: inText.map((m) => `mention: ${m.name}`).join(", ") }) : null, mentionList, props.overlay] });
 });
 
 // dist/chat_thread.js
@@ -1701,7 +2058,7 @@ import { useEffect as useEffect13, useMemo as useMemo7, useRef as useRef9, useSt
 // dist/chat_message_card.js
 import { jsx as _jsx16, jsxs as _jsxs12 } from "react/jsx-runtime";
 import { useEffect as useEffect12, useMemo as useMemo6, useRef as useRef8, useState as useState13 } from "react";
-import { AfAudioPlayer, AfChip as AfChip2, Icon as Icon8, fileViewerKind as fileViewerKind4, fileViewerNeedsText as fileViewerNeedsText3, formatFileSize as formatFileSize2 } from "@abstractframework/ui-kit";
+import { AfAudioPlayer, AfChip, Icon as Icon8, fileViewerKind as fileViewerKind4, fileViewerNeedsText as fileViewerNeedsText3, formatFileSize as formatFileSize2 } from "@abstractframework/ui-kit";
 
 // dist/chat_media.js
 import { fileViewerKind as fileViewerKind3 } from "@abstractframework/ui-kit";
@@ -2908,7 +3265,7 @@ function ChatMessageCard(props) {
     const level = String(m.level || "").trim().toLowerCase();
     return _jsxs12("div", { className: ["pc-chat-hint", level === "warn" || level === "error" ? `pc-chat-hint--${level}` : "", props.className].filter(Boolean).join(" "), role: "note", "data-variant": "hint", children: [_jsx16("span", { className: "pc-chat-hint__text", children: String(m.content || "") }), footer2 != null && footer2 !== false ? _jsx16("div", { className: "pc-chat-footer", children: footer2 }) : null] });
   }
-  return _jsxs12("div", { className: ["pc-chat-item", `pc-chat-item--${role_ui.variant}`, caption ? "pc-chat-item--caption" : "", live ? "pc-chat-item--live" : "", props.className].filter(Boolean).join(" "), ...live ? { "aria-busy": true } : {}, ...caption ? { "data-variant": "caption" } : {}, ...author ? { "data-author": author.mark } : {}, children: [caption ? null : _jsxs12("div", { className: "pc-chat-header", children: [author ? _jsx16("div", { className: "pc-chat-avatar pc-chat-avatar--author", "aria-hidden": "true", children: _jsx16(ChatAuthorMark, { mark: author.mark, look: author.look, initial: author.initial, size: 22 }) }) : _jsx16("div", { className: "pc-chat-avatar", "aria-hidden": "true", children: _jsx16(Icon8, { name: role_ui.icon, size: 14 }) }), _jsx16("span", { className: "pc-chat-role", children: author ? author.name : role_ui.label }), author?.tag ? _jsx16(AfChip2, { size: "sm", tone: "muted", className: "pc-chat-author-kind", children: author.tag }) : null, live ? _jsxs12("span", { className: "pc-chat-live-indicator", title: live.label ? `Pending: ${live.label}` : "The reply is still being written", children: [_jsx16("span", { className: "pc-chat-live-dot", "aria-hidden": "true" }), live.label || "streaming"] }) : null, live?.caption ? _jsx16("span", { className: "pc-chat-live-caption", children: live.caption }) : null, _jsx16("span", { className: "pc-chat-header-spacer" }), time_label ? _jsx16("time", { className: "pc-chat-time", dateTime: time_iso || void 0, title: time_title || void 0, children: time_label }) : null, _jsxs12("div", { className: "pc-chat-header-actions", children: [show_speaker ? _jsx16("button", { className: "pc-chat-icon-btn", type: "button", "aria-label": speak_blocked || speak.title, title: speak_blocked || speak.title, "data-speak-state": speak_blocked ? "unavailable" : speak_state, ...speak_blocked ? { "aria-disabled": true } : {}, onClick: can_speak ? () => props.onSpeakToggle?.(m) : void 0, children: _jsx16(Icon8, { name: speak.icon, size: 22, className: speak.spinning ? "pc-chat-speak-spinner" : void 0 }, speak.icon) }) : null, show_copy ? _jsx16("button", { className: `pc-chat-icon-btn ${copy_state !== "idle" ? `pc-chat-icon-btn--${copy_state}` : ""}`.trim(), type: "button", "aria-label": "Copy message", title: copy_state === "idle" ? "Copy" : copy_state === "copied" ? "Copied" : "Copy failed", onClick: async () => {
+  return _jsxs12("div", { className: ["pc-chat-item", `pc-chat-item--${role_ui.variant}`, caption ? "pc-chat-item--caption" : "", live ? "pc-chat-item--live" : "", props.className].filter(Boolean).join(" "), ...live ? { "aria-busy": true } : {}, ...caption ? { "data-variant": "caption" } : {}, ...author ? { "data-author": author.mark } : {}, children: [caption ? null : _jsxs12("div", { className: "pc-chat-header", children: [author ? _jsx16("div", { className: "pc-chat-avatar pc-chat-avatar--author", "aria-hidden": "true", children: _jsx16(ChatAuthorMark, { mark: author.mark, look: author.look, initial: author.initial, size: 22 }) }) : _jsx16("div", { className: "pc-chat-avatar", "aria-hidden": "true", children: _jsx16(Icon8, { name: role_ui.icon, size: 14 }) }), _jsx16("span", { className: "pc-chat-role", children: author ? author.name : role_ui.label }), author?.tag ? _jsx16(AfChip, { size: "sm", tone: "muted", className: "pc-chat-author-kind", children: author.tag }) : null, live ? _jsxs12("span", { className: "pc-chat-live-indicator", title: live.label ? `Pending: ${live.label}` : "The reply is still being written", children: [_jsx16("span", { className: "pc-chat-live-dot", "aria-hidden": "true" }), live.label || "streaming"] }) : null, live?.caption ? _jsx16("span", { className: "pc-chat-live-caption", children: live.caption }) : null, _jsx16("span", { className: "pc-chat-header-spacer" }), time_label ? _jsx16("time", { className: "pc-chat-time", dateTime: time_iso || void 0, title: time_title || void 0, children: time_label }) : null, _jsxs12("div", { className: "pc-chat-header-actions", children: [show_speaker ? _jsx16("button", { className: "pc-chat-icon-btn", type: "button", "aria-label": speak_blocked || speak.title, title: speak_blocked || speak.title, "data-speak-state": speak_blocked ? "unavailable" : speak_state, ...speak_blocked ? { "aria-disabled": true } : {}, onClick: can_speak ? () => props.onSpeakToggle?.(m) : void 0, children: _jsx16(Icon8, { name: speak.icon, size: 22, className: speak.spinning ? "pc-chat-speak-spinner" : void 0 }, speak.icon) }) : null, show_copy ? _jsx16("button", { className: `pc-chat-icon-btn ${copy_state !== "idle" ? `pc-chat-icon-btn--${copy_state}` : ""}`.trim(), type: "button", "aria-label": "Copy message", title: copy_state === "idle" ? "Copy" : copy_state === "copied" ? "Copied" : "Copy failed", onClick: async () => {
     const ok = await copyText(String(m.content || ""));
     set_copy_state(ok ? "copied" : "failed");
     if (copy_timer.current !== null)
@@ -3737,7 +4094,7 @@ function WorkflowChat(props) {
   const [copyState, setCopyState] = useState17("idle");
   const [mentions, setMentions] = useState17([]);
   const mentionsOn = typeof props.mentionCandidates === "function";
-  const sentMentions = () => mentionsOn && !String(props.mentionsUnavailable || "").trim() ? mentionSendPayload("", mentions).mentions : [];
+  const sentMentions = (draft) => mentionsOn && !String(props.mentionsUnavailable || "").trim() ? mentionSendPayload(draft, mentions).mentions : [];
   const settleMentions = (held, settled, failed) => {
     const keep = unsentMentionsOf(settled);
     if (failed && keep === null)
@@ -3939,7 +4296,7 @@ function WorkflowChat(props) {
     setSendPending(true);
     const held = mentionsOn ? mentions : [];
     try {
-      const result = await steer.onSteer(draft, mode, { mentions: sentMentions() });
+      const result = await steer.onSteer(draft, mode, { mentions: sentMentions(draft) });
       if (!mountedRef.current || sendSequenceRef.current !== sequence)
         return;
       if (!result?.accepted && !result?.duplicate) {
@@ -3991,7 +4348,7 @@ function WorkflowChat(props) {
     setSendPending(true);
     const held = mentionsOn ? mentions : [];
     try {
-      const result = await props.onSend(draft, { signal: abort.signal, mentions: sentMentions() });
+      const result = await props.onSend(draft, { signal: abort.signal, mentions: sentMentions(draft) });
       if (mountedRef.current && sendSequenceRef.current === sequence)
         settleMentions(held, result, false);
     } catch (reason) {

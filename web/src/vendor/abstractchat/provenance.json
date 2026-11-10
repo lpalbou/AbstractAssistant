@@ -12,8 +12,8 @@
     "dist/artifact_provenance.js": "866671635e943165c1e4ea293e34a115d189de4cbfe59037b8b6569dade125ef",
     "dist/message_artifacts.js": "54d84e34b3e0f81e12e09a93803ecf1c5bb109bd1e80af0585fa11f0684b3f19",
     "dist/author_mark.js": "ee7b36eff255a71f0b29e86ddd775bf28f5801005004a8de423d78305dcc778b",
-    "dist/mentions.js": "a058d283db2545d0c696325d76a6e1c49a569e0dcbaf0b3058d05b5ae7ebd78f",
-    "dist/chat_composer.js": "8e828190a1f6dabe492d9af4990a0518252e2dde89bffafdd351ba9b064f4586",
+    "dist/mentions.js": "e766febb8abca37b6cf331db76acde6ac0733c32ef06bcd97b1f31631817d7a3",
+    "dist/chat_composer.js": "45f7d9317070d006a8b1df61692155761aa87c899953db75ffaff1b0896008a8",
     "dist/chat_media.js": "f531e044891d9fead53c203aa941138d4aaa4e88284a22239343512affb0a617",
     "dist/json_viewer.js": "94ac3b32e8ee23d9cc25270a7e4bae6f3f81cd8814f8474f0a7cea166756585b",
     "dist/message_content.js": "1d6520884bf088371ba2daeae839bb75e687902fc07f5a679df10cdb2d3f9fc4",
@@ -35,7 +35,7 @@
     "dist/workflow_interaction.js": "41ac64f66141a84b8814fc9a6cb6898ca9a16c75e288fe92e1017089ab1ba086",
     "dist/conversation_model.js": "b420f06fd656e07225d7a9e588716bf3b42af348ec2f857668d8705d22d5d6a3",
     "dist/avatar_conversation.js": "14b82043161098ba954da8a486b762ad4e6c790f1e2349f298201bfb2fb33828",
-    "dist/workflow_chat.js": "196832deeb0674a16cc6f9bb41d0bd02ac9a100d261669d8defbb8b105247250",
+    "dist/workflow_chat.js": "bbb7d859fb476028990e2310d1a386191095e08fce15aca75e5b868416559da3",
     "dist/workflow_evidence.js": "105d7552003c32b14642abad277c42839de792610df58ae3eca03e54f2717dec",
     "dist/llm_delta.js": "ffaa8af4c15ba3a196ab8679678b6be0c54e8ebdb07a5367c8949ff8b1e27d3d",
     "dist/replay_view.js": "c7eae8369d076ad498b85ae93c8b7ec181f303ec76fbad51708254b2b0df19cd",
@@ -47,10 +47,10 @@
     "dist/public_approval.js": "c579bb91a35fbb9ad58ac3b835514c006892e88102fa76bda5ac7bcb1774e5eb",
     "dist/present_interaction.js": "eb2bebea41bf9beff3671766c74957ff0fa90daa342c583753d33f1e410ab08c",
     "dist/conversation.js": "026b867581885ea6f92d52377902da2fcb674bd978492aa8463c1148fb8e2744",
-    "src/panel_chat.css": "4f104a9679cef52cfeff4aa33701ee7fe4779262aae9e9ae614814c711d80dfb"
+    "src/panel_chat.css": "092c0f6188414c896f41769c61e97cb780dbbc64f8cedd8dc0a00a2ccf60cb59"
   },
   "artifacts": {
-    "conversation.js": "e697af89581c849cd20c7a247c4899ade1f82359dbc2a7ed8c36e59d9a633364",
+    "conversation.js": "bc14bd24cb6319dc5407c18f25cd64c78c726967e61b99dab62fb7e11e62c515",
     "artifact_preview.d.ts": "40c581cd1ef271dcb631c23f20898583822581c1c8e7ea0b0a68bbede8414432",
     "artifact_provenance.d.ts": "c4b4f810379ec2bfcde8f60db49fad72953cd07da16f4aff7e2bf22e0d3fe49a",
     "assistant_panel.d.ts": "46bde9b7f3a1e51074ba32c3f6b52cb0f63b0db439f010e0896498a22b1c5202",
@@ -60,7 +60,7 @@
     "automation_markdown.d.ts": "8d4b9d7c760332e84fe9906997fbe7db8318b1f6abbe1b2600d66526a6772cac",
     "avatar_conversation.d.ts": "55e1914f4510a395651dda3ff8c52a30dd38c980350c232c6ad9584579d6da8b",
     "chat_author.d.ts": "d111ceb3c22e0a889a87d8ab3a2c03c910ae48ec0940904c47c80b805f2f96b1",
-    "chat_composer.d.ts": "70dbd033034ba59d6db6f911de50d234a89a4bdfb292525a01396255fcf5cf1f",
+    "chat_composer.d.ts": "4a583509bf74e68c231fc81f3a0ca9c28c343acff6035e110bca391e43f17d94",
     "chat_media.d.ts": "c606cd69ea64b240a83b878635ee4511a15733898cd8c6ead9511443da517dac",
     "chat_message_card.d.ts": "2fc07c770a6e2149f05fe7354a418e24357330acb41c8c2612cea59d4733b1cd",
     "chat_notice_badges.d.ts": "e407b53de76aa508debf9f12724d849a5bf78463830feb429a5e144acb52ef79",
@@ -76,11 +76,11 @@
     "event_target.d.ts": "e2e37bca777ee7495505498858c66b04e8080a8d40f048864108c26b17591db3",
     "file_drop.d.ts": "93a1b75a2a26f34f84a43ee13eb6eaf6e9261bff48fb65e83d148b9b7282679f",
     "file_viewer.d.ts": "d00866be1f231c5f254996c6c030915dc04eee9d84e94ee2adf41863637f5066",
-    "index.d.ts": "e88912b4ba4e6c2470e5f4a2d49f8802cf72d209e9c2fa26b844fb08be42ed62",
+    "index.d.ts": "1c75f7fb24b5394284ff21dcb2630ced8f878949cba00b0e60da0ff97c70d429",
     "json_viewer.d.ts": "ca6fa26a7bfe97054f6e0a9b65b8cd07d1d919ee98cffe19fc5beb2eb47a756c",
     "llm_delta.d.ts": "b3bb76752aba6c9845f487f8698d58bccdb53aabb4ad772211c258d53cae6c01",
     "markdown.d.ts": "4404d3710dbd24daeb93cd9bd714f9a78552baf89c3ff1474941717116a0aa87",
-    "mentions.d.ts": "864d9b513c83e25ac7c8bc704739a3c766b506ea546e5066cb6f994fad6765ed",
+    "mentions.d.ts": "b46e8e1aba3145ef1233c642bd1b88c62a23d4e26f589ec8e84fb18d34d315c8",
     "message_artifacts.d.ts": "84889e21186e30846298e96823c3fb91c24e10401086074afaf461b0b3f6f2f7",
     "message_content.d.ts": "b22e76773831e4873cf46c99f3b77752e126654cb73466b50126e95ebe6fb618",
     "message_footer.d.ts": "15f4232793bd62d84e61ccbcab75b002665ff27b64e30de9b64da96d5ed3a879",
@@ -96,7 +96,7 @@
     "tool_policy.d.ts": "ba85449eb2e054e1be7c88f295ccc306f13522dc7f5c887121f53b44304167be",
     "use_workflow_session.d.ts": "9a583e24d2564c547787b34fba7dddb3e6ff511cc3833d83fde0ae65370fc34d",
     "utils.d.ts": "0d4fee77409223eafac747908784559573accc003a360832dc965fa2c41bf785",
-    "workflow_chat.d.ts": "22915972a66849894c7f961ee9901f4f8b9bf0d5636f3b6ba75f795c7172a595",
+    "workflow_chat.d.ts": "e44c27dff81ec4df2a92d40d243b814b89c568e860b0255a2dbb3065d4982de1",
     "workflow_evidence.d.ts": "f86fbb0f577010d1c821813169474ad5e9786c019486bc9274752abb21d68be2",
     "workflow_interaction.d.ts": "c37ec92df17d76cc4a598c3f38b4d43249680169e8fbf6f27e89edfd27ea5673",
     "workflow_interaction_core.d.ts": "59f4b6e51e94c4fa01a74a6f06949362d0f42148536428360e93467c4b3ccc18",
@@ -104,6 +104,6 @@
     "workflow_runtime.d.ts": "efbb3beee0000a17572909bba40f7bce1373e03303f0cd7db7a6cfac81c6d51b",
     "working_dots.d.ts": "73b7268e0ccd5ba8bd8ecc826ad52d771ab3711de3fa1b376393a56fa37141e1",
     "workspace_browser.d.ts": "15a20e5e6075b5ef3393844002616cdec5812ef2a7af99b297b0f1375327cf7e",
-    "conversation.css": "4f104a9679cef52cfeff4aa33701ee7fe4779262aae9e9ae614814c711d80dfb"
+    "conversation.css": "092c0f6188414c896f41769c61e97cb780dbbc64f8cedd8dc0a00a2ccf60cb59"
   }
 }

@@ -4,7 +4,9 @@ import React from "react";
 import { type IconName } from "@abstractframework/ui-kit";
 import type { MarkdownImages } from "./markdown.js";
 import type { WorkflowStatistics, WorkflowToolActivity } from "./workflow_evidence.js";
-import { type StatDetail } from "./stat_detail.js";
+import { type ChatStat } from "./chat_stats.js";
+import { type ChatAuthor } from "./chat_author.js";
+import type { ChatNotice } from "./chat_notices.js";
 export type ChatMessageLevel = "info" | "warn" | "error";
 export type ChatMessage = {
     id?: string;
@@ -21,6 +23,14 @@ export type ChatMessage = {
     kind?: string;
     /** Original public channel attribution, retained through replay. */
     source?: string;
+    /**
+     * Who wrote this turn (the gateway's turn `author`: `{kind, name, entity_id, identity_ref,
+     * avatar: {style, color}}`). On an assistant-side message the header shows the author's
+     * mark (an entity's orb, the agent's mark), its name and a kind tag. Null or absent (an
+     * older gateway): the header is today's, `title || "Agent"` and no mark. User messages
+     * ignore it.
+     */
+    author?: ChatAuthor | null;
     publicUpdate?: PublicUpdate;
     toolActivity?: WorkflowToolActivity;
     statistics?: WorkflowStatistics;
@@ -53,6 +63,13 @@ export type ChatMessage = {
     /** Unlisted replay refs require explicit output recovery, never raw-ID chips. */
     artifactReferencesUnresolved?: boolean;
     artifactRefs?: MessageArtifact[];
+    /**
+     * What the reply formed (AbstractRuntime turn notices: a diary entry, a lesson, an interest,
+     * a question, a realization), served BESIDE the reply text, never parsed out of it: one badge
+     * each under the text (`ChatNoticeBadges`). The replay projection carries a view answer's
+     * `notices` here; a host sets it from its own lane (`notices` / `reply_notices`).
+     */
+    notices?: ChatNotice[];
 };
 /**
  * One generated media item. `src` is supplied by the HOST (typically a
@@ -102,18 +119,7 @@ export type ChatAttachment = {
     disabled?: boolean;
     onClick?: () => void;
 };
-export type ChatStat = {
-    id?: string;
-    label: string;
-    /** A ONE-line hint. A multi-line explanation is a `detail` (the message footer spec:
-     *  every workflow chip opens the structured panel, never a native multi-line tooltip). */
-    title?: string;
-    icon?: React.ReactNode;
-    onClick?: () => void;
-    /** Structured detail (tokens / time / tools). When present the chip opens
-     *  a hover/focus panel instead of a native one-line `title`. */
-    detail?: StatDetail;
-};
+export type { ChatStat } from "./chat_stats.js";
 export type ChatMessageCardProps = {
     message: ChatMessage;
     className?: string;
@@ -142,13 +148,19 @@ export type ChatMessageCardProps = {
      * Per-message presentation. `"hint"` renders the message as one discreet
      * line (no avatar, header or copy): a system note such as "Rejoined the
      * open visit". `"caption"` renders the message's content only (Markdown, media, files and
-     * attachments; no header, speaker, copy, reasoning, stats or footer) for subtitle-like
+     * attachments; no header, speaker, copy, reasoning, stats, notice badges or footer) for subtitle-like
      * surfaces such as the Avatar view's live line and findings. `undefined` keeps the full card.
      */
     variant?: (message: ChatMessage) => "hint" | "caption" | undefined;
     /** Host opener for `media` items of kind `"file"` (e.g. a side drawer).
      * Without it the file opens inline in the shared viewer. */
     onOpenMedia?: (item: ChatMedia) => void;
+    /**
+     * Host opener for a notice badge (`message.notices`), e.g. the record's detail panel by its
+     * `record_id`. Return `false` when nothing was opened: the badge opens its own panel (title and
+     * words). Without it every badge opens its own panel.
+     */
+    onNoticeOpen?: (notice: ChatNotice, message: ChatMessage) => void | boolean;
 };
 /** The read-aloud state a host reports for a message (`useGatewayVoice().tts_playback.status`). */
 export type SpeakState = "idle" | "loading" | "playing" | "paused";

@@ -59,9 +59,10 @@ export type WorkflowChatProps = {
      * Submit a chat message. Async failures are surfaced locally and keep the
      * draft. `signal` is aborted when the user presses Stop during this send
      * (or the chat unmounts): a request/response host ties its fetch to it.
-     * `mentions`: the names picked with `@` (`mentionCandidates`), in order,
-     * `index` = the gateway's `mention_index`; empty without a pick (and while
-     * `mentionsUnavailable`). The chips of this send clear once it resolves and
+     * `mentions`: the names picked with `@` (`mentionCandidates`) that are in
+     * `draft` (each chip written there as "@Name"), in text order: `index` = the
+     * gateway's `mention_index` (0, 1, …), `start` = where its "@Name" sits in
+     * `draft`; empty without a pick (and while `mentionsUnavailable`). The chips of this send clear once it resolves and
      * stay when it fails, like the draft; chips picked while it is in flight
      * always stay. A send whose mentions stopped partway names the chips to keep
      * as `unsentMentions` on what it resolves or rejects with

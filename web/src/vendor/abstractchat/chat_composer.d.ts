@@ -8,24 +8,32 @@ export type ChatComposerProps = {
     /** Send (Enter or the button). `onSend` wins when given. */
     onSubmit?: () => void;
     /**
-     * Send with the picked mentions: `{text, mentions: [{id, name, kind, index}]}`, mentions in
-     * the order they were picked. Wins over `onSubmit`. Uncontrolled chips are cleared once it
-     * returns (or its promise resolves); a throw or a rejection keeps them.
+     * Send with the picked mentions: `{text, mentions: [{id, name, kind, index, start}]}`. `text` is
+     * the message as shown, each chip written as "@" + its name; `mentions` are the chips in text
+     * order, `index` 0, 1, … (the gateway's `mention_index`) and `start` where the chip's "@Name"
+     * sits in `text`. Wins over `onSubmit`. Uncontrolled chips are cleared once it returns (or its
+     * promise resolves); a throw or a rejection keeps them.
      */
     onSend?: (send: ChatComposerSend) => void | Promise<unknown>;
     /**
      * `@` mentions. Typing `@` opens a list of the names this returns for the query typed after
      * it (the HOST decides the source, e.g. `GET /entities`; it is called as the person types, so
-     * cache in the host). A pick becomes a chip bound to that candidate; an `@` that was not
-     * picked stays plain text. Absent: no list and no chips (today's composer).
+     * cache in the host). A pick puts a chip bound to that candidate in the text, in place of the
+     * typed `@query`; an `@` that was not picked stays plain text. Absent: no list and no chips.
      */
     mentionCandidates?: (query: string) => Promise<ChatMentionCandidate[]>;
-    /** Controlled chips. Omit to let the composer keep them. */
+    /**
+     * Controlled chips, each with `start` (where its "@Name" sits in `value`); `onMentionsChange`
+     * gets them in text order after every edit. A chip whose "@Name" is not at its `start` is not
+     * in the message (not drawn, not sent) until the text holds it there again (a draft the host
+     * restores after a failed send); the person's next edit drops it. Omit to let the composer keep them.
+     */
     mentions?: ChatMention[];
     onMentionsChange?: (mentions: ChatMention[]) => void;
     /**
-     * The sentence shown under a chip the first time its name is picked in this conversation
-     * (e.g. "Castor will read this conversation's history"). The host writes it; null = none.
+     * The sentence shown above the field the first time a name is picked in this conversation
+     * (e.g. "Castor will read this conversation's history"), while its chip is in the text. The
+     * host writes it; null = none.
      */
     mentionNotice?: (candidate: ChatMentionCandidate) => string | null | undefined;
     /** The conversation "the first time" counts in (e.g. the session id); a new key starts over. */
@@ -84,6 +92,7 @@ export type ChatComposerProps = {
     leading?: React.ReactNode;
     /** Absolutely positioned layer over the composer box (e.g. a drop zone). */
     overlay?: React.ReactNode;
+    /** Runs first; a `preventDefault()` here (e.g. pasted files) keeps the composer's own paste out. */
     onPaste?: React.ClipboardEventHandler<HTMLTextAreaElement>;
 };
 export declare const ChatComposer: React.ForwardRefExoticComponent<ChatComposerProps & React.RefAttributes<HTMLTextAreaElement>>;

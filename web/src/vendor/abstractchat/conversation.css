@@ -392,9 +392,17 @@
 .pc-composer__icon-action:focus-visible { outline: 2px solid var(--accent, #7189c0); outline-offset: 2px; }
 .pc-composer__icon-action:disabled { opacity: .5; cursor: not-allowed; }
 
-/* @ mentions (ChatComposer `mentionCandidates`): chips above the field, the host's notice
- * under them, and the list of names above the composer box (full width on a phone). */
-.pc-mention-chips {
+/* @ mentions (ChatComposer `mentionCandidates`): each chip INSIDE the text (operator
+ * 2026-11-10), the host's sentences above the field, and the list of names above the composer
+ * box (full width on a phone).
+ *
+ * The field stays a <textarea>. While chips are in the text its glyphs are transparent (the
+ * caret and the selection stay its own) and `.pc-composer__mirror`, a pointer-transparent twin
+ * laid over it with the field's own text styles (copied at runtime), draws the same words with
+ * each chip styled in place. A chip must take exactly the width of its "@Name" in the field's
+ * font: no padding, margin, border or weight change on it (its pill is a background and a
+ * box-shadow ring, its mark covers the "@"). */
+.pc-mention-notices {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -402,9 +410,56 @@
   min-width: 0;
   padding: 2px 4px 0;
 }
-.pc-mention-chip { max-width: 100%; }
-.pc-mention-chip .af-chip__label { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
-.pc-mention-chip__name { overflow: hidden; text-overflow: ellipsis; }
+.pc-composer__textarea[data-mention-overlay] {
+  -webkit-text-fill-color: transparent;
+}
+.pc-composer__textarea[data-mention-overlay]::selection {
+  -webkit-text-fill-color: transparent;
+  background: color-mix(in srgb, var(--accent, #60a5fa) 34%, transparent);
+}
+/* An IME composition draws its own underline in the text's colour: the field shows its glyphs
+ * while composing, the mirror only its chips' marks and pills. */
+.pc-composer__textarea[data-mention-overlay][data-composing] {
+  -webkit-text-fill-color: currentColor;
+}
+.pc-composer__mirror {
+  position: absolute;
+  z-index: 1;
+  box-sizing: border-box;
+  margin: 0;
+  border: 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  background: transparent;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.pc-composer__mirror[data-composing],
+.pc-composer__mirror[data-composing] .pc-mention-chip--inline {
+  color: transparent;
+}
+.pc-mention-chip--inline {
+  --pc-mention-hue: var(--accent, #60a5fa);
+  border-radius: 0.45em;
+  background: color-mix(in srgb, var(--pc-mention-hue) 20%, transparent);
+  box-shadow: 0 0 0 0.18em color-mix(in srgb, var(--pc-mention-hue) 20%, transparent);
+  color: color-mix(in srgb, var(--pc-mention-hue) 62%, var(--text-primary, #fff) 38%);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.pc-mention-chip__at {
+  position: relative;
+  color: transparent;
+}
+.pc-mention-chip__mark {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  line-height: 0;
+}
 .pc-mention-notice {
   flex: 1 1 100%;
   display: flex;

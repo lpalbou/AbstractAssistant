@@ -5,6 +5,7 @@ import type { ChatMessage, ChatMessageCardProps } from "./chat_message_card.js";
 import { type WorkflowInteraction } from "./workflow_interaction.js";
 import type { StreamRepliesMode } from "./llm_delta.js";
 import { type AvatarConversationOptions } from "./avatar_conversation.js";
+import { type ChatMentionCandidate, type ChatMentionSent } from "./mentions.js";
 /** What the host's steer door answered (`POST commands {type:"inject_guidance"}`
  * answers `{accepted, duplicate, seq}`; ui-kit `SteerSubmitResult` fits). */
 export type ChatSteerResult = {
@@ -20,7 +21,9 @@ export type ChatSteer = {
      * `submitSteer` posts `inject_guidance` through the app-origin proxy) or
      * queues it for the next turn. The chat never fetches.
      */
-    onSteer: (text: string, mode: ChatSteerMode) => Promise<ChatSteerResult>;
+    onSteer: (text: string, mode: ChatSteerMode, ctx?: {
+        mentions: ChatMentionSent[];
+    }) => Promise<ChatSteerResult>;
     /** Default `["guide"]`. With both, the busy composer offers a mode switch. */
     modes?: ChatSteerMode[];
     /** The run is parked on a wait: guidance delivers at its next wake (steers do not wake runs). */
@@ -56,11 +59,43 @@ export type WorkflowChatProps = {
      * Submit a chat message. Async failures are surfaced locally and keep the
      * draft. `signal` is aborted when the user presses Stop during this send
      * (or the chat unmounts): a request/response host ties its fetch to it.
+     * `mentions`: the names picked with `@` (`mentionCandidates`) that are in
+     * `draft` (each chip written there as "@Name"), in text order: `index` = the
+     * gateway's `mention_index` (0, 1, …), `start` = where its "@Name" sits in
+     * `draft`; empty without a pick (and while `mentionsUnavailable`). The chips of this send clear once it resolves and
+     * stay when it fails, like the draft; chips picked while it is in flight
+     * always stay. A send whose mentions stopped partway names the chips to keep
+     * as `unsentMentions` on what it resolves or rejects with
+     * (`mentionsStoppedError`): only those stay, for the resend.
      */
     onSend: (draft: string, ctx: {
         signal: AbortSignal;
+        mentions: ChatMentionSent[];
     }) => void | Promise<unknown>;
+    /**
+     * `@` mentions in the composer: the names to offer for the query typed after
+     * `@` (the host decides the source, e.g. `GET /entities`). Absent: no list,
+     * no chips. See `ChatComposer`.
+     */
+    mentionCandidates?: (query: string) => Promise<ChatMentionCandidate[]>;
+    /** The sentence under a chip on the first pick of its name in this conversation. */
+    mentionNotice?: (candidate: ChatMentionCandidate) => string | null | undefined;
+    /** The conversation "the first pick" counts in (e.g. the session id). */
+    mentionSessionKey?: string;
+    /** The host's sentence when mentions cannot be used (e.g. "This gateway does not offer
+     * mentions yet"): `@` shows it instead of names. See `ChatComposer`. */
+    mentionsUnavailable?: string | null;
+    /** A sentence about the last mentions sent (e.g. "Castor is in another conversation."). */
+    mentionStatus?: string | null;
     busy?: boolean;
+    /**
+     * The assistant is working on a reply (the host's run state, e.g. `workflowProgress(...).tone
+     * === "working"`): three rising dots (`WorkingDots`) sit at the transcript's tail, where the
+     * reply will appear. Not shown while an interaction waits on the person, nor in the Avatar view.
+     */
+    working?: boolean;
+    /** Accessible name of the working dots. Default "Working". */
+    workingLabel?: string;
     /** Keep the composer active while busy, for hosts that queue/steer messages. */
     sendWhileBusy?: boolean;
     sendLabel?: string;
@@ -75,9 +110,10 @@ export type WorkflowChatProps = {
     onCancel?: (signal: AbortSignal) => void | Promise<unknown>;
     /**
      * Ledger-derived Stop state (`WorkflowSessionSnapshot.stop`). While busy the
-     * Stop button reads "Stopping…" for `stopping`; once the host is no longer
-     * busy the state stays visible in the button's place ("Stopped", or the
-     * gateway's forced-stop text) until the next run.
+     * Stop button reads "Stopping…" for `stopping`. Once the host is no longer
+     * busy the composer is back to idle (Send, the host's trailing actions,
+     * nothing else): the outcome ("Stopped", or the gateway's forced-stop text)
+     * belongs to the host's run status (`workflowProgress`), never the composer.
      */
     stopState?: {
         phase: "stopping" | "stopped" | "forced";
