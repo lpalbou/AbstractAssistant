@@ -23,23 +23,26 @@ request or playback.
 
 ## Mention an entity
 
-Type `@` in the message field to see the entities you can mention; type more of a name to
-narrow the list, then pick one. It becomes a chip in the message field (its × removes it).
-Text you type after `@` without picking a name stays ordinary text. The first time you pick
-a name in a conversation, a line under the chip reminds you that the entity will read this
-conversation's history.
+Type `@` in the message field to see the Assistant and the entities you can mention; type more
+of a name to narrow the list, then pick one. It becomes a chip in the message field (its ×
+removes it). Text you type after `@` without picking a name stays ordinary text. The first time
+you pick an entity in a conversation, a line under the chip reminds you that the entity will
+read this conversation's history.
 
-When you send, the Assistant gets your message as usual. Then each entity you mentioned is
-asked in turn, in the order you picked them, each once the previous one has answered, so a
-later entity reads the earlier answers. Each answer appears in the conversation under the
+When you send, each entity you mentioned is asked in turn, in the order you picked them, each
+once the previous one has answered, so a later entity reads the earlier answers. Each answer appears in the conversation under the
 entity's name and look, in the order the answers came, and your message is shown once.
 Every reply says who wrote it: the agent's name with an "agent" tag, or the entity's name
 and look with an "entity" tag. On a gateway that does not say who wrote a reply, replies
 keep their "Assistant" header.
 
-The Assistant knows which entities you mentioned and leaves what you ask them to them: it
-answers only the part of your message meant for it, or says nothing. When it says nothing,
-the conversation shows your words and the entities' answers, with no empty reply.
+A message that mentions entities goes to them, not to the Assistant: the Assistant does not
+answer it, and a line above the message field says "The assistant stays out of this message."
+To ask the Assistant too, pick **Assistant** at the top of the `@` list (it has an "agent" tag):
+the Assistant then answers only the part of your message meant for it, or says nothing, and the
+entities answer as well. When the Assistant does not answer, the conversation shows your words
+and the entities' answers, with no empty reply and no waiting. A message without mentions goes
+to the Assistant as always.
 
 When an entity keeps something from the exchange (a diary entry, a question, a lesson, an
 interest or a realization), its reply shows one badge for each under its words: the kind and
@@ -47,7 +50,8 @@ its title. A private diary entry reads "private diary entry" and shows no words;
 when a visit closes reads "forming…". Click a badge to read it whole.
 
 A message with mentions sent while the Assistant is still working (in the Avatar view, or an
-answer to its question) is answered too: the entities' answers show after the running reply.
+answer to its question) is answered too: the Assistant reads it as part of the reply it is
+writing, and the entities' answers show after the running reply.
 
 When a mention cannot be answered, a sentence above the message field says why:
 

@@ -73,8 +73,8 @@ export type StartRunRequest = {
   bundle_id?: string;
   bundle_version?: string;
   registry_scope?: string;
-  /** The entities the message mentions, in pick order (lib/mentions.ts `startRunMentions`); absent
-   * when it mentions none. */
+  /** The chips of the message, in pick order: entity slugs and the reserved "agent" (lib/mentions.ts
+   * `startRunMentions`); absent when it has none. */
   mentions?: string[];
 };
 
@@ -216,13 +216,24 @@ export class GatewayClient {
     return this.request("GET", "accounts/me/preferences", undefined, "Your preferences");
   }
 
-  async startRun(req: StartRunRequest): Promise<{ run_id: string; resolved_workflow: Json | null }> {
+  /**
+   * `POST runs/start`. The agent's turn: `run_id` (`agent: "started"`, or no `agent` on an older
+   * gateway). A message the agent was not addressed in (`agent: "not_addressed"`: it mentions
+   * entities and not `@agent`, operator 2026-11-10): no agent run; the gateway kept the words as a
+   * turn of the session, `turn_id`, which the mentions name as `repeat_of`.
+   */
+  async startRun(req: StartRunRequest): Promise<{ agentNotAddressed: false; run_id: string; resolved_workflow: Json | null } | { agentNotAddressed: true; turn_id: string }> {
     if (req.flow_id === "@default" && !req.interface) throw new Error("startRun: '@default' needs an interface");
     if (!req.session_id) throw new Error("startRun: a session_id is required");
     const out = await this.request("POST", "runs/start", req, "The message could not be sent");
+    if (out.agent === "not_addressed") {
+      const turnId = typeof out.turn_id === "string" ? out.turn_id.trim() : "";
+      if (!turnId) throw new Error("The gateway kept the message for the entities but returned no turn id.");
+      return { agentNotAddressed: true, turn_id: turnId };
+    }
     const runId = typeof out.run_id === "string" ? out.run_id.trim() : "";
     if (!runId) throw new Error("The gateway accepted the message but returned no run id.");
-    return { run_id: runId, resolved_workflow: isObject(out.resolved_workflow) ? out.resolved_workflow : null };
+    return { agentNotAddressed: false, run_id: runId, resolved_workflow: isObject(out.resolved_workflow) ? out.resolved_workflow : null };
   }
 
   /** `GET entities`: the entities this account may see (`{entities: [...]}`), for `@` mentions. */

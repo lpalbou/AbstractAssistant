@@ -42,23 +42,22 @@ calls, the flow picker, the tool editor and the edit and Approve all rules are t
 `trustAfterApproveAll`). Run-finished notifications stay on the native apps.
 
 **Mention an entity.** Type `@` in the message box and pick one of your entities (the ones the
-gateway lists for your account); it becomes a chip. When you send, the Assistant gets your message
-as usual, then each entity you mentioned is asked in turn, in the order you picked them, each once
-the previous one answered, and its answer appears in the conversation under its name and look.
-Every reply says who wrote it: the agent's name or the entity's, with an "agent" or "entity" tag,
-from the gateway, so a reload or another device shows the same. An entity in another conversation
-is skipped with one sentence ("Castor is in another conversation.") and the next one is asked. An
-entity that cannot answer says why: the words go back into the box with only the entities that
-did not answer, and sending the same words again asks only those (the Assistant is not asked
-again, and an entity is never asked twice for one message). The Assistant leaves what you ask an
-entity to that entity: it answers only the part meant for it, or says nothing, and then the
-conversation shows your words and the entities' answers. When an entity keeps something from the
-exchange (a diary entry, a question, a lesson, an interest or a realization), its reply shows one
-badge for each under its words; click one to read it. Mentions, reply authors and the badges need
-AbstractGateway 0.21.0 or later (the Assistant staying out of what you ask an entity also needs
-AbstractAgent 0.6.1); a gateway without mentions says "This gateway does not offer mentions yet."
-instead of listing names. See the
-[browser guide](docs/assistant-guide.md#mention-an-entity).
+gateway lists for your account); it becomes a chip. When you send, each entity you mentioned is
+asked in turn, in the order you picked them, each once the previous one answered, and its answer
+appears in the conversation under its name and look. Every reply says who wrote it: the agent's name
+or the entity's, with an "agent" or "entity" tag, from the gateway, so a reload or another device
+shows the same. An entity in another conversation is skipped with one sentence ("Castor is in
+another conversation.") and the next one is asked. An entity that cannot answer says why: the words
+go back into the box with only the entities that did not answer, and sending the same words again
+asks only those (the Assistant is not asked again, and an entity is never asked twice for one
+message). A message that mentions entities does not reach the Assistant ("The assistant stays out of
+this message."); pick **Assistant** at the top of the `@` list to ask it too, and it answers only
+the part meant for it, or says nothing. When an entity keeps something from the exchange (a diary
+entry, a question, a lesson, an interest or a realization), its reply shows one badge for each under
+its words; click one to read it. Mentions, reply authors and the badges need AbstractGateway 0.21.0
+or later (the Assistant answering only its part beside the entities also needs AbstractAgent 0.6.1);
+a gateway without mentions says "This gateway does not offer mentions yet." instead of listing
+names. See the [browser guide](docs/assistant-guide.md#mention-an-entity).
 
 The Docs drawer keeps its question field at the bottom and scrolls the conversation
 above it. Its questions use Assistant documentation and stay separate from your

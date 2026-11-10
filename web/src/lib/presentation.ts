@@ -9,6 +9,10 @@ export type PresentationOptions = {
   /** Who writes each run's live reply, from the live reply frames (`author`): live text is named
    * like its finished answer will be. */
   liveAuthors?: ReadonlyMap<string, ChatAuthor | null>;
+  /** Words shown for a turn that has no run (a message the agent was not addressed in, kept by the
+   * gateway as `turn_id`): message id -> that turn. The message carries no `runId` (the kit would
+   * read a run's input for it); a mention repeating the turn folds into it like into a run's. */
+  kept?: ReadonlyMap<string, string>;
 };
 
 const when = (m: ChatMessage): number => (typeof m.ts === "string" ? Date.parse(m.ts) : Number.NaN);
@@ -25,7 +29,7 @@ export function conversationPresentation(messages: readonly ChatMessage[], opts:
   const diagnostics: ChatMessage[] = [];
   const conversation: ChatMessage[] = [];
   const repeats = opts.repeats;
-  const asked = new Set(messages.filter((m) => m.role === "user" && m.runId).map((m) => m.runId as string));
+  const asked = new Set(messages.filter((m) => m.role === "user").map((m) => m.runId || (m.id ? opts.kept?.get(m.id) : "") || "").filter(Boolean));
   const repeated = (runId: string | undefined) => {
     const of = runId ? repeats?.get(runId) : undefined;
     return of && asked.has(of) ? of : "";

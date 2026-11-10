@@ -12,10 +12,12 @@ import { SessionReadMarker, sessionContentRevision, sessionReadTarget, sessionOp
  * - `presentInteraction` is the approval / question panel, with the ONE wording set and the
  *   chat's tool policy on the gateway when it advertises `session_tool_policy`;
  * - `useGatewayVoice` + `AfVoiceMicButton` read replies aloud and dictate;
- * - `@` mentions (lib/mentions.ts): the composer offers the entities of `GET entities`; a send
- *   with mentions starts the person's turn (or steers the running one), then asks each entity in
- *   order through the gateway's mention door; each answer is a turn of the session, shown from its
- *   own view.
+ * - `@` mentions (lib/mentions.ts): the composer offers `@agent` and the entities of `GET entities`;
+ *   a send with mentions starts the person's turn (or steers the running one), then asks each entity
+ *   in order through the gateway's mention door; each answer is a turn of the session, shown from its
+ *   own view. A message that mentions entities and not `@agent` starts no agent run (the gateway
+ *   keeps the words as a turn, `agent: "not_addressed"` + `turn_id`): its words and the entities'
+ *   answers follow the turn on screen; no spinner, no reply line, one line above the field.
  * Everything comes from the gateway; this page keeps no conversation and no token.
  */
 import {
@@ -50,7 +52,7 @@ import { buildRunInputData } from "../lib/run_input";
 import { selectWorkflow } from "../lib/workflow_selection";
 import type { AttentionSeen } from "./useConversations";
 import { assistantPresence, conversationPresentation, replyToRead } from "../lib/presentation";
-import { MENTIONS_UNAVAILABLE, deliverMentions, entityCandidates, gatewayLacksTurnAuthors, matchCandidates, mentionNotice, mentionStatusLine, mentionTurn, startRunMentions, viewRepeatOf, type MentionAnswer, type MentionTurn } from "../lib/mentions";
+import { AGENT_STAYS_OUT, MENTIONS_UNAVAILABLE, deliverMentions, entityCandidates, gatewayLacksTurnAuthors, matchCandidates, mentionNotice, mentionRoster, mentionStatusLine, mentionTurn, mentionedEntities, startRunMentions, viewAgentNotAddressed, viewRepeatOf, type MentionAnswer, type MentionTurn } from "../lib/mentions";
 import { VoiceStage, Orb } from "./VoiceStage";
 import type { AssistantPreferences } from "./useAssistantPreferences";
 
@@ -68,9 +70,10 @@ const TERMINAL = new Set(["completed", "failed", "cancelled"]);
  * A stop is the kit's own Stop state ("Stopped"), not repeated here. `entitiesAnswer`: the turn was
  * started with `mentions` (its message mentioned entities): its agent may say nothing (an empty
  * reply, which the gateway serves as no answer) and the entities' answers follow, so a turn without
- * a reply of its own says nothing.
+ * a reply of its own says nothing. `notAddressed`: the gateway started no agent run for the turn
+ * (the message mentioned entities, not `@agent`): no reply is expected, nothing is said.
  */
-export function turnOutcome(runId: string, status: string, run: Record<string, unknown> | null, messages: ReadonlyArray<{ id?: string; role: string; runId?: string; live?: unknown; toolActivity?: unknown; content?: string }>, turn: { entitiesAnswer?: boolean } = {}): string {
+export function turnOutcome(runId: string, status: string, run: Record<string, unknown> | null, messages: ReadonlyArray<{ id?: string; role: string; runId?: string; live?: unknown; toolActivity?: unknown; content?: string }>, turn: { entitiesAnswer?: boolean; notAddressed?: boolean } = {}): string {
   if (!runId || !TERMINAL.has(status) || status === "cancelled") return "";
   if (status === "failed") {
     const why = typeof run?.error === "string" ? run.error.trim() : "";
@@ -78,7 +81,7 @@ export function turnOutcome(runId: string, status: string, run: Record<string, u
   }
   const answered = messages.some((m) => m.role === "assistant" && !m.live && !m.toolActivity &&
     (m.id === `final:${runId}` || String(m.id || "").startsWith(`answer:${runId}:`) || (m.runId === runId && Boolean(m.content?.trim()))));
-  return answered || turn.entitiesAnswer ? "" : "The run ended without a written reply.";
+  return answered || turn.entitiesAnswer || turn.notAddressed ? "" : "The run ended without a written reply.";
 }
 
 /** Whether a `me/events` `attention.seen` names the wait shown here. */
@@ -147,13 +150,25 @@ export function Workspace(props: {
   // Turns whose prompt repeats another turn's words (`repeat_of`, an `@` mention), learned from
   // each view the transport reads; who writes each live reply, from its frames.
   const repeats = useRef(new Map<string, string>());
-  // Turns started here with `mentions`: the entities answer for themselves, the agent may say nothing.
+  // Turns started here with entity mentions and `@agent`: the entities answer for themselves, the
+  // agent may say nothing.
   const entitiesAnswer = useRef(new Set<string>());
+  // Turns whose agent was not addressed (entity mentions without `@agent`, operator 2026-11-10): the
+  // gateway kept the words and started no agent run. From the start's answer (`agent:
+  // "not_addressed"`, its `turn_id`) and from every view read (`agent_addressed: false`), so a turn
+  // on screen is never busy and never "ended without a written reply", live or after a reload.
+  const notAddressed = useRef(new Set<string>());
+  // The words of such a message, shown here (no run shows them): message id -> the kept turn.
+  const keptWords = useRef(new Map<string, string>());
   const liveAuthors = useRef(new Map<string, ChatAuthor | null>());
   const transport = useMemo(
     () => createAssistantTransport(client, {
       onDeltaError: (m) => setNotice(`A live reply frame was malformed and skipped: ${m}`),
-      onView: (view) => { const r = viewRepeatOf(view); if (r) repeats.current.set(r.runId, r.repeatOf); },
+      onView: (view) => {
+        const r = viewRepeatOf(view);
+        if (r) repeats.current.set(r.runId, r.repeatOf);
+        for (const runId of viewAgentNotAddressed(view)) notAddressed.current.add(runId);
+      },
       onLiveAuthor: (runId, author) => { if (runId) liveAuthors.current.set(runId, chatAuthorOf(author)); },
     }),
     [client],
@@ -264,13 +279,14 @@ export function Workspace(props: {
     upload: async (file) => (await client.uploadAttachment(ensureSession(), file, file.name, file.type ? { content_type: file.type } : {})).ref,
   });
 
-  const busy = Boolean(props.runId) && !TERMINAL.has(snapshot.status) && !(snapshot.error && !snapshot.run);
+  // A turn whose agent was not addressed has no reply on the way: never busy.
+  const busy = Boolean(props.runId) && !notAddressed.current.has(props.runId) && !TERMINAL.has(snapshot.status) && !(snapshot.error && !snapshot.run);
 
   // ---- @ mentions ---------------------------------------------------------------------------
-  // The names: the entities this account may see, read once per conversation view.
+  // The names: `@agent`, then the entities this account may see, read once per conversation view.
   const entityNames = useRef<Promise<ChatMentionCandidate[]> | null>(null);
   const mentionCandidates = useCallback((query: string) => {
-    const names = (entityNames.current ??= client.listEntities().then(entityCandidates));
+    const names = (entityNames.current ??= client.listEntities().then((listed) => mentionRoster(entityCandidates(listed))));
     names.catch(() => { if (entityNames.current === names) entityNames.current = null; });
     return names.then((list) => matchCandidates(list, query));
   }, [client]);
@@ -281,7 +297,8 @@ export function Workspace(props: {
   const [mentionStatus, setMentionStatus] = useState("");
   const [mentionRouteMissing, setMentionRouteMissing] = useState(false);
   // The answers to this view's own mentions, shown after the turn that mentioned them until the
-  // conversation moves to another turn (then they are earlier turns, read by the controller).
+  // conversation moves to another turn (then they are earlier turns, read by the controller). A
+  // message the agent was not addressed in also puts its words here, first (no run shows them).
   const [mentionAnswers, setMentionAnswers] = useState<{ anchor: string; messages: ChatMessage[] }>({ anchor: "", messages: [] });
   // A message whose mentions stopped partway (an entity could not answer): its words, its turn
   // (`turn`: shown after, `repeat_of`) and the mentions not answered. Sending the same words again
@@ -297,6 +314,9 @@ export function Workspace(props: {
    * chips the composer keeps), else []. */
   const sendMentions = async (sid: string, turn: MentionTurn, text: string, mentions: readonly ChatMentionSent[], signal?: AbortSignal, message?: string): Promise<ChatMentionSent[]> => {
     const anchor = turn.anchor;
+    // The message reached no agent: one line says so while the entities answer, and stays after.
+    const lead = turn.agentOut ? AGENT_STAYS_OUT : "";
+    if (lead && mounted.current) setMentionStatus(lead);
     const show = async (answer: MentionAnswer, mention: ChatMentionSent) => {
       // The answer is a session turn: read from its view, like a reload reads it.
       let shown: ChatMessage[];
@@ -308,7 +328,9 @@ export function Workspace(props: {
         if (signal?.aborted) throw error;
         shown = [{ id: `mention:${answer.run_id}:unshown`, role: "system", level: "warn", title: "Mention", content: `${mention.name} answered, but the answer cannot be shown here (${error instanceof Error ? error.message : String(error)}). It is kept in this conversation.` }];
       }
-      repeats.current.set(answer.run_id, anchor);
+      // The words are shown once: in the turn the mention repeats (the person's started turn, or
+      // the turn kept for a message the agent was not addressed in), else after the running turn.
+      repeats.current.set(answer.run_id, turn.repeatOf || anchor);
       if (!mounted.current) return;
       setMentionAnswers((prev) => ({ anchor, messages: [...(prev.anchor === anchor ? prev.messages : []), ...shown] }));
     };
@@ -318,7 +340,7 @@ export function Workspace(props: {
     // A name the gateway refused (hidden, elsewhere) is read again on the next `@`.
     if (outcome.notes.length) entityNames.current = null;
     if (outcome.unavailable) setMentionRouteMissing(true);
-    setMentionStatus(mentionStatusLine(outcome));
+    setMentionStatus(mentionStatusLine(outcome, lead));
     // Each answer is a new turn of the session: the list's turns and latest turn moved.
     if (outcome.answered.length) props.onTurnEnded();
     // An entity that could not answer: the message goes back to the composer, with the chips not
@@ -334,10 +356,11 @@ export function Workspace(props: {
       const mentions = ctx?.mentions ?? [];
       voiceRef.current.stop_tts();
       setMentionStatus("");
-      // The same words again, with chips, after a stop: only those mentions, nothing else.
+      // The same words again, with chips, after a stop: only those mentions, nothing else. A message
+      // with `@agent` is a new message (it starts the agent's turn).
       const held = pendingResend.current;
       pendingResend.current = null;
-      const again = held && held.sid === ensureSession() ? mentionResend(held.resend, text, mentions) : null;
+      const again = held && held.sid === ensureSession() && !mentions.some((m) => m.kind === "agent") ? mentionResend(held.resend, text, mentions) : null;
       if (held && again) {
         const unsent = await sendMentions(held.sid, held.turn, held.resend.text, again, ctx?.signal, held.message);
         if (mounted.current && !unsent.length) setDraft("");
@@ -357,7 +380,7 @@ export function Workspace(props: {
         setDraft(""); setReplyContext(null);
         setNotice("Sent. Your message is available to the assistant.");
         // Guidance (or an answer) starts no turn: its mentions name no `repeat_of` (`mentionTurn`).
-        if (mentions.length) return unsentResult(await sendMentions(ensureSession(), mentionTurn({ steered: props.runId }), text, mentions, ctx?.signal));
+        if (mentionedEntities(mentions).length) return unsentResult(await sendMentions(ensureSession(), mentionTurn({ steered: props.runId }), text, mentions, ctx?.signal));
         return;
       }
       const sid = ensureSession();
@@ -373,23 +396,39 @@ export function Workspace(props: {
       // The tools the gateway offers (the kit's plan, backlog 0033). No layer of the person's
       // own yet, so approvals follow the gateway's defaults (its grant at run start).
       const input_data = withRunTools(buildRunInputData({ prompt: text, attachments: refs, primary_image_artifact: image ?? null, stream: true }), planRunTools(normalizeToolCatalog(tools)));
-      // The entities the message mentions ride the start (`mentions`): its agent is told they answer
-      // for themselves, and may say nothing.
+      // The chips ride the start (`mentions`, `@agent` as "agent"). Entities without `@agent`: the
+      // gateway starts no agent run. With it, the agent is told they answer for themselves.
       const mentioned = startRunMentions(mentions);
       // Never retried here: a failure keeps the draft and says why; the person resends.
-      const { run_id } = await client.startRun(
+      const started = await client.startRun(
         start.source === "gateway_default"
           ? { flow_id: "@default", interface: start.interface, session_id: sid, input_data, ...(avatarMode ? { conversation: true } : {}), ...mentioned }
           : { flow_id: start.flow_id, bundle_id: start.bundle_id, bundle_version: start.bundle_version, registry_scope: start.registry_scope, session_id: sid, input_data, ...(avatarMode ? { conversation: true } : {}), ...mentioned },
       );
-      if (mentioned.mentions) entitiesAnswer.current.add(run_id);
+      if (started.agentNotAddressed) {
+        // No agent run: the gateway kept the words as a turn (`turn_id`) no run shows. The words
+        // follow the turn on screen, the entities' answers after them; the mentions name that turn.
+        notAddressed.current.add(started.turn_id);
+        if (!mounted.current) return;
+        uploads.clear();
+        setDraft("");
+        setNotice("");
+        const turn = mentionTurn({ unaddressed: started.turn_id, after: props.runId });
+        // No `runId` on the words: the kit reads a run's input for each one (`kept` folds instead).
+        const words: ChatMessage = { id: `kept:${started.turn_id}`, role: "user", kind: "prompt", content: text };
+        keptWords.current.set(words.id!, started.turn_id);
+        setMentionAnswers((prev) => ({ anchor: turn.anchor, messages: [...(prev.anchor === turn.anchor ? prev.messages : []), words] }));
+        return unsentResult(await sendMentions(sid, turn, text, mentions, ctx?.signal));
+      }
+      const { run_id } = started;
+      if (mentionedEntities(mentions).length) entitiesAnswer.current.add(run_id);
       if (!mounted.current) return;
       startedHere.current = run_id;
       uploads.clear();
       setDraft("");
       setNotice("");
       props.onStarted(run_id, sid);
-      if (mentions.length) return unsentResult(await sendMentions(sid, mentionTurn({ started: run_id }), text, mentions, ctx?.signal));
+      if (mentionedEntities(mentions).length) return unsentResult(await sendMentions(sid, mentionTurn({ started: run_id }), text, mentions, ctx?.signal));
       return undefined;
     },
     // sendMentions reads refs, state setters, the client and the transport.
@@ -398,9 +437,10 @@ export function Workspace(props: {
 
   // Who answered: the gateway's turn `author` on every reply (the kit's header) and on every live
   // reply frame; mention answers follow the turn they answer (`repeat_of`).
-  const answersShown = mentionAnswers.anchor && mentionAnswers.anchor === props.runId ? mentionAnswers.messages : null;
+  // ("" = a new conversation: a message the agent was not addressed in starts no run to follow.)
+  const answersShown = mentionAnswers.messages.length && mentionAnswers.anchor === props.runId ? mentionAnswers.messages : null;
   const presentation = useMemo(
-    () => conversationPresentation(answersShown ? [...snapshot.messages, ...answersShown] : snapshot.messages, { repeats: repeats.current, liveAuthors: liveAuthors.current }),
+    () => conversationPresentation(answersShown ? [...snapshot.messages, ...answersShown] : snapshot.messages, { repeats: repeats.current, liveAuthors: liveAuthors.current, kept: keptWords.current }),
     // The two maps are filled by the transport before the messages they label change.
     [snapshot.messages, answersShown],
   );
@@ -415,9 +455,9 @@ export function Workspace(props: {
       void voice.toggle_tts(String(reply.id || props.runId), reply.content);
   }, [snapshot.status, props.runId, props.voicePrefs.read_aloud, props.voicePrefs.reply_muted, reply, voice]);
   const listWords = pending && !answeredElsewhere ? "Needs you" : "";
-  // A turn started here with `mentions`: an agent that said nothing shows no answer and no line; the
-  // entities' answers follow.
-  const outcome = turnOutcome(props.runId, snapshot.status, snapshot.run, snapshot.messages, { entitiesAnswer: entitiesAnswer.current.has(props.runId) });
+  // A turn started here with entity mentions: an agent that said nothing, or was not addressed,
+  // shows no answer and no line; the entities' answers follow.
+  const outcome = turnOutcome(props.runId, snapshot.status, snapshot.run, snapshot.messages, { entitiesAnswer: entitiesAnswer.current.has(props.runId), notAddressed: notAddressed.current.has(props.runId) });
   const presence = assistantPresence({ recording: voice.voice_ptt_recording, transcribing: voice.voice_ptt_busy,
     playback: voice.tts_playback.status === "playing" && !voice.tts_speaking ? "loading" : voice.tts_playback.status, pending: Boolean(pending && !answeredElsewhere), busy,
     working: messages.some((m) => m.toolActivity?.status === "running"), failed: snapshot.status === "failed", loading: snapshot.loading });

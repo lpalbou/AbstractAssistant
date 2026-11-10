@@ -47,4 +47,11 @@ describe("an ended turn says what happened when the transcript cannot", () => {
     expect(turnOutcome("r", "completed", {}, words)).toBe("The run ended without a written reply.");
     expect(turnOutcome("r", "failed", { error: "provider down" }, words, { entitiesAnswer: true })).toBe("The run failed: provider down");
   });
+  it("a turn the agent was not addressed in (entity mentions, no @agent) shows no line; its failure still does", () => {
+    // Operator 2026-11-10: the gateway records the words and starts no agent run (`agent: "not_addressed"`).
+    const words = [{ id: "r:user", runId: "r", role: "user", content: "@Castor does the bridge hold?" }];
+    expect(turnOutcome("r", "completed", {}, words, { notAddressed: true })).toBe("");
+    expect(turnOutcome("r", "completed", {}, words, { notAddressed: false })).toBe("The run ended without a written reply.");
+    expect(turnOutcome("r", "failed", { error: "lost" }, words, { notAddressed: true })).toBe("The run failed: lost");
+  });
 });

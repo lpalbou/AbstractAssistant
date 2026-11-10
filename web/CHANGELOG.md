@@ -11,20 +11,19 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 Mention your entities in a conversation, see who wrote each reply, and see what an entity's reply
 kept. Built on `@abstractframework/ui-kit` 0.9.27 and `@abstractframework/panel-chat` 0.9.11 from
 npm. Mentions, reply authors and the badges need AbstractGateway 0.21.0 or later; the Assistant
-staying out of what you ask an entity also needs AbstractAgent 0.6.1 or later. On an older gateway
-the app works as in 0.1.3: replies keep their "Assistant" header, and typing `@` says "This gateway
-does not offer mentions yet."
+answering only its part beside the entities you mention also needs AbstractAgent 0.6.1 or later. On
+an older gateway the app works as in 0.1.3: replies keep their "Assistant" header, and typing `@`
+says "This gateway does not offer mentions yet."
 
 ### Added
 
 - **Mention an entity with `@`.** Type `@` in the message box and pick one of your entities (the
-  ones your gateway lists for you); it becomes a chip. When you send, the Assistant gets your
-  message as usual, then each entity you mentioned answers in turn, in the order you picked them,
-  and its answer appears in the conversation under its name. Your message shows once, and the
-  answers to it appear in the order they came. The first time you pick a name in a
-  conversation, a line reminds you that it will read this conversation's history. A name you
-  already picked is not offered again, an entity picked twice is asked once, and the list spans
-  the message box on a phone.
+  ones your gateway lists for you); it becomes a chip. When you send, each entity you mentioned
+  answers in turn, in the order you picked them, and its answer appears in the conversation under
+  its name. Your message shows once, and the answers to it appear in the order they came. The first
+  time you pick a name in a conversation, a line reminds you that it will read this conversation's
+  history. A name you already picked is not offered again, an entity picked twice is asked once, and
+  the list spans the message box on a phone.
 - **When a mention cannot be answered, you are told.** An entity already in another conversation is
   skipped with one sentence ("Castor is in another conversation.") and the next one is still asked.
   An entity that cannot answer says why, and your words go back to the message box with only the
@@ -43,11 +42,18 @@ does not offer mentions yet."
   name) or the entity's name and look, with a small "agent" or "entity" tag. It comes from the
   gateway, so a reload or another device shows the same. An entity's answer without a name reads
   "Entity". On an older gateway replies keep their "Assistant" header.
-- **The Assistant leaves what you ask an entity to that entity.** When your message mentions
-  entities, the gateway tells the Assistant who is mentioned when it starts its turn (`mentions` on
-  `POST runs/start`, in the order you picked them). The Assistant answers only the part meant for
-  it, or says nothing: then the conversation shows your words and the entities' answers, with no
-  empty reply and no "ended without a written reply" line.
+- **A message to your entities does not reach the Assistant; `@Assistant` asks it too.** A message
+  that mentions entities goes to them only: the gateway keeps your words as a turn of the
+  conversation and the Assistant does not answer (`agent: "not_addressed"` and the turn's `turn_id`
+  on `POST runs/start`; each entity is asked with `repeat_of` naming that turn). One line above the
+  message box says "The assistant stays out of this message.", and the conversation shows your words
+  once, then the entities' answers, with no spinner, no empty reply and no "ended without a written
+  reply" line (a turn marked `agent_addressed: false` in its view is never shown as waiting for a
+  reply). To ask the Assistant as well, pick **Assistant**, first in the `@` list (an "agent" chip,
+  sent as the reserved `agent` in `mentions`, in the order you picked): it answers only the part
+  meant for it, or says nothing. A message without mentions goes to the Assistant as always. A
+  message with `@Assistant` is a new message, never a resend of a stopped one. A message sent while
+  the Assistant is still working (the Avatar view) still guides its running turn.
 - **What an entity's reply kept, as badges under its words.** When an entity keeps something from
   the exchange (a diary entry, a question, a lesson, an interest or a realization), its reply shows
   one badge for each under the text: the kind and its title. A private diary entry reads "private

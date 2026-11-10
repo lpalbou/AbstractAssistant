@@ -7,7 +7,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { AssistantHost } from "../host";
 import { GatewayClient, GatewayHttpError } from "../gateway/client";
 import {
+  AGENT_MENTION,
+  AGENT_STAYS_OUT,
   MENTIONS_UNAVAILABLE,
+  agentCandidate,
   deliverMentions,
   entityCandidates,
   gatewayLacksTurnAuthors,
@@ -16,10 +19,13 @@ import {
   mentionMessageKey,
   mentionNotice,
   mentionRefusal,
+  mentionRoster,
+  mentionedEntities,
   mintMessageId,
   mentionStatusLine,
   mentionTurn,
   startRunMentions,
+  viewAgentNotAddressed,
   viewRepeatOf,
   type MentionAnswer,
   type MentionRequest,
@@ -412,7 +418,124 @@ describe("the session agent stays silent for what is addressed to entities (Abst
   it("the workspace sends them with both workflow choices and remembers the turn they started", () => {
     expect(ws).toContain("const mentioned = startRunMentions(mentions);");
     expect(ws.match(/input_data, \.\.\.\(avatarMode \? \{ conversation: true \} : \{\}\), \.\.\.mentioned \}/g)?.length).toBe(2);
-    expect(ws).toContain("if (mentioned.mentions) entitiesAnswer.current.add(run_id);");
-    expect(ws).toContain("turnOutcome(props.runId, snapshot.status, snapshot.run, snapshot.messages, { entitiesAnswer: entitiesAnswer.current.has(props.runId) })");
+    expect(ws).toContain("if (mentionedEntities(mentions).length) entitiesAnswer.current.add(run_id);");
+    expect(ws).toContain("turnOutcome(props.runId, snapshot.status, snapshot.run, snapshot.messages, { entitiesAnswer: entitiesAnswer.current.has(props.runId), notAddressed: notAddressed.current.has(props.runId) })");
+  });
+});
+
+describe("@agent and the agent staying out (operator 2026-11-10)", () => {
+  const ws = readFileSync(new URL("../ui/Workspace.tsx", import.meta.url), "utf8");
+  const agent = { id: AGENT_MENTION, name: "Assistant", kind: "agent" as const, index: 1 };
+  const host = {
+    kind: "browser",
+    gatewayUrl: (route: string) => `api/gateway/${route}`,
+    auth: { kind: "app-cookie-session", credentials: "same-origin", headers: () => ({}) },
+    signIn: "app-server-modal",
+    capabilities: {
+      tray: { available: false, reason: "" },
+      globalHotkey: { available: false, reason: "" },
+      systemNotifications: { available: false, reason: "" },
+      autostart: { available: false, reason: "" },
+      microphone: { available: true },
+      audioPlayback: { available: true },
+    },
+  } as AssistantHost;
+
+  it("the list offers the agent first (kind agent, slug agent, 'Assistant'), then the entities; it has no notice", () => {
+    const roster = mentionRoster(entityCandidates({ entities: [{ slug: "castor", name: "Castor" }] }));
+    expect(roster).toEqual([{ id: "agent", name: "Assistant", kind: "agent" }, { id: "castor", name: "Castor", kind: "entity" }]);
+    expect(matchCandidates(roster, "ass").map((c) => c.id)).toEqual(["agent"]);
+    expect(matchCandidates(roster, "AG").map((c) => c.id)).toEqual(["agent"]);
+    expect(matchCandidates(roster, "ca").map((c) => c.id)).toEqual(["castor"]);
+    expect(agentCandidate("Basic agent")).toEqual({ id: "agent", name: "Basic agent", kind: "agent" });
+    expect(mentionNotice(agentCandidate())).toBeNull();
+    expect(ws).toContain("client.listEntities().then((listed) => mentionRoster(entityCandidates(listed)))");
+  });
+
+  it("the start sends the agent chip as the reserved slug, in pick order with the entities, each once", () => {
+    expect(startRunMentions([{ ...pollux, index: 2 }, agent, castor])).toEqual({ mentions: ["castor", "agent", "pollux"] });
+    expect(startRunMentions([{ ...agent, id: "whatever", index: 3 }, castor, { ...agent, index: 4 }])).toEqual({ mentions: ["castor", "agent"] });
+    expect(startRunMentions([{ ...agent, index: 0 }])).toEqual({ mentions: ["agent"] });
+    expect(startRunMentions([castor])).toEqual({ mentions: ["castor"] });
+  });
+
+  it("only entities are asked at the mention door, at their own index; the agent chip never is", async () => {
+    const post = vi.fn(async (req: MentionRequest) => answer(req));
+    const out = await deliverMentions({ text: "hi", mentions: [{ ...agent, index: 0 }, { ...castor, index: 1 }], post, repeatOf: "turn-1" });
+    expect(post.mock.calls.map((c) => `${c[0].entity}#${c[0].mention_index}`)).toEqual(["castor#1"]);
+    expect(out.answered).toHaveLength(1);
+    expect(mentionedEntities([agent, castor, pollux]).map((m) => m.id)).toEqual(["castor", "pollux"]);
+    const alone = vi.fn(async (req: MentionRequest) => answer(req));
+    await deliverMentions({ text: "hi", mentions: [agent], post: alone });
+    expect(alone).not.toHaveBeenCalled();
+  });
+
+  it("POST runs/start: agent \"not_addressed\" names the kept turn (turn_id), no run; \"started\" or no key is the agent's run", async () => {
+    const client = new GatewayClient(host);
+    const answers = [{ agent: "not_addressed", turn_id: "turn-7" }, { agent: "started", run_id: "r-2" }, { run_id: "r-3" }, { agent: "not_addressed", run_id: "r-4" }];
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(answers.shift()), { status: 200 })));
+    try {
+      const start = () => client.startRun({ flow_id: "@default", interface: "abstractassistant.agent.v1", session_id: "s-1", input_data: { prompt: "@Castor hi" }, mentions: ["castor"] });
+      expect(await start()).toEqual({ agentNotAddressed: true, turn_id: "turn-7" });
+      expect(await start()).toMatchObject({ agentNotAddressed: false, run_id: "r-2" });
+      expect(await start()).toMatchObject({ agentNotAddressed: false, run_id: "r-3" });
+      await expect(start()).rejects.toThrow("returned no turn id");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("a message the agent was not addressed in: its mentions name the kept turn as repeat_of, shown after the turn on screen", async () => {
+    expect(mentionTurn({ unaddressed: "turn-7", after: "r0" })).toEqual({ anchor: "r0", repeatOf: "turn-7", agentOut: true });
+    expect(mentionTurn({ unaddressed: "turn-7", after: "" })).toEqual({ anchor: "", repeatOf: "turn-7", agentOut: true });
+    expect(mentionTurn({ started: "r1" }).agentOut).toBeUndefined();
+    const post = vi.fn(async (req: MentionRequest) => answer(req));
+    const turn = mentionTurn({ unaddressed: "turn-7", after: "r0" });
+    await deliverMentions({ text: "Does the bridge hold?", mentions: [castor], post, repeatOf: turn.repeatOf });
+    expect(post.mock.calls[0][0]).toEqual({ entity: "castor", text: "Does the bridge hold?", mention_index: 0, repeat_of: "turn-7", mention_id: "turn-7:castor:0" });
+  });
+
+  it("a view marks the person's turn the agent was not addressed in (agent_addressed: false), and only that", () => {
+    const view = (addressed: unknown) => ({
+      root_run_id: "r",
+      messages: [
+        { id: "r:p", role: "user", kind: "prompt", text: "@Castor hi", run_id: "r", ...(addressed === undefined ? {} : { agent_addressed: addressed }) },
+        { id: "m:p", role: "user", kind: "prompt", text: "earlier", run_id: "e", agent_addressed: false },
+        { id: "m:a", role: "assistant", kind: "answer", text: "hello", run_id: "x", agent_addressed: false },
+      ],
+    });
+    expect(viewAgentNotAddressed(view(false))).toEqual(["r", "e"]);
+    expect(viewAgentNotAddressed(view(true))).toEqual(["e"]);
+    expect(viewAgentNotAddressed(view(undefined))).toEqual(["e"]);
+    expect(viewAgentNotAddressed(view("false"))).toEqual(["e"]);
+    expect(viewAgentNotAddressed(null)).toEqual([]);
+    expect(viewAgentNotAddressed({ messages: "x" })).toEqual([]);
+  });
+
+  it("the line above the field opens with the agent staying out, before what the mentions said", () => {
+    const quiet = { message: "m", answered: [], notes: [], unavailable: false, stopped: null, unsent: [] };
+    expect(mentionStatusLine(quiet, AGENT_STAYS_OUT)).toBe("The assistant stays out of this message.");
+    expect(mentionStatusLine({ ...quiet, notes: ["Pollux is in another conversation."] }, AGENT_STAYS_OUT)).toBe("The assistant stays out of this message. Pollux is in another conversation.");
+    expect(mentionStatusLine(quiet)).toBe("");
+  });
+
+  it("the workspace: the start's mark and every view's mark, no spinner, the line, @agent is never a resend", () => {
+    expect(ws).toContain("const started = await client.startRun(");
+    expect(ws).toContain("notAddressed.current.add(started.turn_id);");
+    expect(ws).toContain("const turn = mentionTurn({ unaddressed: started.turn_id, after: props.runId });");
+    expect(ws).toContain("return unsentResult(await sendMentions(sid, turn, text, mentions, ctx?.signal));");
+    expect(ws).toContain("const words: ChatMessage = { id: `kept:${started.turn_id}`, role: \"user\", kind: \"prompt\", content: text };");
+    expect(ws).toContain("keptWords.current.set(words.id!, started.turn_id);");
+    expect(ws).toContain("liveAuthors: liveAuthors.current, kept: keptWords.current })");
+    expect(ws).toContain("setMentionAnswers((prev) => ({ anchor: turn.anchor, messages: [...(prev.anchor === turn.anchor ? prev.messages : []), words] }));");
+    expect(ws).toContain("repeats.current.set(answer.run_id, turn.repeatOf || anchor);");
+    expect(ws).toContain("const answersShown = mentionAnswers.messages.length && mentionAnswers.anchor === props.runId ? mentionAnswers.messages : null;");
+    expect(ws).toContain("for (const runId of viewAgentNotAddressed(view)) notAddressed.current.add(runId);");
+    expect(ws).toContain("const busy = Boolean(props.runId) && !notAddressed.current.has(props.runId) && !TERMINAL.has(snapshot.status)");
+    expect(ws).toContain("const lead = turn.agentOut ? AGENT_STAYS_OUT : \"\";");
+    expect(ws).toContain("if (lead && mounted.current) setMentionStatus(lead);");
+    expect(ws).toContain("setMentionStatus(mentionStatusLine(outcome, lead));");
+    expect(ws).toContain("held.sid === ensureSession() && !mentions.some((m) => m.kind === \"agent\") ? mentionResend(held.resend, text, mentions) : null;");
+    expect(ws).toContain("if (mentionedEntities(mentions).length) return unsentResult(await sendMentions(sid, mentionTurn({ started: run_id }), text, mentions, ctx?.signal));");
   });
 });

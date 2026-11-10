@@ -18,6 +18,13 @@
  *   id minted once for the message when it has none. A resend of the message (the same words after
  *   an entity could not answer, a timeout or a lost answer) names the same ids, so the gateway gives
  *   back the first answer instead of asking the entity again; a new message gets new ids.
+ * - Who the message reaches (operator 2026-11-10; AbstractGateway `mentions` on `POST runs/start`):
+ *   a message that mentions entities and not `@agent` does not reach the session agent. The gateway
+ *   records the person's turn and starts no agent run (`agent: "not_addressed"` and the turn's
+ *   `turn_id` on the start's answer, `agent_addressed: false` on the turn's message in a view); the
+ *   entities answer, their mentions naming that turn (`repeat_of: <turn_id>`). The reserved chip
+ *   `@agent` (`AGENT_MENTION`, slug "agent") addresses the agent beside them; a message without
+ *   chips reaches the agent as always.
  * - Refusals, per the contract: 409 = "<name> is in another conversation", go on with the next;
  *   404 `entity_not_found` = this name cannot be mentioned (hidden is missing), go on; 503 = the
  *   gateway's sentence, stop, the message goes back to the composer; 422 `repeat_of_unknown` =
@@ -30,6 +37,12 @@ import { uniqueMentions, type ChatMentionCandidate, type ChatMentionSent, type C
 
 /** The one sentence an older gateway gets (no mention route, or turns without `author`). */
 export const MENTIONS_UNAVAILABLE = "This gateway does not offer mentions yet.";
+
+/** The reserved slug that names the conversation's own agent in `mentions` (the gateway's rule). */
+export const AGENT_MENTION = "agent";
+
+/** The line above the message field after a message the agent was not addressed in. */
+export const AGENT_STAYS_OUT = "The assistant stays out of this message.";
 
 const text = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
 const record = (value: unknown): Record<string, unknown> | null =>
@@ -58,6 +71,21 @@ export function entityCandidates(payload: unknown): ChatMentionCandidate[] {
   return out;
 }
 
+/** The chip that addresses the conversation's agent (`@agent`), first in the list. */
+export function agentCandidate(name = "Assistant"): ChatMentionCandidate {
+  return { id: AGENT_MENTION, name: text(name) || "Assistant", kind: "agent" };
+}
+
+/** The names the composer offers: the agent first, then the entities. */
+export function mentionRoster(entities: readonly ChatMentionCandidate[], agentName?: string): ChatMentionCandidate[] {
+  return [agentCandidate(agentName), ...entities];
+}
+
+/** The entity chips of a message (the ones the mention door is asked about). */
+export function mentionedEntities<M extends Pick<ChatMentionSent, "kind">>(mentions: readonly M[]): M[] {
+  return mentions.filter((m) => m.kind === "entity");
+}
+
 /** The names that start with what was typed after `@` (name or id, any case). */
 export function matchCandidates(list: readonly ChatMentionCandidate[], query: string): ChatMentionCandidate[] {
   const q = String(query || "").trim().toLowerCase();
@@ -71,16 +99,35 @@ export function mentionNotice(candidate: ChatMentionCandidate): string | null {
 }
 
 /**
- * `mentions` of `POST runs/start` (AbstractGateway c26d38a2): the entities the message mentions, by
- * the id the mention door is sent (`entity`, the chip's slug), in the order they were picked
- * (`index`), each once. With it the gateway tells the conversation's agent that the mentioned
- * entities answer for themselves: it answers only the part addressed to it, or says nothing (an
- * empty reply, which the gateway serves as no answer). `{}` for a message that mentions no entity:
- * the body then carries no `mentions` key.
+ * `mentions` of `POST runs/start` (AbstractGateway c26d38a2; operator 2026-11-10): the chips of the
+ * message in the order they were picked (`index`), each once: an entity by the id the mention door
+ * is sent (`entity`, the chip's slug), the agent chip as the reserved slug "agent". Without "agent"
+ * the gateway starts no agent run for a message that mentions entities (the entities answer); with
+ * it the agent is told the mentioned entities answer for themselves. `{}` for a message without
+ * chips: the body then carries no `mentions` key and the agent answers as always.
  */
 export function startRunMentions(mentions: readonly ChatMentionSent[]): { mentions?: string[] } {
-  const ids = uniqueMentions([...mentions].filter((m) => m.kind === "entity").sort((a, b) => a.index - b.index)).map((m) => m.id);
+  const slugs = [...mentions].filter((m) => m.kind === "entity" || m.kind === "agent").sort((a, b) => a.index - b.index)
+    .map((m) => (m.kind === "agent" ? AGENT_MENTION : m.id));
+  const ids = [...new Set(slugs)];
   return ids.length ? { mentions: ids } : {};
+}
+
+/**
+ * The turns of a view whose agent was not addressed: each person's message the gateway marks
+ * `agent_addressed: false` (it recorded the words and started no agent run), by its run. A reload
+ * reads the same mark the start answered with (`agent: "not_addressed"`).
+ */
+export function viewAgentNotAddressed(view: unknown): string[] {
+  const messages = record(view)?.messages;
+  if (!Array.isArray(messages)) return [];
+  const out: string[] = [];
+  for (const raw of messages) {
+    const m = record(raw);
+    const runId = text(m?.run_id);
+    if (m?.role === "user" && m.agent_addressed === false && runId && !out.includes(runId)) out.push(runId);
+  }
+  return out;
 }
 
 /** What the mention door answered (200): the session turn the answer is (its view carries `author`). */
@@ -102,8 +149,9 @@ export function mentionMessageKey(repeatOf: string | null | undefined, mint: () 
   return text(repeatOf) || mint();
 }
 
-/** The turn a message's mentions are shown after (`anchor`) and name as `repeat_of` ("" = none). */
-export type MentionTurn = { anchor: string; repeatOf: string };
+/** The turn a message's mentions are shown after (`anchor`) and name as `repeat_of` ("" = none);
+ * `agentOut`: the message did not reach the agent (`AGENT_STAYS_OUT`). */
+export type MentionTurn = { anchor: string; repeatOf: string; agentOut?: boolean };
 
 /**
  * The gateway takes a `repeat_of` only for the caller's own turn of this session whose prompt is the
@@ -113,9 +161,13 @@ export type MentionTurn = { anchor: string; repeatOf: string };
  * through `inject_guidance`, or an answer to its question) names none: the running turn's prompt is
  * an earlier message and the guidance travels in the steer's own field, so no turn carries these
  * words. The mention turn then keeps them as its own prompt, its `mention_id`s take a key minted for
- * the message, and its answers are shown after the running turn.
+ * the message, and its answers are shown after the running turn. A message the agent was not
+ * addressed in (`agent: "not_addressed"`) started no run: it names the turn the gateway kept its
+ * words as (`turn_id`, which the door takes as `repeat_of`), and its words and answers are shown
+ * after the turn on screen (`after`; "" in a new conversation).
  */
-export function mentionTurn(sent: { started: string } | { steered: string }): MentionTurn {
+export function mentionTurn(sent: { started: string } | { steered: string } | { unaddressed: string; after: string }): MentionTurn {
+  if ("unaddressed" in sent) return { anchor: text(sent.after), repeatOf: text(sent.unaddressed), agentOut: true };
   return "started" in sent ? { anchor: text(sent.started), repeatOf: text(sent.started) } : { anchor: text(sent.steered), repeatOf: "" };
 }
 
@@ -182,7 +234,8 @@ export async function deliverMentions(opts: {
 }): Promise<MentionDelivery> {
   const message = text(opts.message) || mentionMessageKey(opts.repeatOf);
   const out: MentionDelivery = { message, answered: [], notes: [], unavailable: false, stopped: null, unsent: [] };
-  const mentions = uniqueMentions(opts.mentions);
+  // Only entities go to the door: the agent chip rode the start (`startRunMentions`).
+  const mentions = uniqueMentions(mentionedEntities(opts.mentions));
   for (const [at, mention] of mentions.entries()) {
     opts.signal?.throwIfAborted();
     let answer: MentionAnswer;
@@ -219,9 +272,10 @@ export async function deliverMentions(opts: {
   return out;
 }
 
-/** The one line under the composer about the mentions just sent ("" = nothing to say). */
-export function mentionStatusLine(outcome: MentionDelivery): string {
-  return [...outcome.notes, outcome.unavailable ? MENTIONS_UNAVAILABLE : "", outcome.stopped || ""].filter(Boolean).join(" ");
+/** The one line above the composer about the mentions just sent ("" = nothing to say); `lead`
+ * opens it (`AGENT_STAYS_OUT` when the agent was not addressed). */
+export function mentionStatusLine(outcome: MentionDelivery, lead = ""): string {
+  return [lead, ...outcome.notes, outcome.unavailable ? MENTIONS_UNAVAILABLE : "", outcome.stopped || ""].filter(Boolean).join(" ");
 }
 
 /**

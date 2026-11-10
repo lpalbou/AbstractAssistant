@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 import { projectReplayView } from "@abstractframework/panel-chat";
 import { WorkflowChat, type ChatMessage } from "../vendor/abstractchat/conversation.js";
 import { conversationPresentation } from "../lib/presentation";
-import { MENTIONS_UNAVAILABLE, deliverMentions, mentionNotice, mentionStatusLine } from "../lib/mentions";
+import { AGENT_STAYS_OUT, MENTIONS_UNAVAILABLE, deliverMentions, mentionNotice, mentionStatusLine } from "../lib/mentions";
 import { GatewayHttpError } from "../gateway/client";
 
 const castor = { kind: "entity" as const, name: "Castor", entity_id: "entity:castor", identity_ref: "entity:castor#3", avatar: { style: "watch-halo", color: "#336699" } };
@@ -83,6 +83,43 @@ describe("an older gateway's mention attempt", () => {
 
   it("says nothing when no mention was sent", () => {
     expect(render([], { mentionStatus: null, mentionsUnavailable: MENTIONS_UNAVAILABLE })).not.toContain(MENTIONS_UNAVAILABLE);
+  });
+});
+
+describe("a message the agent was not addressed in (operator 2026-11-10)", () => {
+  const answered = { message: "m", answered: [{ run_id: "m1", reply: "The bridge holds.", mention_index: 0 }], notes: [], unavailable: false, stopped: null, unsent: [] };
+
+  it("one line above the field, the kit's mention status; no other line", () => {
+    const html = render([], { mentionStatus: mentionStatusLine(answered, AGENT_STAYS_OUT) });
+    expect(html.split(AGENT_STAYS_OUT).length - 1).toBe(1);
+    expect(html.match(/pc-mention-notice--status/g)?.length).toBe(1);
+  });
+
+  it("with @agent, or without chips, there is no such line", () => {
+    const html = render([], { mentionStatus: mentionStatusLine(answered) || null });
+    expect(html).not.toContain(AGENT_STAYS_OUT);
+    expect(html).not.toContain("pc-mention-notice");
+  });
+
+  it("the kept turn's words show once, then the entity's answer; no reply of the agent, no working dots", () => {
+    // The words the workspace shows for the kept turn (`turn_id`), then the mention turn's view (repeat_of it).
+    const turn: ChatMessage[] = [
+      { id: "kept:turn-7", role: "user", kind: "prompt", content: "Does the bridge hold?" },
+      { id: "m:input", runId: "m", role: "user", kind: "prompt", content: "Does the bridge hold?", author: person },
+      { id: "m:final", runId: "m", role: "assistant", kind: "final", content: "The bridge holds.", author: castor },
+      { id: "n:input", runId: "n", role: "user", kind: "prompt", content: "Does the bridge hold?", author: person },
+      { id: "n:final", runId: "n", role: "assistant", kind: "final", content: "It holds for now.", author: { ...castor, name: "Pollux" } },
+    ];
+    const opts = { repeats: new Map([["m", "turn-7"], ["n", "turn-7"]]), kept: new Map([["kept:turn-7", "turn-7"]]) };
+    const shown = conversationPresentation(turn, opts).conversation;
+    // The words carry no run (the kit reads a run's input for each user message that has one).
+    expect(shown.filter((m) => m.role === "user").map((m) => [m.id, m.runId])).toEqual([["kept:turn-7", undefined]]);
+    // Without the kept turn, each mention's prompt shows (the words would be there three times).
+    expect(conversationPresentation(turn, { repeats: opts.repeats }).conversation.filter((m) => m.role === "user")).toHaveLength(3);
+    const html = render(shown, { busy: false });
+    expect(headers(html)).toEqual([["entity", "Castor", "entity"], ["entity", "Pollux", "entity"]]);
+    expect(html.match(/pc-chat-item--user/g)?.length).toBe(1);
+    expect(html).not.toContain("pc-chat-working");
   });
 });
 
