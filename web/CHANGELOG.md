@@ -10,7 +10,7 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 
 ### Changed (relock)
 
-- Relocked on the published kit: `@abstractframework/ui-kit` ^0.9.28 and `@abstractframework/panel-chat` ^0.9.12 from npm; every `src/vendor` snapshot re-synced to match them (session cards and gateway voice were behind).
+- Relocked on the published kit: `@abstractframework/ui-kit` ^0.9.28 and `@abstractframework/panel-chat` ^0.9.13 from npm; every `src/vendor` snapshot re-synced to match them (session cards and gateway voice were behind).
 - **An `@` mention is a chip inside the sentence** (operator, second test round 2026-11-10): picking a name puts it where the typed `@cas` was ("Hi @Castor how are you doing ?"), with the entity's orb, no ×; deleting it in the text removes the mention. The words sent carry each chip as "@Name". Needs `@abstractframework/panel-chat` 0.9.12 (published; the vendored snapshots `src/vendor/abstractchat` and `src/vendor/abstractdocs` are synced from it).
 
 Mention your entities in a conversation, see who wrote each reply, and see what an entity's reply
