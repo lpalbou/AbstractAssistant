@@ -1,6 +1,6 @@
 """The card on a mention chip (the kit's `renderMentionCard`, panel-chat 0.9.13; AbstractAssistant
 web ui/MentionCard.tsx): resting the pointer ~150 ms on "@Castor" — in the composer or in a sent
-message — shows a small card with the entity's orb, its name and one sentence of its state, read
+message — or reaching a sent message's chip with the keyboard (Tab: the chip is an anchor) shows a small card with the entity's orb, its name and one sentence of its state, read
 from the roster the `@` list loaded. The agent's chip, or a name the roster does not hold, has no
 card. It goes when the pointer leaves the chip, on a click, a scroll, a key, or when the widget
 hides. The card floats inside the palette window, below the chip (above when there is no room).
@@ -15,7 +15,7 @@ from PyQt5.QtCore import QEvent, QObject, QPoint, QPointF, QRect, QSize, Qt, QTi
 from PyQt5.QtWidgets import QAbstractScrollArea, QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from ..theme import METRICS, THEME
-from .mention_chip import chip_under, mention_look, mention_mark_pixmap
+from .mention_chip import chip_at, chip_rect, chip_under, mention_look, mention_mark_pixmap
 
 #: How long the pointer rests on a chip before its card shows (the kit's MENTION_CARD_REST_MS).
 MENTION_CARD_REST_MS = 150
@@ -129,13 +129,21 @@ class ChipHoverWatcher(QObject):
         self._viewport.setMouseTracking(True)
         self._viewport.installEventFilter(self)
         editor.installEventFilter(self)
+        # The keyboard: in a read-only message, Tab selects a chip's anchor (the chip itself).
+        # Qt moves that selection without a signal, so it is read once the key (or the focus)
+        # has been handled.
+        editor.selectionChanged.connect(self._on_selection)
+        self._after_key = QTimer(self)
+        self._after_key.setSingleShot(True)
+        self._after_key.setInterval(0)
+        self._after_key.timeout.connect(self._on_selection)
 
     def _doc_point(self, pos: QPoint) -> QPointF:
         h = self.editor.horizontalScrollBar()
         v = self.editor.verticalScrollBar()
         return QPointF(pos.x() + (h.value() if h else 0), pos.y() + (v.value() if v else 0))
 
-    def chip_at(self, pos: QPoint) -> Optional[Dict[str, Any]]:
+    def chip_at_point(self, pos: QPoint) -> Optional[Dict[str, Any]]:
         """The chip under viewport point ``pos``, with its ``rect`` in document coordinates."""
         return chip_under(self.editor.document(), self._doc_point(pos))
 
@@ -150,10 +158,29 @@ class ChipHoverWatcher(QObject):
         return f"{id(self.editor)}:{chip.get('position')}:{chip.get('kind')}:{chip.get('id')}"
 
     def hover(self, pos: QPoint) -> None:
-        chip = self.chip_at(pos)
+        chip = self.chip_at_point(pos)
         if chip is None:
             self.leave()
             return
+        if self._chip is not None and self._key(chip) == self._key(self._chip):
+            return
+        self.leave()
+        self._chip = chip
+        self._timer.start(MENTION_CARD_REST_MS)
+
+    def _on_selection(self) -> None:
+        """A chip reached by the keyboard (its one character selected in a read-only message)
+        shows its card after the same rest; anything else selected hides it."""
+        if sip.isdeleted(self.editor) or not self.editor.isReadOnly():
+            return
+        cursor = self.editor.textCursor()
+        begin, end = cursor.selectionStart(), cursor.selectionEnd()
+        chip = chip_at(self.editor.document(), begin) if end - begin == 1 else None
+        rect = chip_rect(self.editor.document(), begin) if chip is not None else None
+        if chip is None or rect is None:
+            self.leave()
+            return
+        chip = {**chip, "rect": rect}
         if self._chip is not None and self._key(chip) == self._key(self._chip):
             return
         self.leave()
@@ -196,6 +223,10 @@ class ChipHoverWatcher(QObject):
             self.hover(event.pos())
         elif kind in (QEvent.Leave, QEvent.Hide, QEvent.MouseButtonPress, QEvent.Wheel, QEvent.KeyPress, QEvent.FocusOut):
             self.leave()
+            if kind == QEvent.KeyPress and obj is self.editor and self.editor.isReadOnly():
+                self._after_key.start()
+        elif kind == QEvent.FocusIn and obj is self.editor and self.editor.isReadOnly():
+            self._after_key.start()
         return False
 
 

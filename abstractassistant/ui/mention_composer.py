@@ -10,7 +10,8 @@ cut, copy and paste carry it. Nothing is read out of the words: an "@name" typed
 elsewhere stays words.
 
 ``message_payload()`` is what a send carries: the words, each chip as "@Name", and the chips as
-``{id, name, kind, index, start}`` in text order (``mention_chip.document_message``).
+``{id, name, kind, index, start}`` in text order, ``start`` in UTF-16 code units like the web
+kit's (``mention_chip.document_message``).
 ``toPlainText()`` returns the same words, so every existing caller of the composer's text sees
 "@Castor", never the chip's placeholder character.
 """
@@ -375,7 +376,7 @@ class MentionTextEdit(QTextEdit):
         present = {mention_key(m) for m in self.mentions()}
         at = 0
         for chip in mentions_in_text(plain, chips):
-            start = int(chip["start"])
+            start = int(chip["at"])  # the Python index of its UTF-16 ``start``
             if start > at:
                 cursor.insertText(plain[at:start], base)
             if mention_key(chip) in present:

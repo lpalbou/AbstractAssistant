@@ -181,7 +181,7 @@ from .core.mentions import (
     sent_message_mentions,
 )
 from .ui.mention_card import watch_chips
-from .ui.mention_chip import MENTION_CLIPBOARD_TYPE, clipboard_payload, install_chip_handler, place_mention_chips
+from .ui.mention_chip import MENTION_ANCHOR_PREFIX, MENTION_CLIPBOARD_TYPE, clipboard_payload, install_chip_handler, place_mention_chips
 from .ui.mention_composer import MentionTextEdit, as_mentions
 from .ui.pending_bubble import AuthorBadge, PendingMentionCard
 from .gateway.live_deltas import (
@@ -2243,6 +2243,8 @@ class AutoSizingTextBrowser(QTextBrowser):
 
     def _on_anchor_clicked(self, url: QUrl) -> None:
         href = bytes(url.toEncoded()).decode("utf-8", "replace")
+        if href.startswith(MENTION_ANCHOR_PREFIX):
+            return  # a mention chip (keyboard-focusable for its card), not a link
         reveal = bool(QApplication.keyboardModifiers() & Qt.ControlModifier)  # ⌘ on macOS
         try:
             problem = activate_message_link(href, force_reveal=reveal)
@@ -2253,6 +2255,8 @@ class AutoSizingTextBrowser(QTextBrowser):
 
     def _on_anchor_hovered(self, url: QUrl) -> None:
         href = bytes(url.toEncoded()).decode("utf-8", "replace") if not url.isEmpty() else ""
+        if href.startswith(MENTION_ANCHOR_PREFIX):
+            href = ""  # a mention chip shows its own card (ui.mention_card), not a link tooltip
         if href:
             # Escaped: Qt renders a tooltip that LOOKS like HTML as HTML, and the
             # href is model-written — `<img src=…>` in a path would be fetched.
@@ -2285,7 +2289,7 @@ class AutoSizingTextBrowser(QTextBrowser):
 
     def contextMenuEvent(self, event) -> None:  # noqa: N802
         href = str(self.anchorAt(event.pos()) or "").strip()
-        if not href:
+        if not href or href.startswith(MENTION_ANCHOR_PREFIX):
             super().contextMenuEvent(event)
             return
         local = local_path_from_href(href)
@@ -3275,9 +3279,11 @@ class MessageCard(QFrame):
                 # The chips the send carried, drawn where their "@Name" is (never searched for).
                 install_chip_handler(browser.document(), browser)
                 self._mention_chips_placed = place_mention_chips(
-                    browser.document(), self._content.strip(), sent_mentions
+                    browser.document(), self._content.strip(), sent_mentions, focusable=True
                 )
                 if callable(mention_card):
+                    # Tab reaches each chip (an anchor); its card shows after the same rest.
+                    browser.setTextInteractionFlags(browser.textInteractionFlags() | Qt.LinksAccessibleByKeyboard)
                     watch_chips(browser, mention_card)
             # Short prompts share a row with their time/actions instead of
             # reserving an empty 28px header above a single line of text, so
@@ -6567,6 +6573,9 @@ class AssistantPalette(QMainWindow):
 
         self._worker = worker
         self._cancel_requested = False
+        # A reattached run is an agent's run: nothing of an earlier entities-only message holds.
+        self._agent_not_addressed = False
+        self._agent_not_addressed_predicted = False
         self._last_run_status = ended if recovering else ""
         self._last_run_error = ""
         self._run_busy = not recovering
@@ -9952,6 +9961,15 @@ class AssistantPalette(QMainWindow):
         self._refresh_widget_style(button)
         self._refresh_composer_actions()
 
+    def _agent_run_in_progress(self) -> bool:
+        """Whether the message in flight has an agent run still going: the only thing steering,
+        pause, resume and a server-side cancel can reach. Not while only entities answer (no
+        run was started: `last_run_id` is the chat's previous, finished run), nor once the
+        agent's answer is in and only entities are still answering."""
+        if self._state("_worker") is None or self._state("_agent_not_addressed", False):
+            return False
+        return not (self._state("_pending_mentions") and self._state("_run_has_final_output", False))
+
     def _cancel_active_run(self) -> None:
         """Stop the in-flight run: cancel server-side and interrupt the follower."""
         worker = self._state("_worker")
@@ -9959,7 +9977,8 @@ class AssistantPalette(QMainWindow):
             # Nothing is running (⌘. on an idle palette): never cancel the
             # previous run or flash "Stopping…".
             return
-        run_id = str(self._controller.last_run_id() or "").strip()
+        # Only entities answering: there is no run to cancel; Stop ends the asking (the worker).
+        run_id = str(self._controller.last_run_id() or "").strip() if self._agent_run_in_progress() else ""
         if run_id:
             self._controller.cancel_run(run_id)
         if worker is not None:
@@ -10010,6 +10029,8 @@ class AssistantPalette(QMainWindow):
         return True
 
     def _pause_active_run(self) -> None:
+        if not self._agent_run_in_progress():
+            return  # entities answering: no run to pause (the menu offers none)
         run_id = str(self._controller.last_run_id() or "").strip()
         if run_id and self._controller.pause_run(run_id):
             self._run_paused = True
@@ -10026,6 +10047,8 @@ class AssistantPalette(QMainWindow):
             self._set_banner("The gateway did not accept the pause command.", tone="warn")
 
     def _resume_active_run(self) -> None:
+        if not self._agent_run_in_progress():
+            return  # entities answering: no run to resume (the menu offers none)
         run_id = str(self._controller.last_run_id() or "").strip()
         if run_id and self._controller.resume_run(run_id):
             self._run_paused = False
@@ -10036,14 +10059,23 @@ class AssistantPalette(QMainWindow):
             if card is not None and hasattr(card, "set_paused"):
                 card.set_paused(False)
 
-    def _show_run_control_menu(self, pos) -> None:
-        if self._worker is None:
-            return
+    def _run_control_menu(self) -> tuple:
+        """The send button's run menu. Pause and resume reach an agent run only: while only
+        entities answer they are shown disabled (Stop still ends the asking)."""
         menu = QMenu(self.send_button)
         act_pause = menu.addAction("Pause run")
         act_resume = menu.addAction("Resume run")
         menu.addSeparator()
         act_stop = menu.addAction("Stop run")
+        steerable = self._agent_run_in_progress()
+        act_pause.setEnabled(steerable)
+        act_resume.setEnabled(steerable)
+        return menu, act_pause, act_resume, act_stop
+
+    def _show_run_control_menu(self, pos) -> None:
+        if self._worker is None:
+            return
+        menu, act_pause, act_resume, act_stop = self._run_control_menu()
         chosen = menu.exec_(self.send_button.mapToGlobal(pos))
         if chosen == act_pause:
             self._pause_active_run()
@@ -10074,6 +10106,15 @@ class AssistantPalette(QMainWindow):
             except Exception:
                 alive = False
             if alive and not bool(self._cancel_requested):
+                if not self._agent_run_in_progress():
+                    # Only entities are answering: no agent run to steer (the chat's last run
+                    # is an earlier, finished one). The message waits for their answers and
+                    # then goes as a message of its own; the composer keeps it meanwhile.
+                    self._pending_submit = True
+                    self._set_history_status(
+                        "Your message will send when the answers are in.", tone="info"
+                    )
+                    return
                 if any(m.get("kind") == "entity" for m in self.prompt_edit.mentions()):
                     # A message that mentions entities is a message of its own (each entity is
                     # asked with it), never guidance for the running reply: it waits for that
@@ -10176,9 +10217,12 @@ class AssistantPalette(QMainWindow):
         self._invalidate_session_digests()
         self._pending_submission = {"prompt": prompt, "attachments": list(attachments), "mentions": list(chips)}
         self._run_start_failed = False
-        # A resend asks only entities (no agent run); a new message learns it from the start's
-        # answer (`agent_not_addressed`).
-        self._agent_not_addressed = resend is not None
+        # Who the message reaches is known from its chips (the gateway's rule: entity chips and no
+        # `@agent` start no agent run); a resend asks only entities. The start's answer confirms it
+        # (`agent_not_addressed`); a gateway that starts the agent anyway undoes it (`run_activity`).
+        entities_only = any(m.kind == "entity" for m in mentions) and not any(m.kind == "agent" for m in mentions)
+        self._agent_not_addressed = resend is not None or entities_only
+        self._agent_not_addressed_predicted = resend is None and entities_only
         # One bubble per entity asked, with its dots, from the moment the message is sent.
         asked = mention_resend(resend, prompt, mentions) if resend is not None else mentions
         self._pending_mentions = [
@@ -10208,7 +10252,7 @@ class AssistantPalette(QMainWindow):
         self._live_closed_calls = set()
         self._clear_run_activity()
         self._activity_model = RunActivityModel(run_id="", reattached=False)
-        if resend is None:  # a resend runs no workflow: only the entities' bubbles say so
+        if not self._agent_not_addressed:  # no agent run: only the entities' bubbles say so
             self._set_status("Running assistant workflow...", tone="busy")
             self._set_history_status("Running assistant workflow...", tone="busy")
         self._refresh_tray_feedback()
@@ -10268,10 +10312,19 @@ class AssistantPalette(QMainWindow):
         if typ == ASSISTANT_DELTA_RESET:
             self._on_live_reset()
             return
+        if typ == "run_activity" and payload.get("run_id") and self._state("_agent_not_addressed_predicted", False):
+            # The gateway started the agent after all (it does not read the chips): its run is
+            # followed and shown like any other.
+            self._agent_not_addressed = False
+            self._agent_not_addressed_predicted = False
+            self._set_status("Running assistant workflow...", tone="busy")
+            self._set_history_status("Running assistant workflow...", tone="busy")
+            self.refresh_history()
         if typ == "agent_not_addressed":
             # The message named entities and not `@agent`: the gateway kept the words and started
             # no agent run. Only the entities answer, each in its own pending bubble.
             self._agent_not_addressed = True
+            self._agent_not_addressed_predicted = False
             self._set_status("Ready")
             self._set_history_status()
             self.refresh_history()
@@ -10873,6 +10926,9 @@ class AssistantPalette(QMainWindow):
             self._set_status("Ready")
         # A send queued during teardown (stop clicked, user typed the next
         # message before the follower closed) fires now.
+        # The message is over: its "no agent run" mark ends with it.
+        self._agent_not_addressed = False
+        self._agent_not_addressed_predicted = False
         if self._pending_submit:
             self._pending_submit = False
             prompt_edit = getattr(self, "prompt_edit", None)

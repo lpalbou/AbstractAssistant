@@ -66,6 +66,7 @@ class FakeMentionWorker(QObject):
         self.mentions: tuple = ()
         self.resend = None
         self.running = False
+        self.interrupted = False
 
     def set_mentions(self, mentions, *, resend=None) -> None:
         for chip in mentions:
@@ -80,7 +81,10 @@ class FakeMentionWorker(QObject):
         return self.running
 
     def requestInterruption(self) -> None:  # noqa: N802
-        pass
+        self.interrupted = True
+
+    def status(self, status: str) -> None:
+        self.event_emitted.emit({"type": "status", "status": status})
 
     def entity(self, slug: str) -> Mention:
         return next(m for m in self.mentions if m.id == slug)
@@ -132,6 +136,10 @@ class MentionController(SMOKE["_Controller"]):
         self.messages: List[Dict[str, Any]] = []
         self.workers: List[FakeMentionWorker] = []
         self._ids = 0
+        # The chat's previous agent run (an entities-only message starts none) and every run
+        # command the palette sends, recorded.
+        self.previous_run = ""
+        self.commands: List[tuple] = []
 
     def session_messages(self) -> list:
         return list(self.messages)
@@ -156,5 +164,26 @@ class MentionController(SMOKE["_Controller"]):
     def latest_image_artifact(self):
         return None
 
+    def last_run_id(self) -> str:
+        return self.previous_run
+
     def inject_guidance(self, run_id: str, text: str) -> bool:
+        self.commands.append(("steer", run_id, text))
         return True
+
+    def cancel_run(self, run_id: str) -> bool:
+        self.commands.append(("cancel", run_id))
+        return True
+
+    def pause_run(self, run_id: str) -> bool:
+        self.commands.append(("pause", run_id))
+        return True
+
+    def resume_run(self, run_id: str) -> bool:
+        self.commands.append(("resume", run_id))
+        return True
+
+    def build_attach_worker(self, run_id: str):
+        worker = FakeMentionWorker(self, {"attach": run_id})
+        self.workers.append(worker)
+        return worker

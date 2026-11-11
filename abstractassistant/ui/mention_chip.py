@@ -14,8 +14,10 @@ picked from the list is plain text.
 The words a send carries (``document_message``): the text with each chip written "@" + its
 name, and the chips in text order as ``{id, name, kind, index, start}`` where ``index`` is the
 chip's place among the message's mentions (0, 1, …, the gateway's `mention_index`) and
-``start`` is where its "@Name" sits in the text (a Python string index), so
-``text[start:start + len(name) + 1] == "@" + name``. Each name once (``mention_key``): a second
+``start`` is where its "@Name" sits in the text in UTF-16 code units — the web kit's unit
+(panel-chat `ChatMentionSent.start`, `MENTION_CLIPBOARD_TYPE`), so a message or a clipboard the
+desktop wrote reads the same in the web after an emoji. ``py_index`` turns it into a Python
+string index (``text[py_index(text, start):][:len(name) + 1] == "@" + name``). Each name once (``mention_key``): a second
 chip of a name already in the text is written as words and not sent (the kit's
 `mentionsInText`).
 
@@ -43,6 +45,7 @@ from PyQt5.QtGui import (
     QTextCursor,
     QTextDocument,
     QTextFormat,
+    QTextLayout,
     QTextObjectInterface,
 )
 
@@ -73,6 +76,31 @@ def _text(value: Any) -> str:
 def mention_key(mention: Mapping[str, Any]) -> str:
     """One chip per name and message: `kind:id` (the kit's `mentionKey`)."""
     return f"{_text(mention.get('kind'))}:{_text(mention.get('id'))}"
+
+
+#: The anchor a sent message's chip carries (``place_mention_chips(focusable=True)``), so the
+#: keyboard can reach it for its card; never a link to open.
+MENTION_ANCHOR_PREFIX = "mention:"
+
+
+def utf16_len(text: str) -> int:
+    """QTextDocument positions and the kit's offsets count UTF-16 code units."""
+    return len(text.encode("utf-16-le")) // 2
+
+
+def py_index(text: str, start16: int) -> Optional[int]:
+    """The Python index of UTF-16 offset ``start16`` in ``text``; None past the end or inside
+    a character (half a surrogate pair)."""
+    if not isinstance(start16, int) or isinstance(start16, bool) or start16 < 0:
+        return None
+    units = 0
+    for index, char in enumerate(text):
+        if units == start16:
+            return index
+        if units > start16:
+            return None
+        units += 2 if ord(char) > 0xFFFF else 1
+    return len(text) if units == start16 else None
 
 
 def mention_text(mention: Mapping[str, Any]) -> str:
@@ -327,37 +355,36 @@ def document_message(doc: QTextDocument, *, strip: bool = True) -> Tuple[str, Li
     for words, mention, _position in _document_parts(doc):
         if mention is not None and usable_candidate(mention) and mention_key(mention) not in seen:
             seen.add(mention_key(mention))
-            entry: Dict[str, Any] = {"id": mention["id"], "name": mention["name"], "kind": mention["kind"], "index": len(mentions), "start": len(text)}
+            entry: Dict[str, Any] = {"id": mention["id"], "name": mention["name"], "kind": mention["kind"], "index": len(mentions), "start": utf16_len(text)}
             if mention.get("avatar"):
                 entry["avatar"] = dict(mention["avatar"])
             mentions.append(entry)
         text += words
     if strip:
-        lead = len(text) - len(text.lstrip())
+        lead = utf16_len(text[: len(text) - len(text.lstrip())])
         text = text.strip()
-        kept = []
-        for m in mentions:
-            start = int(m["start"]) - lead
-            if 0 <= start and text[start:start + len(mention_text(m))] == mention_text(m):
-                kept.append({**m, "start": start})
-        mentions = [{**m, "index": i} for i, m in enumerate(kept)]
+        shifted = [{**m, "start": int(m["start"]) - lead} for m in mentions]
+        mentions = [
+            {"id": m["id"], "name": m["name"], "kind": m["kind"], "index": i, "start": m["start"], **({"avatar": m["avatar"]} if m.get("avatar") else {})}
+            for i, m in enumerate(mentions_in_text(text, shifted))
+        ]
     return text, mentions
 
 
 def mentions_in_text(text: str, mentions: Sequence[Mapping[str, Any]]) -> List[Dict[str, Any]]:
-    """The mentions whose "@Name" sits at their ``start`` in ``text``: text order, each name once,
-    of two that overlap the earlier one (the kit's `mentionsInText`). Others are not drawn."""
+    """The mentions whose "@Name" sits at their ``start`` (UTF-16) in ``text``: text order, each
+    name once, of two that overlap the earlier one (the kit's `mentionsInText`). Others are not
+    drawn. Each keeps its ``start``; ``at`` is the same place as a Python index."""
     placed = []
     for raw in mentions or []:
         candidate = usable_candidate(raw)
         if candidate is None:
             continue
         start = raw.get("start")
-        if not isinstance(start, int) or isinstance(start, bool) or start < 0:
+        at = py_index(text, start) if isinstance(start, int) else None
+        if at is None or text[at:at + len(mention_text(candidate))] != mention_text(candidate):
             continue
-        if text[start:start + len(mention_text(candidate))] != mention_text(candidate):
-            continue
-        placed.append({**candidate, "start": start, **({"index": raw["index"]} if isinstance(raw.get("index"), int) else {})})
+        placed.append({**candidate, "start": start, "at": at, **({"index": raw["index"]} if isinstance(raw.get("index"), int) else {})})
     placed.sort(key=lambda m: m["start"])
     out: List[Dict[str, Any]] = []
     seen = set()
@@ -367,27 +394,24 @@ def mentions_in_text(text: str, mentions: Sequence[Mapping[str, Any]]) -> List[D
             continue
         seen.add(mention_key(m))
         out.append(m)
-        end = m["start"] + len(mention_text(m))
+        end = m["start"] + utf16_len(mention_text(m))
     return out
 
 
-def utf16_len(text: str) -> int:
-    """QTextDocument positions count UTF-16 code units; Python strings count code points."""
-    return len(text.encode("utf-16-le")) // 2
-
-
-def place_mention_chips(doc: QTextDocument, text: str, mentions: Sequence[Mapping[str, Any]]) -> int:
+def place_mention_chips(doc: QTextDocument, text: str, mentions: Sequence[Mapping[str, Any]], *, focusable: bool = False) -> int:
     """Draw ``mentions`` as chips in a document whose words are ``text`` (a sent message's
     bubble, or a message given back to the composer): each mention's "@Name" at its ``start``
     becomes its chip, keeping the words' own format for the font. Returns how many were placed;
-    a mention whose "@Name" is not at its ``start`` stays words (never searched for)."""
+    a mention whose "@Name" is not at its ``start`` stays words (never searched for).
+    ``focusable``: each chip is also an anchor (``MENTION_ANCHOR_PREFIX`` + its index), so Tab
+    reaches it in a read-only message (its card shows on focus as on hover)."""
     placed = 0
     cursor = QTextCursor(doc)
     cursor.beginEditBlock()
     try:
         for m in reversed(mentions_in_text(text, mentions)):
             words = mention_text(m)
-            begin = utf16_len(text[: m["start"]])
+            begin = int(m["start"])
             end = begin + utf16_len(words)
             cursor.setPosition(begin)
             cursor.setPosition(end, QTextCursor.KeepAnchor)
@@ -396,6 +420,9 @@ def place_mention_chips(doc: QTextDocument, text: str, mentions: Sequence[Mappin
             base = QTextCursor(doc)
             base.setPosition(begin + 1)
             fmt = chip_format(m, base.charFormat())
+            if focusable:
+                fmt.setAnchor(True)
+                fmt.setAnchorHref(f"{MENTION_ANCHOR_PREFIX}{m.get('index', 0)}")
             cursor.insertText(OBJECT_CHAR, fmt)
             placed += 1
     finally:
@@ -457,13 +484,13 @@ def chip_under(doc: QTextDocument, point: QPointF) -> Optional[Dict[str, Any]]:
 def clipboard_payload(doc: QTextDocument, begin: int, end: int) -> Tuple[str, Optional[str]]:
     """A copy of document range [begin, end): its words (chips as "@Name") and, when it holds
     whole chips, the kit's clipboard JSON (`mentionClipboard`: chips with ``start`` relative to
-    the copied words)."""
+    the copied words, in UTF-16 code units like the web's)."""
     words = ""
     chips: List[Dict[str, Any]] = []
     for part, mention, position in _document_parts(doc):
         if mention is not None:
             if begin <= position < end:
-                entry = {"id": mention["id"], "name": mention["name"], "kind": mention["kind"], "start": len(words)}
+                entry = {"id": mention["id"], "name": mention["name"], "kind": mention["kind"], "start": utf16_len(words)}
                 if mention.get("avatar"):
                     entry["avatar"] = dict(mention["avatar"])
                 chips.append(entry)
@@ -509,12 +536,26 @@ class MentionChipObject(QObject, QTextObjectInterface):
     def _font(self, doc: QTextDocument, fmt: QTextFormat) -> QFont:
         return fmt.toCharFormat().font().resolve(doc.defaultFont())
 
+    @staticmethod
+    def _name_line(doc: QTextDocument, font: QFont, name: str) -> QTextLayout:
+        """The name laid out once, measured and drawn by the same shaping (a name with an emoji
+        takes its fallback font's width in both), for the document's own paint device."""
+        layout = QTextLayout(name, font, doc.documentLayout().paintDevice())
+        layout.beginLayout()
+        line = layout.createLine()
+        line.setLineWidth(1.0e6)
+        layout.endLayout()
+        return layout
+
     def intrinsicSize(self, doc, position, fmt):  # noqa: N802 - Qt override
         mention = mention_of_format(fmt) or {}
-        metrics = QFontMetricsF(self._font(doc, fmt))
-        height = metrics.height()
+        font = self._font(doc, fmt)
+        metrics = QFontMetricsF(font)
+        layout = self._name_line(doc, font, _text(mention.get("name")))  # kept: the line lives in it
+        line = layout.lineAt(0)
+        height = max(metrics.height(), line.height())
         mark = max(10.0, round(metrics.ascent() * 0.95))
-        width = self.PAD_X + mark + self.GAP + metrics.horizontalAdvance(_text(mention.get("name"))) + self.PAD_X
+        width = self.PAD_X + mark + self.GAP + line.naturalTextWidth() + self.PAD_X
         return QSizeF(width, height)
 
     def drawObject(self, painter, rect, doc, position, fmt):  # noqa: N802 - Qt override
@@ -536,10 +577,11 @@ class MentionChipObject(QObject, QTextObjectInterface):
         pixmap = mention_mark_pixmap(_text(mention.get("kind")), _text(mention.get("name")), mention_look(mention), int(mark), dpr)
         top = rect.top() + (rect.height() - mark) / 2
         painter.drawPixmap(QRectF(rect.left() + self.PAD_X, top, mark, mark), pixmap, QRectF(0, 0, pixmap.width(), pixmap.height()))
-        painter.setFont(font)
         painter.setPen(mix(hue, qcolor(THEME.text_primary, 1.0), 0.62))
-        baseline = rect.top() + metrics.ascent()
-        painter.drawText(QPointF(rect.left() + self.PAD_X + mark + self.GAP, baseline), _text(mention.get("name")))
+        layout = self._name_line(doc, font, _text(mention.get("name")))
+        line = layout.lineAt(0)
+        # The name's own line, its baseline on the words' baseline.
+        layout.draw(painter, QPointF(rect.left() + self.PAD_X + mark + self.GAP, rect.top() + metrics.ascent() - line.ascent()))
         painter.restore()
 
 

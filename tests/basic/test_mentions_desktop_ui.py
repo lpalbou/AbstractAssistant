@@ -316,3 +316,169 @@ def test_a_sent_chip_shows_its_entity_card_after_a_rest(palette):
     assert card.state_label.text() == "Castor is in a conversation."
     watcher.hover(QPoint(int(rect.right() + 40), int(rect.center().y())))
     assert card.isHidden()
+
+
+# ---- review 2026-11-11: F1, F2 and the boundary ---------------------------------------------
+
+
+def _entities_only_running(window, controller):
+    """An entities-only message in flight: the gateway kept the words, Castor is answering."""
+    _palette_chips(window)
+    window._submit()
+    worker = controller.workers[-1]
+    worker.not_addressed()
+    worker.ask("castor")
+    _pump()
+    return worker
+
+
+@pytest.mark.parametrize("previous_run", ["run-previous-agent-turn", ""])
+def test_a_followup_while_only_entities_answer_waits_and_goes_as_its_own_message(palette, previous_run):
+    """F1: the chat's last run is an earlier, FINISHED one (or none in a new chat): a plain
+    follow-up is never steered into it; it waits for the answers and is sent as a new message."""
+    window, controller = palette
+    controller.previous_run = previous_run
+    worker = _entities_only_running(window, controller)
+    window.prompt_edit.setPlainText("and you, what about tomorrow?")
+    window._submit()
+    assert controller.commands == []  # no guidance to any run
+    assert window.prompt_edit.toPlainText() == "and you, what about tomorrow?"
+    assert window.chat_status_label.text() == "Your message will send when the answers are in."
+    assert window.title_label.text() != "Steering the run…"
+    assert len(controller.workers) == 1
+    worker.answer("castor", "Hello.")
+    worker.answer("pollux", "Hi.")
+    worker.done(text=TEXT)
+    worker.finish()
+    _pump(0.05)
+    assert len(controller.workers) == 2  # sent as its own message once the chain ended
+    assert controller.workers[-1].kwargs["prompt"] == "and you, what about tomorrow?"
+    assert controller.commands == []
+
+
+def test_stop_pause_and_resume_never_reach_a_finished_run_while_only_entities_answer(palette):
+    """F1: Stop ends the asking (the worker) and cancels no run; pause and resume are offered
+    disabled and do nothing."""
+    window, controller = palette
+    controller.previous_run = "run-previous-agent-turn"
+    worker = _entities_only_running(window, controller)
+    _menu, act_pause, act_resume, act_stop = window._run_control_menu()
+    assert not act_pause.isEnabled() and not act_resume.isEnabled() and act_stop.isEnabled()
+    window._pause_active_run()
+    window._resume_active_run()
+    window._cancel_active_run()
+    assert controller.commands == []
+    assert worker.interrupted
+
+
+def test_a_reattached_agent_run_after_an_entities_only_message_shows_its_progress(palette):
+    """F2: the entities-only mark belongs to its message; a later agent run that is reattached
+    shows its thinking card, its status and the no-reply line as always."""
+    window, controller = palette
+    worker = _entities_only_running(window, controller)
+    worker.answer("castor", "Hello.")
+    worker.answer("pollux", "Hi.")
+    worker.done(text=TEXT)
+    worker.finish()
+    _pump()
+    controller.previous_run = "run-live"
+    window._on_reattach_candidate({"run_id": "run-live", "status": "running"})
+    attached = controller.workers[-1]
+    assert attached.kwargs == {"attach": "run-live"}
+    attached.status("thinking")
+    _pump()
+    assert window._thinking_card is not None
+    assert window.title_label.text() == "Thinking…"
+    attached.finish()
+    _pump()
+    assert window.chat_status_label.text() == "The workflow completed, but it returned no written reply."
+
+
+def test_an_entities_only_send_shows_no_workflow_line_even_before_the_gateway_answers(palette):
+    """The chips say no agent will run (entity chips, no `@agent`): no "Running assistant
+    workflow…" flash while the start is on its way. A gateway that starts the agent anyway
+    gets its run shown."""
+    window, controller = palette
+    _palette_chips(window)
+    window._submit()
+    _pump()
+    assert window._thinking_card is None
+    assert window.title_label.text() == "AbstractAssistant"
+    assert window._avatar_presentation().state != "thinking"
+    assert [p.author_name for p in _cards(window, PendingMentionCard)] == ["Castor", "Pollux"]
+    worker = controller.workers[-1]
+    worker.event_emitted.emit({"type": "run_activity", "run_id": "run-agent", "summary": "Running"})
+    worker.status("thinking")
+    _pump()
+    assert window._thinking_card is not None
+
+
+def test_typed_at_name_words_before_a_picked_chip_are_words_and_the_chip_keeps_its_place(field):
+    """Positions come from the chip, never from a search of the words for "@Name"."""
+    edit = field
+    edit.insertPlainText("@Castor said ")
+    QTest.keyClicks(edit, "@cas")
+    QTest.keyClick(edit, Qt.Key_Return)
+    text, chips = edit.message_payload()
+    assert text == "@Castor said @Castor"
+    assert [(c["id"], c["start"]) for c in chips] == [("castor", 13)]
+
+
+def _js_slice(text: str, begin: int, end: int) -> str:
+    """JavaScript's String.slice: UTF-16 code units."""
+    return text.encode("utf-16-le")[2 * begin:2 * end].decode("utf-16-le")
+
+
+def test_offsets_are_utf16_code_units_like_the_web_after_an_emoji(palette):
+    """(e) `start` counts UTF-16 code units (the kit's unit): after "🌊 Wave" the desktop's
+    offsets read right in the web, the sent bubble draws its chips in place, and a web copy
+    pastes its chips into the desktop."""
+    window, controller = palette
+    edit = window.prompt_edit
+    edit.insertPlainText("🌊 Wave ")
+    _palette_chips(window)
+    text, chips = edit.message_payload()
+    assert text == "🌊 Wave " + TEXT
+    assert [(c["id"], c["start"]) for c in chips] == [("castor", 11), ("pollux", 23)]
+    for chip in chips:
+        word = "@" + chip["name"]
+        assert _js_slice(text, chip["start"], chip["start"] + len(word)) == word
+    # The clipboard the web reads.
+    cursor = edit.textCursor()
+    cursor.select(cursor.Document)
+    edit.setTextCursor(cursor)
+    copied = edit.createMimeDataFromSelection()
+    import json
+
+    from abstractassistant.ui.mention_chip import MENTION_CLIPBOARD_TYPE
+
+    box = json.loads(bytes(copied.data(MENTION_CLIPBOARD_TYPE)).decode("utf-8"))
+    assert [(m["id"], m["start"]) for m in box["mentions"]] == [("castor", 11), ("pollux", 23)]
+    # A web copy (UTF-16 offsets) pastes as chips.
+    edit.clear()
+    edit.insertFromMimeData(copied)
+    assert [m["id"] for m in edit.mentions()] == ["castor", "pollux"]
+    # The sent bubble draws both chips where their words are.
+    window._submit()
+    _pump()
+    user = _message_cards(window, "user")[0]
+    assert user._mention_chips_placed == 2
+    assert user._user_browser.document().toPlainText().startswith("🌊 Wave Hi ")
+
+
+def test_a_sent_chip_shows_its_card_on_keyboard_focus(palette):
+    """(c) Tab reaches a sent chip (an anchor) and its card shows after the same rest."""
+    window, controller = palette
+    _palette_chips(window)
+    window._submit()
+    _pump()
+    browser = _message_cards(window, "user")[0]._user_browser
+    browser.setFocus()
+    QTest.keyClick(browser, Qt.Key_Tab)  # the keyboard reaches the first chip
+    cursor = browser.textCursor()
+    assert cursor.selectionEnd() - cursor.selectionStart() == 1
+    _pump(0.25)
+    card = window.findChild(app_module.QFrame, "mentionCard")
+    assert card is not None and card.isVisible()
+    assert card.name_label.text() == "Castor"
+    browser.anchorClicked.emit(app_module.QUrl("mention:0"))  # Enter on the chip opens nothing
