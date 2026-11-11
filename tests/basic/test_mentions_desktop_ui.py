@@ -264,15 +264,25 @@ def test_no_informational_line_and_no_agent_indicator_when_only_entities_answer(
     entities answer, their bubbles are the whole indicator (no thinking card, no busy header,
     the assistant's orb does not think)."""
     window, controller = palette
+
+    def lines() -> list:
+        return [label.text() for label in window.findChildren(QLabel) if label.isVisible()]
+
+    def assert_no_line(*words) -> None:
+        shown = lines()
+        for phrase in words:
+            assert not any(phrase in text for text in shown), (phrase, shown)
+
     _palette_chips(window)
+    _pump()
+    assert_no_line("will read this conversation", "stays out of this message")
+    assert window.chat_status_label.isHidden()
     window._submit()
     worker = controller.workers[-1]
     worker.not_addressed()
     worker.ask("castor")
     _pump()
-    shown = [label.text() for label in window.findChildren(QLabel) if label.isVisible()]
-    for words in ("will read this conversation", "stays out of this message", "Running assistant workflow"):
-        assert not any(words in text for text in shown), (words, shown)
+    assert_no_line("will read this conversation", "stays out of this message", "Running assistant workflow")
     assert window.chat_status_label.isHidden()
     assert window._thinking_card is None
     assert window._avatar_presentation().state != "thinking"
