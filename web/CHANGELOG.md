@@ -31,12 +31,13 @@ says "This gateway does not offer mentions yet."
 - **Mention an entity with `@`.** Type `@` in the message box and pick one of your entities (the
   ones your gateway lists for you); it becomes a chip. When you send, each entity you mentioned
   answers in turn, in the order you picked them, and its answer appears in the conversation under
-  its name. Your message shows once, and the answers to it appear in the order they came. The first
-  time you pick a name in a conversation, a line reminds you that it will read this conversation's
-  history. A name you already picked is not offered again, an entity picked twice is asked once, and
+  its name. Your message shows once, and the answers to it appear in the order they came. While an
+  entity's answer is on its way, a bubble with its name and moving dots stands where the answer
+  will appear; a sent message keeps its chips, and resting on one shows the entity's card. A name you already picked is not offered again, an entity picked twice is asked once, and
   the list spans the message box on a phone.
 - **When a mention cannot be answered, you are told.** An entity already in another conversation is
-  skipped with one sentence ("Castor is in another conversation.") and the next one is still asked.
+  skipped with one sentence ("Castor is in another conversation."), its waiting bubble goes at once,
+  and the next one is still asked.
   An entity that cannot answer says why, and your words go back to the message box with only the
   entities that did not answer still as chips. A gateway without mentions says "This gateway does
   not offer mentions yet" instead of listing names.
@@ -56,8 +57,8 @@ says "This gateway does not offer mentions yet."
 - **A message to your entities does not reach the Assistant; `@Assistant` asks it too.** A message
   that mentions entities goes to them only: the gateway keeps your words as a turn of the
   conversation and the Assistant does not answer (`agent: "not_addressed"` and the turn's `turn_id`
-  on `POST runs/start`; each entity is asked with `repeat_of` naming that turn). One line above the
-  message box says "The assistant stays out of this message.", and the conversation shows your words
+  on `POST runs/start`; each entity is asked with `repeat_of` naming that turn). Nothing is announced
+  above the message box; the conversation shows your words
   once, then the entities' answers, with no spinner, no empty reply and no "ended without a written
   reply" line (a turn marked `agent_addressed: false` in its view is never shown as waiting for a
   reply; after a reload its words show as they did live, from the turn's own fields, and the app
