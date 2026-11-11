@@ -13,8 +13,8 @@ export type PresentationOptions = {
    * gateway as `turn_id`): message id -> that turn. The message carries no `runId` (the kit would
    * read a run's input for it); a mention repeating the turn folds into it like into a run's. */
   kept?: ReadonlyMap<string, string>;
-  /** The same turns read back from a view (`agent_addressed: false` on the turn's message,
-   * lib/mentions.ts viewAgentNotAddressed): their words carry the TURN id as `runId`, which names
+  /** The same turns read back after a reload (`agent_addressed: false` at the top of the turn's
+   * own view, lib/mentions.ts viewAgentNotAddressed): their words carry the TURN id as `runId`, which names
    * no run (`GET runs/{id}/input_data` stays run-only and answers 404). They are shown as live:
    * the turn's own fields (words, author, notices), no `runId`, folded like `kept`. */
   notAddressed?: ReadonlySet<string>;

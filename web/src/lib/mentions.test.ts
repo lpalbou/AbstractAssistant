@@ -23,6 +23,7 @@ import {
   mentionStatusLine,
   mentionTurn,
   startRunMentions,
+  runAgentNotAddressed,
   viewAgentNotAddressed,
   viewRepeatOf,
   type MentionAnswer,
@@ -442,7 +443,7 @@ describe("the session agent stays silent for what is addressed to entities (Abst
     expect(ws).toContain("const mentioned = startRunMentions(mentions);");
     expect(ws.match(/input_data, \.\.\.\(avatarMode \? \{ conversation: true \} : \{\}\), \.\.\.mentioned \}/g)?.length).toBe(2);
     expect(ws).toContain("if (mentionedEntities(mentions).length) entitiesAnswer.current.add(run_id);");
-    expect(ws).toContain("turnOutcome(props.runId, snapshot.status, snapshot.run, snapshot.messages, { entitiesAnswer: entitiesAnswer.current.has(props.runId), notAddressed: notAddressed.current.has(props.runId) })");
+    expect(ws).toContain("turnOutcome(props.runId, snapshot.status, snapshot.run, snapshot.messages, { entitiesAnswer: entitiesAnswer.current.has(props.runId), notAddressed: openNotAddressed })");
   });
 });
 
@@ -517,21 +518,25 @@ describe("@agent and the agent staying out (operator 2026-11-10)", () => {
     expect(post.mock.calls[0][0]).toEqual({ entity: "castor", text: "Does the bridge hold?", mention_index: 0, repeat_of: "turn-7", mention_id: "turn-7:castor:0" });
   });
 
-  it("a view marks the person's turn the agent was not addressed in (agent_addressed: false), and only that", () => {
-    const view = (addressed: unknown) => ({
-      root_run_id: "r",
-      messages: [
-        { id: "r:p", role: "user", kind: "prompt", text: "@Castor hi", run_id: "r", ...(addressed === undefined ? {} : { agent_addressed: addressed }) },
-        { id: "m:p", role: "user", kind: "prompt", text: "earlier", run_id: "e", agent_addressed: false },
-        { id: "m:a", role: "assistant", kind: "answer", text: "hello", run_id: "x", agent_addressed: false },
-      ],
+  it("the turn the agent was not addressed in is read from the turn, as served: the view's top level, its row; never a message", () => {
+    // AbstractGateway replay_view.py served_json: `agent_addressed: false` at the TOP of the turn's own
+    // view (its root), absent otherwise; session_history_bloc.py / GET /runs: on the turn's row.
+    const view = (flag: Record<string, unknown>) => ({
+      version: "replay_view_v1", root_run_id: "turn-7", status: "completed", ...flag,
+      messages: [{ id: "turn-7:p", role: "user", kind: "prompt", text: "@Castor hi", run_id: "turn-7" }],
     });
-    expect(viewAgentNotAddressed(view(false))).toEqual(["r", "e"]);
-    expect(viewAgentNotAddressed(view(true))).toEqual(["e"]);
-    expect(viewAgentNotAddressed(view(undefined))).toEqual(["e"]);
-    expect(viewAgentNotAddressed(view("false"))).toEqual(["e"]);
+    expect(viewAgentNotAddressed(view({ agent_addressed: false }))).toEqual(["turn-7"]);
+    expect(viewAgentNotAddressed(view({}))).toEqual([]);
+    expect(viewAgentNotAddressed(view({ agent_addressed: true }))).toEqual([]);
+    expect(viewAgentNotAddressed(view({ agent_addressed: "false" }))).toEqual([]);
+    // A flag inside a message is not the served shape: not read.
+    const inMessage = { root_run_id: "m", messages: [{ id: "x:p", role: "user", kind: "prompt", text: "hi", run_id: "x", agent_addressed: false }] };
+    expect(viewAgentNotAddressed(inMessage)).toEqual([]);
     expect(viewAgentNotAddressed(null)).toEqual([]);
-    expect(viewAgentNotAddressed({ messages: "x" })).toEqual([]);
+    expect(runAgentNotAddressed({ run_id: "turn-7", status: "completed", agent_addressed: false })).toBe("turn-7");
+    expect(runAgentNotAddressed({ run_id: "turn-7", status: "completed" })).toBeNull();
+    expect(runAgentNotAddressed({ agent_addressed: false })).toBeNull();
+    expect(runAgentNotAddressed(null)).toBeNull();
   });
 
   it("the line above the field says only what the mentions said, never that the agent stays out", () => {
@@ -553,7 +558,8 @@ describe("@agent and the agent staying out (operator 2026-11-10)", () => {
     expect(ws).toContain("repeats.current.set(answer.run_id, turn.repeatOf || anchor);");
     expect(ws).toContain("const answersShown = mentionAnswers.messages.length && mentionAnswers.anchor === props.runId ? mentionAnswers.messages : null;");
     expect(ws).toContain("for (const runId of viewAgentNotAddressed(view)) notAddressed.current.add(runId);");
-    expect(ws).toContain("const busy = Boolean(props.runId) && !notAddressed.current.has(props.runId) && !TERMINAL.has(snapshot.status)");
+    expect(ws).toContain("const openNotAddressed = Boolean(props.runId) && (notAddressed.current.has(props.runId) || runAgentNotAddressed(snapshot.run) === props.runId);");
+    expect(ws).toContain("const busy = Boolean(props.runId) && !openNotAddressed && !TERMINAL.has(snapshot.status)");
     expect(ws).not.toMatch(/AGENT_STAYS_OUT|mentionNotice|stays out of this message|will read this conversation/);
     expect(ws).toContain("setMentionStatus(mentionStatusLine(outcome));");
     expect(ws).toContain("held.sid === ensureSession() && !mentions.some((m) => m.kind === \"agent\") ? mentionResend(held.resend, text, mentions) : null;");
