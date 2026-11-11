@@ -17,7 +17,8 @@ import { SessionReadMarker, sessionContentRevision, sessionReadTarget, sessionOp
  *   in order through the gateway's mention door; each answer is a turn of the session, shown from its
  *   own view. A message that mentions entities and not `@agent` starts no agent run (the gateway
  *   keeps the words as a turn, `agent: "not_addressed"` + `turn_id`): its words and the entities'
- *   answers follow the turn on screen; no spinner, no reply line, one line above the field.
+ *   answers follow the turn on screen; no spinner, no reply line; an answer on its way is a bubble
+ *   with its dots in the thread (operator round 6), never a line above the field.
  * Everything comes from the gateway; this page keeps no conversation and no token.
  */
 import {
@@ -25,6 +26,7 @@ import {
   useAttachmentUploads,
   workflowPendingInteraction,
   workflowSourceLabel,
+  WorkingDots,
 } from "@abstractframework/panel-chat";
 import type { ChatMessage } from "../vendor/abstractchat/conversation.js";
 import {
@@ -52,7 +54,7 @@ import { buildRunInputData } from "../lib/run_input";
 import { selectWorkflow } from "../lib/workflow_selection";
 import type { AttentionSeen } from "./useConversations";
 import { assistantPresence, conversationPresentation, replyToRead } from "../lib/presentation";
-import { MENTIONS_UNAVAILABLE, deliverMentions, entityCandidates, entityMentionCards, gatewayLacksTurnAuthors, matchCandidates, mentionRoster, mentionStatusLine, mentionTurn, mentionedEntities, sentMessageMentions, startRunMentions, viewAgentNotAddressed, viewRepeatOf, withSentMentions, type EntityMentionCard, type MentionAnswer, type MentionTurn } from "../lib/mentions";
+import { MENTIONS_UNAVAILABLE, deliverMentions, entityCandidates, entityMentionCards, gatewayLacksTurnAuthors, matchCandidates, mentionRoster, mentionStatusLine, mentionTurn, mentionedEntities, sentMessageMentions, startRunMentions, viewAgentNotAddressed, viewRepeatOf, withPendingMentions, withSentMentions, pendingMentionsFor, PENDING_MENTION_ID, type EntityMentionCard, type MentionAnswer, type MentionTurn, type PendingMention } from "../lib/mentions";
 import { mentionCard } from "./MentionCard";
 import { VoiceStage, Orb } from "./VoiceStage";
 import type { AssistantPreferences } from "./useAssistantPreferences";
@@ -290,6 +292,8 @@ export function Workspace(props: {
   // mentions each turn this page started carried, by run (a sent message shows them as chips).
   const entityCards = useRef<Map<string, EntityMentionCard> | null>(null);
   const sentMentions = useRef(new Map<string, ChatMessageMention[]>());
+  // The entities' answers on their way, one bubble each with its dots (operator round 6), by anchor.
+  const [pendingAnswers, setPendingAnswers] = useState<{ anchor: string; entries: PendingMention[] } | null>(null);
   const mentionCandidates = useCallback((query: string) => {
     const names = (entityNames.current ??= client.listEntities().then((listed) => {
       entityCards.current = entityMentionCards(listed);
@@ -322,6 +326,11 @@ export function Workspace(props: {
    * chips the composer keeps), else []. */
   const sendMentions = async (sid: string, turn: MentionTurn, text: string, mentions: readonly ChatMentionSent[], signal?: AbortSignal, message?: string): Promise<ChatMentionSent[]> => {
     const anchor = turn.anchor;
+    // Each entity's answer shows as a bubble with its dots where it will land until it is shown.
+    const looks = entityCards.current;
+    setPendingAnswers({ anchor, entries: pendingMentionsFor(message || `${anchor}:${text.length}`, mentions, (m) => looks?.get(m.id)?.avatar) });
+    const forThis = (update: (entries: PendingMention[]) => PendingMention[]) =>
+      setPendingAnswers((now) => (now && now.anchor === anchor ? { anchor, entries: update(now.entries) } : now));
     const show = async (answer: MentionAnswer, mention: ChatMentionSent) => {
       // The answer is a session turn: read from its view, like a reload reads it.
       let shown: ChatMessage[];
@@ -338,8 +347,12 @@ export function Workspace(props: {
       repeats.current.set(answer.run_id, turn.repeatOf || anchor);
       if (!mounted.current) return;
       setMentionAnswers((prev) => ({ anchor, messages: [...(prev.anchor === anchor ? prev.messages : []), ...shown] }));
+      forThis((entries) => entries.map((e) => (e.mention.id === mention.id && e.mention.index === mention.index ? { ...e, runId: answer.run_id } : e)));
     };
-    const outcome = await deliverMentions({ text, mentions, repeatOf: turn.repeatOf, ...(message ? { message } : {}), post: (req, s) => client.mention(sid, req, s), ...(signal ? { signal } : {}), onAnswer: show });
+    // Every answer is shown before deliverMentions returns: a bubble still pending then has no answer
+    // coming (refused, stopped, unasked) and goes, on success or failure.
+    const outcome = await deliverMentions({ text, mentions, repeatOf: turn.repeatOf, ...(message ? { message } : {}), post: (req, s) => client.mention(sid, req, s), ...(signal ? { signal } : {}), onAnswer: show })
+      .finally(() => setPendingAnswers((now) => (now && now.anchor === anchor ? null : now)));
     if (outcome.stopped && outcome.unsent.length) pendingResend.current = { sid, message: outcome.message, turn, resend: { text, repeatOf: turn.repeatOf || null, unsent: outcome.unsent } };
     if (!mounted.current) return outcome.unsent;
     // A name the gateway refused (hidden, elsewhere) is read again on the next `@`.
@@ -516,7 +529,7 @@ export function Workspace(props: {
                 attachmentScope={JSON.stringify([props.readScope,props.sessionId])}
                 attachmentRun={{runId:props.runId,output:snapshot.run?.output}}
       className="aa-chat"
-      messages={messages}
+      messages={withPendingMentions(messages, pendingAnswers && pendingAnswers.anchor === props.runId ? pendingAnswers.entries : [])}
       draft={draft}
       onDraftChange={(next) => { setDraft(next); if (mentionStatus) setMentionStatus(""); }}
       onSend={send}
@@ -589,6 +602,8 @@ export function Workspace(props: {
       messageProps={{
         renderMentionCard: (mention) => mentionCard(mention, entityCards.current),
         renderFooter: (m) => {
+          // An answer on its way: its three dots in its bubble.
+          if (String(m.id || "").startsWith(PENDING_MENTION_ID)) return <WorkingDots label={`${m.author?.name || "The entity"} is answering`} />;
           const status = m.runId === props.runId ? snapshot.status : props.sessionActivity?.content.find((c) => c.runId === m.runId)?.status;
           if (!status) return null;
           const target = sessionReadTarget(m.kind === "attachments" ? [...messages,m] : messages, m.runId || "", status);

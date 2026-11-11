@@ -39,12 +39,22 @@ export function conversationPresentation(messages: readonly ChatMessage[], opts:
     const of = runId ? repeats?.get(runId) : undefined;
     return of && asked.has(of) ? of : "";
   };
+  // The repeats of a turn NOT on screen: the first keeps the person's words, the others fold
+  // (operator round 6, 2026-11-11: "my message and then both of their messages").
+  const worded = new Set<string>();
+  const mirror = (runId: string | undefined) => {
+    const of = runId ? repeats?.get(runId) : undefined;
+    if (!of || asked.has(of)) return false;
+    if (worded.has(of)) return true;
+    worded.add(of);
+    return false;
+  };
   for (const message of messages) {
     if (message.role === "system" && message.level === "info" && String(message.id || "").startsWith("stream-unavailable:")) {
       diagnostics.push(message);
       continue;
     }
-    if (message.role === "user" && repeated(message.runId)) continue;
+    if (message.role === "user" && (repeated(message.runId) || mirror(message.runId))) continue;
     let m = message;
     if (m.role === "user" && m.runId && opts.notAddressed?.has(m.runId)) {
       const { runId: _turn, ...words } = m;

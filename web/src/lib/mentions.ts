@@ -33,7 +33,7 @@
  *
  * DOM-free; checked by mentions.test.ts.
  */
-import { uniqueMentions, type ChatAvatarLook, type ChatMentionCandidate, type ChatMentionSent, type ChatMessage, type ChatMessageMention } from "../vendor/abstractchat/conversation.js";
+import { uniqueMentions, type ChatAuthor, type ChatAvatarLook, type ChatMentionCandidate, type ChatMentionSent, type ChatMessage, type ChatMessageMention } from "../vendor/abstractchat/conversation.js";
 
 /** The one sentence an older gateway gets (no mention route, or turns without `author`). */
 export const MENTIONS_UNAVAILABLE = "This gateway does not offer mentions yet.";
@@ -130,6 +130,38 @@ export function withSentMentions(messages: ChatMessage[], sent: ReadonlyMap<stri
     return { ...m, mentions };
   });
   return changed ? out : messages;
+}
+
+/** An entity's answer on its way (operator round 6, 2026-11-11: "the 3 dancing dots in the chat
+ * itself, where the AI would answer, and with its @entity_name answering"): one per entity of the
+ * message, from the moment the mentions are asked; `runId` once its answer landed. */
+export type PendingMention = { key: string; mention: ChatMentionSent; author: ChatAuthor; runId: string | null };
+
+/** The id prefix of a pending answer's bubble (the footer draws the dots for it). */
+export const PENDING_MENTION_ID = "pending-mention:";
+
+/** The pending answers of a message's entity mentions, in the order they are asked, each named as its
+ * final bubble will be (the entity's name and look from the `@` list). */
+export function pendingMentionsFor(message: string, mentions: readonly ChatMentionSent[], lookOf: (m: ChatMentionSent) => ChatAvatarLook | null | undefined): PendingMention[] {
+  return uniqueMentions(mentionedEntities(mentions).sort((a, b) => a.index - b.index)).map((m) => ({
+    key: `${message}:${m.index}`,
+    mention: m,
+    author: { kind: "entity", name: m.name, entity_id: null, identity_ref: null, avatar: lookOf(m) ?? null },
+    runId: null,
+  }));
+}
+
+/** The conversation with a bubble for each answer still on its way, after everything shown: the
+ * entity as author, the kit's live state ("answering"); none once its answer's turn shows a reply. */
+export function withPendingMentions(messages: ChatMessage[], pending: readonly PendingMention[]): ChatMessage[] {
+  if (!pending.length) return messages;
+  const shown = new Set(messages.filter((m) => m.role === "assistant" && m.runId).map((m) => m.runId as string));
+  const waiting = pending.filter((p) => !(p.runId && shown.has(p.runId)));
+  if (!waiting.length) return messages;
+  return [
+    ...messages,
+    ...waiting.map((p): ChatMessage => ({ id: `${PENDING_MENTION_ID}${p.key}`, role: "assistant", content: "", author: p.author, live: { callId: `${PENDING_MENTION_ID}${p.key}`, reasoning: "", label: "answering" } })),
+  ];
 }
 
 /** The entity chips of a message (the ones the mention door is asked about). */

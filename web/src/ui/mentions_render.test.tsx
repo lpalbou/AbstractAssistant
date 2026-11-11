@@ -114,8 +114,9 @@ describe("a message the agent was not addressed in (operator 2026-11-10)", () =>
     const shown = conversationPresentation(turn, opts).conversation;
     // The words carry no run (the kit reads a run's input for each user message that has one).
     expect(shown.filter((m) => m.role === "user").map((m) => [m.id, m.runId])).toEqual([["kept:turn-7", undefined]]);
-    // Without the kept turn, each mention's prompt shows (the words would be there three times).
-    expect(conversationPresentation(turn, { repeats: opts.repeats }).conversation.filter((m) => m.role === "user")).toHaveLength(3);
+    // Without the kept turn, the first mention's prompt keeps the words and the others fold (operator
+    // round 6: never once per mention); the kept words are then a second copy.
+    expect(conversationPresentation(turn, { repeats: opts.repeats }).conversation.filter((m) => m.role === "user").map((m) => m.id)).toEqual(["kept:turn-7", "m:input"]);
     const html = render(shown, { busy: false });
     expect(headers(html)).toEqual([["entity", "Castor", "entity"], ["entity", "Pollux", "entity"]]);
     expect(html.match(/pc-chat-item--user/g)?.length).toBe(1);
