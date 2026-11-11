@@ -20,7 +20,23 @@ except Exception:  # pragma: no cover - Qt binding fallback
     except Exception:
         from PyQt6.QtCore import QThread, pyqtSignal
 
-from ..core.mentions import Mention, MentionResend
+from ..core.mentions import (
+    Mention,
+    MentionAnswer,
+    MentionDelivery,
+    MentionRequest,
+    MentionResend,
+    MentionsSummary,
+    deliver_mentions,
+    mention_answer_from,
+    mention_answer_metadata,
+    mention_message_key,
+    mention_resend,
+    mentioned_entities,
+    pending_mentions,
+    start_run_mentions,
+    view_agent_not_addressed,
+)
 from ..gateway import build_run_input_data
 from ..gateway.client import wait_answer_payload, wait_response_command
 from ..gateway.history_seed import seed_messages_from_history_bundle
@@ -762,7 +778,11 @@ class GatewayWorker(QThread):
                 summary = got if isinstance(got, dict) else {}
             except Exception as exc:  # noqa: BLE001
                 warnings.warn(f"#FALLBACK: could not read the run summary of {run_id}: {exc}")
-        if status == "completed" and not projector.final_shown:
+        if status == "completed" and not projector.final_shown and view_agent_not_addressed(view):
+            # A person's turn no agent was asked to answer (`@entity` without `@agent`): no reply
+            # is expected, so no "empty answer" notice either.
+            pass
+        elif status == "completed" and not projector.final_shown:
             # No final message in the view (an output without text): the worker's own recovery
             # (an output artifact's text, a media notice, an empty-answer notice) decides.
             self._emit_ui_events(run_id=run_id, events=[final_fallback_event(view, summary.get("output"))])
@@ -964,6 +984,164 @@ class GatewayWorker(QThread):
             return self._thinking, (False if self._speculation is False else None)
         return str(thinking or ""), speculation
 
+    # ---- @entity mentions (core/mentions.py) -------------------------------------------------
+
+    def _mentions_to_resend(self, session_id: str) -> Optional[List[Mention]]:
+        """The mentions this send asks again (`mention_resend`), or None for a new message."""
+        held = self._mention_resend
+        if held is None or self._attach_run_id or held.session_id != session_id:
+            return None
+        return mention_resend(held, self._user_text, self._mentions)
+
+    def _append_mention_answer(self, mention: Mention, answer: MentionAnswer, *, repeat_of: str) -> None:
+        """The entity's answer joins the transcript, labelled with its author (the bubble's name)."""
+        if not answer.reply.strip():
+            self.warning_occurred.emit(f"{mention.name} answered without words. The answer is kept in this conversation.")
+            return
+        try:
+            self._llm_manager.append_message(
+                role="assistant",
+                content=answer.reply,
+                metadata=mention_answer_metadata(answer, mention, repeat_of=repeat_of),
+            )
+        except Exception as exc:  # noqa: BLE001 - said, never dropped
+            self.warning_occurred.emit(
+                f"{mention.name} answered, but the answer cannot be shown here ({exc}). It is kept in this conversation."
+            )
+
+    def _start_mention_delivery(
+        self,
+        *,
+        session_id: str,
+        text: str,
+        mentions: Sequence[Mention],
+        repeat_of: str,
+        message: str = "",
+    ) -> Dict[str, Any]:
+        """Ask the message's entities in order on a helper thread (`deliver_mentions`), emitting
+        mention_asked / mention_answered / mention_skipped as they happen. After a Stop nothing more
+        is asked, appended or signalled (an answer already on its way is kept by the gateway)."""
+        names = {m.id: m.name for m in mentions}
+        job: Dict[str, Any] = {
+            "stop": threading.Event(),
+            "message": mention_message_key(repeat_of) if not str(message or "").strip() else str(message).strip(),
+            "text": text,
+            "mentions": tuple(mentions),
+            "repeat_of": repeat_of,
+            "answered": [],
+            "notes": [],
+            "skipped": [],
+            "outcome": None,
+            "error": None,
+        }
+
+        def _stopping() -> bool:
+            return job["stop"].is_set() or self.isInterruptionRequested()
+
+        def _post(request: MentionRequest) -> MentionAnswer:
+            payload = self._gateway.post_mention(session_id, request.to_payload())
+            return mention_answer_from(payload, request, name=names.get(request.entity, ""))
+
+        def _asked(mention: Mention) -> None:
+            if not _stopping():
+                self.mention_asked.emit(mention)
+
+        def _answered(mention: Mention, answer: MentionAnswer) -> None:
+            if _stopping():
+                return
+            job["answered"].append((mention, answer))
+            self._append_mention_answer(mention, answer, repeat_of=repeat_of)
+            self.mention_answered.emit(mention, answer)
+
+        def _skipped(mention: Mention, sentence: str) -> None:
+            job["notes"].append(sentence)
+            job["skipped"].append(mention)
+            if not _stopping():
+                self.mention_skipped.emit(mention, sentence)
+
+        def _deliver() -> None:
+            try:
+                job["outcome"] = deliver_mentions(
+                    text=text,
+                    mentions=mentions,
+                    post=_post,
+                    repeat_of=repeat_of,
+                    message=job["message"],
+                    should_stop=_stopping,
+                    on_asked=_asked,
+                    on_answer=_answered,
+                    on_skipped=_skipped,
+                )
+            except BaseException as exc:  # noqa: BLE001 - reported in mentions_done
+                job["error"] = exc
+
+        thread = threading.Thread(target=_deliver, name="abstractassistant-mentions", daemon=True)
+        job["thread"] = thread
+        thread.start()
+        return job
+
+    def _finish_mention_delivery(
+        self, job: Dict[str, Any], *, session_id: str, turn_id: str, agent_addressed: bool
+    ) -> MentionsSummary:
+        """Wait for the entities (a Stop ends the wait at once), then say how it went
+        (`mentions_done`). The newest answered turn becomes the chat's last turn (a later history
+        read must include the answers)."""
+        thread: threading.Thread = job["thread"]
+        while thread.is_alive() and not self.isInterruptionRequested():
+            thread.join(0.1)
+        if self.isInterruptionRequested():
+            job["stop"].set()
+        outcome: Optional[MentionDelivery] = job["outcome"]
+        if job["stop"].is_set() or outcome is None:
+            # A Stop (what was answered before it counts; nothing after it), or a delivery that
+            # broke (said, never dropped).
+            answered = list(job["answered"])
+            done = {m.key for m, _ in answered} | {m.key for m in job["skipped"]}
+            outcome = MentionDelivery(
+                message=job["message"],
+                answered=answered,
+                notes=list(job["notes"]),
+                aborted=job["stop"].is_set(),
+                unsent=[m for m in pending_mentions(job["mentions"]) if m.key not in done],
+            )
+            if job["error"] is not None and not outcome.aborted:
+                outcome.stopped = f"The mentions stopped: {job['error']}"
+                warnings.warn(f"#MENTIONS: delivery failed: {job['error']!r}")
+        summary = MentionsSummary.of(
+            outcome, session_id=session_id, text=job["text"], turn_id=turn_id, agent_addressed=agent_addressed
+        )
+        if outcome.answered and self._llm_manager is not None and not outcome.aborted:
+            self._llm_manager.set_last_run_id(outcome.answered[-1][1].run_id)
+        self.mentions_done.emit(summary)
+        return summary
+
+    def _answer_without_agent(self, *, session_id: str, turn_id: str) -> None:
+        """A message addressed only to entities: the gateway kept the words as a turn (`turn_id`)
+        and started no agent run. Only the entities answer."""
+        self.event_emitted.emit({"type": "agent_not_addressed", "turn_id": turn_id})
+        self.event_emitted.emit({"type": "status", "status": "thinking"})
+        job = self._start_mention_delivery(
+            session_id=session_id, text=self._user_text, mentions=self._mentions, repeat_of=turn_id
+        )
+        summary = self._finish_mention_delivery(job, session_id=session_id, turn_id=turn_id, agent_addressed=False)
+        self.event_emitted.emit({"type": "status", "status": "cancelled" if summary.aborted else "completed"})
+
+    def _resend_mentions(self, *, session_id: str, mentions: List[Mention]) -> None:
+        held = self._mention_resend
+        assert held is not None
+        self.event_emitted.emit({"type": "status", "status": "thinking"})
+        job = self._start_mention_delivery(
+            session_id=session_id,
+            text=held.text,
+            mentions=mentions,
+            repeat_of=held.repeat_of,
+            message=held.message_key,
+        )
+        summary = self._finish_mention_delivery(
+            job, session_id=session_id, turn_id=held.repeat_of, agent_addressed=False
+        )
+        self.event_emitted.emit({"type": "status", "status": "cancelled" if summary.aborted else "completed"})
+
     def run(self) -> None:
         try:
             if self._gateway is None:
@@ -985,6 +1163,12 @@ class GatewayWorker(QThread):
                 self._seed_history_from_gateway(run_id=run_id)
                 self._emit_run_activity(run_id=run_id)
             else:
+                resend = self._mentions_to_resend(session_id)
+                if resend is not None:
+                    # The same words again after an entity could not answer: only those mentions,
+                    # with the first send's turn and ids. No upload, no new turn, no new row.
+                    self._resend_mentions(session_id=session_id, mentions=resend)
+                    return
                 try:
                     attachments = self._upload_attachments(session_id=session_id) if self._attachments else []
                     preview_items = self._attachment_preview_items(attachments)
@@ -1008,6 +1192,9 @@ class GatewayWorker(QThread):
                             if preview_items
                             else None
                         )
+                        if self._mentions:
+                            # The chips the send carried (the bubble draws them at their `start`).
+                            metadata = {**(metadata or {}), "mentions": [m.to_dict() for m in self._mentions]}
                         self._llm_manager.append_message(
                             role="user",
                             content=self._user_text,
@@ -1047,23 +1234,48 @@ class GatewayWorker(QThread):
                     )
                     if entry.get("interface"):
                         start_kwargs["interface"] = entry["interface"]
-                    run_id = self._gateway.start_run(**start_kwargs)
+                    # The chips ride the start (`mentions`, `@agent` as "agent"): a message that
+                    # names entities and not `@agent` starts no agent run (the gateway keeps the
+                    # words as a turn and says `not_addressed`).
+                    chips = start_run_mentions(self._mentions)
+                    if chips:
+                        started = self._gateway.start_run_with_mentions(mentions=chips, **start_kwargs)
+                    else:
+                        started = {"agent": "started", "run_id": self._gateway.start_run(**start_kwargs)}
                 except Exception as exc:
                     # Nothing started: the palette restores the composer text,
                     # drops the phantom user turn and shows the gateway's
                     # reason (a refused workspace grant, a missing workflow…).
                     self._emit_run_start_failed(exc)
                     return
+                if started.get("agent") == "not_addressed":
+                    self._answer_without_agent(session_id=session_id, turn_id=str(started.get("turn_id") or ""))
+                    return
+                run_id = str(started.get("run_id") or "")
                 if self._llm_manager:
                     self._llm_manager.set_last_run_id(run_id)
                 self._root_run_id = str(run_id or "")
                 self._emit_run_activity(run_id=run_id, fallback_prompt=self._user_text)
                 self._remember_workspace_root(run_id=run_id, requested=self._workspace_root)
 
+            # The entities are asked beside the agent's run (as the web does), each after the
+            # previous one answered; the message is done when both are.
+            asking = None
+            if not self._attach_run_id and mentioned_entities(self._mentions):
+                asking = self._start_mention_delivery(
+                    session_id=session_id, text=self._user_text, mentions=self._mentions, repeat_of=run_id
+                )
             self.event_emitted.emit({"type": "status", "status": "thinking"})
             self._offline = False
 
-            final_status = self._follow_view(run_id=run_id, attach=bool(self._attach_run_id))
+            try:
+                final_status = self._follow_view(run_id=run_id, attach=bool(self._attach_run_id))
+            except BaseException:
+                if asking is not None:
+                    asking["stop"].set()  # no entity is asked after the follower failed
+                raise
+            if asking is not None:
+                self._finish_mention_delivery(asking, session_id=session_id, turn_id=run_id, agent_addressed=True)
             self.event_emitted.emit({"type": "status", "status": final_status})
         except Exception as e:
             if self._debug:

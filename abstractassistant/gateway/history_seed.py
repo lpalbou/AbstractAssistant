@@ -10,6 +10,7 @@ import json
 import warnings
 from typing import Any, Callable, Dict, List, Optional
 
+from ..core.mentions import read_author
 from .run_stats import parse_usage_summary, stats_from_history_bundle
 from .tool_usage import pair_results_with_calls, tool_call_uid
 
@@ -64,11 +65,50 @@ def _attachment_metadata(attachments: Any) -> Optional[Dict[str, Any]]:
     return {"attachments": items, "media": items}
 
 
+def _when(ts: Any) -> Optional[float]:
+    try:
+        from datetime import datetime
+
+        return datetime.fromisoformat(str(ts or "").strip().replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return None
+
+
+def _order_answers_by_time(out: List[Dict[str, Any]], anchors: Dict[str, str], shown: set) -> None:
+    """The answers to one message (its own turn's and those of the turns repeating it, `@entity`
+    mentions) in the order they came: each answer's own time (`updated_at`), like the web
+    (lib/presentation.ts). A group with an unreadable time keeps the session's order."""
+    for anchor in {a for a in anchors.values() if a in shown}:
+        slots = [
+            i
+            for i, m in enumerate(out)
+            if m.get("role") == "assistant"
+            and (str(m.get("run_id") or "") == anchor or anchors.get(str(m.get("run_id") or "")) == anchor)
+        ]
+        times = [_when(out[i].get("ts")) for i in slots]
+        if len(slots) < 2 or any(t is None for t in times):
+            continue
+        answers = [out[i] for _, i in sorted(zip(times, slots), key=lambda pair: pair[0])]
+        for slot, answer in zip(slots, answers):
+            out[slot] = answer
+
+
 def _seed_from_session_turns(bundle: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """One user/assistant pair per session turn, as the conversation shows it.
+
+    Who wrote each side is the turn's own `prompt_author` / `author` (AbstractRuntime
+    core.turn_author: an `@entity` mention's answer is the entity's), kept as the row's
+    `metadata.author`; a turn without them (an older gateway) is seeded exactly as before. A turn
+    whose prompt REPEATS another turn's words (`repeat_of`: a mention asked with the person's own
+    message) shows its answer only: the words are shown once, in the turn it repeats; when that
+    turn is not in the bundle, the first repeat keeps the words."""
     turns = bundle.get("session", {}).get("turns") if isinstance(bundle.get("session"), dict) else None
     if not isinstance(turns, list) or not turns:
         return []
     out: List[Dict[str, Any]] = []
+    shown: set = set()  # turns whose words are on screen
+    worded: set = set()  # repeated turns NOT in the bundle whose words a first repeat kept
+    anchors: Dict[str, str] = {}  # repeating turn -> the turn it repeats
     for turn in turns:
         if not isinstance(turn, dict):
             continue
@@ -79,24 +119,48 @@ def _seed_from_session_turns(bundle: Dict[str, Any]) -> List[Dict[str, Any]]:
         answer = str(turn.get("answer") or "")
         answer_meta = turn.get("answer_meta")
         stats = turn.get("stats")
-        if prompt.strip():
+        repeat_of = str(turn.get("repeat_of") or "").strip()
+        words = True
+        if repeat_of:
+            if run_id:
+                anchors[run_id] = repeat_of
+            if repeat_of in shown or repeat_of in worded:
+                words = False
+            else:
+                worded.add(repeat_of)
+        if prompt.strip() and words:
             # The runtime is the durable record of a turn's attachments: each
             # one is an artifact ref it can serve forever. Dropping them here
             # is why reopening an old session showed no attachments at all.
+            user_meta = _attachment_metadata(turn.get("attachments"))
+            prompt_author = read_author(turn.get("prompt_author"))
+            if prompt_author is not None:
+                user_meta = {**(user_meta or {}), "author": prompt_author}
             _push_user(
                 out,
                 content=prompt,
                 ts=ts_user,
                 run_id=run_id,
-                meta=_attachment_metadata(turn.get("attachments")),
+                meta=user_meta,
             )
+            if run_id:
+                shown.add(run_id)
         if answer.strip():
             meta: Dict[str, Any] = {"_repl": {}}
             if isinstance(answer_meta, dict):
                 meta["_repl"].update(answer_meta)
             if stats is not None:
                 meta["_repl"]["stats"] = stats
+            author = read_author(turn.get("author"))
+            if author is not None:
+                meta["author"] = author
+            if repeat_of:
+                meta["repeat_of"] = repeat_of
+            notices = [dict(n) for n in turn.get("notices") or [] if isinstance(n, dict)]
+            if notices:
+                meta["notices"] = notices
             _push_assistant(out, content=answer, ts=ts_asst, run_id=run_id, meta=meta)
+    _order_answers_by_time(out, anchors, shown)
     return out
 
 
