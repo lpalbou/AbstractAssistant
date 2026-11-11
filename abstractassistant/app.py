@@ -27,6 +27,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from PyQt5.QtCore import (
     QByteArray,
     QEvent,
+    QMimeData,
     QPoint,
     QPointF,
     QRect,
@@ -170,6 +171,19 @@ from .core.workspace_images import (
     workspace_relative_to_root,
 )
 from .ui.activity import RunActivityCard, RunActivityModel, build_activity_qss
+from .core.mentions import (
+    MENTIONS_UNAVAILABLE,
+    AvatarLook,
+    EntityRoster,
+    bubble_author,
+    mention_resend,
+    pending_mentions,
+    sent_message_mentions,
+)
+from .ui.mention_card import watch_chips
+from .ui.mention_chip import MENTION_CLIPBOARD_TYPE, clipboard_payload, install_chip_handler, place_mention_chips
+from .ui.mention_composer import MentionTextEdit, as_mentions
+from .ui.pending_bubble import AuthorBadge, PendingMentionCard
 from .gateway.live_deltas import (
     ASSISTANT_DELTA,
     ASSISTANT_DELTA_END,
@@ -2296,6 +2310,18 @@ class AutoSizingTextBrowser(QTextBrowser):
         if problem:
             delayed_tooltip(self, problem)
 
+    def createMimeDataFromSelection(self):  # noqa: N802
+        """A selection over a sent message's mention chips copies their words ("@Castor") and
+        the chips (the composer pastes them back as chips); any other selection is Qt's own."""
+        cursor = self.textCursor()
+        words, data = clipboard_payload(self.document(), cursor.selectionStart(), cursor.selectionEnd())
+        if data is None:
+            return super().createMimeDataFromSelection()
+        mime = QMimeData()
+        mime.setText(words)
+        mime.setData(MENTION_CLIPBOARD_TYPE, data.encode("utf-8"))
+        return mime
+
     def refresh_height(self, width: Optional[int] = None) -> None:
         if width is None:
             width = max(1, self.viewport().width())
@@ -2456,7 +2482,9 @@ ORB_TOOLTIP = "Voice: click to ask one question, click again to send it now, rig
 HOLD_TO_TALK_TOOLTIP = "Hold to talk — release to send (right-click: voice conversation, ⌘⇧V)"
 
 
-class AttachmentTextEdit(QTextEdit):
+class AttachmentTextEdit(MentionTextEdit):
+    """The palette's message field: `@` mentions inline (``MentionTextEdit``) and file drops."""
+
     files_dropped = pyqtSignal(object)
     drop_active_changed = pyqtSignal(bool)
 
@@ -3089,8 +3117,12 @@ class MessageCard(QFrame):
         parent: Optional[QWidget] = None,
         markdown_user_body: bool = False,
         resolve_image=None,
+        mention_card=None,
     ) -> None:
-        """``markdown_user_body``: render a user bubble's body as markdown
+        """``mention_card(chip)``: the card a sent message's mention chip shows after a 150 ms
+        rest (``ui.mention_card``), None for no card.
+
+        ``markdown_user_body``: render a user bubble's body as markdown
         (off by default: a person's typed prompt stays literal). On only for
         text the system composed in the user's seat — an automation's task
         turn ("[Trigger …]\n## …").
@@ -3169,9 +3201,16 @@ class MessageCard(QFrame):
         header_row.setSpacing(6)
         bubble_layout.addLayout(header_row)
         if not is_user:
-            identity = QLabel("✦  Assistant")
-            identity.setObjectName("messageRole")
-            header_row.addWidget(identity, 0, Qt.AlignVCenter)
+            # Who answered (an `@entity` mention's answer names its entity: orb + name); an
+            # agent's answer, or a row without an author, keeps today's head.
+            author = bubble_author(message.get("metadata"))
+            if author is not None:
+                self._author_badge = AuthorBadge(author)
+                header_row.addWidget(self._author_badge, 0, Qt.AlignVCenter)
+            else:
+                identity = QLabel("✦  Assistant")
+                identity.setObjectName("messageRole")
+                header_row.addWidget(identity, 0, Qt.AlignVCenter)
         if not is_user:
             header_row.addStretch(1)
 
@@ -3230,6 +3269,16 @@ class MessageCard(QFrame):
             browser.setHtml(
                 _assistant_html(renderer, self._content) if markdown_user_body else _user_html(self._content)
             )
+            metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+            sent_mentions = metadata.get("mentions") if not markdown_user_body else None
+            if isinstance(sent_mentions, list) and sent_mentions:
+                # The chips the send carried, drawn where their "@Name" is (never searched for).
+                install_chip_handler(browser.document(), browser)
+                self._mention_chips_placed = place_mention_chips(
+                    browser.document(), self._content.strip(), sent_mentions
+                )
+                if callable(mention_card):
+                    watch_chips(browser, mention_card)
             # Short prompts share a row with their time/actions instead of
             # reserving an empty 28px header above a single line of text, so
             # the text is as wide as the bubble MINUS that row's other items:
@@ -3470,6 +3519,8 @@ class MessageCard(QFrame):
 
     # Set on instances in __init__; class defaults keep __new__-built cards safe.
     _user_browser = None
+    _author_badge = None
+    _mention_chips_placed = 0
     _user_text_reserve = 0
     _resolve_image = None
     _image_blocks: List[tuple] = []
@@ -6330,6 +6381,12 @@ class AssistantPalette(QMainWindow):
         self.prompt_edit.installEventFilter(self)
         self.prompt_edit.files_dropped.connect(self._handle_dropped_files)
         self.prompt_edit.drop_active_changed.connect(self._set_composer_drop_active)
+        # `@` mentions: the list floats above the composer card, its names come from one read of
+        # `GET /entities` per chat (`_load_mention_names`), a chip's card from the same read.
+        self.prompt_edit.set_list_anchor(self.composer_card)
+        self.prompt_edit.mention_names_wanted.connect(self._load_mention_names)
+        self.prompt_edit.set_card_provider(self._mention_card)
+        self.prompt_edit.set_mentions_enabled(True)
         composer.addWidget(self.prompt_edit, 1)
 
         self.send_button = QPushButton()
@@ -7291,8 +7348,10 @@ class AssistantPalette(QMainWindow):
             # The chat's draft (and a send queued while a stopped run winds
             # down) is the chat's: kept aside while the automation is open, so
             # Return here never sends it as a discussion; restored on leaving.
+            draft_text, draft_mentions = self.prompt_edit.draft_payload()
             self._chat_draft = {
-                "text": self.prompt_edit.toPlainText(),
+                "text": draft_text,
+                "mentions": draft_mentions,
                 "pending": bool(self._state("_pending_submit")),
                 "session_id": self._active_session_id(),
             }
@@ -7398,7 +7457,10 @@ class AssistantPalette(QMainWindow):
         if isinstance(draft, dict):
             text = str(draft.get("text") or "")
             later = self.prompt_edit.toPlainText().strip()  # a refused / in-flight continuation's text
-            self.prompt_edit.setPlainText(f"{text}\n{later}" if text.strip() and later else (text or later))
+            # The chat's draft comes back with its mention chips, in front of `later`.
+            self.prompt_edit.setPlainText(later)
+            if text.strip():
+                self.prompt_edit.insert_message_at_start(text, draft.get("mentions") or [])
             if draft.get("pending") and not leaving_for_session and draft.get("session_id") == self._active_session_id():
                 # The send queued before the automation opened goes now (or
                 # once the stopped run has closed), to the chat it was typed in.
@@ -7420,6 +7482,8 @@ class AssistantPalette(QMainWindow):
         if pending is None:
             pending = bool(self._state("_continuing_automation"))
         edit = self.prompt_edit
+        # `@` mentions belong to a chat; a continuation starts from words only.
+        edit.set_mentions_enabled(not on)
         if not on:
             # Back to the chat's own state (placeholder, readiness, Send/Stop).
             edit.setReadOnly(False)
@@ -8081,6 +8145,7 @@ class AssistantPalette(QMainWindow):
             self._refresh_session_picker(select_session_id=current or None)
             return
         self._attention_open_token = None
+        self._forget_mention_names()
         self._attention_reattach_request = (target, attention_root, object()) if attention_root else None
         for key in list(self._state("_pending_user_waits") or {}):
             self._withdraw_user_wait(key, resolved=False)
@@ -9040,6 +9105,8 @@ class AssistantPalette(QMainWindow):
             if key in {Qt.Key_Return, Qt.Key_Enter} and not (
                 modifiers & int(Qt.ShiftModifier)
             ):
+                if prompt_edit.mention_list_takes_enter():
+                    return False  # Enter picks the highlighted name (the field handles it)
                 self._submit()
                 return True
         status_label = state.get("chat_status_label")
@@ -9431,6 +9498,7 @@ class AssistantPalette(QMainWindow):
                         "idle" if is_user else self._message_voice_state(message)
                     ),
                     resolve_image=None if is_user else self._resolve_message_image,
+                    mention_card=self._mention_card,
                 )
                 self._history_cards_by_key[message_key] = card
                 self.history_layout.addWidget(card)
@@ -9441,10 +9509,18 @@ class AssistantPalette(QMainWindow):
                         self._build_live_card(reply, viewport_width)
                     )
             has_live = bool(self._live_cards)
+            # An entity's answer on its way: its bubble, with its dots, at the answer's place.
+            self._pending_mention_cards = {}
+            for entry in list(self._state("_pending_mentions") or []):
+                pending_card = PendingMentionCard(key=entry["key"], author=entry["author"])
+                self._pending_mention_cards[entry["key"]] = pending_card
+                self.history_layout.addWidget(pending_card)
             if not visible_messages and not has_live and not self._show_thinking_indicator():
                 self.history_layout.addWidget(self._build_history_empty_state())
             self._thinking_card = None
-            if self._show_thinking_indicator():
+            # A message addressed only to entities started no agent run: their bubbles are the
+            # whole indicator (operator round 6: nothing else says something is coming).
+            if self._show_thinking_indicator() and not self._state("_agent_not_addressed", False):
                 thinking_card = ThinkingIndicatorCard(
                     status_text=self._thinking_status_text,
                     tooltip=self._thinking_status_tooltip,
@@ -9998,6 +10074,15 @@ class AssistantPalette(QMainWindow):
             except Exception:
                 alive = False
             if alive and not bool(self._cancel_requested):
+                if any(m.get("kind") == "entity" for m in self.prompt_edit.mentions()):
+                    # A message that mentions entities is a message of its own (each entity is
+                    # asked with it), never guidance for the running reply: it waits for that
+                    # reply and sends then (the composer keeps it meanwhile).
+                    self._pending_submit = True
+                    self._set_history_status(
+                        "Your message will send when this reply is finished.", tone="info"
+                    )
+                    return
                 # A run is in progress: typed text becomes steering (2026-07-10),
                 # so the user can redirect the agent without losing its context.
                 self._steer_active_run()
@@ -10022,7 +10107,9 @@ class AssistantPalette(QMainWindow):
         self._cancel_requested = False
         self._last_run_status = ""
         self._last_run_error = ""
-        prompt = self.prompt_edit.toPlainText().strip()
+        # The words as shown (each chip as "@Name") and the chips, structured (never read
+        # back out of the words).
+        prompt, chips = self.prompt_edit.message_payload()
         if not prompt and not self._attachments:
             return
         if bool(getattr(self, "_bootstrapping", False)):
@@ -10041,30 +10128,67 @@ class AssistantPalette(QMainWindow):
             return
 
         attachments = list(self._attachments)
-        append_user_now = bool(prompt or attachments)
+        mentions = as_mentions(chips)
+        # The same words again after an entity could not answer: only the chips not answered
+        # are asked, with the first send's turn; the person's words are not shown twice.
+        held = self._state("_mention_resend")
+        resend = (
+            held
+            if held is not None
+            and held.session_id == self._active_session_id()
+            and mention_resend(held, prompt, mentions) is not None
+            else None
+        )
+        self._mention_resend = None
+        append_user_now = bool(prompt or attachments) and resend is None
 
         # Clear text input, clear attachments queue, and reflow layout first
         self.prompt_edit.clear()
         self._attachments = []
         self._render_attachments()
 
+        metadata = None
         if append_user_now:
-            metadata = None
             preview_items = _local_attachment_preview_items(attachments)
             if preview_items:
                 metadata = {
                     "attachments": preview_items,
                     "media": preview_items,
                 }
+            if mentions:
+                # The bubble keeps the chips the send carried, each with its look.
+                looks = {f"{c['kind']}:{c['id']}": c.get("avatar") for c in chips}
+                metadata = {
+                    **(metadata or {}),
+                    "mentions": sent_message_mentions(
+                        mentions,
+                        lambda m: AvatarLook(**looks[m.key]) if looks.get(m.key) else None,
+                    ),
+                }
         # Remember the turn so a run that never starts can be withdrawn and
         # the composer refilled (see `run_start_failed`).
-        self._pending_user_message_id = str(
-            self._controller.append_user_message(prompt, metadata=metadata) or ""
+        self._pending_user_message_id = (
+            str(self._controller.append_user_message(prompt, metadata=metadata) or "")
+            if append_user_now
+            else ""
         )
         # This turn may be what finally names the session in the header.
         self._invalidate_session_digests()
-        self._pending_submission = {"prompt": prompt, "attachments": list(attachments)}
+        self._pending_submission = {"prompt": prompt, "attachments": list(attachments), "mentions": list(chips)}
         self._run_start_failed = False
+        # A resend asks only entities (no agent run); a new message learns it from the start's
+        # answer (`agent_not_addressed`).
+        self._agent_not_addressed = resend is not None
+        # One bubble per entity asked, with its dots, from the moment the message is sent.
+        asked = mention_resend(resend, prompt, mentions) if resend is not None else mentions
+        self._pending_mentions = [
+            {
+                "key": m.key,
+                "author": {"kind": "entity", "name": m.name, "avatar": next((c.get("avatar") for c in chips if c["id"] == m.id and c["kind"] == m.kind), None)},
+            }
+            for m in pending_mentions(asked or [])
+        ]
+        self._sent_chips = list(chips)
         conversation = self._state("_voice_conversation")
         if (
             conversation is not None
@@ -10084,8 +10208,9 @@ class AssistantPalette(QMainWindow):
         self._live_closed_calls = set()
         self._clear_run_activity()
         self._activity_model = RunActivityModel(run_id="", reattached=False)
-        self._set_status("Running assistant workflow...", tone="busy")
-        self._set_history_status("Running assistant workflow...", tone="busy")
+        if resend is None:  # a resend runs no workflow: only the entities' bubbles say so
+            self._set_status("Running assistant workflow...", tone="busy")
+            self._set_history_status("Running assistant workflow...", tone="busy")
         self._refresh_tray_feedback()
         addenda = [
             str(plan.get("system_prompt_extra") or "").strip(),
@@ -10112,6 +10237,11 @@ class AssistantPalette(QMainWindow):
             )
             return
         self._worker = worker
+        worker.set_mentions(mentions, resend=resend)
+        worker.mention_asked.connect(self._on_mention_asked)
+        worker.mention_answered.connect(self._on_mention_answered)
+        worker.mention_skipped.connect(self._on_mention_skipped)
+        worker.mentions_done.connect(self._on_mentions_done)
         worker.event_emitted.connect(self._on_worker_event)
         worker.error_occurred.connect(self._on_worker_error)
         warning_signal = getattr(worker, "warning_occurred", None)
@@ -10138,6 +10268,14 @@ class AssistantPalette(QMainWindow):
         if typ == ASSISTANT_DELTA_RESET:
             self._on_live_reset()
             return
+        if typ == "agent_not_addressed":
+            # The message named entities and not `@agent`: the gateway kept the words and started
+            # no agent run. Only the entities answer, each in its own pending bubble.
+            self._agent_not_addressed = True
+            self._set_status("Ready")
+            self._set_history_status()
+            self.refresh_history()
+            return
         self._feed_activity(payload)
         if typ == "run_error":
             # Why THIS run failed, as the worker read it at the end (the run summary's
@@ -10162,11 +10300,9 @@ class AssistantPalette(QMainWindow):
                 prompt_edit = getattr(self, "prompt_edit", None)
                 failed_text = str(submission.get("prompt") or "")
                 if prompt_edit is not None and failed_text:
-                    typed = prompt_edit.toPlainText()
                     # Never drop what the user typed meanwhile: the failed
-                    # turn goes back in front of it.
-                    prompt_edit.setPlainText(f"{failed_text}\n{typed}" if typed.strip() else failed_text)
-                    prompt_edit.moveCursor(prompt_edit.textCursor().End)
+                    # turn goes back in front of it, with its mention chips.
+                    prompt_edit.insert_message_at_start(failed_text, submission.get("mentions") or [])
                 restored = [str(p) for p in (submission.get("attachments") or []) if str(p)]
                 if restored and not self._attachments:
                     self._attachments = restored
@@ -10175,6 +10311,7 @@ class AssistantPalette(QMainWindow):
             self._run_busy = False
             self._run_has_final_output = True
             self._run_start_failed = True
+            self._pending_mentions = []  # nothing was sent: no entity is answering
             model = self._state("_activity_model")
             if model is not None:
                 try:
@@ -10227,6 +10364,11 @@ class AssistantPalette(QMainWindow):
                 "failed",
                 "cancelled",
             }
+            if self._state("_agent_not_addressed", False) and status_lower not in inactive_statuses:
+                # No agent run: the entities' bubbles say an answer is coming, nothing else.
+                self._run_busy = True
+                self._refresh_tray_feedback()
+                return
             self._run_busy = (
                 status_lower not in inactive_statuses and not self._run_has_final_output
             )
@@ -10564,6 +10706,98 @@ class AssistantPalette(QMainWindow):
         if text:
             self._set_banner(text, tone="warn")
 
+    # ------------------------------------------------------------ @ mentions
+
+    def _load_mention_names(self) -> None:
+        """The `@` list's names: one read of `GET /entities` for this chat, off the GUI thread
+        (the list says "Looking for names…" meanwhile; never a read per keystroke)."""
+
+        def _read() -> EntityRoster:
+            return EntityRoster.from_payload(self._controller.gateway.list_entities())
+
+        def _done(roster: Any, error: str) -> None:
+            if error:
+                self._mention_roster = None
+                self.prompt_edit.set_mention_names(None, status="error")
+                return
+            self._mention_roster = roster
+            self.prompt_edit.set_mention_names(roster)
+
+        self._start_gateway_call(_read, _done)
+
+    def _forget_mention_names(self) -> None:
+        """A new chat (or a refusal that named an entity): the names are read again at the next
+        `@`. The chips already on screen keep their cards until that read replaces them."""
+        prompt_edit = self._state("prompt_edit")
+        if prompt_edit is not None:
+            prompt_edit.set_mention_names(None, status="idle")
+
+    def _mention_card(self, chip: Any) -> Optional[Dict[str, Any]]:
+        """The card of an entity's chip (its orb, name and state sentence) from the names this
+        chat read; the agent's chip, or a name not read, has none."""
+        roster = self._state("_mention_roster")
+        if roster is None or not isinstance(chip, dict) or chip.get("kind") != "entity":
+            return None
+        card = roster.cards.get(str(chip.get("id") or ""))
+        if card is None:
+            return None
+        return {"name": card.name, "avatar": card.avatar.to_dict() if card.avatar else None, "sentence": card.sentence}
+
+    def _drop_pending_mention(self, key: str) -> None:
+        """An entity's pending bubble goes (its answer landed, or it refused)."""
+        self._pending_mentions = [e for e in (self._state("_pending_mentions") or []) if e["key"] != key]
+        card = (self._state("_pending_mention_cards") or {}).pop(key, None)
+        if card is not None:
+            self.history_layout.removeWidget(card)
+            card.hide()
+            card.setParent(None)
+            card.deleteLater()
+
+    def _on_mention_asked(self, mention: Any) -> None:
+        """That entity is asked now: its bubble shows its dots (it has one since the send)."""
+        if any(e["key"] == mention.key for e in (self._state("_pending_mentions") or [])):
+            return
+        look = next((c.get("avatar") for c in (self._state("_sent_chips") or []) if c.get("id") == mention.id), None)
+        self._pending_mentions = [
+            *(self._state("_pending_mentions") or []),
+            {"key": mention.key, "author": {"kind": "entity", "name": mention.name, "avatar": look}},
+        ]
+        self.refresh_history()
+
+    def _on_mention_answered(self, mention: Any, _answer: Any) -> None:
+        """The answer is in the transcript (the worker appended it, with its author): it takes
+        the place of its pending bubble."""
+        self._pending_mentions = [e for e in (self._state("_pending_mentions") or []) if e["key"] != mention.key]
+        self._invalidate_session_digests()
+        self.refresh_history()
+
+    def _on_mention_skipped(self, mention: Any, sentence: str) -> None:
+        """Refused (another conversation, cannot be mentioned): its bubble goes at once and the
+        sentence says why."""
+        self._drop_pending_mention(mention.key)
+        if sentence:
+            self._set_history_status(sentence, tone="info")
+
+    def _on_mentions_done(self, summary: Any) -> None:
+        """How the message's mentions went: the bubbles still waiting go; a refusal or a stop
+        is said; an entity that could not answer gives the words back with the chips not
+        answered (sending them again asks only those)."""
+        for entry in list(self._state("_pending_mentions") or []):
+            self._drop_pending_mention(entry["key"])
+        self._pending_mentions = []
+        if summary.unavailable:
+            self.prompt_edit.set_mentions_unavailable(MENTIONS_UNAVAILABLE)
+        if EntityRoster.refresh_after(summary):
+            self._forget_mention_names()
+        if summary.stopped and summary.unsent:
+            looks = {f"{c['kind']}:{c['id']}": c.get("avatar") for c in (self._state("_sent_chips") or [])}
+            chips = [{**m.to_dict(), **({"avatar": looks[m.key]} if looks.get(m.key) else {})} for m in summary.unsent]
+            self.prompt_edit.insert_message_at_start(summary.text, chips)
+            self._mention_resend = summary.resend
+        if summary.status_line:
+            self._set_history_status(summary.status_line, tone="info")
+        self.refresh_history()
+
     def _on_worker_finished(self) -> None:
         # A stale `finished` from a worker that was already replaced must not
         # tear down the run that superseded it.
@@ -10575,6 +10809,10 @@ class AssistantPalette(QMainWindow):
         if sender is not None and current is not None and current is not sender:
             return
         self._discard_live_replies()
+        # The worker is done: an entity bubble still waiting has no answer coming.
+        had_pending = bool(self._state("_pending_mentions"))
+        for entry in list(self._state("_pending_mentions") or []):
+            self._drop_pending_mention(entry["key"])
         had_indicator = self._show_thinking_indicator()
         was_stopped = bool(self._cancel_requested)
         start_failed = bool(self._state("_run_start_failed", False))
@@ -10601,7 +10839,8 @@ class AssistantPalette(QMainWindow):
         if conversation is not None and conversation.state == "thinking":
             # No spoken reply is coming (stopped, or nothing to say): the voice turn ends.
             conversation.run_finished(will_speak=False)
-        if not self._run_has_final_output:
+        if not self._run_has_final_output and not self._state("_agent_not_addressed", False):
+            # (A message addressed only to entities started no agent run: no reply was expected.)
             # A stopped run legitimately has no final answer — say so instead
             # of the misleading "completed but returned no written reply".
             # The run's OWN terminal status counts too: reattaching after a
@@ -10627,7 +10866,7 @@ class AssistantPalette(QMainWindow):
                 self._run_has_final_output = True
                 self._set_history_status(fallback, tone="info")
         self._refresh_tray_feedback()
-        if had_indicator != self._show_thinking_indicator():
+        if had_pending or had_indicator != self._show_thinking_indicator():
             self.refresh_history()
         if not (start_failed or self._state("_status_tone", "") == "error"):
             # "Not sent" / "Failed" stay until the next run replaces them.
@@ -11648,10 +11887,8 @@ class AssistantPalette(QMainWindow):
         self._append_prompt_text(text)
 
     def _append_prompt_text(self, text: str) -> None:
-        current = self.prompt_edit.toPlainText().strip()
-        combined = f"{current} {text}".strip() if current else text
-        self.prompt_edit.setPlainText(combined)
-        self.prompt_edit.moveCursor(self.prompt_edit.textCursor().End)
+        # Appended at the end of the draft (its mention chips stay chips).
+        self.prompt_edit.append_words(str(text or ""))
 
     # ------------------------------------------------------------ voice conversation
 
@@ -12018,6 +12255,7 @@ class AssistantPalette(QMainWindow):
         if self._state("_automation_view_id", ""):
             self._close_automation_view(leaving_for_session=True)  # a new chat leaves the automation
         self._controller.create_session()
+        self._forget_mention_names()
         self._refresh_workflows()
         self.refresh_history()
 
@@ -12739,7 +12977,9 @@ class AssistantPalette(QMainWindow):
             working=bool(self._state("_run_busy", False))
                     and (bool(self._state("_active_tool_history_status"))
                          or self._state("_thinking_status_tone", "") == "tool"),
-            thinking=bool(self._state("_run_busy", False))
+            # A message only entities answer starts no agent run: the assistant's own orb does
+            # not think (each entity's bubble shows its dots).
+            thinking=(bool(self._state("_run_busy", False)) and not self._state("_agent_not_addressed", False))
                      or self._state("_status_tone", "") == "busy",
             level=level,
         )

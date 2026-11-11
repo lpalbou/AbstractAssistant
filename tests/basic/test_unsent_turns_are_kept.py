@@ -73,11 +73,20 @@ class _RealWorkerThread(QThread):
     event_emitted = pyqtSignal(object)
     error_occurred = pyqtSignal(str)
     warning_occurred = pyqtSignal(str)
+    # The worker's `@` mention API (core/mentions.py), wired by the palette before start().
+    mention_asked = pyqtSignal(object)
+    mention_answered = pyqtSignal(object, object)
+    mention_skipped = pyqtSignal(object, str)
+    mentions_done = pyqtSignal(object)
 
     def __init__(self, *, prompt: str, attachments: list) -> None:
         super().__init__()
         self._prompt = prompt
         self._files = attachments
+        self._chips: tuple = ()
+
+    def set_mentions(self, mentions, *, resend=None) -> None:
+        self._chips = tuple(mentions)
 
     def run(self) -> None:
         inner = life._worker(_RefusingGateway())
