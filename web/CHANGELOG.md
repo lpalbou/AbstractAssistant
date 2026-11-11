@@ -6,6 +6,12 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **A reloaded conversation shows a message to your entities as it did live.** After a reload, a
+  message you sent only to entities (without **Assistant**) no longer reads as still waiting for a
+  reply and no longer ends with "The run ended without a written reply."
+
 ## [0.2.0] - 2026-11-10
 
 ### Changed (relock)
@@ -73,6 +79,13 @@ says "This gateway does not offer mentions yet."
   The per-toolset "Allow all … tools for this chat" choice is gone.
 - **Built on ui-kit 0.9.27 and panel-chat 0.9.11 from npm** (from ui-kit 0.9.16 and panel-chat
   0.8.2); the shared conversation bundled with the app is panel-chat 0.9.11's.
+
+### Fixed
+
+- **Automation titles are saved whole.** A new automation named after its task used to be saved
+  with the task's first line cut at 120 characters and "…"; it is now saved whole, and the list folds
+  a long name on screen only. Editing the task of an automation named after it keeps the name in step,
+  whole, including names an earlier version cut (the Apple apps are a separate change).
 
 ## [0.1.3] - 2026-11-07
 

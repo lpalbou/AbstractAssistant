@@ -6,9 +6,9 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 ## Core guides
 
 - [INSTALLATION.md](INSTALLATION.md) — install the package, the `voice` extra, and the optional macOS app bundle
-- [getting-started.md](getting-started.md) — start a gateway, launch the palette, first turn, shortcuts
+- [getting-started.md](getting-started.md) — start a gateway, launch the palette, first turn, talk to your entities with `@`, shortcuts
 - [architecture.md](architecture.md) — components, the gateway boundary, sessions on the gateway (scope, kinds, cache, offline), automations and your event stream (diagram, follower, attention model, capability gate), the run lifecycle with live replies, the console sign-in hand-over
-- [api.md](api.md) — CLI entry points and flags (including the console hand-over and `run --stream`), environment variables, run input pins, live reply events, gateway routes used (sessions and automations included), local files
+- [api.md](api.md) — CLI entry points and flags (including the console hand-over and `run --stream`), environment variables, run input pins, live reply events, gateway routes used (sessions, automations and `@` mentions included), local files
 - [faq.md](faq.md) — recurring questions and known limits
 - [troubleshooting.md](troubleshooting.md) — symptoms, causes and fixes
 

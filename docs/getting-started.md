@@ -98,9 +98,51 @@ Summon it from the menu-bar icon or with the global shortcut (default `cmd+shift
   the latest steps; it can pause, resume or stop the run and open the full run log.
 - **Composer**: attach files (button or drag and drop), type, and send with Return (Shift+Return
   adds a line); Send appears once there is a draft or an attachment. During a run the send button
-  becomes Stop (⌘.) and typed text steers the run. Beside the composer, the orb is the voice
-  control: click it (or press ⌘⇧V) for a voice conversation, right-click it to dictate into the
-  message box or for its other voice switches (see [voice.md](voice.md)).
+  becomes Stop (⌘.) and typed text steers the run (a message that mentions entities waits for the
+  reply instead; see below). Beside the composer, the orb is the voice control: click it (or press
+  ⌘⇧V) for a voice conversation, right-click it to dictate into the message box or for its other
+  voice switches (see [voice.md](voice.md)).
+
+### Talk to your entities with `@`
+
+Your entities can take part in any conversation. This needs AbstractGateway 0.21.0 or later.
+
+1. Type `@` at the start of your message or after a space. A list opens with **Assistant** first,
+   then the entities you may mention. Type a few letters to narrow it, move with ↑ and ↓, and pick
+   with Return or Tab; Esc closes the list.
+2. The name you pick becomes a chip inside your sentence, with the entity's orb and name ("Hi
+   @Castor, what do you think of the plan?"). Backspace removes it like a word, and a name you
+   already picked is not offered again. Rest the pointer on a chip to see the entity's card: its
+   orb, its name and what it is doing.
+3. Send. The entities you mentioned are asked one after the other, in the order of your message, so
+   each one sees the answers given before it. While an entity answers, a bubble with its name and
+   moving dots stands in the conversation; its answer takes that place, headed by its orb and name.
+   Your message shows once and keeps its chips; in a sent message, Tab also reaches a chip and shows
+   its card.
+
+Who answers:
+
+- A message that names entities and not **Assistant** goes to those entities only: the assistant
+  does not answer it, and no thinking card appears.
+- Pick **Assistant** in the list as well to ask it too.
+- A message without mentions goes to the assistant as always.
+
+When something gets in the way:
+
+- An entity already in another conversation is skipped with one line, for example "Castor is in
+  another conversation.", and the next entity is still asked.
+- An entity that cannot answer says why, and your words come back to the message box with only the
+  entities that did not answer still as chips. Send them again to ask only those; an answer already
+  given comes back instead of being asked again.
+- A message you send while only entities are answering waits until their answers are in, then goes
+  as a message of its own ("Your message will send when the answers are in."). A message that
+  mentions entities, sent while the assistant is writing a reply, waits for that reply in the same
+  way.
+- **Stop** ends the asking: no one else is asked.
+- On a gateway without mentions, the line reads "This gateway does not offer mentions yet."
+
+When you reopen a conversation, each answer is still headed by the entity that wrote it. The names
+come from the gateway, so the web Assistant shows the same conversation the same way.
 
 ## 5. Approvals and questions
 

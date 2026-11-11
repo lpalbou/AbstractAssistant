@@ -5,12 +5,44 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
-### Fixed
+## [0.19.0] - 2026-11-11
 
-- **Automation titles are saved whole (web).** A new automation named after its task used to be saved
-  with the task's first line cut at 120 characters and "…"; it is now saved whole, and the list folds
-  a long name on screen only. Editing the task of an automation named after it keeps the name in step,
-  whole, including names an earlier version cut (backlog 1154; the Apple apps are a separate change).
+Talk to your entities from the desktop Assistant: type `@`, pick a name, and each entity you mention
+answers in the conversation, one after the other. It works the same way as in the web Assistant and
+the other AbstractFramework apps. Mentions need AbstractGateway 0.21.0 or later. The web Assistant
+keeps its own release history in [web/CHANGELOG.md](web/CHANGELOG.md).
+
+### Added
+
+- **Mention an entity with `@`.** Type `@` at the start of your message or after a space, and a list
+  opens: **Assistant** first, then the entities you may mention. Type a few letters to narrow it,
+  move with ↑ and ↓, pick with Return or Tab, or close it with Esc. The name you pick becomes a chip
+  inside your sentence, with the entity's orb and name; Backspace removes it like a word. A name you
+  already picked is not offered again.
+- **Each entity answers in turn.** When you send, the entities you mentioned are asked one after the
+  other, in the order they appear in your message, so each one sees the answers given before it. An
+  entity named twice is asked once. While an entity answers, a bubble with its name and moving dots
+  stands in the conversation; its answer takes that place, headed by the entity's orb and name.
+- **A message to your entities is for them only.** A message that names entities and not
+  **Assistant** goes to those entities: the assistant does not answer it, and the conversation shows
+  no thinking card and no "no written reply" line. Pick **Assistant** in the list as well to ask it
+  too. A message without mentions goes to the assistant as always.
+- **Your words show once, with their chips.** The message you sent keeps its chips. Rest the pointer
+  on a chip, or reach it with Tab, to see the entity's card: its orb, its name and what it is doing.
+- **When an entity cannot answer, you are told.** An entity already in another conversation is
+  skipped with one sentence ("Castor is in another conversation."): its bubble goes at once and the
+  next entity is still asked. An entity that cannot answer says why, and your words go back to the
+  message box with only the entities that did not answer still as chips; sending them again asks
+  only those, and an answer already given is returned instead of asked again. On a gateway without
+  mentions, the line reads "This gateway does not offer mentions yet."
+- **A reloaded conversation names who wrote each answer.** Each answer is headed by the entity that
+  wrote it, your words show once, and the answers to one message keep the order they came in. This
+  comes from the gateway, so another device shows the same.
+- **Writing while your entities answer.** A message you send while only entities are answering
+  waits until their answers are in, then goes as a message of its own ("Your message will send when
+  the answers are in."). A message that mentions entities, sent while the assistant is writing a
+  reply, waits for that reply in the same way. **Stop** ends the asking: no one else is asked, and an
+  answer still on its way is not kept.
 
 ## [0.18.3] - 2026-11-07
 

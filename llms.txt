@@ -8,9 +8,9 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [README.md](README.md): overview, capabilities, quick start, local files
 - [docs/README.md](docs/README.md): documentation index
 - [docs/INSTALLATION.md](docs/INSTALLATION.md): pip install, the `voice` extra, the optional macOS app bundle
-- [docs/getting-started.md](docs/getting-started.md): start a gateway, launch the palette, first turn, approvals, shortcuts
+- [docs/getting-started.md](docs/getting-started.md): start a gateway, launch the palette, first turn, `@` mentions of your entities (chips in the message, asked one after the other, a message naming only entities goes to them alone; needs AbstractGateway 0.21.0), approvals, shortcuts
 - [docs/architecture.md](docs/architecture.md): components, gateway boundary, sessions on the gateway, automations and the event stream (diagram, follower, attention model, capability gate), run lifecycle with live replies, console sign-in hand-over, module map
-- [docs/api.md](docs/api.md): CLI entry points and flags (`--gateway-handover-file`, `run --stream`), which gateway the app connects to (incl. the `~/.abstractframework/gateway.json` pointer file), environment variables, run input pins, live reply events, gateway routes used (sessions, automations and the event stream included), local files
+- [docs/api.md](docs/api.md): CLI entry points and flags (`--gateway-handover-file`, `run --stream`), which gateway the app connects to (incl. the `~/.abstractframework/gateway.json` pointer file), environment variables, run input pins, live reply events, gateway routes used (sessions, automations, the event stream and `@` mentions included), local files
 - [docs/faq.md](docs/faq.md): recurring questions and known limits
 - [docs/troubleshooting.md](docs/troubleshooting.md): symptoms, causes and fixes
 

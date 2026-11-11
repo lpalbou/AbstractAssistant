@@ -55,6 +55,10 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   and its stream): status, replies, tool rows and the approval or question wherever it waits come
   from the gateway, so an approval answered on another client closes here too. On an older gateway
   the app folds the run's ledger itself and says so.
+- Your entities in the conversation: type `@` in the message box, pick an entity, and it answers
+  under its own name and orb; several entities answer one after the other, and a message that
+  names only entities goes to them alone (AbstractGateway 0.21.0 or later; see
+  [Talk to your entities with `@`](docs/getting-started.md#talk-to-your-entities-with-)).
 - Multi-attachment composer with an image gallery, drag and drop, and artifact previews.
 - In your pocket and on your wrist: **AbstractAssistant for iPhone and Apple Watch** is one app
   (0.17.0, pre-release through TestFlight): the iPhone app carries the watch app, each signs in
@@ -66,6 +70,14 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   ([watch/apple/README.md](watch/apple/README.md)).
 
 ## What's new
+
+0.19.0 lets you talk to your entities from the desktop Assistant, as in the web Assistant and the
+other AbstractFramework apps: type `@`, pick a name, and it becomes a chip in your sentence. Each
+entity you mention answers in the conversation, one after the other, under its own name and orb; a
+message that names only entities goes to them alone, and a reloaded conversation still shows who
+wrote each answer. It needs AbstractGateway 0.21.0 or later. See
+[Talk to your entities with `@`](docs/getting-started.md#talk-to-your-entities-with-) and the
+[0.19.0 release notes](CHANGELOG.md#0190---2026-11-11).
 
 0.18.3 makes reasoning and MTP follow the chat model: MTP depths are offered only for a model the
 gateway says supports MTP, changing the model puts both back on Gateway default, and a saved value
@@ -103,7 +115,8 @@ either way.
 Requirements: Python 3.10+, an AbstractGateway you can reach (0.16.0 or later for the voice
 library and the chat-wide tool policy; an older gateway keeps the labeled local grant and refuses
 the voice library's requests; 0.19.0 or later for read marks shared across your devices, without
-which conversation cards show no unread marks). AbstractCore is installed as a
+which conversation cards show no unread marks; 0.21.0 or later for `@` mentions of your
+entities). AbstractCore is installed as a
 dependency (its minimum version is set in `pyproject.toml`). macOS is the primary tray target;
 Linux and Windows may work but are not packaged to the same standard.
 

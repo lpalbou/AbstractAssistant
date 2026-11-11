@@ -141,7 +141,8 @@ class MentionCandidate:
 class Mention:
     """A chip as sent: the candidate it was picked from, `index` = its place among the message's
     mentions in text order (0, 1, ...: the gateway's `mention_index`), `start` = where its "@Name"
-    sits in the sent text (`text[start:start + len(name) + 1] == "@" + name`)."""
+    sits in the sent text, in UTF-16 code units (the web kit's unit, not a Python string index;
+    `ui.mention_chip.py_index` converts it)."""
 
     id: str
     name: str

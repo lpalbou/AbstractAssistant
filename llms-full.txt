@@ -76,9 +76,9 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [README.md](README.md): overview, capabilities, quick start, local files
 - [docs/README.md](docs/README.md): documentation index
 - [docs/INSTALLATION.md](docs/INSTALLATION.md): pip install, the `voice` extra, the optional macOS app bundle
-- [docs/getting-started.md](docs/getting-started.md): start a gateway, launch the palette, first turn, approvals, shortcuts
+- [docs/getting-started.md](docs/getting-started.md): start a gateway, launch the palette, first turn, `@` mentions of your entities (chips in the message, asked one after the other, a message naming only entities goes to them alone; needs AbstractGateway 0.21.0), approvals, shortcuts
 - [docs/architecture.md](docs/architecture.md): components, gateway boundary, sessions on the gateway, automations and the event stream (diagram, follower, attention model, capability gate), run lifecycle with live replies, console sign-in hand-over, module map
-- [docs/api.md](docs/api.md): CLI entry points and flags (`--gateway-handover-file`, `run --stream`), which gateway the app connects to (incl. the `~/.abstractframework/gateway.json` pointer file), environment variables, run input pins, live reply events, gateway routes used (sessions, automations and the event stream included), local files
+- [docs/api.md](docs/api.md): CLI entry points and flags (`--gateway-handover-file`, `run --stream`), which gateway the app connects to (incl. the `~/.abstractframework/gateway.json` pointer file), environment variables, run input pins, live reply events, gateway routes used (sessions, automations, the event stream and `@` mentions included), local files
 - [docs/faq.md](docs/faq.md): recurring questions and known limits
 - [docs/troubleshooting.md](docs/troubleshooting.md): symptoms, causes and fixes
 
@@ -169,6 +169,10 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   and its stream): status, replies, tool rows and the approval or question wherever it waits come
   from the gateway, so an approval answered on another client closes here too. On an older gateway
   the app folds the run's ledger itself and says so.
+- Your entities in the conversation: type `@` in the message box, pick an entity, and it answers
+  under its own name and orb; several entities answer one after the other, and a message that
+  names only entities goes to them alone (AbstractGateway 0.21.0 or later; see
+  [Talk to your entities with `@`](docs/getting-started.md#talk-to-your-entities-with-)).
 - Multi-attachment composer with an image gallery, drag and drop, and artifact previews.
 - In your pocket and on your wrist: **AbstractAssistant for iPhone and Apple Watch** is one app
   (0.17.0, pre-release through TestFlight): the iPhone app carries the watch app, each signs in
@@ -180,6 +184,14 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   ([watch/apple/README.md](watch/apple/README.md)).
 
 ## What's new
+
+0.19.0 lets you talk to your entities from the desktop Assistant, as in the web Assistant and the
+other AbstractFramework apps: type `@`, pick a name, and it becomes a chip in your sentence. Each
+entity you mention answers in the conversation, one after the other, under its own name and orb; a
+message that names only entities goes to them alone, and a reloaded conversation still shows who
+wrote each answer. It needs AbstractGateway 0.21.0 or later. See
+[Talk to your entities with `@`](docs/getting-started.md#talk-to-your-entities-with-) and the
+[0.19.0 release notes](CHANGELOG.md#0190---2026-11-11).
 
 0.18.3 makes reasoning and MTP follow the chat model: MTP depths are offered only for a model the
 gateway says supports MTP, changing the model puts both back on Gateway default, and a saved value
@@ -217,7 +229,8 @@ either way.
 Requirements: Python 3.10+, an AbstractGateway you can reach (0.16.0 or later for the voice
 library and the chat-wide tool policy; an older gateway keeps the labeled local grant and refuses
 the voice library's requests; 0.19.0 or later for read marks shared across your devices, without
-which conversation cards show no unread marks). AbstractCore is installed as a
+which conversation cards show no unread marks; 0.21.0 or later for `@` mentions of your
+entities). AbstractCore is installed as a
 dependency (its minimum version is set in `pyproject.toml`). macOS is the primary tray target;
 Linux and Windows may work but are not packaged to the same standard.
 
@@ -323,9 +336,9 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 ## Core guides
 
 - [INSTALLATION.md](INSTALLATION.md) — install the package, the `voice` extra, and the optional macOS app bundle
-- [getting-started.md](getting-started.md) — start a gateway, launch the palette, first turn, shortcuts
+- [getting-started.md](getting-started.md) — start a gateway, launch the palette, first turn, talk to your entities with `@`, shortcuts
 - [architecture.md](architecture.md) — components, the gateway boundary, sessions on the gateway (scope, kinds, cache, offline), automations and your event stream (diagram, follower, attention model, capability gate), the run lifecycle with live replies, the console sign-in hand-over
-- [api.md](api.md) — CLI entry points and flags (including the console hand-over and `run --stream`), environment variables, run input pins, live reply events, gateway routes used (sessions and automations included), local files
+- [api.md](api.md) — CLI entry points and flags (including the console hand-over and `run --stream`), environment variables, run input pins, live reply events, gateway routes used (sessions, automations and `@` mentions included), local files
 - [faq.md](faq.md) — recurring questions and known limits
 - [troubleshooting.md](troubleshooting.md) — symptoms, causes and fixes
 
@@ -578,9 +591,51 @@ Summon it from the menu-bar icon or with the global shortcut (default `cmd+shift
   the latest steps; it can pause, resume or stop the run and open the full run log.
 - **Composer**: attach files (button or drag and drop), type, and send with Return (Shift+Return
   adds a line); Send appears once there is a draft or an attachment. During a run the send button
-  becomes Stop (⌘.) and typed text steers the run. Beside the composer, the orb is the voice
-  control: click it (or press ⌘⇧V) for a voice conversation, right-click it to dictate into the
-  message box or for its other voice switches (see [voice.md](voice.md)).
+  becomes Stop (⌘.) and typed text steers the run (a message that mentions entities waits for the
+  reply instead; see below). Beside the composer, the orb is the voice control: click it (or press
+  ⌘⇧V) for a voice conversation, right-click it to dictate into the message box or for its other
+  voice switches (see [voice.md](voice.md)).
+
+### Talk to your entities with `@`
+
+Your entities can take part in any conversation. This needs AbstractGateway 0.21.0 or later.
+
+1. Type `@` at the start of your message or after a space. A list opens with **Assistant** first,
+   then the entities you may mention. Type a few letters to narrow it, move with ↑ and ↓, and pick
+   with Return or Tab; Esc closes the list.
+2. The name you pick becomes a chip inside your sentence, with the entity's orb and name ("Hi
+   @Castor, what do you think of the plan?"). Backspace removes it like a word, and a name you
+   already picked is not offered again. Rest the pointer on a chip to see the entity's card: its
+   orb, its name and what it is doing.
+3. Send. The entities you mentioned are asked one after the other, in the order of your message, so
+   each one sees the answers given before it. While an entity answers, a bubble with its name and
+   moving dots stands in the conversation; its answer takes that place, headed by its orb and name.
+   Your message shows once and keeps its chips; in a sent message, Tab also reaches a chip and shows
+   its card.
+
+Who answers:
+
+- A message that names entities and not **Assistant** goes to those entities only: the assistant
+  does not answer it, and no thinking card appears.
+- Pick **Assistant** in the list as well to ask it too.
+- A message without mentions goes to the assistant as always.
+
+When something gets in the way:
+
+- An entity already in another conversation is skipped with one line, for example "Castor is in
+  another conversation.", and the next entity is still asked.
+- An entity that cannot answer says why, and your words come back to the message box with only the
+  entities that did not answer still as chips. Send them again to ask only those; an answer already
+  given comes back instead of being asked again.
+- A message you send while only entities are answering waits until their answers are in, then goes
+  as a message of its own ("Your message will send when the answers are in."). A message that
+  mentions entities, sent while the assistant is writing a reply, waits for that reply in the same
+  way.
+- **Stop** ends the asking: no one else is asked.
+- On a gateway without mentions, the line reads "This gateway does not offer mentions yet."
+
+When you reopen a conversation, each answer is still headed by the entity that wrote it. The names
+come from the gateway, so the web Assistant shows the same conversation the same way.
 
 ## 5. Approvals and questions
 
@@ -1705,6 +1760,19 @@ the stream. Whether the gateway offers live replies is read from
   session transcript seed), `/api/gateway/runs/{run_id}/ledger` (older gateways only: folded here),
   `/api/gateway/runs/{run_id}/ledger/stream` (live reply frames only),
   `/api/gateway/commands` (pause, resume, cancel, inject_guidance, resume of waits)
+- `@` mentions of your entities (AbstractGateway 0.21.0 or later;
+  [getting-started.md](getting-started.md#talk-to-your-entities-with-)):
+  `GET /api/gateway/entities` (the `@` list and the chips' cards, read once per conversation and
+  again after a refusal), `POST /api/gateway/runs/start` with `mentions` (the entity slugs and the
+  reserved `agent`, in pick order, each once; the answer's `agent: "not_addressed"` and `turn_id`
+  mean no agent run was started for a message that names only entities), and
+  `POST /api/gateway/sessions/{session_id}/mentions` (`{entity, text, mention_index, mention_id,
+  repeat_of}`, one entity at a time in mention order, never retried; a resend names the same
+  `mention_id` and gets the first answer back). Refusals are read from the gateway's error `code`:
+  409 skips that entity ("<Name> is in another conversation."), 404 `entity_not_found` skips it,
+  503 stops and gives the words back with the chips not answered, 422 `repeat_of_unknown` stops,
+  and an uncoded 404 or 405 means the gateway has no mention route. Each answered turn carries its
+  `author`, which the transcript and a reloaded conversation show.
 - Discovery and configuration (read): `/api/gateway/me`, `/api/gateway/discovery/capabilities`,
   `/api/gateway/discovery/providers`, `/api/gateway/discovery/providers/{provider}/models`,
   `/api/gateway/discovery/models/capabilities`, `/api/gateway/discovery/tools`,
@@ -2118,6 +2186,14 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
   translucent panel (`AvatarVoiceButton`), and the local capture/playback layer over gateway
   speech routes.
   The former status strip, `ui/voice_strip.py`, stays in the code but is no longer shown.
+- `core/mentions.py`, `ui/mention_composer.py`, `ui/mention_picker.py`, `ui/mention_chip.py`,
+  `ui/mention_card.py`, `ui/pending_bubble.py` — `@` mentions of your entities, the same contract
+  as the web Assistant: the Qt-free rules (the `@` list from `GET /entities`, the chips as sent, who
+  the message reaches, the entities asked one after the other, the refusal sentences), the composer
+  whose chips are objects of the text (never parsed from the words; offsets in UTF-16 code units,
+  the web kit's unit), the `@` list, the entity's card, and the bubble that stands for an entity's
+  answer on its way. The run worker asks the entities (`GatewayWorker.set_mentions`) and the
+  transcript seed labels each answer with its `author`.
 - `gateway/automations.py`, `core/automations.py`, `ui/automations.py` — the Automations API
   client, its Qt-free presentation rules (labels, enabled controls, chat pairs, the create body,
   notifications), and the switcher rows, automation view, Schedule window and polling hub.
@@ -3354,12 +3430,44 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
-### Fixed
+## [0.19.0] - 2026-11-11
 
-- **Automation titles are saved whole (web).** A new automation named after its task used to be saved
-  with the task's first line cut at 120 characters and "…"; it is now saved whole, and the list folds
-  a long name on screen only. Editing the task of an automation named after it keeps the name in step,
-  whole, including names an earlier version cut (backlog 1154; the Apple apps are a separate change).
+Talk to your entities from the desktop Assistant: type `@`, pick a name, and each entity you mention
+answers in the conversation, one after the other. It works the same way as in the web Assistant and
+the other AbstractFramework apps. Mentions need AbstractGateway 0.21.0 or later. The web Assistant
+keeps its own release history in [web/CHANGELOG.md](web/CHANGELOG.md).
+
+### Added
+
+- **Mention an entity with `@`.** Type `@` at the start of your message or after a space, and a list
+  opens: **Assistant** first, then the entities you may mention. Type a few letters to narrow it,
+  move with ↑ and ↓, pick with Return or Tab, or close it with Esc. The name you pick becomes a chip
+  inside your sentence, with the entity's orb and name; Backspace removes it like a word. A name you
+  already picked is not offered again.
+- **Each entity answers in turn.** When you send, the entities you mentioned are asked one after the
+  other, in the order they appear in your message, so each one sees the answers given before it. An
+  entity named twice is asked once. While an entity answers, a bubble with its name and moving dots
+  stands in the conversation; its answer takes that place, headed by the entity's orb and name.
+- **A message to your entities is for them only.** A message that names entities and not
+  **Assistant** goes to those entities: the assistant does not answer it, and the conversation shows
+  no thinking card and no "no written reply" line. Pick **Assistant** in the list as well to ask it
+  too. A message without mentions goes to the assistant as always.
+- **Your words show once, with their chips.** The message you sent keeps its chips. Rest the pointer
+  on a chip, or reach it with Tab, to see the entity's card: its orb, its name and what it is doing.
+- **When an entity cannot answer, you are told.** An entity already in another conversation is
+  skipped with one sentence ("Castor is in another conversation."): its bubble goes at once and the
+  next entity is still asked. An entity that cannot answer says why, and your words go back to the
+  message box with only the entities that did not answer still as chips; sending them again asks
+  only those, and an answer already given is returned instead of asked again. On a gateway without
+  mentions, the line reads "This gateway does not offer mentions yet."
+- **A reloaded conversation names who wrote each answer.** Each answer is headed by the entity that
+  wrote it, your words show once, and the answers to one message keep the order they came in. This
+  comes from the gateway, so another device shows the same.
+- **Writing while your entities answer.** A message you send while only entities are answering
+  waits until their answers are in, then goes as a message of its own ("Your message will send when
+  the answers are in."). A message that mentions entities, sent while the assistant is writing a
+  reply, waits for that reply in the same way. **Stop** ends the asking: no one else is asked, and an
+  answer still on its way is not kept.
 
 ## [0.18.3] - 2026-11-07
 
@@ -8628,7 +8736,18 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **A reloaded conversation shows a message to your entities as it did live.** After a reload, a
+  message you sent only to entities (without **Assistant**) no longer reads as still waiting for a
+  reply and no longer ends with "The run ended without a written reply."
+
 ## [0.2.0] - 2026-11-10
+
+### Changed (relock)
+
+- Relocked on the published kit: `@abstractframework/ui-kit` ^0.9.28 and `@abstractframework/panel-chat` ^0.9.13 from npm; every `src/vendor` snapshot re-synced to match them (session cards and gateway voice were behind).
+- **An `@` mention is a chip inside the sentence** (operator, second test round 2026-11-10): picking a name puts it where the typed `@cas` was ("Hi @Castor how are you doing ?"), with the entity's orb, no ×; deleting it in the text removes the mention. The words sent carry each chip as "@Name". Needs `@abstractframework/panel-chat` 0.9.12 (published; the vendored snapshots `src/vendor/abstractchat` and `src/vendor/abstractdocs` are synced from it).
 
 Mention your entities in a conversation, see who wrote each reply, and see what an entity's reply
 kept. Built on `@abstractframework/ui-kit` 0.9.27 and `@abstractframework/panel-chat` 0.9.11 from
@@ -8671,7 +8790,8 @@ says "This gateway does not offer mentions yet."
   message box says "The assistant stays out of this message.", and the conversation shows your words
   once, then the entities' answers, with no spinner, no empty reply and no "ended without a written
   reply" line (a turn marked `agent_addressed: false` in its view is never shown as waiting for a
-  reply). To ask the Assistant as well, pick **Assistant**, first in the `@` list (an "agent" chip,
+  reply; after a reload its words show as they did live, from the turn's own fields, and the app
+  asks no run's input for it: the turn is not a run). To ask the Assistant as well, pick **Assistant**, first in the `@` list (an "agent" chip,
   sent as the reserved `agent` in `mentions`, in the order you picked): it answers only the part
   meant for it, or says nothing. A message without mentions goes to the Assistant as always. A
   message with `@Assistant` is a new message, never a resend of a stopped one. A message sent while
@@ -8689,6 +8809,13 @@ says "This gateway does not offer mentions yet."
   The per-toolset "Allow all … tools for this chat" choice is gone.
 - **Built on ui-kit 0.9.27 and panel-chat 0.9.11 from npm** (from ui-kit 0.9.16 and panel-chat
   0.8.2); the shared conversation bundled with the app is panel-chat 0.9.11's.
+
+### Fixed
+
+- **Automation titles are saved whole.** A new automation named after its task used to be saved
+  with the task's first line cut at 120 characters and "…"; it is now saved whole, and the list folds
+  a long name on screen only. Editing the task of an automation named after it keeps the name in step,
+  whole, including names an earlier version cut (the Apple apps are a separate change).
 
 ## [0.1.3] - 2026-11-07
 
@@ -8795,7 +8922,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.18.3"
+version = "0.19.0"
 description = "A gateway-native macOS menu-bar assistant for AbstractFramework: a compact palette, voice questions, automations and a small CLI over AbstractGateway"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13210,6 +13337,74 @@ class GatewayHttpError(RuntimeError):
         self.body_text = body_text
 
 
+class GatewayCodedError(GatewayHttpError):
+    """A gateway refusal with its own `code` (the `{detail, code}` body or the
+    `X-Gateway-Error-Code` header; "" without one) and its own sentence (`detail`).
+
+    Clients branch on `status` + `code`, never on the sentence (the `@entity` mention door:
+    409 `in_another_conversation`, 404 `entity_not_found`, 503 `entity_cannot_answer`, 422
+    `repeat_of_unknown`; an uncoded 404/405 is a gateway without the route)."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: int,
+        code: str = "",
+        detail: str = "",
+        retry_after_s: Optional[float] = None,
+        body_text: str = "",
+    ) -> None:
+        super().__init__(message, status=status, retry_after_s=retry_after_s, body_text=body_text)
+        self.code = str(code or "").strip()
+        self.detail = str(detail or "").strip()
+
+
+#: An `@entity` mention is a model turn of the entity (through its visit door): the gateway bounds
+#: it; this only stops a request that never returns.
+MENTION_TIMEOUT_S = 600.0
+
+
+def _coded_error(e: urllib.error.HTTPError, *, label: str) -> GatewayCodedError:
+    """The gateway's refusal as a GatewayCodedError: `code` from the header, else the body's `code`;
+    `detail` = the body's sentence (`detail` string, or `detail.message`), else its text."""
+    status = int(getattr(e, "code", 0) or 0)
+    headers = {str(k).lower(): str(v) for k, v in dict(e.headers or {}).items()}
+    code = headers.get("x-gateway-error-code", "").strip()
+    try:
+        raw = e.read() or b""
+    except Exception:
+        raw = b""
+    text = _decode_bytes(raw, label=label).strip()
+    detail = ""
+    if text.startswith("{"):
+        try:
+            body = json.loads(text)
+        except Exception:
+            body = None
+        if isinstance(body, dict):
+            d = body.get("detail")
+            if isinstance(d, str):
+                detail = d.strip()
+            elif isinstance(d, dict):
+                detail = str(d.get("message") or d.get("detail") or json.dumps(d)).strip()
+                code = code or str(d.get("reason_code") or "").strip()
+            elif isinstance(body.get("message"), str):
+                detail = str(body.get("message")).strip()
+            if not code and isinstance(body.get("code"), str):
+                code = str(body.get("code")).strip()
+    if not detail:
+        detail = text
+    return GatewayCodedError(
+        f"{label}: {detail or f'HTTP {status}'}",
+        status=status,
+        code=code,
+        detail=detail,
+        retry_after_s=_retry_after_s(dict(e.headers or {})),
+        body_text=detail,
+    )
+
+
 # Contract A1 (missions 2026-09-25, amendment A-3): the gateway console launches
 # the desktop app with `--gateway-url <url> --gateway-handover-file <path>`; the
 # app reads + deletes that file and trades its code here, on loopback, for a
@@ -13677,6 +13872,137 @@ class GatewayClient:
         resolved = out.get("resolved_workflow")
         self.last_resolved_workflow = dict(resolved) if isinstance(resolved, dict) else None
         return run_id.strip()
+
+    def _request_json_coded(
+        self,
+        *,
+        method: str,
+        url: str,
+        body: Optional[Dict[str, Any]] = None,
+        timeout_s: Optional[float] = None,
+        label: str,
+    ) -> Dict[str, Any]:
+        """`_request_json` whose refusals keep the gateway's `code` (GatewayCodedError)."""
+        method_s = str(method or "GET").upper()
+        h = self._headers(mutating=method_s not in {"GET", "HEAD", "OPTIONS"})
+        data = None
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            h["Content-Type"] = "application/json"
+        req = urllib.request.Request(url, data=data, method=method_s, headers=h)
+        try:
+            with urllib.request.urlopen(req, timeout=self._cfg.timeout_s if timeout_s is None else float(timeout_s)) as resp:
+                text = _decode_bytes(resp.read() or b"", label=label)
+        except urllib.error.HTTPError as e:
+            raise _coded_error(e, label=label) from None
+        if not text.strip():
+            return {}
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            raise RuntimeError(f"{label}: the gateway's answer was not JSON.") from None
+        if not isinstance(parsed, dict):
+            raise RuntimeError(f"{label}: the gateway's answer was not an object.")
+        return parsed
+
+    def start_run_with_mentions(
+        self,
+        *,
+        mentions: List[str],
+        flow_id: Optional[str],
+        input_data: Dict[str, Any],
+        bundle_id: Optional[str] = None,
+        bundle_version: Optional[str] = None,
+        session_id: Optional[str] = None,
+        registry_scope: Optional[str] = None,
+        interface: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """`POST runs/start` for a message with `@` chips (`mentions`: entity slugs and the reserved
+        "agent", core.mentions.start_run_mentions). Returns `{agent, run_id, turn_id}`:
+
+        - `agent: "started"`: the agent's run started (`run_id`; an older gateway sends no `agent`
+          and is read as started);
+        - `agent: "not_addressed"`: the message names entities and not `@agent`: no agent run; the
+          gateway kept the words as a turn of the session (`turn_id`), which the mentions name as
+          `repeat_of`.
+
+        A start answer without the id it needs raises with a sentence. Refusals raise
+        GatewayCodedError (an unknown entity chip is 404 `entity_not_found`). Never retried here."""
+        if str(flow_id or "").strip() == "@default" and not str(interface or "").strip():
+            raise ValueError("start_run: flow_id '@default' requires an interface")
+        chips = [str(m).strip() for m in (mentions or []) if str(m or "").strip()]
+        if not chips:
+            raise ValueError("start_run_with_mentions: a message without chips uses start_run")
+        if not str(session_id or "").strip():
+            raise ValueError("start_run_with_mentions: a session_id is required (the answers are its turns)")
+        body: Dict[str, Any] = {"input_data": input_data or {}, "mentions": chips, "session_id": str(session_id).strip()}
+        for key, value in (
+            ("interface", interface),
+            ("bundle_id", bundle_id),
+            ("bundle_version", bundle_version),
+            ("flow_id", flow_id),
+            ("registry_scope", registry_scope),
+        ):
+            if value:
+                body[key] = str(value)
+        out = self._request_json_coded(
+            method="POST",
+            url=self._url("/api/gateway/runs/start"),
+            body=body,
+            label="The message could not be sent",
+        )
+        agent = str(out.get("agent") or "").strip() or "started"
+        if agent == "not_addressed":
+            turn_id = str(out.get("turn_id") or "").strip()
+            if not turn_id:
+                raise RuntimeError("The gateway kept the message for the entities but returned no turn id.")
+            self.last_resolved_workflow = None
+            return {"agent": agent, "run_id": "", "turn_id": turn_id}
+        if agent != "started":
+            raise RuntimeError(f"The gateway answered the message with an unknown routing {agent!r}.")
+        run_id = str(out.get("run_id") or "").strip()
+        if not run_id:
+            raise RuntimeError("The gateway accepted the message but returned no run id.")
+        resolved = out.get("resolved_workflow")
+        self.last_resolved_workflow = dict(resolved) if isinstance(resolved, dict) else None
+        return {"agent": agent, "run_id": run_id, "turn_id": str(out.get("turn_id") or "").strip() or run_id}
+
+    def list_entities(self) -> Dict[str, Any]:
+        """`GET entities`: the entities this account may see (`{entities: [...]}`), for `@` mentions
+        (core.mentions.EntityRoster reads `slug`, `name`, `identity.avatar`, `state`, `error`).
+        An answer without the `entities` list raises with a sentence (never an empty list)."""
+        out = self._request_json_coded(
+            method="GET",
+            url=self._url("/api/gateway/entities"),
+            label="The entities could not be listed",
+        )
+        if not isinstance(out.get("entities"), list):
+            raise RuntimeError("The gateway's entity list has no `entities` list.")
+        return out
+
+    def post_mention(self, session_id: str, payload: Dict[str, Any], *, timeout_s: Optional[float] = None) -> Dict[str, Any]:
+        """`POST sessions/{session_id}/mentions {entity, text, mention_index, mention_id, repeat_of?}`:
+        one `@entity` mention of this conversation (AbstractGateway's mention door). 200 = the
+        entity's answer as a turn of the session (`run_id`, `author`, `reply`, `notices`, `mirrors`).
+        Refusals raise GatewayCodedError with the gateway's `code` (core.mentions.mention_refusal
+        maps them). Never retried here (a resend carries the same `mention_id`)."""
+        sid = str(session_id or "").strip()
+        if not sid:
+            raise ValueError("post_mention: a session_id is required")
+        body = dict(payload or {})
+        entity = str(body.get("entity") or "").strip()
+        if not entity:
+            raise ValueError("post_mention: the payload names no entity")
+        out = self._request_json_coded(
+            method="POST",
+            url=self._url(f"/api/gateway/sessions/{quote(sid, safe='')}/mentions"),
+            body=body,
+            timeout_s=MENTION_TIMEOUT_S if timeout_s is None else timeout_s,
+            label=f"The mention of {entity}",
+        )
+        if not str(out.get("run_id") or "").strip():
+            raise RuntimeError(f"The gateway answered the mention of {entity} without its turn.")
+        return out
 
     def get_run(self, run_id: str) -> Dict[str, Any]:
         rid = str(run_id or "").strip()
@@ -16121,6 +16447,7 @@ from typing import Any, Callable, Dict, List, Optional, Set
 
 from abstractruntime.replay import ReplayView, apply_delta
 
+from ..core.mentions import read_author
 from .client import GatewayHttpError, GatewayStreamIdle
 
 TERMINAL = frozenset({"completed", "failed", "cancelled"})
@@ -16512,6 +16839,11 @@ class ViewProjector:
         rid = str(m.get("run_id") or root)
         meta: Dict[str, Any] = {"run_id": rid, "message_id": mid}
         _media_meta(meta, m.get("artifact_ids"), arts, source=str(m.get("source") or ""))
+        # Who wrote it (the turn's `author`: an `@entity` mention's answer is the entity's); a
+        # view without one (an older gateway) is drawn as before.
+        author = read_author(m.get("author"))
+        if author is not None:
+            meta["author"] = author
         ev_extra: Dict[str, Any] = {}
         if final and m.get("repeats"):
             meta["repeats"] = m.get("repeats")
@@ -16903,7 +17235,7 @@ import json
 import os
 import threading
 import warnings
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 try:
     from PyQt5.QtCore import QThread, pyqtSignal
@@ -16913,6 +17245,23 @@ except Exception:  # pragma: no cover - Qt binding fallback
     except Exception:
         from PyQt6.QtCore import QThread, pyqtSignal
 
+from ..core.mentions import (
+    Mention,
+    MentionAnswer,
+    MentionDelivery,
+    MentionRequest,
+    MentionResend,
+    MentionsSummary,
+    deliver_mentions,
+    mention_answer_from,
+    mention_answer_metadata,
+    mention_message_key,
+    mention_resend,
+    mentioned_entities,
+    pending_mentions,
+    start_run_mentions,
+    view_agent_not_addressed,
+)
 from ..gateway import build_run_input_data
 from ..gateway.client import wait_answer_payload, wait_response_command
 from ..gateway.history_seed import seed_messages_from_history_bundle
@@ -16939,9 +17288,19 @@ class GatewayWorker(QThread):
     # Non-fatal: something the user should know (a wait answer that did not
     # reach the gateway) while the follower keeps running. Never tear down.
     warning_occurred = pyqtSignal(str)
+    # `@entity` mentions (core/mentions.py has the whole API and its order), for one message:
+    # mention_asked(Mention) -> mention_answered(Mention, MentionAnswer) | mention_skipped(Mention,
+    # sentence) per entity, in order; then mentions_done(MentionsSummary) once, before `finished`.
+    mention_asked = pyqtSignal(object)
+    mention_answered = pyqtSignal(object, object)
+    mention_skipped = pyqtSignal(object, str)
+    mentions_done = pyqtSignal(object)
     # Class-level default so a worker built via __new__ (tests) still reads
     # "gateway default" (nothing sent).
     _stream: Optional[bool] = None
+    # The composer's chips for this message (`set_mentions`); none = today's send.
+    _mentions: Tuple[Mention, ...] = ()
+    _mention_resend: Optional[MentionResend] = None
 
     def __init__(
         self,
@@ -17026,6 +17385,24 @@ class GatewayWorker(QThread):
         self._output_artifact_candidates: List[tuple[str, str]] = []
         self._seen_output_artifacts: set[tuple[str, str]] = set()
         self._finished_llm_calls: set[str] = set()
+
+    def set_mentions(self, mentions: Sequence[Mention], *, resend: Optional[MentionResend] = None) -> None:
+        """The composer's chips for this message, BEFORE `start()` (core/mentions.py, "The worker API").
+
+        `mentions`: the send's chips in text order (`Mention`; `@agent` is kind "agent"). `resend`: the
+        `MentionsSummary.resend` a previous send of this chat handed back; used only when this message
+        is the same words again with chips and no `@agent` (then only those mentions are asked: no
+        upload, no new turn, no transcript row for the words)."""
+        if self.isRunning():
+            raise RuntimeError("set_mentions() must be called before the worker starts.")
+        chips = tuple(mentions or ())
+        for chip in chips:
+            if not isinstance(chip, Mention):
+                raise TypeError(f"A mention is a core.mentions.Mention, not {type(chip).__name__}.")
+        if resend is not None and not isinstance(resend, MentionResend):
+            raise TypeError(f"resend is a core.mentions.MentionResend, not {type(resend).__name__}.")
+        self._mentions = chips
+        self._mention_resend = resend
 
     def provide_tool_approval(
         self,
@@ -17626,7 +18003,11 @@ class GatewayWorker(QThread):
                 summary = got if isinstance(got, dict) else {}
             except Exception as exc:  # noqa: BLE001
                 warnings.warn(f"#FALLBACK: could not read the run summary of {run_id}: {exc}")
-        if status == "completed" and not projector.final_shown:
+        if status == "completed" and not projector.final_shown and view_agent_not_addressed(view):
+            # A person's turn no agent was asked to answer (`@entity` without `@agent`): no reply
+            # is expected, so no "empty answer" notice either.
+            pass
+        elif status == "completed" and not projector.final_shown:
             # No final message in the view (an output without text): the worker's own recovery
             # (an output artifact's text, a media notice, an empty-answer notice) decides.
             self._emit_ui_events(run_id=run_id, events=[final_fallback_event(view, summary.get("output"))])
@@ -17828,6 +18209,164 @@ class GatewayWorker(QThread):
             return self._thinking, (False if self._speculation is False else None)
         return str(thinking or ""), speculation
 
+    # ---- @entity mentions (core/mentions.py) -------------------------------------------------
+
+    def _mentions_to_resend(self, session_id: str) -> Optional[List[Mention]]:
+        """The mentions this send asks again (`mention_resend`), or None for a new message."""
+        held = self._mention_resend
+        if held is None or self._attach_run_id or held.session_id != session_id:
+            return None
+        return mention_resend(held, self._user_text, self._mentions)
+
+    def _append_mention_answer(self, mention: Mention, answer: MentionAnswer, *, repeat_of: str) -> None:
+        """The entity's answer joins the transcript, labelled with its author (the bubble's name)."""
+        if not answer.reply.strip():
+            self.warning_occurred.emit(f"{mention.name} answered without words. The answer is kept in this conversation.")
+            return
+        try:
+            self._llm_manager.append_message(
+                role="assistant",
+                content=answer.reply,
+                metadata=mention_answer_metadata(answer, mention, repeat_of=repeat_of),
+            )
+        except Exception as exc:  # noqa: BLE001 - said, never dropped
+            self.warning_occurred.emit(
+                f"{mention.name} answered, but the answer cannot be shown here ({exc}). It is kept in this conversation."
+            )
+
+    def _start_mention_delivery(
+        self,
+        *,
+        session_id: str,
+        text: str,
+        mentions: Sequence[Mention],
+        repeat_of: str,
+        message: str = "",
+    ) -> Dict[str, Any]:
+        """Ask the message's entities in order on a helper thread (`deliver_mentions`), emitting
+        mention_asked / mention_answered / mention_skipped as they happen. After a Stop nothing more
+        is asked, appended or signalled (an answer already on its way is kept by the gateway)."""
+        names = {m.id: m.name for m in mentions}
+        job: Dict[str, Any] = {
+            "stop": threading.Event(),
+            "message": mention_message_key(repeat_of) if not str(message or "").strip() else str(message).strip(),
+            "text": text,
+            "mentions": tuple(mentions),
+            "repeat_of": repeat_of,
+            "answered": [],
+            "notes": [],
+            "skipped": [],
+            "outcome": None,
+            "error": None,
+        }
+
+        def _stopping() -> bool:
+            return job["stop"].is_set() or self.isInterruptionRequested()
+
+        def _post(request: MentionRequest) -> MentionAnswer:
+            payload = self._gateway.post_mention(session_id, request.to_payload())
+            return mention_answer_from(payload, request, name=names.get(request.entity, ""))
+
+        def _asked(mention: Mention) -> None:
+            if not _stopping():
+                self.mention_asked.emit(mention)
+
+        def _answered(mention: Mention, answer: MentionAnswer) -> None:
+            if _stopping():
+                return
+            job["answered"].append((mention, answer))
+            self._append_mention_answer(mention, answer, repeat_of=repeat_of)
+            self.mention_answered.emit(mention, answer)
+
+        def _skipped(mention: Mention, sentence: str) -> None:
+            job["notes"].append(sentence)
+            job["skipped"].append(mention)
+            if not _stopping():
+                self.mention_skipped.emit(mention, sentence)
+
+        def _deliver() -> None:
+            try:
+                job["outcome"] = deliver_mentions(
+                    text=text,
+                    mentions=mentions,
+                    post=_post,
+                    repeat_of=repeat_of,
+                    message=job["message"],
+                    should_stop=_stopping,
+                    on_asked=_asked,
+                    on_answer=_answered,
+                    on_skipped=_skipped,
+                )
+            except BaseException as exc:  # noqa: BLE001 - reported in mentions_done
+                job["error"] = exc
+
+        thread = threading.Thread(target=_deliver, name="abstractassistant-mentions", daemon=True)
+        job["thread"] = thread
+        thread.start()
+        return job
+
+    def _finish_mention_delivery(
+        self, job: Dict[str, Any], *, session_id: str, turn_id: str, agent_addressed: bool
+    ) -> MentionsSummary:
+        """Wait for the entities (a Stop ends the wait at once), then say how it went
+        (`mentions_done`). The newest answered turn becomes the chat's last turn (a later history
+        read must include the answers)."""
+        thread: threading.Thread = job["thread"]
+        while thread.is_alive() and not self.isInterruptionRequested():
+            thread.join(0.1)
+        if self.isInterruptionRequested():
+            job["stop"].set()
+        outcome: Optional[MentionDelivery] = job["outcome"]
+        if job["stop"].is_set() or outcome is None:
+            # A Stop (what was answered before it counts; nothing after it), or a delivery that
+            # broke (said, never dropped).
+            answered = list(job["answered"])
+            done = {m.key for m, _ in answered} | {m.key for m in job["skipped"]}
+            outcome = MentionDelivery(
+                message=job["message"],
+                answered=answered,
+                notes=list(job["notes"]),
+                aborted=job["stop"].is_set(),
+                unsent=[m for m in pending_mentions(job["mentions"]) if m.key not in done],
+            )
+            if job["error"] is not None and not outcome.aborted:
+                outcome.stopped = f"The mentions stopped: {job['error']}"
+                warnings.warn(f"#MENTIONS: delivery failed: {job['error']!r}")
+        summary = MentionsSummary.of(
+            outcome, session_id=session_id, text=job["text"], turn_id=turn_id, agent_addressed=agent_addressed
+        )
+        if outcome.answered and self._llm_manager is not None and not outcome.aborted:
+            self._llm_manager.set_last_run_id(outcome.answered[-1][1].run_id)
+        self.mentions_done.emit(summary)
+        return summary
+
+    def _answer_without_agent(self, *, session_id: str, turn_id: str) -> None:
+        """A message addressed only to entities: the gateway kept the words as a turn (`turn_id`)
+        and started no agent run. Only the entities answer."""
+        self.event_emitted.emit({"type": "agent_not_addressed", "turn_id": turn_id})
+        self.event_emitted.emit({"type": "status", "status": "thinking"})
+        job = self._start_mention_delivery(
+            session_id=session_id, text=self._user_text, mentions=self._mentions, repeat_of=turn_id
+        )
+        summary = self._finish_mention_delivery(job, session_id=session_id, turn_id=turn_id, agent_addressed=False)
+        self.event_emitted.emit({"type": "status", "status": "cancelled" if summary.aborted else "completed"})
+
+    def _resend_mentions(self, *, session_id: str, mentions: List[Mention]) -> None:
+        held = self._mention_resend
+        assert held is not None
+        self.event_emitted.emit({"type": "status", "status": "thinking"})
+        job = self._start_mention_delivery(
+            session_id=session_id,
+            text=held.text,
+            mentions=mentions,
+            repeat_of=held.repeat_of,
+            message=held.message_key,
+        )
+        summary = self._finish_mention_delivery(
+            job, session_id=session_id, turn_id=held.repeat_of, agent_addressed=False
+        )
+        self.event_emitted.emit({"type": "status", "status": "cancelled" if summary.aborted else "completed"})
+
     def run(self) -> None:
         try:
             if self._gateway is None:
@@ -17849,6 +18388,12 @@ class GatewayWorker(QThread):
                 self._seed_history_from_gateway(run_id=run_id)
                 self._emit_run_activity(run_id=run_id)
             else:
+                resend = self._mentions_to_resend(session_id)
+                if resend is not None:
+                    # The same words again after an entity could not answer: only those mentions,
+                    # with the first send's turn and ids. No upload, no new turn, no new row.
+                    self._resend_mentions(session_id=session_id, mentions=resend)
+                    return
                 try:
                     attachments = self._upload_attachments(session_id=session_id) if self._attachments else []
                     preview_items = self._attachment_preview_items(attachments)
@@ -17872,6 +18417,9 @@ class GatewayWorker(QThread):
                             if preview_items
                             else None
                         )
+                        if self._mentions:
+                            # The chips the send carried (the bubble draws them at their `start`).
+                            metadata = {**(metadata or {}), "mentions": [m.to_dict() for m in self._mentions]}
                         self._llm_manager.append_message(
                             role="user",
                             content=self._user_text,
@@ -17911,23 +18459,48 @@ class GatewayWorker(QThread):
                     )
                     if entry.get("interface"):
                         start_kwargs["interface"] = entry["interface"]
-                    run_id = self._gateway.start_run(**start_kwargs)
+                    # The chips ride the start (`mentions`, `@agent` as "agent"): a message that
+                    # names entities and not `@agent` starts no agent run (the gateway keeps the
+                    # words as a turn and says `not_addressed`).
+                    chips = start_run_mentions(self._mentions)
+                    if chips:
+                        started = self._gateway.start_run_with_mentions(mentions=chips, **start_kwargs)
+                    else:
+                        started = {"agent": "started", "run_id": self._gateway.start_run(**start_kwargs)}
                 except Exception as exc:
                     # Nothing started: the palette restores the composer text,
                     # drops the phantom user turn and shows the gateway's
                     # reason (a refused workspace grant, a missing workflow…).
                     self._emit_run_start_failed(exc)
                     return
+                if started.get("agent") == "not_addressed":
+                    self._answer_without_agent(session_id=session_id, turn_id=str(started.get("turn_id") or ""))
+                    return
+                run_id = str(started.get("run_id") or "")
                 if self._llm_manager:
                     self._llm_manager.set_last_run_id(run_id)
                 self._root_run_id = str(run_id or "")
                 self._emit_run_activity(run_id=run_id, fallback_prompt=self._user_text)
                 self._remember_workspace_root(run_id=run_id, requested=self._workspace_root)
 
+            # The entities are asked beside the agent's run (as the web does), each after the
+            # previous one answered; the message is done when both are.
+            asking = None
+            if not self._attach_run_id and mentioned_entities(self._mentions):
+                asking = self._start_mention_delivery(
+                    session_id=session_id, text=self._user_text, mentions=self._mentions, repeat_of=run_id
+                )
             self.event_emitted.emit({"type": "status", "status": "thinking"})
             self._offline = False
 
-            final_status = self._follow_view(run_id=run_id, attach=bool(self._attach_run_id))
+            try:
+                final_status = self._follow_view(run_id=run_id, attach=bool(self._attach_run_id))
+            except BaseException:
+                if asking is not None:
+                    asking["stop"].set()  # no entity is asked after the follower failed
+                raise
+            if asking is not None:
+                self._finish_mention_delivery(asking, session_id=session_id, turn_id=run_id, agent_addressed=True)
             self.event_emitted.emit({"type": "status", "status": final_status})
         except Exception as e:
             if self._debug:
