@@ -351,7 +351,12 @@ export function Workspace(props: {
     };
     // Every answer is shown before deliverMentions returns: a bubble still pending then has no answer
     // coming (refused, stopped, unasked) and goes, on success or failure.
-    const outcome = await deliverMentions({ text, mentions, repeatOf: turn.repeatOf, ...(message ? { message } : {}), post: (req, s) => client.mention(sid, req, s), ...(signal ? { signal } : {}), onAnswer: show })
+    // A refusal that does not stop the run: its bubble goes and its sentence shows now (F3).
+    const skipped = (mention: ChatMentionSent, sentence: string) => {
+      forThis((entries) => entries.filter((e) => !(e.mention.id === mention.id && e.mention.index === mention.index)));
+      if (mounted.current) setMentionStatus(sentence);
+    };
+    const outcome = await deliverMentions({ text, mentions, repeatOf: turn.repeatOf, ...(message ? { message } : {}), post: (req, s) => client.mention(sid, req, s), ...(signal ? { signal } : {}), onAnswer: show, onSkipped: skipped })
       .finally(() => setPendingAnswers((now) => (now && now.anchor === anchor ? null : now)));
     if (outcome.stopped && outcome.unsent.length) pendingResend.current = { sid, message: outcome.message, turn, resend: { text, repeatOf: turn.repeatOf || null, unsent: outcome.unsent } };
     if (!mounted.current) return outcome.unsent;

@@ -310,6 +310,9 @@ export async function deliverMentions(opts: {
   message?: string;
   signal?: AbortSignal;
   onAnswer?: (answer: MentionAnswer, mention: ChatMentionSent) => void | Promise<void>;
+  /** A refusal that does not stop the run (another conversation, cannot be mentioned): said at
+   * once with its sentence, before the next entity is asked (review round 6 F3). */
+  onSkipped?: (mention: ChatMentionSent, sentence: string) => void;
 }): Promise<MentionDelivery> {
   const message = text(opts.message) || mentionMessageKey(opts.repeatOf);
   const out: MentionDelivery = { message, answered: [], notes: [], unavailable: false, stopped: null, unsent: [] };
@@ -329,10 +332,12 @@ export async function deliverMentions(opts: {
       }
       if (refusal === "elsewhere") {
         out.notes.push(`${mention.name} is in another conversation.`);
+        opts.onSkipped?.(mention, `${mention.name} is in another conversation.`);
         continue;
       }
       if (refusal === "not_offered") {
         out.notes.push(`${mention.name} cannot be mentioned here.`);
+        opts.onSkipped?.(mention, `${mention.name} cannot be mentioned here.`);
         continue;
       }
       out.unsent = mentions.slice(at);

@@ -104,6 +104,30 @@ describe("several mentions in one message", () => {
     expect(outcome).toEqual({ message: "turn-person", answered: [answer({ entity: "castor", text: "", mention_index: 0, mention_id: "" }), answer({ entity: "pollux", text: "", mention_index: 1, mention_id: "" })], notes: [], unavailable: false, stopped: null, unsent: [] });
   });
 
+  it("a refusal that does not stop the run is said at once, before the next entity is asked (review F3)", async () => {
+    const events: string[] = [];
+    const post = vi.fn(async (req: MentionRequest) => {
+      events.push(`ask:${req.entity}`);
+      if (req.entity === "castor") throw refused(409, "Castor is in another conversation (session s-2).", "in_another_conversation");
+      if (req.entity === "pollux") throw refused(404, "not found", "entity_not_found");
+      return answer(req);
+    });
+    const vega = { ...pollux, id: "vega", name: "Vega", index: 2 };
+    await deliverMentions({
+      text: "hi", mentions: [castor, pollux, vega], post,
+      onSkipped: (m, sentence) => { events.push(`skip:${m.id}:${sentence}`); },
+      onAnswer: (a) => { events.push(`answer:${a.run_id}`); },
+    });
+    expect(events).toEqual([
+      "ask:castor", "skip:castor:Castor is in another conversation.",
+      "ask:pollux", "skip:pollux:Pollux cannot be mentioned here.",
+      "ask:vega", "answer:turn-vega",
+    ]);
+    const ws = readFileSync(new URL("../ui/Workspace.tsx", import.meta.url), "utf8");
+    expect(ws).toMatch(/const skipped = \(mention: ChatMentionSent, sentence: string\) => \{\s*forThis\(\(entries\) => entries\.filter\(\(e\) => !\(e\.mention\.id === mention\.id && e\.mention\.index === mention\.index\)\)\);\s*if \(mounted\.current\) setMentionStatus\(sentence\);/);
+    expect(ws).toContain("onAnswer: show, onSkipped: skipped })");
+  });
+
   it("an entity in another conversation is said once and the next one is still asked", async () => {
     const post = vi.fn(async (req: MentionRequest) => {
       if (req.entity === "castor") throw refused(409, "Castor is in another conversation (session s-2). One conversation at a time: …", "in_another_conversation");
