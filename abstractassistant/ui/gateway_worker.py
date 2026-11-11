@@ -10,7 +10,7 @@ import json
 import os
 import threading
 import warnings
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 try:
     from PyQt5.QtCore import QThread, pyqtSignal
@@ -20,6 +20,7 @@ except Exception:  # pragma: no cover - Qt binding fallback
     except Exception:
         from PyQt6.QtCore import QThread, pyqtSignal
 
+from ..core.mentions import Mention, MentionResend
 from ..gateway import build_run_input_data
 from ..gateway.client import wait_answer_payload, wait_response_command
 from ..gateway.history_seed import seed_messages_from_history_bundle
@@ -46,9 +47,19 @@ class GatewayWorker(QThread):
     # Non-fatal: something the user should know (a wait answer that did not
     # reach the gateway) while the follower keeps running. Never tear down.
     warning_occurred = pyqtSignal(str)
+    # `@entity` mentions (core/mentions.py has the whole API and its order), for one message:
+    # mention_asked(Mention) -> mention_answered(Mention, MentionAnswer) | mention_skipped(Mention,
+    # sentence) per entity, in order; then mentions_done(MentionsSummary) once, before `finished`.
+    mention_asked = pyqtSignal(object)
+    mention_answered = pyqtSignal(object, object)
+    mention_skipped = pyqtSignal(object, str)
+    mentions_done = pyqtSignal(object)
     # Class-level default so a worker built via __new__ (tests) still reads
     # "gateway default" (nothing sent).
     _stream: Optional[bool] = None
+    # The composer's chips for this message (`set_mentions`); none = today's send.
+    _mentions: Tuple[Mention, ...] = ()
+    _mention_resend: Optional[MentionResend] = None
 
     def __init__(
         self,
@@ -133,6 +144,24 @@ class GatewayWorker(QThread):
         self._output_artifact_candidates: List[tuple[str, str]] = []
         self._seen_output_artifacts: set[tuple[str, str]] = set()
         self._finished_llm_calls: set[str] = set()
+
+    def set_mentions(self, mentions: Sequence[Mention], *, resend: Optional[MentionResend] = None) -> None:
+        """The composer's chips for this message, BEFORE `start()` (core/mentions.py, "The worker API").
+
+        `mentions`: the send's chips in text order (`Mention`; `@agent` is kind "agent"). `resend`: the
+        `MentionsSummary.resend` a previous send of this chat handed back; used only when this message
+        is the same words again with chips and no `@agent` (then only those mentions are asked: no
+        upload, no new turn, no transcript row for the words)."""
+        if self.isRunning():
+            raise RuntimeError("set_mentions() must be called before the worker starts.")
+        chips = tuple(mentions or ())
+        for chip in chips:
+            if not isinstance(chip, Mention):
+                raise TypeError(f"A mention is a core.mentions.Mention, not {type(chip).__name__}.")
+        if resend is not None and not isinstance(resend, MentionResend):
+            raise TypeError(f"resend is a core.mentions.MentionResend, not {type(resend).__name__}.")
+        self._mentions = chips
+        self._mention_resend = resend
 
     def provide_tool_approval(
         self,
