@@ -8,6 +8,7 @@ export { ChatMentionChip, MENTION_CARD_REST_MS, type ChatMentionChipProps } from
 export { ChatThread, type ChatThreadProps } from "./chat_thread.js";
 export { ChatMessageCard, type ChatMessage, type ChatAttachment, } from "./chat_message_card.js";
 export { ToolActivity, ToolActivityGroup } from "./tool_activity.js";
+export { WorkingDots } from "./working_dots.js";
 export { CHAT_NOTICE_WORDS, chatNoticesOf, chatNoticeView, type ChatNotice, type ChatNoticeKind, type ChatNoticeView } from "./chat_notices.js";
 export { ChatNoticeBadges, type ChatNoticeBadgesProps } from "./chat_notice_badges.js";
 export { submittedArtifacts, outputArtifacts } from "./message_artifacts.js";

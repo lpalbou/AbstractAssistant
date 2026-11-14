@@ -39,7 +39,9 @@ export type ChatMessage = {
     /**
      * Present while this assistant reply is still being streamed by the model
      * (see `WorkflowSessionController`). The card shows a streaming indicator,
-     * and the model's reasoning in a collapsed "Thinking" block.
+     * and the model's reasoning in a collapsed "Thinking" block. While it has no
+     * text and no media yet, its body shows the working dots (`WorkingDots`),
+     * named by `live.label` ("answering"; default "Working").
      */
     live?: ChatLiveReply;
     /**
