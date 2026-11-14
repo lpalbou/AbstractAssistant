@@ -4,6 +4,9 @@
 
 Repository: https://github.com/lpalbou/abstractassistant
 
+## Agent Skill
+- [skills/abstractassistant/SKILL.md](skills/abstractassistant/SKILL.md): operate the terminal CLI and gateway connection.
+
 ## Core Docs
 - [README.md](README.md): overview, capabilities, quick start, local files
 - [docs/README.md](docs/README.md): documentation index

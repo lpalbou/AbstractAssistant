@@ -5,7 +5,7 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
-## [0.19.0] - 2026-11-11
+## [0.19.0] - 2026-11-14
 
 Talk to your entities from the desktop Assistant: type `@`, pick a name, and each entity you mention
 answers in the conversation, one after the other. It works the same way as in the web Assistant and
@@ -13,6 +13,8 @@ the other AbstractFramework apps. Mentions need AbstractGateway 0.21.0 or later.
 keeps its own release history in [web/CHANGELOG.md](web/CHANGELOG.md).
 
 ### Added
+
+- A package agent skill teaches terminal execution, gateway selection and sign-in recovery.
 
 - **Mention an entity with `@`.** Type `@` at the start of your message or after a space, and a list
   opens: **Assistant** first, then the entities you may mention. Type a few letters to narrow it,
@@ -33,7 +35,8 @@ keeps its own release history in [web/CHANGELOG.md](web/CHANGELOG.md).
   skipped with one sentence ("Castor is in another conversation."): its bubble goes at once and the
   next entity is still asked. An entity that cannot answer says why, and your words go back to the
   message box with only the entities that did not answer still as chips; sending them again asks
-  only those, and an answer already given is returned instead of asked again. On a gateway without
+  only those, and an answer already given is returned instead of asked again. Adding a new attachment
+  sends a new turn with that file rather than replaying the earlier text-only request. On a gateway without
   mentions, the line reads "This gateway does not offer mentions yet."
 - **A reloaded conversation names who wrote each answer.** Each answer is headed by the entity that
   wrote it, your words show once, and the answers to one message keep the order they came in. This
@@ -41,8 +44,9 @@ keeps its own release history in [web/CHANGELOG.md](web/CHANGELOG.md).
 - **Writing while your entities answer.** A message you send while only entities are answering
   waits until their answers are in, then goes as a message of its own ("Your message will send when
   the answers are in."). A message that mentions entities, sent while the assistant is writing a
-  reply, waits for that reply in the same way. **Stop** ends the asking: no one else is asked, and an
-  answer still on its way is not kept.
+  reply, waits for that reply in the same way. **Stop** ends this client's asking: no further entity
+  is asked, and a late answer is not appended locally. A turn already in flight may remain in the
+  gateway's durable history.
 
 ## [0.18.3] - 2026-11-07
 

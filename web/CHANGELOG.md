@@ -6,11 +6,15 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-14
+
 ### Fixed
 
 - **A reloaded conversation shows a message to your entities as it did live.** After a reload, a
   message you sent only to entities (without **Assistant**) no longer reads as still waiting for a
   reply and no longer ends with "The run ended without a written reply."
+- Confirmed question-resolution badges open the resolved question while keeping private titles
+  hidden. A reply waiting for its first words shows working dots.
 
 ## [0.2.0] - 2026-11-10
 

@@ -258,7 +258,7 @@ def test_an_entity_that_cannot_answer_stops_and_the_same_words_resend_only_the_u
 
     log2 = _Log()
     gateway2 = _Gateway(log2)
-    _worker(gateway2, log2, [CASTOR, NERIN], text=" hi both ", resend=first.resend, attachments=["/tmp/x.png"]).run()
+    _worker(gateway2, log2, [CASTOR, NERIN], text=" hi both ", resend=first.resend).run()
     shape = _shape(log2)
     assert not gateway2.starts  # no new turn of the person
     assert ("upload",) not in shape and not [s for s in shape if s[0] == "append" and s[1] == "user"]
@@ -267,6 +267,33 @@ def test_an_entity_that_cannot_answer_stops_and_the_same_words_resend_only_the_u
         ("nerin", "turn-kept", "turn-kept:nerin:1", "hi both"),
     ]
     assert _summary(log2).answered and _summary(log2).stopped is None
+
+
+@pytest.mark.basic
+def test_new_attachment_after_a_failed_mention_starts_a_new_turn_and_is_uploaded(tmp_path) -> None:
+    log = _Log()
+    first_gateway = _Gateway(log, refusals={"nerin": GatewayCodedError(
+        "busy", status=503, code="entity_cannot_answer", detail="Nerin cannot answer right now.")})
+    _worker(first_gateway, log, [CASTOR, NERIN], text="hi").run()
+    first = _summary(log)
+    assert [mention.id for mention in first.unsent] == ["nerin"]
+    held = first.resend
+    assert held is not None
+    image = tmp_path / "new.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\nnew attachment")
+
+    next_log = _Log()
+    gateway = _Gateway(next_log)
+    worker = _worker(gateway, next_log, list(first.unsent), text="hi", resend=held, attachments=[str(image)])
+    worker.run()
+
+    assert ("upload",) in _shape(next_log)
+    assert len(gateway.starts) == 1
+    assert gateway.starts[0]["mentions"] == ["nerin"]
+    assert [post["entity"] for post in gateway.posts] == ["nerin"]
+    assert gateway.starts[0]["input_data"]["attachments"] == [{"$artifact": "a1"}]
+    assert [row for row in worker._llm_manager.messages if row["role"] == "user"]
+    assert _summary(next_log).answered
 
 
 @pytest.mark.basic

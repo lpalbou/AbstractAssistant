@@ -72,6 +72,9 @@ Included files (in order):
 
 Repository: https://github.com/lpalbou/abstractassistant
 
+## Agent Skill
+- [skills/abstractassistant/SKILL.md](skills/abstractassistant/SKILL.md): operate the terminal CLI and gateway connection.
+
 ## Core Docs
 - [README.md](README.md): overview, capabilities, quick start, local files
 - [docs/README.md](docs/README.md): documentation index
@@ -182,6 +185,12 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   gateway by voice around the orb, answers approvals and questions, continues your sessions and runs
   your automations, and your avatar on the watch face shows what needs you
   ([watch/apple/README.md](watch/apple/README.md)).
+
+## For AI agents
+
+Register and use the [AbstractAssistant agent skill](https://github.com/lpalbou/AbstractAssistant/tree/main/skills/abstractassistant)
+to operate the terminal CLI and its gateway connection. Copy `skills/abstractassistant/` from the
+repository version you use into your agent's skills directory.
 
 ## What's new
 
@@ -334,6 +343,8 @@ AbstractAssistant is a macOS-first tray assistant that runs as a thin client of 
 Start with [getting-started.md](getting-started.md), then use the pages below as references.
 
 ## Core guides
+
+- [Agent skill](../skills/abstractassistant/SKILL.md) — terminal execution, gateway choice and sign-in recovery.
 
 - [INSTALLATION.md](INSTALLATION.md) — install the package, the `voice` extra, and the optional macOS app bundle
 - [getting-started.md](getting-started.md) — start a gateway, launch the palette, first turn, talk to your entities with `@`, shortcuts
@@ -626,12 +637,14 @@ When something gets in the way:
   another conversation.", and the next entity is still asked.
 - An entity that cannot answer says why, and your words come back to the message box with only the
   entities that did not answer still as chips. Send them again to ask only those; an answer already
-  given comes back instead of being asked again.
+  given comes back instead of being asked again. Adding a new attachment sends a new turn with
+  that file; it is not treated as a replay of the earlier request.
 - A message you send while only entities are answering waits until their answers are in, then goes
   as a message of its own ("Your message will send when the answers are in."). A message that
   mentions entities, sent while the assistant is writing a reply, waits for that reply in the same
   way.
-- **Stop** ends the asking: no one else is asked.
+- **Stop** ends this client's asking: no further entity is asked and a late answer is not appended
+  locally. A turn already in flight may remain in the gateway's durable history.
 - On a gateway without mentions, the line reads "This gateway does not offer mentions yet."
 
 When you reopen a conversation, each answer is still headed by the entity that wrote it. The names
@@ -1656,8 +1669,11 @@ that advertises live replies, otherwise `false` and, for an explicit `on`, a bra
 stderr says it was not sent. While the reply
 streams, its text is written to **stderr** as it arrives (the model's reasoning is not printed), a
 line in brackets says when a step could not stream or its live text was discarded, and the final
-answer is printed once on **stdout** — so `assistant run --prompt … > answer.txt` captures only the
-answer. Without a saved sign-in or
+answer is printed once on **stdout**. Tool-approval and question prompts also use stdout, so
+`assistant run --prompt … > answer.txt` contains only the answer when a successful turn needs no
+interactive input. Known issue (0.19.0): a failed or interrupted command may print a
+diagnostic on stdout. Check the command's result and diagnostic before consuming redirected output;
+the existence of the file does not establish that the turn completed. Without a saved sign-in or
 `--gateway-token`, a gateway that requires sign-in answers 401; the command then prints how to
 sign in (open the Assistant from the gateway console, connect once in Settings → Connection, or
 pass `--gateway-token`) and exits with status 2.
@@ -3430,7 +3446,7 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
-## [0.19.0] - 2026-11-11
+## [0.19.0] - 2026-11-14
 
 Talk to your entities from the desktop Assistant: type `@`, pick a name, and each entity you mention
 answers in the conversation, one after the other. It works the same way as in the web Assistant and
@@ -3438,6 +3454,8 @@ the other AbstractFramework apps. Mentions need AbstractGateway 0.21.0 or later.
 keeps its own release history in [web/CHANGELOG.md](web/CHANGELOG.md).
 
 ### Added
+
+- A package agent skill teaches terminal execution, gateway selection and sign-in recovery.
 
 - **Mention an entity with `@`.** Type `@` at the start of your message or after a space, and a list
   opens: **Assistant** first, then the entities you may mention. Type a few letters to narrow it,
@@ -3458,7 +3476,8 @@ keeps its own release history in [web/CHANGELOG.md](web/CHANGELOG.md).
   skipped with one sentence ("Castor is in another conversation."): its bubble goes at once and the
   next entity is still asked. An entity that cannot answer says why, and your words go back to the
   message box with only the entities that did not answer still as chips; sending them again asks
-  only those, and an answer already given is returned instead of asked again. On a gateway without
+  only those, and an answer already given is returned instead of asked again. Adding a new attachment
+  sends a new turn with that file rather than replaying the earlier text-only request. On a gateway without
   mentions, the line reads "This gateway does not offer mentions yet."
 - **A reloaded conversation names who wrote each answer.** Each answer is headed by the entity that
   wrote it, your words show once, and the answers to one message keep the order they came in. This
@@ -3466,8 +3485,9 @@ keeps its own release history in [web/CHANGELOG.md](web/CHANGELOG.md).
 - **Writing while your entities answer.** A message you send while only entities are answering
   waits until their answers are in, then goes as a message of its own ("Your message will send when
   the answers are in."). A message that mentions entities, sent while the assistant is writing a
-  reply, waits for that reply in the same way. **Stop** ends the asking: no one else is asked, and an
-  answer still on its way is not kept.
+  reply, waits for that reply in the same way. **Stop** ends this client's asking: no further entity
+  is asked, and a late answer is not appended locally. A turn already in flight may remain in the
+  gateway's durable history.
 
 ## [0.18.3] - 2026-11-07
 
@@ -5473,6 +5493,10 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- Connectivity errors can suggest that the gateway's Mac is asleep. Offline-device, certificate, configuration and decoding failures keep their own error message.
+
 ### Added
 
 - **Entities look and sound like themselves everywhere (digital identity, AbstractGateway 0.20).**
@@ -6742,6 +6766,13 @@ The app cannot install a replacement binary itself. **Release notes → iPhone v
 opens the [native changelog](../CHANGELOG.md); it documents changes and is not an update-availability
 service.
 
+## A gateway that does not answer
+
+A timeout, connection failure or proxy 502/504 may include **Your Mac may be asleep**.
+Wake the Mac running Gateway and check its connection. This is a possible explanation,
+not a diagnosis. Certificate, URL configuration, decoding and offline-device errors retain
+their own messages. Gateway keep-awake cannot override a deliberate system sleep.
+
 --- phone/iphone/BUILD.md ---
 # Build AbstractAssistant (iPhone and Apple Watch)
 
@@ -7138,6 +7169,18 @@ Store delivery packages this independent Watch app with the iPhone app in the ex
 AbstractAssistant listing. Use **Actions → Apple app (iPhone + Watch)**; see
 [testing and distribution](../../phone/iphone/docs/distribution.md).
 
+### Connection and automation history
+
+Timeouts or connection failures can show **Your Mac may be asleep** under the connection
+message; wake the Mac hosting Gateway and check its network. Certificate/configuration
+errors and an offline watch keep their own explanation.
+
+An automation history refresh preserves an answer received while that read was in flight,
+including when an older server supplies only an excerpt. **Run** reads the latest occurrence
+before submitting, then follows a newer indexed occurrence rather than one already shown.
+Leaving the details stops that page's polling; an accepted automation keeps running on Gateway.
+Use Gateway 0.21.1 for indexed automation handoffs. Older gateways that omit indices may not hand off immediately.
+
 --- watch/apple/CHANGELOG.md ---
 # Changelog — AbstractAssistant for Apple Watch
 
@@ -7147,6 +7190,11 @@ iPhone app); the Python package's history is in
 [../../CHANGELOG.md](../../CHANGELOG.md).
 
 ## [Unreleased]
+
+### Fixed
+
+- Connectivity errors can suggest that the gateway's Mac is asleep. Offline-device, certificate, configuration and decoding failures keep their own error message.
+- Automation history preserves a received answer when an older read contains no answer or only an excerpt. Run reads a fresh occurrence baseline before starting and ignores older or already shown occurrences.
 
 ### Added
 
@@ -8736,11 +8784,15 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-14
+
 ### Fixed
 
 - **A reloaded conversation shows a message to your entities as it did live.** After a reload, a
   message you sent only to entities (without **Assistant**) no longer reads as still waiting for a
   reply and no longer ends with "The run ended without a written reply."
+- Confirmed question-resolution badges open the resolved question while keeping private titles
+  hidden. A reply waiting for its first words shows working dots.
 
 ## [0.2.0] - 2026-11-10
 
@@ -8761,12 +8813,13 @@ says "This gateway does not offer mentions yet."
 - **Mention an entity with `@`.** Type `@` in the message box and pick one of your entities (the
   ones your gateway lists for you); it becomes a chip. When you send, each entity you mentioned
   answers in turn, in the order you picked them, and its answer appears in the conversation under
-  its name. Your message shows once, and the answers to it appear in the order they came. The first
-  time you pick a name in a conversation, a line reminds you that it will read this conversation's
-  history. A name you already picked is not offered again, an entity picked twice is asked once, and
+  its name. Your message shows once, and the answers to it appear in the order they came. While an
+  entity's answer is on its way, a bubble with its name and moving dots stands where the answer
+  will appear; a sent message keeps its chips, and resting on one shows the entity's card. A name you already picked is not offered again, an entity picked twice is asked once, and
   the list spans the message box on a phone.
 - **When a mention cannot be answered, you are told.** An entity already in another conversation is
-  skipped with one sentence ("Castor is in another conversation.") and the next one is still asked.
+  skipped with one sentence ("Castor is in another conversation."), its waiting bubble goes at once,
+  and the next one is still asked.
   An entity that cannot answer says why, and your words go back to the message box with only the
   entities that did not answer still as chips. A gateway without mentions says "This gateway does
   not offer mentions yet" instead of listing names.
@@ -8786,8 +8839,8 @@ says "This gateway does not offer mentions yet."
 - **A message to your entities does not reach the Assistant; `@Assistant` asks it too.** A message
   that mentions entities goes to them only: the gateway keeps your words as a turn of the
   conversation and the Assistant does not answer (`agent: "not_addressed"` and the turn's `turn_id`
-  on `POST runs/start`; each entity is asked with `repeat_of` naming that turn). One line above the
-  message box says "The assistant stays out of this message.", and the conversation shows your words
+  on `POST runs/start`; each entity is asked with `repeat_of` naming that turn). Nothing is announced
+  above the message box; the conversation shows your words
   once, then the entities' answers, with no spinner, no empty reply and no "ended without a written
   reply" line (a turn marked `agent_addressed: false` in its view is never shown as waiting for a
   reply; after a reload its words show as they did live, from the turn's own fields, and the app
@@ -18214,7 +18267,7 @@ class GatewayWorker(QThread):
     def _mentions_to_resend(self, session_id: str) -> Optional[List[Mention]]:
         """The mentions this send asks again (`mention_resend`), or None for a new message."""
         held = self._mention_resend
-        if held is None or self._attach_run_id or held.session_id != session_id:
+        if held is None or self._attach_run_id or self._attachments or held.session_id != session_id:
             return None
         return mention_resend(held, self._user_text, self._mentions)
 

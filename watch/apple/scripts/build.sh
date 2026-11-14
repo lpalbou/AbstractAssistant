@@ -18,6 +18,7 @@ T0=$(t)
 cd "$ROOT"
 xcodegen generate --spec "$PROJECT_DIR/project.yml"
 (cd Packages/AbstractGatewayClient && swift test)
+bash scripts/check-history.sh
 (cd "$PROJECT_DIR/Packages/AssistantPush" && swift test)
 T1=$(t)
 xcodebuild -project "$PROJECT_DIR/AbstractAssistant.xcodeproj" -scheme AbstractAssistantWatch \

@@ -5,6 +5,10 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- Connectivity errors can suggest that the gateway's Mac is asleep. Offline-device, certificate, configuration and decoding failures keep their own error message.
+
 ### Added
 
 - **Entities look and sound like themselves everywhere (digital identity, AbstractGateway 0.20).**

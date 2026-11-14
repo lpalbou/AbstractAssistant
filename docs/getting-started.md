@@ -133,12 +133,14 @@ When something gets in the way:
   another conversation.", and the next entity is still asked.
 - An entity that cannot answer says why, and your words come back to the message box with only the
   entities that did not answer still as chips. Send them again to ask only those; an answer already
-  given comes back instead of being asked again.
+  given comes back instead of being asked again. Adding a new attachment sends a new turn with
+  that file; it is not treated as a replay of the earlier request.
 - A message you send while only entities are answering waits until their answers are in, then goes
   as a message of its own ("Your message will send when the answers are in."). A message that
   mentions entities, sent while the assistant is writing a reply, waits for that reply in the same
   way.
-- **Stop** ends the asking: no one else is asked.
+- **Stop** ends this client's asking: no further entity is asked and a late answer is not appended
+  locally. A turn already in flight may remain in the gateway's durable history.
 - On a gateway without mentions, the line reads "This gateway does not offer mentions yet."
 
 When you reopen a conversation, each answer is still headed by the entity that wrote it. The names

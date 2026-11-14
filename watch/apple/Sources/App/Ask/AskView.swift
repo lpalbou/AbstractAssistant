@@ -1614,8 +1614,8 @@ struct AskView: View {
             let fresh = try await a.exchanges(model)
             guard !Task.isCancelled, automationFeed === a else { return }
             historyFailed = nil
-            let ids = Set(fresh.map(\.id))
-            exchanges = fresh + exchanges.filter { !ids.contains($0.id) && liveRuns.contains($0.id) }
+            exchanges = mergingFollowedRunHistory(fresh: fresh, current: exchanges, followed: liveRuns,
+                                                  id: { $0.id }, hasAnswer: { !$0.answer.isEmpty && !$0.answerIsExcerpt })
             showLatestQuietly()
         } catch {
             if !Task.isCancelled, mine == turn, automationFeed === a, !(error is CancellationError), (error as? URLError)?.code != .cancelled { historyFailed = ("", "") }

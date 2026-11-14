@@ -32,7 +32,8 @@ enum Conversation: Hashable {
     static func exchange(_ o: LastOccurrence) -> Exchange {
         Exchange(id: o.runId ?? "occurrence-\(o.index ?? 0)", prompt: o.userTurn ?? "",
                  answer: o.answer ?? o.excerpt ?? "", scope: o.runId.map { .run($0) },
-                 failed: o.status == "failed", when: o.firedAt.map(AutomationInfoView.short))
+                 failed: o.status == "failed", when: o.firedAt.map(AutomationInfoView.short),
+                 answerIsExcerpt: o.answer == nil && !(o.excerpt ?? "").isEmpty)
     }
 
     /// Reads it again; the run in progress, once the gateway has started it (nil: none, or not yet).

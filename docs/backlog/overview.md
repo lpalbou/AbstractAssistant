@@ -7,8 +7,8 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 
 ## Current Counts
 
-- Planned: 17
-- Proposed: 10
+- Planned: 19
+- Proposed: 11
 - Completed: 32
 
 Counts recomputed from disk on 2026-10-26 after adding 1053 (shared Swift client kit) and 1054 (offline capture queue), from the fusion decision of ADR 0004 (topic tracks included). Planned +1 the same day for 1056 (Apple lessons for the desktop). Planned +1 for 1055 (sign and notarize the macOS app, ADR 0006). Planned +1 for 1057 (the Assistant on the web, ADR 0007). Proposed +1 for 1059 (alert levels; recounted from disk 2026-10-26: planned 12, proposed 21, completed 16). Completed +2 on 2026-10-27 for 1060 (desktop voice library) and 1061 (iPhone and watch voice library), both under the framework release wave 1055 (recounted from disk: planned 12, proposed 21, completed 18). Proposed +1 on 2026-10-27 for 1062 (iPhone and watch chat trust through the gateway's session tool policy). 1062 promoted to Planned on 2026-10-28 (AbstractGateway 0.16.0 released): planned 13, proposed 21. Proposed +1 on 2026-10-28 for 1066 (Create a voice capability-gated on the gateway): planned 13, proposed 22. Completed +1 on 2026-10-28 for 1063 (replay view on the desktop, 0.16.0): completed 19. Completed +1 on 2026-10-28 for 1067 (desktop QA: the chosen voice, no bookkeeping chips; 0.16.3): completed 20. Completed +1 for 1068 (desktop QA: playback states, voice settings, an automation's new result; 0.16.4) and proposed +1 for 1069 (an automation's runs as replay-view exchanges): completed 21, proposed 23. Completed +1 on 2026-10-28 for 1070 (desktop: an automation opens as the chat, chip header, footer stat card): completed 22. Completed +1 on 2026-10-28 for 1075 (the web Assistant on the kit's message footer spec, panel-chat 0.6.4): completed 23. Completed +1 on 2026-10-28 for 1077 (Tools settings: the kit's Off / Ask / Auto, the group's same control): completed 24. Planned +1 on 2026-11-03 for 1108 (watch UI tests on watchOS 27.0); recounted from disk: planned 15, proposed 10, completed 32. Planned +1 on 2026-11-07 for 1148 (iPhone Notes tab): planned 16.
@@ -16,6 +16,12 @@ Counts recomputed from disk on 2026-10-26 after adding 1053 (shared Swift client
 - Recurrent: 0
 
 ## Next Recommended Work
+
+Release recovery: [1210](planned/1210_new_attachment_after_mention_refusal_is_a_fresh_turn.md) preserves new files on a refused mention retry; framework item 1209 owns the wave.
+
+Apple recovery [1217](planned/1217_apple_gateway_reachability_and_automation_following.md)
+adds scoped reachability hints and safe automation following. Exact manual-command correlation
+and older followed-history retention are proposed in [1218](proposed/1218_exact_manual_automation_run_correlation.md).
 
 0. Follow-ups from the 0.5.0 UX pass (2026-09-05): stop publishing/promoting the managed workflow
    from the client (ship it as a gateway-side catalog package and only check presence); list chats

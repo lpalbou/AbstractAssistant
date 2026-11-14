@@ -989,7 +989,7 @@ class GatewayWorker(QThread):
     def _mentions_to_resend(self, session_id: str) -> Optional[List[Mention]]:
         """The mentions this send asks again (`mention_resend`), or None for a new message."""
         held = self._mention_resend
-        if held is None or self._attach_run_id or held.session_id != session_id:
+        if held is None or self._attach_run_id or self._attachments or held.session_id != session_id:
             return None
         return mention_resend(held, self._user_text, self._mentions)
 

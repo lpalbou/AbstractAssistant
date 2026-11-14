@@ -215,6 +215,29 @@ def test_pending_bubbles_show_until_answered_and_go_at_once_on_refusal(palette):
     assert window.chat_status_label.text() == "Pollux is in another conversation."
 
 
+def test_new_attachment_after_a_failed_mention_is_a_fresh_palette_send(palette, tmp_path):
+    window, controller = palette
+    controller.session_run_id = lambda: ""
+    _palette_chips(window)
+    window._submit()
+    worker = controller.workers[-1]
+    worker.not_addressed()
+    worker.done(text=TEXT, stopped="Castor cannot answer right now.", unsent=[worker.entity("castor")])
+    worker.finish()
+    _pump()
+    assert window._mention_resend is not None
+    rows_before = len(controller.messages)
+    image = tmp_path / "new.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\nnew attachment")
+    window._attachments = [str(image)]
+
+    window._submit()
+    fresh_worker = controller.workers[-1]
+    assert fresh_worker.resend is None
+    assert len(controller.messages) == rows_before + 1
+    assert window._pending_submission["attachments"] == [str(image)]
+
+
 def test_the_words_show_once_for_several_mentions_and_for_a_resend(palette):
     """One user bubble with its chips, then each answer in arrival order under its author;
     sending the same words again after a stop asks only the unsent chips and adds no bubble."""

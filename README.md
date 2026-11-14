@@ -69,6 +69,12 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   your automations, and your avatar on the watch face shows what needs you
   ([watch/apple/README.md](watch/apple/README.md)).
 
+## For AI agents
+
+Register and use the [AbstractAssistant agent skill](https://github.com/lpalbou/AbstractAssistant/tree/main/skills/abstractassistant)
+to operate the terminal CLI and its gateway connection. Copy `skills/abstractassistant/` from the
+repository version you use into your agent's skills directory.
+
 ## What's new
 
 0.19.0 lets you talk to your entities from the desktop Assistant, as in the web Assistant and the

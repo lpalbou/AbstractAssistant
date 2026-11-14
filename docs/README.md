@@ -5,6 +5,8 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 
 ## Core guides
 
+- [Agent skill](../skills/abstractassistant/SKILL.md) — terminal execution, gateway choice and sign-in recovery.
+
 - [INSTALLATION.md](INSTALLATION.md) — install the package, the `voice` extra, and the optional macOS app bundle
 - [getting-started.md](getting-started.md) — start a gateway, launch the palette, first turn, talk to your entities with `@`, shortcuts
 - [architecture.md](architecture.md) — components, the gateway boundary, sessions on the gateway (scope, kinds, cache, offline), automations and your event stream (diagram, follower, attention model, capability gate), the run lifecycle with live replies, the console sign-in hand-over

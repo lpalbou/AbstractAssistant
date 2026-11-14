@@ -10176,6 +10176,7 @@ class AssistantPalette(QMainWindow):
         resend = (
             held
             if held is not None
+            and not attachments
             and held.session_id == self._active_session_id()
             and mention_resend(held, prompt, mentions) is not None
             else None

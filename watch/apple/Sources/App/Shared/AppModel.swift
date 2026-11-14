@@ -49,6 +49,8 @@ struct Exchange: Identifiable, Hashable {
     var failed = false
     /// When its trigger sent it ("today 07:04"): an automation's runs; nil for what you asked.
     var when: String? = nil
+    /// A server summary is not the complete answer already received live.
+    var answerIsExcerpt = false
 }
 
 @MainActor
@@ -512,7 +514,7 @@ final class AppModel: ObservableObject {
     /// A leaf can run briefly between consecutive approvals. Keep following it while active until
     /// it finishes, even after its previous wait has left the Inbox.
     private var approvalRuns: Set<String> = []
-    private var connectionRevision = 0
+    private(set) var connectionRevision = 0
     private var approvalRevision = 0
     /// Live mode only: `--screen approval|askuser` opens the first real wait after the first poll.
     var pendingScreen: String?
@@ -541,6 +543,10 @@ final class AppModel: ObservableObject {
     static let pollInterval: Duration = .seconds(15)
     /// After a failed poll, until the gateway is said unreachable.
     static let retryInterval: Duration = .seconds(3)
+    /// The last poll failed because the gateway's computer did not answer at all (GatewayReach).
+    @Published private(set) var lastFailureMayBeAsleep = false
+    /// Unreachable because nothing answered: Home and Connection add "Your Mac may be asleep."
+    var mayBeAsleep: Bool { unreachable && lastFailureMayBeAsleep }
 
     init(client: any GatewayClient, gatewayHost: String, recordingConnectionKey: String = "mock") {
         self.client = client; self.gatewayHost = gatewayHost
@@ -773,7 +779,7 @@ final class AppModel: ObservableObject {
             guard connection == connectionRevision, !Task.isCancelled else { return false }
             // The fast part is on screen now. Automations is the slow call on a public gateway
             // (~7 s measured) and its own failure never marks the gateway offline.
-            lastError = nil; failures = 0; failingSince = nil; unreachable = false
+            lastError = nil; failures = 0; failingSince = nil; unreachable = false; lastFailureMayBeAsleep = false
             lastRefresh = Date()
             if let value = testRead, let scope = testReadAs.map(SpeechScope.entity) ?? runs.first.map({ SpeechScope.run($0.runId) }) {
                 testRead = nil
@@ -816,6 +822,7 @@ final class AppModel: ObservableObject {
             guard connection == connectionRevision, !Task.isCancelled else { return false }
             if !waitsReadFinished, waitsRead == waitsReadRevision { waitsReadState = .failed(Self.say(error)) }
             lastError = Self.say(error)
+            lastFailureMayBeAsleep = GatewayReach.mayBeAsleep(error)
             failures += 1
             let since = failingSince ?? Date()
             failingSince = since

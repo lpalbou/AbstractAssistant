@@ -133,8 +133,11 @@ that advertises live replies, otherwise `false` and, for an explicit `on`, a bra
 stderr says it was not sent. While the reply
 streams, its text is written to **stderr** as it arrives (the model's reasoning is not printed), a
 line in brackets says when a step could not stream or its live text was discarded, and the final
-answer is printed once on **stdout** — so `assistant run --prompt … > answer.txt` captures only the
-answer. Without a saved sign-in or
+answer is printed once on **stdout**. Tool-approval and question prompts also use stdout, so
+`assistant run --prompt … > answer.txt` contains only the answer when a successful turn needs no
+interactive input. Known issue (0.19.0): a failed or interrupted command may print a
+diagnostic on stdout. Check the command's result and diagnostic before consuming redirected output;
+the existence of the file does not establish that the turn completed. Without a saved sign-in or
 `--gateway-token`, a gateway that requires sign-in answers 401; the command then prints how to
 sign in (open the Assistant from the gateway console, connect once in Settings → Connection, or
 pass `--gateway-token`) and exits with status 2.

@@ -102,3 +102,10 @@ A development copy uses the [build guide](../BUILD.md) or an existing TestFlight
 The app cannot install a replacement binary itself. **Release notes → iPhone version history**
 opens the [native changelog](../CHANGELOG.md); it documents changes and is not an update-availability
 service.
+
+## A gateway that does not answer
+
+A timeout, connection failure or proxy 502/504 may include **Your Mac may be asleep**.
+Wake the Mac running Gateway and check its connection. This is a possible explanation,
+not a diagnosis. Certificate, URL configuration, decoding and offline-device errors retain
+their own messages. Gateway keep-awake cannot override a deliberate system sleep.
