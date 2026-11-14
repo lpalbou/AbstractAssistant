@@ -83,7 +83,7 @@ entity you mention answers in the conversation, one after the other, under its o
 message that names only entities goes to them alone, and a reloaded conversation still shows who
 wrote each answer. It needs AbstractGateway 0.21.0 or later. See
 [Talk to your entities with `@`](docs/getting-started.md#talk-to-your-entities-with-) and the
-[0.19.0 release notes](CHANGELOG.md#0190---2026-11-11).
+[0.19.0 release notes](CHANGELOG.md#0190---2026-11-14).
 
 0.18.3 makes reasoning and MTP follow the chat model: MTP depths are offered only for a model the
 gateway says supports MTP, changing the model puts both back on Gateway default, and a saved value
