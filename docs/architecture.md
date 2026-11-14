@@ -338,6 +338,14 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
   translucent panel (`AvatarVoiceButton`), and the local capture/playback layer over gateway
   speech routes.
   The former status strip, `ui/voice_strip.py`, stays in the code but is no longer shown.
+- `core/mentions.py`, `ui/mention_composer.py`, `ui/mention_picker.py`, `ui/mention_chip.py`,
+  `ui/mention_card.py`, `ui/pending_bubble.py` — `@` mentions of your entities, the same contract
+  as the web Assistant: the Qt-free rules (the `@` list from `GET /entities`, the chips as sent, who
+  the message reaches, the entities asked one after the other, the refusal sentences), the composer
+  whose chips are objects of the text (never parsed from the words; offsets in UTF-16 code units,
+  the web kit's unit), the `@` list, the entity's card, and the bubble that stands for an entity's
+  answer on its way. The run worker asks the entities (`GatewayWorker.set_mentions`) and the
+  transcript seed labels each answer with its `author`.
 - `gateway/automations.py`, `core/automations.py`, `ui/automations.py` — the Automations API
   client, its Qt-free presentation rules (labels, enabled controls, chat pairs, the create body,
   notifications), and the switcher rows, automation view, Schedule window and polling hub.

@@ -52,6 +52,74 @@ class GatewayHttpError(RuntimeError):
         self.body_text = body_text
 
 
+class GatewayCodedError(GatewayHttpError):
+    """A gateway refusal with its own `code` (the `{detail, code}` body or the
+    `X-Gateway-Error-Code` header; "" without one) and its own sentence (`detail`).
+
+    Clients branch on `status` + `code`, never on the sentence (the `@entity` mention door:
+    409 `in_another_conversation`, 404 `entity_not_found`, 503 `entity_cannot_answer`, 422
+    `repeat_of_unknown`; an uncoded 404/405 is a gateway without the route)."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: int,
+        code: str = "",
+        detail: str = "",
+        retry_after_s: Optional[float] = None,
+        body_text: str = "",
+    ) -> None:
+        super().__init__(message, status=status, retry_after_s=retry_after_s, body_text=body_text)
+        self.code = str(code or "").strip()
+        self.detail = str(detail or "").strip()
+
+
+#: An `@entity` mention is a model turn of the entity (through its visit door): the gateway bounds
+#: it; this only stops a request that never returns.
+MENTION_TIMEOUT_S = 600.0
+
+
+def _coded_error(e: urllib.error.HTTPError, *, label: str) -> GatewayCodedError:
+    """The gateway's refusal as a GatewayCodedError: `code` from the header, else the body's `code`;
+    `detail` = the body's sentence (`detail` string, or `detail.message`), else its text."""
+    status = int(getattr(e, "code", 0) or 0)
+    headers = {str(k).lower(): str(v) for k, v in dict(e.headers or {}).items()}
+    code = headers.get("x-gateway-error-code", "").strip()
+    try:
+        raw = e.read() or b""
+    except Exception:
+        raw = b""
+    text = _decode_bytes(raw, label=label).strip()
+    detail = ""
+    if text.startswith("{"):
+        try:
+            body = json.loads(text)
+        except Exception:
+            body = None
+        if isinstance(body, dict):
+            d = body.get("detail")
+            if isinstance(d, str):
+                detail = d.strip()
+            elif isinstance(d, dict):
+                detail = str(d.get("message") or d.get("detail") or json.dumps(d)).strip()
+                code = code or str(d.get("reason_code") or "").strip()
+            elif isinstance(body.get("message"), str):
+                detail = str(body.get("message")).strip()
+            if not code and isinstance(body.get("code"), str):
+                code = str(body.get("code")).strip()
+    if not detail:
+        detail = text
+    return GatewayCodedError(
+        f"{label}: {detail or f'HTTP {status}'}",
+        status=status,
+        code=code,
+        detail=detail,
+        retry_after_s=_retry_after_s(dict(e.headers or {})),
+        body_text=detail,
+    )
+
+
 # Contract A1 (missions 2026-09-25, amendment A-3): the gateway console launches
 # the desktop app with `--gateway-url <url> --gateway-handover-file <path>`; the
 # app reads + deletes that file and trades its code here, on loopback, for a
@@ -519,6 +587,137 @@ class GatewayClient:
         resolved = out.get("resolved_workflow")
         self.last_resolved_workflow = dict(resolved) if isinstance(resolved, dict) else None
         return run_id.strip()
+
+    def _request_json_coded(
+        self,
+        *,
+        method: str,
+        url: str,
+        body: Optional[Dict[str, Any]] = None,
+        timeout_s: Optional[float] = None,
+        label: str,
+    ) -> Dict[str, Any]:
+        """`_request_json` whose refusals keep the gateway's `code` (GatewayCodedError)."""
+        method_s = str(method or "GET").upper()
+        h = self._headers(mutating=method_s not in {"GET", "HEAD", "OPTIONS"})
+        data = None
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            h["Content-Type"] = "application/json"
+        req = urllib.request.Request(url, data=data, method=method_s, headers=h)
+        try:
+            with urllib.request.urlopen(req, timeout=self._cfg.timeout_s if timeout_s is None else float(timeout_s)) as resp:
+                text = _decode_bytes(resp.read() or b"", label=label)
+        except urllib.error.HTTPError as e:
+            raise _coded_error(e, label=label) from None
+        if not text.strip():
+            return {}
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            raise RuntimeError(f"{label}: the gateway's answer was not JSON.") from None
+        if not isinstance(parsed, dict):
+            raise RuntimeError(f"{label}: the gateway's answer was not an object.")
+        return parsed
+
+    def start_run_with_mentions(
+        self,
+        *,
+        mentions: List[str],
+        flow_id: Optional[str],
+        input_data: Dict[str, Any],
+        bundle_id: Optional[str] = None,
+        bundle_version: Optional[str] = None,
+        session_id: Optional[str] = None,
+        registry_scope: Optional[str] = None,
+        interface: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """`POST runs/start` for a message with `@` chips (`mentions`: entity slugs and the reserved
+        "agent", core.mentions.start_run_mentions). Returns `{agent, run_id, turn_id}`:
+
+        - `agent: "started"`: the agent's run started (`run_id`; an older gateway sends no `agent`
+          and is read as started);
+        - `agent: "not_addressed"`: the message names entities and not `@agent`: no agent run; the
+          gateway kept the words as a turn of the session (`turn_id`), which the mentions name as
+          `repeat_of`.
+
+        A start answer without the id it needs raises with a sentence. Refusals raise
+        GatewayCodedError (an unknown entity chip is 404 `entity_not_found`). Never retried here."""
+        if str(flow_id or "").strip() == "@default" and not str(interface or "").strip():
+            raise ValueError("start_run: flow_id '@default' requires an interface")
+        chips = [str(m).strip() for m in (mentions or []) if str(m or "").strip()]
+        if not chips:
+            raise ValueError("start_run_with_mentions: a message without chips uses start_run")
+        if not str(session_id or "").strip():
+            raise ValueError("start_run_with_mentions: a session_id is required (the answers are its turns)")
+        body: Dict[str, Any] = {"input_data": input_data or {}, "mentions": chips, "session_id": str(session_id).strip()}
+        for key, value in (
+            ("interface", interface),
+            ("bundle_id", bundle_id),
+            ("bundle_version", bundle_version),
+            ("flow_id", flow_id),
+            ("registry_scope", registry_scope),
+        ):
+            if value:
+                body[key] = str(value)
+        out = self._request_json_coded(
+            method="POST",
+            url=self._url("/api/gateway/runs/start"),
+            body=body,
+            label="The message could not be sent",
+        )
+        agent = str(out.get("agent") or "").strip() or "started"
+        if agent == "not_addressed":
+            turn_id = str(out.get("turn_id") or "").strip()
+            if not turn_id:
+                raise RuntimeError("The gateway kept the message for the entities but returned no turn id.")
+            self.last_resolved_workflow = None
+            return {"agent": agent, "run_id": "", "turn_id": turn_id}
+        if agent != "started":
+            raise RuntimeError(f"The gateway answered the message with an unknown routing {agent!r}.")
+        run_id = str(out.get("run_id") or "").strip()
+        if not run_id:
+            raise RuntimeError("The gateway accepted the message but returned no run id.")
+        resolved = out.get("resolved_workflow")
+        self.last_resolved_workflow = dict(resolved) if isinstance(resolved, dict) else None
+        return {"agent": agent, "run_id": run_id, "turn_id": str(out.get("turn_id") or "").strip() or run_id}
+
+    def list_entities(self) -> Dict[str, Any]:
+        """`GET entities`: the entities this account may see (`{entities: [...]}`), for `@` mentions
+        (core.mentions.EntityRoster reads `slug`, `name`, `identity.avatar`, `state`, `error`).
+        An answer without the `entities` list raises with a sentence (never an empty list)."""
+        out = self._request_json_coded(
+            method="GET",
+            url=self._url("/api/gateway/entities"),
+            label="The entities could not be listed",
+        )
+        if not isinstance(out.get("entities"), list):
+            raise RuntimeError("The gateway's entity list has no `entities` list.")
+        return out
+
+    def post_mention(self, session_id: str, payload: Dict[str, Any], *, timeout_s: Optional[float] = None) -> Dict[str, Any]:
+        """`POST sessions/{session_id}/mentions {entity, text, mention_index, mention_id, repeat_of?}`:
+        one `@entity` mention of this conversation (AbstractGateway's mention door). 200 = the
+        entity's answer as a turn of the session (`run_id`, `author`, `reply`, `notices`, `mirrors`).
+        Refusals raise GatewayCodedError with the gateway's `code` (core.mentions.mention_refusal
+        maps them). Never retried here (a resend carries the same `mention_id`)."""
+        sid = str(session_id or "").strip()
+        if not sid:
+            raise ValueError("post_mention: a session_id is required")
+        body = dict(payload or {})
+        entity = str(body.get("entity") or "").strip()
+        if not entity:
+            raise ValueError("post_mention: the payload names no entity")
+        out = self._request_json_coded(
+            method="POST",
+            url=self._url(f"/api/gateway/sessions/{quote(sid, safe='')}/mentions"),
+            body=body,
+            timeout_s=MENTION_TIMEOUT_S if timeout_s is None else timeout_s,
+            label=f"The mention of {entity}",
+        )
+        if not str(out.get("run_id") or "").strip():
+            raise RuntimeError(f"The gateway answered the mention of {entity} without its turn.")
+        return out
 
     def get_run(self, run_id: str) -> Dict[str, Any]:
         rid = str(run_id or "").strip()

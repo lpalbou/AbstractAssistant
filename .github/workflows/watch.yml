@@ -64,6 +64,9 @@ jobs:
         working-directory: watch/apple/Packages/AbstractGatewayClient
         run: swift test
 
+      - name: Automation history and new-run selection checks
+        run: bash watch/apple/scripts/check-history.sh
+
       - name: Package tests (AssistantPush)
         working-directory: ${{ env.PROJECT_DIR }}/Packages/AssistantPush
         run: swift test

@@ -193,20 +193,24 @@ export function startRunMentions(mentions: readonly ChatMentionSent[]): { mentio
 }
 
 /**
- * The turns of a view whose agent was not addressed: each person's message the gateway marks
- * `agent_addressed: false` (it recorded the words and started no agent run), by its run. A reload
- * reads the same mark the start answered with (`agent: "not_addressed"`).
+ * The turn a view is of, when the gateway marks it as one the agent was not addressed in (it
+ * recorded the words and started no agent run): the view's TOP-LEVEL `agent_addressed: false`,
+ * served per turn on the view whose root is that turn and absent otherwise, never inside
+ * `messages` (AbstractGateway replay_view.py `served_json`). Its root run id, else nothing. A
+ * reload reads the same mark the start answered with (`agent: "not_addressed"`).
  */
 export function viewAgentNotAddressed(view: unknown): string[] {
-  const messages = record(view)?.messages;
-  if (!Array.isArray(messages)) return [];
-  const out: string[] = [];
-  for (const raw of messages) {
-    const m = record(raw);
-    const runId = text(m?.run_id);
-    if (m?.role === "user" && m.agent_addressed === false && runId && !out.includes(runId)) out.push(runId);
-  }
-  return out;
+  const v = record(view);
+  const root = text(v?.root_run_id);
+  return v?.agent_addressed === false && root ? [root] : [];
+}
+
+/** The same mark on a turn's own row (`GET /runs/{id}`; a session history row,
+ * session_history_bloc.py): its run id, else null. */
+export function runAgentNotAddressed(row: unknown): string | null {
+  const r = record(row);
+  const runId = text(r?.run_id);
+  return r?.agent_addressed === false && runId ? runId : null;
 }
 
 /** What the mention door answered (200): the session turn the answer is (its view carries `author`). */

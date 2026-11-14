@@ -26,7 +26,6 @@ import {
   useAttachmentUploads,
   workflowPendingInteraction,
   workflowSourceLabel,
-  WorkingDots,
 } from "@abstractframework/panel-chat";
 import type { ChatMessage } from "../vendor/abstractchat/conversation.js";
 import {
@@ -54,7 +53,7 @@ import { buildRunInputData } from "../lib/run_input";
 import { selectWorkflow } from "../lib/workflow_selection";
 import type { AttentionSeen } from "./useConversations";
 import { assistantPresence, conversationPresentation, replyToRead } from "../lib/presentation";
-import { MENTIONS_UNAVAILABLE, deliverMentions, entityCandidates, entityMentionCards, gatewayLacksTurnAuthors, matchCandidates, mentionRoster, mentionStatusLine, mentionTurn, mentionedEntities, sentMessageMentions, startRunMentions, viewAgentNotAddressed, viewRepeatOf, withPendingMentions, withSentMentions, pendingMentionsFor, PENDING_MENTION_ID, type EntityMentionCard, type MentionAnswer, type MentionTurn, type PendingMention } from "../lib/mentions";
+import { MENTIONS_UNAVAILABLE, deliverMentions, entityCandidates, entityMentionCards, gatewayLacksTurnAuthors, matchCandidates, mentionRoster, mentionStatusLine, mentionTurn, mentionedEntities, runAgentNotAddressed, sentMessageMentions, startRunMentions, viewAgentNotAddressed, viewRepeatOf, withPendingMentions, withSentMentions, pendingMentionsFor, PENDING_MENTION_ID, type EntityMentionCard, type MentionAnswer, type MentionTurn, type PendingMention } from "../lib/mentions";
 import { mentionCard } from "./MentionCard";
 import { VoiceStage, Orb } from "./VoiceStage";
 import type { AssistantPreferences } from "./useAssistantPreferences";
@@ -283,7 +282,9 @@ export function Workspace(props: {
   });
 
   // A turn whose agent was not addressed has no reply on the way: never busy.
-  const busy = Boolean(props.runId) && !notAddressed.current.has(props.runId) && !TERMINAL.has(snapshot.status) && !(snapshot.error && !snapshot.run);
+  // The open turn's own row says it too (`GET /runs/{id}`: `agent_addressed: false`), beside its view.
+  const openNotAddressed = Boolean(props.runId) && (notAddressed.current.has(props.runId) || runAgentNotAddressed(snapshot.run) === props.runId);
+  const busy = Boolean(props.runId) && !openNotAddressed && !TERMINAL.has(snapshot.status) && !(snapshot.error && !snapshot.run);
 
   // ---- @ mentions ---------------------------------------------------------------------------
   // The names: `@agent`, then the entities this account may see, read once per conversation view.
@@ -484,7 +485,7 @@ export function Workspace(props: {
   const listWords = pending && !answeredElsewhere ? "Needs you" : "";
   // A turn started here with entity mentions: an agent that said nothing, or was not addressed,
   // shows no answer and no line; the entities' answers follow.
-  const outcome = turnOutcome(props.runId, snapshot.status, snapshot.run, snapshot.messages, { entitiesAnswer: entitiesAnswer.current.has(props.runId), notAddressed: notAddressed.current.has(props.runId) });
+  const outcome = turnOutcome(props.runId, snapshot.status, snapshot.run, snapshot.messages, { entitiesAnswer: entitiesAnswer.current.has(props.runId), notAddressed: openNotAddressed });
   const presence = assistantPresence({ recording: voice.voice_ptt_recording, transcribing: voice.voice_ptt_busy,
     playback: voice.tts_playback.status === "playing" && !voice.tts_speaking ? "loading" : voice.tts_playback.status, pending: Boolean(pending && !answeredElsewhere), busy,
     working: messages.some((m) => m.toolActivity?.status === "running"), failed: snapshot.status === "failed", loading: snapshot.loading });
@@ -607,8 +608,8 @@ export function Workspace(props: {
       messageProps={{
         renderMentionCard: (mention) => mentionCard(mention, entityCards.current),
         renderFooter: (m) => {
-          // An answer on its way: its three dots in its bubble.
-          if (String(m.id || "").startsWith(PENDING_MENTION_ID)) return <WorkingDots label={`${m.author?.name || "The entity"} is answering`} />;
+          // The shared card owns the pending reply's body indicator.
+          if (String(m.id || "").startsWith(PENDING_MENTION_ID)) return null;
           const status = m.runId === props.runId ? snapshot.status : props.sessionActivity?.content.find((c) => c.runId === m.runId)?.status;
           if (!status) return null;
           const target = sessionReadTarget(m.kind === "attachments" ? [...messages,m] : messages, m.runId || "", status);

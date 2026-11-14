@@ -66,6 +66,8 @@ jobs:
         run: command -v xcodegen >/dev/null || brew install xcodegen
       - name: Shared gateway client package tests (AbstractGatewayClient, the watch's and the iPhone's)
         run: swift test --package-path watch/apple/Packages/AbstractGatewayClient --scratch-path "$RUNNER_TEMP/ClientPackageTests" --jobs 1
+      - name: Automation history and new-run selection checks
+        run: bash watch/apple/scripts/check-history.sh
       - name: Shared push package tests (sign-in store, registration, push rendering)
         run: swift test --package-path phone/iphone/Packages/AssistantPush --scratch-path "$RUNNER_TEMP/PushPackageTests" --jobs 1
       - name: Generate the AbstractAssistant project (iPhone app, watch companion, extensions)

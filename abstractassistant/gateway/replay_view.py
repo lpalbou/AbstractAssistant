@@ -28,6 +28,7 @@ from typing import Any, Callable, Dict, List, Optional, Set
 
 from abstractruntime.replay import ReplayView, apply_delta
 
+from ..core.mentions import read_author
 from .client import GatewayHttpError, GatewayStreamIdle
 
 TERMINAL = frozenset({"completed", "failed", "cancelled"})
@@ -419,6 +420,11 @@ class ViewProjector:
         rid = str(m.get("run_id") or root)
         meta: Dict[str, Any] = {"run_id": rid, "message_id": mid}
         _media_meta(meta, m.get("artifact_ids"), arts, source=str(m.get("source") or ""))
+        # Who wrote it (the turn's `author`: an `@entity` mention's answer is the entity's); a
+        # view without one (an older gateway) is drawn as before.
+        author = read_author(m.get("author"))
+        if author is not None:
+            meta["author"] = author
         ev_extra: Dict[str, Any] = {}
         if final and m.get("repeats"):
             meta["repeats"] = m.get("repeats")

@@ -205,3 +205,15 @@ The watch app is part of [AbstractAssistant](../../README.md) and of
 Store delivery packages this independent Watch app with the iPhone app in the existing
 AbstractAssistant listing. Use **Actions → Apple app (iPhone + Watch)**; see
 [testing and distribution](../../phone/iphone/docs/distribution.md).
+
+### Connection and automation history
+
+Timeouts or connection failures can show **Your Mac may be asleep** under the connection
+message; wake the Mac hosting Gateway and check its network. Certificate/configuration
+errors and an offline watch keep their own explanation.
+
+An automation history refresh preserves an answer received while that read was in flight,
+including when an older server supplies only an excerpt. **Run** reads the latest occurrence
+before submitting, then follows a newer indexed occurrence rather than one already shown.
+Leaving the details stops that page's polling; an accepted automation keeps running on Gateway.
+Use Gateway 0.21.1 for indexed automation handoffs. Older gateways that omit indices may not hand off immediately.

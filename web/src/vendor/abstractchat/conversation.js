@@ -1289,7 +1289,7 @@ function boundedArtifactFetch(fetchGateway) {
 }
 
 // dist/workflow_chat.js
-import { useEffect as useEffect17, useMemo as useMemo9, useRef as useRef13, useState as useState18 } from "react";
+import { useEffect as useEffect17, useMemo as useMemo9, useRef as useRef14, useState as useState18 } from "react";
 import { Icon as Icon12, useAfTooltips } from "@abstractframework/ui-kit";
 
 // dist/chat_composer.js
@@ -2295,12 +2295,12 @@ var ChatComposer = React4.forwardRef(function ChatComposer2(props, ref) {
 });
 
 // dist/chat_thread.js
-import { jsx as _jsx18, jsxs as _jsxs14 } from "react/jsx-runtime";
-import { useEffect as useEffect14, useMemo as useMemo7, useRef as useRef10, useState as useState15 } from "react";
+import { jsx as _jsx19, jsxs as _jsxs15 } from "react/jsx-runtime";
+import { useEffect as useEffect14, useMemo as useMemo7, useRef as useRef11, useState as useState15 } from "react";
 
 // dist/chat_message_card.js
-import { jsx as _jsx17, jsxs as _jsxs13 } from "react/jsx-runtime";
-import { useEffect as useEffect13, useMemo as useMemo6, useRef as useRef9, useState as useState14 } from "react";
+import { jsx as _jsx18, jsxs as _jsxs14 } from "react/jsx-runtime";
+import { useEffect as useEffect13, useMemo as useMemo6, useRef as useRef10, useState as useState14 } from "react";
 import { AfAudioPlayer, AfChip, Icon as Icon8, fileViewerKind as fileViewerKind4, fileViewerNeedsText as fileViewerNeedsText3, formatFileSize as formatFileSize2 } from "@abstractframework/ui-kit";
 
 // dist/chat_media.js
@@ -2375,7 +2375,7 @@ function fileRawLink(item) {
 
 // dist/message_content.js
 import { jsx as _jsx11 } from "react/jsx-runtime";
-import { useMemo as useMemo4 } from "react";
+import { useMemo as useMemo4, useRef as useRef7 } from "react";
 
 // dist/json_viewer.js
 import { jsx as _jsx10, jsxs as _jsxs7, Fragment as _Fragment5 } from "react/jsx-runtime";
@@ -2525,6 +2525,18 @@ function ChatMessageContent(props) {
   const where = useMemo4(() => props.mentions?.length ? messageMentionsPlaced(text6, props.mentions) : null, [text6, props.mentions]);
   if (where?.unplaced.length)
     mentionSeam('a message mention has no valid start (its "@Name" is not at mentions[].start in the text)', text6, where.unplaced);
+  const card = useRef7(props.renderMentionCard);
+  card.current = props.renderMentionCard;
+  const hasCard = typeof props.renderMentionCard === "function";
+  const drawsChips = parsed === null && !props.renderMarkdown && Boolean(where?.placed.length);
+  const tokens = useMemo4(() => drawsChips && where ? mentionTokenText(text6, where.placed) : null, [drawsChips, text6, where]);
+  const chipped = useMemo4(() => {
+    if (tokens === null || !where)
+      return null;
+    const tree = Markdown({ text: tokens, images: props.images, inlineImage: props.inlineImage });
+    const renderCard = hasCard ? (m) => card.current?.(m) ?? null : void 0;
+    return withMentionChips(tree, where.placed, (m, key) => _jsx11(ChatMentionChip, { mention: m, renderCard }, key));
+  }, [tokens, where, props.images, props.inlineImage, hasCard]);
   if (parsed !== null) {
     if (where?.placed.length)
       mentionSeam("a JSON message cannot draw mention chips", text6, where.placed);
@@ -2535,14 +2547,10 @@ function ChatMessageContent(props) {
       mentionSeam("mention chips are drawn by the kit's Markdown, not by a host renderMarkdown", text6, where.placed);
     return _jsx11("div", { className: cls, children: props.renderMarkdown(text6) });
   }
-  const placed = where?.placed ?? [];
-  const tokens = placed.length ? mentionTokenText(text6, placed) : null;
-  if (placed.length && tokens === null)
-    mentionSeam("the message text holds the characters the chips are placed with (U+FDD0/U+FDD1)", text6, placed);
-  if (tokens !== null) {
-    const tree = Markdown({ text: tokens, images: props.images, inlineImage: props.inlineImage });
-    return _jsx11("div", { className: cls, children: withMentionChips(tree, placed, (m, key) => _jsx11(ChatMentionChip, { mention: m, renderCard: props.renderMentionCard }, key)) });
-  }
+  if (where?.placed.length && tokens === null)
+    mentionSeam("the message text holds the characters the chips are placed with (U+FDD0/U+FDD1)", text6, where.placed);
+  if (chipped !== null)
+    return _jsx11("div", { className: cls, children: chipped });
   return _jsx11("div", { className: cls, children: _jsx11(Markdown, { text: text6, images: props.images, inlineImage: props.inlineImage }) });
 }
 
@@ -2556,7 +2564,7 @@ import { jsx as _jsx13, jsxs as _jsxs9 } from "react/jsx-runtime";
 
 // dist/stat_detail.js
 import { jsx as _jsx12, jsxs as _jsxs8, Fragment as _Fragment6 } from "react/jsx-runtime";
-import React5, { useCallback as useCallback4, useEffect as useEffect10, useId as useId3, useLayoutEffect as useLayoutEffect3, useRef as useRef7, useState as useState10 } from "react";
+import React5, { useCallback as useCallback4, useEffect as useEffect10, useId as useId3, useLayoutEffect as useLayoutEffect3, useRef as useRef8, useState as useState10 } from "react";
 import { createPortal as createPortal2 } from "react-dom";
 var NR = "not reported";
 var n0 = (n) => n === void 0 ? NR : Math.round(n).toLocaleString();
@@ -2872,9 +2880,9 @@ var GAP = 8;
 function StatChip(props) {
   const [open, setOpen] = useState10(Boolean(props.defaultOpen));
   const [pos, setPos] = useState10(null);
-  const chipRef = useRef7(null);
-  const panelRef = useRef7(null);
-  const closeTimer = useRef7(null);
+  const chipRef = useRef8(null);
+  const panelRef = useRef8(null);
+  const closeTimer = useRef8(null);
   const id = `pc-stat-${useId3().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const cancelClose = useCallback4(() => {
     if (closeTimer.current !== null)
@@ -3248,14 +3256,15 @@ function chatAuthorView(author, title) {
 
 // dist/chat_notice_badges.js
 import { jsx as _jsx16, jsxs as _jsxs12 } from "react/jsx-runtime";
-import { useEffect as useEffect12, useId as useId4, useMemo as useMemo5, useRef as useRef8, useState as useState13 } from "react";
+import { useEffect as useEffect12, useId as useId4, useMemo as useMemo5, useRef as useRef9, useState as useState13 } from "react";
 import { Icon as Icon7 } from "@abstractframework/ui-kit";
 
 // dist/chat_notices.js
-var CHAT_NOTICE_KINDS = ["diary", "question", "lesson", "interest", "realization"];
+var CHAT_NOTICE_KINDS = ["diary", "question", "question_resolved", "lesson", "interest", "realization"];
 var ICONS = {
   diary: "book",
   question: "chat",
+  question_resolved: "check",
   lesson: "check",
   interest: "activity",
   realization: "sparkle"
@@ -3263,10 +3272,13 @@ var ICONS = {
 var CHAT_NOTICE_WORDS = {
   group: "Kept from this reply",
   private: "private diary entry",
+  /** A private resolved question's badge (it carries no title). */
+  privateQuestionResolved: "a question resolved (private)",
   staged: "forming\u2026",
   /** The staged word in a badge's accessible name (no ellipsis glyph for a screen reader to say). */
   stagedSpoken: "forming",
   privateNote: "A private diary entry: its words are not shown in the conversation.",
+  privateQuestionNote: "A private question: its words are not shown in the conversation.",
   stagedNote: "Forming: it is kept when the visit closes.",
   close: "Close"
 };
@@ -3296,12 +3308,12 @@ function chatNoticesOf(raw) {
 function chatNoticeView(notice, index = 0) {
   const kind = String(notice.kind || "").trim().toLowerCase();
   const known = CHAT_NOTICE_KINDS.includes(kind) ? kind : null;
-  const word = known || kind.replace(/_/g, " ");
+  const word = (known || kind).replace(/_/g, " ");
   const isPrivate = String(notice.visibility || "").trim().toLowerCase() === "private";
   const staged = notice.staged === true;
   const title = String(notice.title || "").trim();
   const text6 = typeof notice.text === "string" ? notice.text.trim() : "";
-  const label = isPrivate ? kind === "diary" ? CHAT_NOTICE_WORDS.private : `private ${word}` : title || text6;
+  const label = isPrivate ? kind === "diary" ? CHAT_NOTICE_WORDS.private : kind === "question_resolved" ? CHAT_NOTICE_WORDS.privateQuestionResolved : `private ${word}` : title || text6;
   const fromText = !isPrivate && !title && Boolean(text6);
   const Word = word.charAt(0).toUpperCase() + word.slice(1);
   const spoken = label.split(/\s+/).filter(Boolean).join(" ");
@@ -3314,7 +3326,8 @@ function chatNoticeView(notice, index = 0) {
     fromText,
     private: isPrivate,
     staged,
-    ariaLabel: `${Word}${spoken ? `: ${spoken}` : ""}${staged ? ` (${CHAT_NOTICE_WORDS.stagedSpoken})` : ""}`
+    ariaLabel: `${Word}${spoken ? `: ${spoken}` : ""}${staged ? ` (${CHAT_NOTICE_WORDS.stagedSpoken})` : ""}`,
+    fullTitle: kind === "question_resolved" && !isPrivate ? title : ""
   };
 }
 
@@ -3352,9 +3365,9 @@ function ChatNoticeBadges(props) {
   const notices = useMemo5(() => shownNotices(props.notices), [props.notices]);
   const views = useMemo5(() => notices.map((n, i) => chatNoticeView(n, i)), [notices]);
   const [openKey, setOpenKey] = useState13(null);
-  const buttons = useRef8(/* @__PURE__ */ new Map());
-  const refocus = useRef8(null);
-  const panelRef = useRef8(null);
+  const buttons = useRef9(/* @__PURE__ */ new Map());
+  const refocus = useRef9(null);
+  const panelRef = useRef9(null);
   const panelId = `pc-notice-${useId4().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const open = openKey !== null ? views.findIndex((v) => v.key === openKey) : -1;
   useEffect12(() => {
@@ -3398,7 +3411,13 @@ function ChatNoticeBadges(props) {
       buttons.current.set(v.key, el);
     else
       buttons.current.delete(v.key);
-  }, type: "button", className: ["pc-chat-notice", `pc-chat-notice--${v.kind.replace(/[^a-z0-9_-]/g, "") || "other"}`, v.staged ? "pc-chat-notice--staged" : "", v.private ? "pc-chat-notice--private" : ""].filter(Boolean).join(" "), "data-notice-kind": v.kind, ...v.staged ? { "data-staged": "" } : {}, ...v.private ? { "data-private": "" } : {}, "aria-label": v.ariaLabel, ...openKey === v.key ? { "aria-expanded": true, "aria-controls": panelId } : props.onOpen ? {} : { "aria-expanded": false }, onClick: () => activate(i), onKeyDown, children: [_jsx16(Icon7, { name: v.icon, size: 12 }), _jsx16("span", { className: "pc-chat-notice__kind", children: v.word }), v.label ? _jsx16("span", { className: "pc-chat-notice__label", ...v.fromText ? { "data-from-text": "" } : {}, children: v.label }) : null, v.staged ? _jsx16("span", { className: "pc-chat-notice__staged", children: CHAT_NOTICE_WORDS.staged }) : null] }, v.key)) }), shown ? _jsxs12("div", { ref: panelRef, className: "pc-chat-notice-pop", id: panelId, "data-notice-kind": shown.view.kind, onKeyDown, children: [_jsxs12("div", { className: "pc-chat-notice-pop__head", children: [_jsx16(Icon7, { name: shown.view.icon, size: 14 }), _jsx16("span", { className: "pc-chat-notice__kind", children: shown.view.word }), shown.view.label && !shown.view.fromText ? _jsx16("span", { className: "pc-chat-notice-pop__title", children: shown.view.label }) : null, _jsx16("button", { type: "button", className: "pc-chat-notice-pop__close", onClick: close, children: CHAT_NOTICE_WORDS.close })] }), text6 ? _jsx16("p", { className: "pc-chat-notice-pop__text", children: text6 }) : null, shown.view.private ? _jsx16("p", { className: "pc-chat-notice-pop__note", children: CHAT_NOTICE_WORDS.privateNote }) : null, shown.view.staged ? _jsx16("p", { className: "pc-chat-notice-pop__note", children: CHAT_NOTICE_WORDS.stagedNote }) : null] }) : null] });
+  }, type: "button", className: ["pc-chat-notice", `pc-chat-notice--${v.kind.replace(/[^a-z0-9_-]/g, "") || "other"}`, v.staged ? "pc-chat-notice--staged" : "", v.private ? "pc-chat-notice--private" : ""].filter(Boolean).join(" "), "data-notice-kind": v.kind, ...v.staged ? { "data-staged": "" } : {}, ...v.private ? { "data-private": "" } : {}, "aria-label": v.ariaLabel, ...v.fullTitle ? { title: v.fullTitle } : {}, ...openKey === v.key ? { "aria-expanded": true, "aria-controls": panelId } : props.onOpen ? {} : { "aria-expanded": false }, onClick: () => activate(i), onKeyDown, children: [_jsx16(Icon7, { name: v.icon, size: 12 }), _jsx16("span", { className: "pc-chat-notice__kind", children: v.word }), v.label ? _jsx16("span", { className: "pc-chat-notice__label", ...v.fromText ? { "data-from-text": "" } : {}, children: v.label }) : null, v.staged ? _jsx16("span", { className: "pc-chat-notice__staged", children: CHAT_NOTICE_WORDS.staged }) : null] }, v.key)) }), shown ? _jsxs12("div", { ref: panelRef, className: "pc-chat-notice-pop", id: panelId, "data-notice-kind": shown.view.kind, onKeyDown, children: [_jsxs12("div", { className: "pc-chat-notice-pop__head", children: [_jsx16(Icon7, { name: shown.view.icon, size: 14 }), _jsx16("span", { className: "pc-chat-notice__kind", children: shown.view.word }), shown.view.label && !shown.view.fromText ? _jsx16("span", { className: "pc-chat-notice-pop__title", children: shown.view.label }) : null, _jsx16("button", { type: "button", className: "pc-chat-notice-pop__close", onClick: close, children: CHAT_NOTICE_WORDS.close })] }), text6 ? _jsx16("p", { className: "pc-chat-notice-pop__text", children: text6 }) : null, shown.view.private ? _jsx16("p", { className: "pc-chat-notice-pop__note", children: shown.view.kind === "question_resolved" ? CHAT_NOTICE_WORDS.privateQuestionNote : CHAT_NOTICE_WORDS.privateNote }) : null, shown.view.staged ? _jsx16("p", { className: "pc-chat-notice-pop__note", children: CHAT_NOTICE_WORDS.stagedNote }) : null] }) : null] });
+}
+
+// dist/working_dots.js
+import { jsx as _jsx17, jsxs as _jsxs13 } from "react/jsx-runtime";
+function WorkingDots({ label = "Working", className }) {
+  return _jsxs13("span", { className: ["pc-working-dots", className].filter(Boolean).join(" "), role: "img", "aria-label": label, children: [_jsx17("span", { className: "pc-working-dots__dot" }), _jsx17("span", { className: "pc-working-dots__dot" }), _jsx17("span", { className: "pc-working-dots__dot" })] });
 }
 
 // dist/chat_message_card.js
@@ -3448,14 +3467,14 @@ function ChatMediaFile({ item, onOpen, markdown }) {
     return null;
   const size = formatFileSize2(item.size);
   const label = String(item.label || "").trim() || name;
-  return _jsxs13("figure", { className: "pc-chat-media__item pc-chat-media__item--file", "data-file-kind": kind, children: [_jsxs13("div", { className: "pc-chat-media__file-row", children: [_jsx17(Icon8, { name: "file", size: 14 }), _jsx17("span", { className: "pc-chat-media__file-name", title: name, children: label }), size ? _jsx17("span", { className: "pc-chat-media__file-size", children: size }) : null, onOpen ? _jsx17("button", {
+  return _jsxs14("figure", { className: "pc-chat-media__item pc-chat-media__item--file", "data-file-kind": kind, children: [_jsxs14("div", { className: "pc-chat-media__file-row", children: [_jsx18(Icon8, { name: "file", size: 14 }), _jsx18("span", { className: "pc-chat-media__file-name", title: name, children: label }), size ? _jsx18("span", { className: "pc-chat-media__file-size", children: size }) : null, onOpen ? _jsx18("button", {
     type: "button",
     className: "pc-chat-media__file-open",
     "data-action": "open-file",
     // The opener gets the item as the kit would render it: sanitized sources only.
     onClick: () => onOpen({ ...item, src: src || "", ...href ? { href } : { href: void 0 } }),
     children: "Open"
-  }) : _jsx17("button", { type: "button", className: "pc-chat-media__file-open", "data-action": "toggle-file", "aria-expanded": open, onClick: () => setOpen((v) => !v), children: open ? "Close" : "Open" }), href ? _jsx17("a", { className: "pc-chat-media__link", ...rawLinkProps(href, String(item.name || "").trim() || label), children: "Raw file" }) : null] }), open && !onOpen ? _jsx17(FileViewer, {
+  }) : _jsx18("button", { type: "button", className: "pc-chat-media__file-open", "data-action": "toggle-file", "aria-expanded": open, onClick: () => setOpen((v) => !v), children: open ? "Close" : "Open" }), href ? _jsx18("a", { className: "pc-chat-media__link", ...rawLinkProps(href, String(item.name || "").trim() || label), children: "Raw file" }) : null] }), open && !onOpen ? _jsx18(FileViewer, {
     className: "pc-chat-media__viewer",
     name,
     kind,
@@ -3476,7 +3495,7 @@ function ChatMediaFile({ item, onOpen, markdown }) {
 function ChatMediaItem({ item, onOpenFile, markdown }) {
   const [failed, setFailed] = useState14(false);
   if (item.kind === "file")
-    return _jsx17(ChatMediaFile, { item, onOpen: onOpenFile, markdown: markdown || {} });
+    return _jsx18(ChatMediaFile, { item, onOpen: onOpenFile, markdown: markdown || {} });
   const src = mediaSource(item.src);
   const href = item.href ? mediaSource(item.href) : void 0;
   const kind = item.kind === "image" || item.kind === "audio" || item.kind === "video" ? item.kind : null;
@@ -3485,7 +3504,7 @@ function ChatMediaItem({ item, onOpenFile, markdown }) {
   const noun = kind === "image" ? "Image" : kind === "video" ? "Video" : "Audio";
   const label = String(item.label || "").trim() || `Generated ${noun.toLowerCase()}`;
   const onError = () => setFailed(true);
-  return _jsxs13("figure", { className: `pc-chat-media__item pc-chat-media__item--${kind}`, children: [src && kind === "image" ? _jsx17("img", { className: "pc-chat-media__image", src, alt: label, loading: "lazy", onError }) : null, src && kind === "video" ? _jsx17("video", { className: "pc-chat-media__video", src, controls: true, playsInline: true, preload: "metadata", "aria-label": label, onError }) : null, src && kind === "audio" ? _jsx17(AfAudioPlayer, { className: "pc-chat-media__audio", src, name: label }) : null, kind === "audio" && String(item.transcript || "").trim() ? _jsxs13("details", { className: "pc-chat-media__transcript", children: [_jsx17("summary", { children: "Transcript" }), _jsx17("p", { className: "pc-chat-media__transcript-text", children: String(item.transcript).trim() })] }) : null, failed ? _jsxs13("div", { className: "pc-chat-media__error", role: "note", children: [noun, " could not be decoded by this browser", href ? "; open the raw file with the link." : "."] }) : null, href ? _jsx17("figcaption", { className: "pc-chat-media__caption", children: _jsx17("a", { className: "pc-chat-media__link", ...rawLinkProps(href, String(item.name || "").trim() || label), children: label }) }) : null] });
+  return _jsxs14("figure", { className: `pc-chat-media__item pc-chat-media__item--${kind}`, children: [src && kind === "image" ? _jsx18("img", { className: "pc-chat-media__image", src, alt: label, loading: "lazy", onError }) : null, src && kind === "video" ? _jsx18("video", { className: "pc-chat-media__video", src, controls: true, playsInline: true, preload: "metadata", "aria-label": label, onError }) : null, src && kind === "audio" ? _jsx18(AfAudioPlayer, { className: "pc-chat-media__audio", src, name: label }) : null, kind === "audio" && String(item.transcript || "").trim() ? _jsxs14("details", { className: "pc-chat-media__transcript", children: [_jsx18("summary", { children: "Transcript" }), _jsx18("p", { className: "pc-chat-media__transcript-text", children: String(item.transcript).trim() })] }) : null, failed ? _jsxs14("div", { className: "pc-chat-media__error", role: "note", children: [noun, " could not be decoded by this browser", href ? "; open the raw file with the link." : "."] }) : null, href ? _jsx18("figcaption", { className: "pc-chat-media__caption", children: _jsx18("a", { className: "pc-chat-media__link", ...rawLinkProps(href, String(item.name || "").trim() || label), children: label }) }) : null] });
 }
 function speakButtonView(state) {
   if (state === "loading")
@@ -3506,7 +3525,7 @@ function ChatMessageCard(props) {
   const time_title = useMemo6(() => messageStampTitle(raw_ts), [raw_ts]);
   const time_iso = useMemo6(() => messageStampIso(raw_ts), [raw_ts]);
   const [copy_state, set_copy_state] = useState14("idle");
-  const copy_timer = useRef9(null);
+  const copy_timer = useRef10(null);
   useEffect13(() => {
     return () => {
       if (copy_timer.current !== null)
@@ -3528,27 +3547,30 @@ function ChatMessageCard(props) {
   const reasoning = live ? String(live.reasoning || "") : String(m.reasoning || "");
   const has_text = Boolean(String(m.content || "").trim());
   if (m.toolActivity)
-    return _jsx17(ToolActivity, { tool: m.toolActivity, showCopy: props.showCopy });
+    return _jsx18(ToolActivity, { tool: m.toolActivity, showCopy: props.showCopy });
   const variant = props.variant?.(m);
   const caption = variant === "caption";
   const footer2 = props.renderFooter && !caption ? props.renderFooter(m) : null;
   if (variant === "hint" || m.kind === "tool_policy_decision") {
     const level = String(m.level || "").trim().toLowerCase();
-    return _jsxs13("div", { className: ["pc-chat-hint", level === "warn" || level === "error" ? `pc-chat-hint--${level}` : "", props.className].filter(Boolean).join(" "), role: "note", "data-variant": "hint", children: [_jsx17("span", { className: "pc-chat-hint__text", children: String(m.content || "") }), footer2 != null && footer2 !== false ? _jsx17("div", { className: "pc-chat-footer", children: footer2 }) : null] });
+    return _jsxs14("div", { className: ["pc-chat-hint", level === "warn" || level === "error" ? `pc-chat-hint--${level}` : "", props.className].filter(Boolean).join(" "), role: "note", "data-variant": "hint", children: [_jsx18("span", { className: "pc-chat-hint__text", children: String(m.content || "") }), footer2 != null && footer2 !== false ? _jsx18("div", { className: "pc-chat-footer", children: footer2 }) : null] });
   }
-  return _jsxs13("div", { className: ["pc-chat-item", `pc-chat-item--${role_ui.variant}`, caption ? "pc-chat-item--caption" : "", live ? "pc-chat-item--live" : "", props.className].filter(Boolean).join(" "), ...live ? { "aria-busy": true } : {}, ...caption ? { "data-variant": "caption" } : {}, ...author ? { "data-author": author.mark } : {}, children: [caption ? null : _jsxs13("div", { className: "pc-chat-header", children: [author ? _jsx17("div", { className: "pc-chat-avatar pc-chat-avatar--author", "aria-hidden": "true", children: _jsx17(ChatAuthorMark, { mark: author.mark, look: author.look, initial: author.initial, size: 22 }) }) : _jsx17("div", { className: "pc-chat-avatar", "aria-hidden": "true", children: _jsx17(Icon8, { name: role_ui.icon, size: 14 }) }), _jsx17("span", { className: "pc-chat-role", children: author ? author.name : role_ui.label }), author?.tag ? _jsx17(AfChip, { size: "sm", tone: "muted", className: "pc-chat-author-kind", children: author.tag }) : null, live ? _jsxs13("span", { className: "pc-chat-live-indicator", title: live.label ? `Pending: ${live.label}` : "The reply is still being written", children: [_jsx17("span", { className: "pc-chat-live-dot", "aria-hidden": "true" }), live.label || "streaming"] }) : null, live?.caption ? _jsx17("span", { className: "pc-chat-live-caption", children: live.caption }) : null, _jsx17("span", { className: "pc-chat-header-spacer" }), time_label ? _jsx17("time", { className: "pc-chat-time", dateTime: time_iso || void 0, title: time_title || void 0, children: time_label }) : null, _jsxs13("div", { className: "pc-chat-header-actions", children: [show_speaker ? _jsx17("button", { className: "pc-chat-icon-btn", type: "button", "aria-label": speak_blocked || speak.title, title: speak_blocked || speak.title, "data-speak-state": speak_blocked ? "unavailable" : speak_state, ...speak_blocked ? { "aria-disabled": true } : {}, onClick: can_speak ? () => props.onSpeakToggle?.(m) : void 0, children: _jsx17(Icon8, { name: speak.icon, size: 22, className: speak.spinning ? "pc-chat-speak-spinner" : void 0 }, speak.icon) }) : null, show_copy ? _jsx17("button", { className: `pc-chat-icon-btn ${copy_state !== "idle" ? `pc-chat-icon-btn--${copy_state}` : ""}`.trim(), type: "button", "aria-label": "Copy message", title: copy_state === "idle" ? "Copy" : copy_state === "copied" ? "Copied" : "Copy failed", onClick: async () => {
+  return _jsxs14("div", { className: ["pc-chat-item", `pc-chat-item--${role_ui.variant}`, caption ? "pc-chat-item--caption" : "", live ? "pc-chat-item--live" : "", props.className].filter(Boolean).join(" "), ...live ? { "aria-busy": true } : {}, ...caption ? { "data-variant": "caption" } : {}, ...author ? { "data-author": author.mark } : {}, children: [caption ? null : _jsxs14("div", { className: "pc-chat-header", children: [author ? _jsx18("div", { className: "pc-chat-avatar pc-chat-avatar--author", "aria-hidden": "true", children: _jsx18(ChatAuthorMark, { mark: author.mark, look: author.look, initial: author.initial, size: 22 }) }) : _jsx18("div", { className: "pc-chat-avatar", "aria-hidden": "true", children: _jsx18(Icon8, { name: role_ui.icon, size: 14 }) }), _jsx18("span", { className: "pc-chat-role", children: author ? author.name : role_ui.label }), author?.tag ? _jsx18(AfChip, { size: "sm", tone: "muted", className: "pc-chat-author-kind", children: author.tag }) : null, live ? _jsxs14("span", { className: "pc-chat-live-indicator", title: live.label ? `Pending: ${live.label}` : "The reply is still being written", children: [_jsx18("span", { className: "pc-chat-live-dot", "aria-hidden": "true" }), live.label || "streaming"] }) : null, live?.caption ? _jsx18("span", { className: "pc-chat-live-caption", children: live.caption }) : null, _jsx18("span", { className: "pc-chat-header-spacer" }), time_label ? _jsx18("time", { className: "pc-chat-time", dateTime: time_iso || void 0, title: time_title || void 0, children: time_label }) : null, _jsxs14("div", { className: "pc-chat-header-actions", children: [show_speaker ? _jsx18("button", { className: "pc-chat-icon-btn", type: "button", "aria-label": speak_blocked || speak.title, title: speak_blocked || speak.title, "data-speak-state": speak_blocked ? "unavailable" : speak_state, ...speak_blocked ? { "aria-disabled": true } : {}, onClick: can_speak ? () => props.onSpeakToggle?.(m) : void 0, children: _jsx18(Icon8, { name: speak.icon, size: 22, className: speak.spinning ? "pc-chat-speak-spinner" : void 0 }, speak.icon) }) : null, show_copy ? _jsx18("button", { className: `pc-chat-icon-btn ${copy_state !== "idle" ? `pc-chat-icon-btn--${copy_state}` : ""}`.trim(), type: "button", "aria-label": "Copy message", title: copy_state === "idle" ? "Copy" : copy_state === "copied" ? "Copied" : "Copy failed", onClick: async () => {
     const ok = await copyText(String(m.content || ""));
     set_copy_state(ok ? "copied" : "failed");
     if (copy_timer.current !== null)
       window.clearTimeout(copy_timer.current);
     copy_timer.current = window.setTimeout(() => set_copy_state("idle"), 900);
-  }, children: _jsx17(Icon8, { name: "copy", size: 22 }) }) : null] })] }), reasoning.trim() && !caption ? _jsxs13("details", { className: "pc-chat-thinking", children: [_jsx17("summary", { children: "Thinking" }), _jsx17("div", { className: "pc-chat-thinking-body", children: reasoning })] }) : null, has_text || !live && !media.length ? _jsx17("div", { className: "pc-chat-body", children: _jsx17(ChatMessageContent, { text: String(m.content || ""), renderMarkdown: props.renderMarkdown, jsonCollapseAfterDepth: props.jsonCollapseAfterDepth, images: props.images || (role_ui.variant === "user" ? "inline" : "link"), inlineImage: props.inlineImage, mentions: m.mentions, renderMentionCard: props.renderMentionCard }) }) : null, m.notices?.length && !caption ? _jsx17(ChatNoticeBadges, { notices: m.notices, onOpen: props.onNoticeOpen ? (notice) => props.onNoticeOpen(notice, m) : void 0 }) : null, media.length ? _jsx17("div", { className: "pc-chat-media", children: media.map((item, idx) => _jsx17(ChatMediaItem, { item, onOpenFile: props.onOpenMedia, markdown: { renderMarkdown: props.renderMarkdown, images: props.images, inlineImage: props.inlineImage } }, item.id || `${item.kind}:${item.src}:${idx}`)) }) : null, m.artifactRefs?.length ? _jsx17("div", { className: "pc-chat-attachments", "aria-label": "Attached files", children: m.artifactRefs.map((a) => _jsx17(MessageArtifactChip, { artifact: a }, `${a.runId}:${a.id}`)) }) : null, attachments.length ? _jsx17("div", { className: "pc-chat-attachments", "aria-label": "Attachments", children: attachments.map((a, idx) => {
+  }, children: _jsx18(Icon8, { name: "copy", size: 22 }) }) : null] })] }), reasoning.trim() && !caption ? _jsxs14("details", { className: "pc-chat-thinking", children: [_jsx18("summary", { children: "Thinking" }), _jsx18("div", { className: "pc-chat-thinking-body", children: reasoning })] }) : null, has_text || !live && !media.length ? _jsx18("div", { className: "pc-chat-body", children: _jsx18(ChatMessageContent, { text: String(m.content || ""), renderMarkdown: props.renderMarkdown, jsonCollapseAfterDepth: props.jsonCollapseAfterDepth, images: props.images || (role_ui.variant === "user" ? "inline" : "link"), inlineImage: props.inlineImage, mentions: m.mentions, renderMentionCard: props.renderMentionCard }) }) : live && !media.length ? (
+    // A live reply with nothing to show yet: the working dots, named by what it waits for.
+    _jsx18("div", { className: "pc-chat-body pc-chat-body--working", children: _jsx18(WorkingDots, { label: live.label || "Working" }) })
+  ) : null, m.notices?.length && !caption ? _jsx18(ChatNoticeBadges, { notices: m.notices, onOpen: props.onNoticeOpen ? (notice) => props.onNoticeOpen(notice, m) : void 0 }) : null, media.length ? _jsx18("div", { className: "pc-chat-media", children: media.map((item, idx) => _jsx18(ChatMediaItem, { item, onOpenFile: props.onOpenMedia, markdown: { renderMarkdown: props.renderMarkdown, images: props.images, inlineImage: props.inlineImage } }, item.id || `${item.kind}:${item.src}:${idx}`)) }) : null, m.artifactRefs?.length ? _jsx18("div", { className: "pc-chat-attachments", "aria-label": "Attached files", children: m.artifactRefs.map((a) => _jsx18(MessageArtifactChip, { artifact: a }, `${a.runId}:${a.id}`)) }) : null, attachments.length ? _jsx18("div", { className: "pc-chat-attachments", "aria-label": "Attachments", children: attachments.map((a, idx) => {
     const label = String(a.label || "").trim() || "attachment";
     const target2 = String(a.target || "").trim();
     const title = String(a.title || "").trim();
     const disabled = Boolean(a.disabled) || typeof a.onClick !== "function";
-    return _jsxs13("button", { type: "button", className: "pc-chat-attachment-chip", title: title || label, onClick: disabled ? void 0 : a.onClick, disabled, children: [_jsx17(Icon8, { name: "paperclip", size: 14 }), target2 ? _jsx17("span", { className: `pc-chat-attachment-target pc-chat-attachment-target--${target2}`, children: target2 }) : null, _jsx17("span", { className: "pc-chat-attachment-name", children: label })] }, a.id || `${label}:${idx}`);
-  }) }) : null, stats.length && !caption ? _jsx17(ChatStatsRow, { stats }) : null, footer2 != null && footer2 !== false ? _jsx17("div", { className: "pc-chat-footer", children: footer2 }) : null] });
+    return _jsxs14("button", { type: "button", className: "pc-chat-attachment-chip", title: title || label, onClick: disabled ? void 0 : a.onClick, disabled, children: [_jsx18(Icon8, { name: "paperclip", size: 14 }), target2 ? _jsx18("span", { className: `pc-chat-attachment-target pc-chat-attachment-target--${target2}`, children: target2 }) : null, _jsx18("span", { className: "pc-chat-attachment-name", children: label })] }, a.id || `${label}:${idx}`);
+  }) }) : null, stats.length && !caption ? _jsx18(ChatStatsRow, { stats }) : null, footer2 != null && footer2 !== false ? _jsx18("div", { className: "pc-chat-footer", children: footer2 }) : null] });
 }
 
 // dist/chat_thread.js
@@ -3560,8 +3582,8 @@ function is_near_bottom(el, thresholdPx) {
 function ChatThread(props) {
   const threshold = typeof props.autoScrollThresholdPx === "number" && Number.isFinite(props.autoScrollThresholdPx) ? props.autoScrollThresholdPx : 120;
   const auto = props.autoScroll !== false;
-  const list_ref = useRef10(null);
-  const bottom_ref = useRef10(null);
+  const list_ref = useRef11(null);
+  const bottom_ref = useRef11(null);
   const [stick, set_stick] = useState15(true);
   const msgs = useMemo7(() => Array.isArray(props.messages) ? props.messages : [], [props.messages]);
   const groups = useMemo7(() => {
@@ -3647,17 +3669,11 @@ function ChatThread(props) {
       list.removeEventListener("loadedmetadata", follow, true);
     };
   }, [auto, stick]);
-  return _jsxs14("div", { ref: list_ref, className: ["pc-chat-thread", props.className].filter(Boolean).join(" "), children: [!msgs.length ? props.empty || null : null, groups.map(({ group, notes }, idx) => {
+  return _jsxs15("div", { ref: list_ref, className: ["pc-chat-thread", props.className].filter(Boolean).join(" "), children: [!msgs.length ? props.empty || null : null, groups.map(({ group, notes }, idx) => {
     const m = group[0];
     const key = String(m.id || "") || String(m.ts || "") + ":" + String(m.role || "") + ":" + idx;
-    return m.toolActivity ? _jsx18(ToolActivityGroup, { tools: group.map((message) => message.toolActivity), notes, statistics: group[group.length - 1].statistics, showCopy: props.messageProps?.showCopy }, key) : _jsx18(ChatMessageCard, { message: m, ...props.messageProps || {} }, key);
-  }), props.after, _jsx18("div", { ref: bottom_ref })] });
-}
-
-// dist/working_dots.js
-import { jsx as _jsx19, jsxs as _jsxs15 } from "react/jsx-runtime";
-function WorkingDots({ label = "Working", className }) {
-  return _jsxs15("span", { className: ["pc-working-dots", className].filter(Boolean).join(" "), role: "img", "aria-label": label, children: [_jsx19("span", { className: "pc-working-dots__dot" }), _jsx19("span", { className: "pc-working-dots__dot" }), _jsx19("span", { className: "pc-working-dots__dot" })] });
+    return m.toolActivity ? _jsx19(ToolActivityGroup, { tools: group.map((message) => message.toolActivity), notes, statistics: group[group.length - 1].statistics, showCopy: props.messageProps?.showCopy }, key) : _jsx19(ChatMessageCard, { message: m, ...props.messageProps || {} }, key);
+  }), props.after, _jsx19("div", { ref: bottom_ref })] });
 }
 
 // dist/composer_attachments.js
@@ -3822,7 +3838,7 @@ var DragPresence = class {
 
 // dist/workflow_interaction.js
 import { jsxs as _jsxs17, jsx as _jsx21 } from "react/jsx-runtime";
-import { useEffect as useEffect15, useRef as useRef11, useState as useState16 } from "react";
+import { useEffect as useEffect15, useRef as useRef12, useState as useState16 } from "react";
 import { Icon as Icon10 } from "@abstractframework/ui-kit";
 
 // dist/workflow_interaction_core.js
@@ -3884,11 +3900,11 @@ function WorkflowInteractionPanel(props) {
   const [outcome, setOutcome] = useState16("");
   const [failure, setFailure] = useState16(null);
   const interactionKey = `${interaction.kind}:${interaction.id}`;
-  const activeKeyRef = useRef11(interactionKey);
-  const inFlightRef = useRef11(false);
-  const settledRef = useRef11(false);
-  const mountedRef = useRef11(true);
-  const sequenceRef = useRef11(0);
+  const activeKeyRef = useRef12(interactionKey);
+  const inFlightRef = useRef12(false);
+  const settledRef = useRef12(false);
+  const mountedRef = useRef12(true);
+  const sequenceRef = useRef12(0);
   if (activeKeyRef.current !== interactionKey) {
     activeKeyRef.current = interactionKey;
     inFlightRef.current = false;
@@ -3989,7 +4005,7 @@ function WorkflowInteractionPanel(props) {
 
 // dist/avatar_conversation.js
 import { jsx as _jsx22, jsxs as _jsxs18, Fragment as _Fragment8 } from "react/jsx-runtime";
-import React7, { useCallback as useCallback5, useEffect as useEffect16, useId as useId5, useMemo as useMemo8, useRef as useRef12, useState as useState17 } from "react";
+import React7, { useCallback as useCallback5, useEffect as useEffect16, useId as useId5, useMemo as useMemo8, useRef as useRef13, useState as useState17 } from "react";
 import { Icon as Icon11 } from "@abstractframework/ui-kit";
 
 // dist/conversation_model.js
@@ -4187,9 +4203,9 @@ function Expandable(props) {
 }
 var FindingCard = React7.memo(function FindingCard2(props) {
   const [open, setOpen] = useState17(false);
-  const opener = useRef12(null);
-  const body = useRef12(null);
-  const reopen = useRef12(false);
+  const opener = useRef13(null);
+  const body = useRef13(null);
+  const reopen = useRef13(false);
   const { finding, onOpen, ...card } = props;
   useEffect16(() => {
     if (open)
@@ -4233,9 +4249,9 @@ function AvatarConversationSession(props) {
     return () => props.onAttendedChange?.(false);
   }, [attended, props.onAttendedChange]);
   const state = conversationState(props);
-  const cursor = useRef12(null);
-  const narrationCursor = useRef12(null);
-  const callbacks = useRef12(props);
+  const cursor = useRef13(null);
+  const narrationCursor = useRef13(null);
+  const callbacks = useRef13(props);
   callbacks.current = props;
   useEffect16(() => {
     return () => {
@@ -4247,7 +4263,7 @@ function AvatarConversationSession(props) {
     if (props.listening)
       callbacks.current.onInterruptSpeech?.();
   }, [props.listening]);
-  const personKey = useRef12(live.personKey);
+  const personKey = useRef13(live.personKey);
   useEffect16(() => {
     if (personKey.current === live.personKey)
       return;
@@ -4277,12 +4293,12 @@ function AvatarConversationSession(props) {
   }, [messages, props.sessionKey, props.connection, props.replaying, props.status, props.narrate, props.listening, props.onNarrate, props.onInterruptSpeech, attended]);
   const interrupt = useCallback5(() => callbacks.current.onInterruptSpeech?.(), []);
   const line = held || live.line;
-  const section = useRef12(null);
-  const liveArea = useRef12(null);
-  const lineActions = useRef12(null);
-  const toggle = useRef12(null);
-  const closeButton = useRef12(null);
-  const focusLine = useRef12(false);
+  const section = useRef13(null);
+  const liveArea = useRef13(null);
+  const lineActions = useRef13(null);
+  const toggle = useRef13(null);
+  const closeButton = useRef13(null);
+  const focusLine = useRef13(false);
   useEffect16(() => {
     if (held)
       lineActions.current?.querySelector("button")?.focus();
@@ -4372,14 +4388,14 @@ function WorkflowChat(props) {
       return;
     setMentions((now) => mentionsAfterSend(now, held, keep ?? []));
   };
-  const sendAbortRef = useRef13(null);
-  const mountedRef = useRef13(true);
-  const sendInFlightRef = useRef13(false);
-  const cancelInFlightRef = useRef13(false);
-  const attachInFlightRef = useRef13(false);
-  const sendSequenceRef = useRef13(0);
-  const cancelSequenceRef = useRef13(0);
-  const attachSequenceRef = useRef13(0);
+  const sendAbortRef = useRef14(null);
+  const mountedRef = useRef14(true);
+  const sendInFlightRef = useRef14(false);
+  const cancelInFlightRef = useRef14(false);
+  const attachInFlightRef = useRef14(false);
+  const sendSequenceRef = useRef14(0);
+  const cancelSequenceRef = useRef14(0);
+  const attachSequenceRef = useRef14(0);
   useEffect17(() => {
     mountedRef.current = true;
     return () => {
@@ -4412,12 +4428,12 @@ function WorkflowChat(props) {
     setSteerStatus(null);
   }, [Boolean(props.busy)]);
   const acceptsFiles = typeof props.onFiles === "function";
-  const sectionRef = useRef13(null);
+  const sectionRef = useRef14(null);
   const [drag, setDrag] = useState18(null);
   const [announcement, setAnnouncement] = useState18("");
-  const onFilesRef = useRef13(props.onFiles);
+  const onFilesRef = useRef14(props.onFiles);
   onFilesRef.current = props.onFiles;
-  const disabledRef = useRef13(disabled);
+  const disabledRef = useRef14(disabled);
   disabledRef.current = disabled;
   const deliverFiles = async (files2, folders) => {
     const handler = onFilesRef.current;
@@ -4447,7 +4463,7 @@ function WorkflowChat(props) {
         setError({ action: "attach", message: messageFor(reason) });
     }
   };
-  const deliverRef = useRef13(deliverFiles);
+  const deliverRef = useRef14(deliverFiles);
   deliverRef.current = deliverFiles;
   useEffect17(() => {
     if (!acceptsFiles || typeof window === "undefined")
@@ -7754,7 +7770,7 @@ function useWorkflowSession(options) {
 }
 
 // dist/conversation_preferences.js
-import { useEffect as useEffect19, useRef as useRef14, useState as useState19 } from "react";
+import { useEffect as useEffect19, useRef as useRef15, useState as useState19 } from "react";
 function read(scope2) {
   try {
     const raw = typeof localStorage === "undefined" ? null : localStorage.getItem(`abstract.conversation:${scope2}`);
@@ -7770,7 +7786,7 @@ function read(scope2) {
 function useAvatarConversationPreferences(scope2) {
   const [saved, setSaved] = useState19(() => ({ scope: scope2, ...read(scope2) }));
   const current = saved.scope === scope2 ? saved : { scope: scope2, ...read(scope2) };
-  const stateRef = useRef14(current);
+  const stateRef = useRef15(current);
   stateRef.current = current;
   useEffect19(() => {
     if (saved.scope !== scope2)
@@ -8175,6 +8191,7 @@ export {
   ToolActivityGroup,
   WorkflowChat,
   WorkflowInteractionPanel,
+  WorkingDots,
   chatAuthorOf,
   chatAuthorView,
   chatNoticeView,

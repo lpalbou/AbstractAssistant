@@ -3599,6 +3599,9 @@ def test_assistant_palette_submit_steers_active_run_instead_of_refusing() -> Non
         def toPlainText(self) -> str:  # noqa: N802 (Qt naming)
             return self._text
 
+        def mentions(self) -> list:  # the composer's `@` chips (none here)
+            return []
+
         def clear(self) -> None:
             self._text = ""
             self.cleared = True
@@ -3660,6 +3663,12 @@ class _PromptEditStub:
 
     def toPlainText(self) -> str:  # noqa: N802 (Qt naming)
         return self._text
+
+    def mentions(self) -> list:  # the composer's `@` chips (none here)
+        return []
+
+    def message_payload(self) -> tuple:  # what a send carries: the words, no chips
+        return self._text.strip(), []
 
     def clear(self) -> None:
         self._text = ""

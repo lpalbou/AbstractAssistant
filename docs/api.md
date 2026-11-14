@@ -133,8 +133,11 @@ that advertises live replies, otherwise `false` and, for an explicit `on`, a bra
 stderr says it was not sent. While the reply
 streams, its text is written to **stderr** as it arrives (the model's reasoning is not printed), a
 line in brackets says when a step could not stream or its live text was discarded, and the final
-answer is printed once on **stdout** — so `assistant run --prompt … > answer.txt` captures only the
-answer. Without a saved sign-in or
+answer is printed once on **stdout**. Tool-approval and question prompts also use stdout, so
+`assistant run --prompt … > answer.txt` contains only the answer when a successful turn needs no
+interactive input. Known issue (0.19.0): a failed or interrupted command may print a
+diagnostic on stdout. Check the command's result and diagnostic before consuming redirected output;
+the existence of the file does not establish that the turn completed. Without a saved sign-in or
 `--gateway-token`, a gateway that requires sign-in answers 401; the command then prints how to
 sign in (open the Assistant from the gateway console, connect once in Settings → Connection, or
 pass `--gateway-token`) and exits with status 2.
@@ -237,6 +240,19 @@ the stream. Whether the gateway offers live replies is read from
   session transcript seed), `/api/gateway/runs/{run_id}/ledger` (older gateways only: folded here),
   `/api/gateway/runs/{run_id}/ledger/stream` (live reply frames only),
   `/api/gateway/commands` (pause, resume, cancel, inject_guidance, resume of waits)
+- `@` mentions of your entities (AbstractGateway 0.21.0 or later;
+  [getting-started.md](getting-started.md#talk-to-your-entities-with-)):
+  `GET /api/gateway/entities` (the `@` list and the chips' cards, read once per conversation and
+  again after a refusal), `POST /api/gateway/runs/start` with `mentions` (the entity slugs and the
+  reserved `agent`, in pick order, each once; the answer's `agent: "not_addressed"` and `turn_id`
+  mean no agent run was started for a message that names only entities), and
+  `POST /api/gateway/sessions/{session_id}/mentions` (`{entity, text, mention_index, mention_id,
+  repeat_of}`, one entity at a time in mention order, never retried; a resend names the same
+  `mention_id` and gets the first answer back). Refusals are read from the gateway's error `code`:
+  409 skips that entity ("<Name> is in another conversation."), 404 `entity_not_found` skips it,
+  503 stops and gives the words back with the chips not answered, 422 `repeat_of_unknown` stops,
+  and an uncoded 404 or 405 means the gateway has no mention route. Each answered turn carries its
+  `author`, which the transcript and a reloaded conversation show.
 - Discovery and configuration (read): `/api/gateway/me`, `/api/gateway/discovery/capabilities`,
   `/api/gateway/discovery/providers`, `/api/gateway/discovery/providers/{provider}/models`,
   `/api/gateway/discovery/models/capabilities`, `/api/gateway/discovery/tools`,

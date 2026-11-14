@@ -3,13 +3,17 @@
  * 2026-11-09). The runtime serves the reply WITHOUT its bracket markers
  * ("[kept in diary - …]", "[learned: "…"]") and, beside it, a structured list:
  *
- *   [{kind: "diary"|"question"|"lesson"|"interest"|"realization",
+ *   [{kind: "diary"|"question"|"question_resolved"|"lesson"|"interest"|"realization",
  *     record_id: <graph id of the formed record> | null,
  *     title: <as formed; "" while it is still being written>,
  *     text?: <his words, whole>,
- *     visibility?: "private",        a private diary entry: title "" and no words
+ *     visibility?: "private",        a private diary entry or resolved question: title "" and no words
  *     staged?: true}]                a visit-lane election that forms at the visit's close
  *                                    (record_id null until then)
+ *
+ * A `question_resolved` notice names a question of his that this reply resolved:
+ * {kind: "question_resolved", record_id: <the question's graph id>, title: <its title>}; a private
+ * one has title "" and visibility "private".
  *
  * The kit never reads a marker out of the text: a badge exists only for a served notice.
  * This module is pure (no DOM, no React): `chatNoticesOf` reads a served list, `chatNoticeView`
@@ -17,7 +21,7 @@
  */
 import type { IconName } from "@abstractframework/ui-kit";
 /** The kinds the runtime serves today. Another kind still renders, with its own word. */
-export type ChatNoticeKind = "diary" | "question" | "lesson" | "interest" | "realization";
+export type ChatNoticeKind = "diary" | "question" | "question_resolved" | "lesson" | "interest" | "realization";
 /** One structured turn notice, as served (snake_case kept: the host hands it back to its gateway). */
 export type ChatNotice = {
     kind: ChatNoticeKind | (string & {});
@@ -37,10 +41,13 @@ export declare const CHAT_NOTICE_KINDS: readonly ChatNoticeKind[];
 export declare const CHAT_NOTICE_WORDS: {
     readonly group: "Kept from this reply";
     readonly private: "private diary entry";
+    /** A private resolved question's badge (it carries no title). */
+    readonly privateQuestionResolved: "a question resolved (private)";
     readonly staged: "forming…";
     /** The staged word in a badge's accessible name (no ellipsis glyph for a screen reader to say). */
     readonly stagedSpoken: "forming";
     readonly privateNote: "A private diary entry: its words are not shown in the conversation.";
+    readonly privateQuestionNote: "A private question: its words are not shown in the conversation.";
     readonly stagedNote: "Forming: it is kept when the visit closes.";
     readonly close: "Close";
 };
@@ -68,6 +75,8 @@ export type ChatNoticeView = {
     staged: boolean;
     /** The badge's accessible name: words only (his line breaks read as spaces, no glyph). */
     ariaLabel: string;
+    /** The whole title, shown on hover where the badge cuts it (a resolved question); "" = none. */
+    fullTitle: string;
 };
 export declare function chatNoticeView(notice: ChatNotice, index?: number): ChatNoticeView;
 //# sourceMappingURL=chat_notices.d.ts.map

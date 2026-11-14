@@ -30,6 +30,11 @@ struct HomeBrowser: View {
                 Text(err).font(.rounded(.caption2)).foregroundStyle(Theme.red)
                     .multilineTextAlignment(.center).lineLimit(2)
                     .accessibilityIdentifier("gateway.error")
+                if model.mayBeAsleep {
+                    Text(GatewayReach.asleepHint).font(.rounded(.caption2)).foregroundStyle(Theme.text2)
+                        .multilineTextAlignment(.center).lineLimit(2)
+                        .accessibilityIdentifier("gateway.asleep")
+                }
             }
             if !model.waits.isEmpty { waitingCard }
             NavigationLink(value: Route.sessions) {

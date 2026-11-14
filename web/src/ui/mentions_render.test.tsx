@@ -124,12 +124,18 @@ describe("a message the agent was not addressed in (operator 2026-11-10)", () =>
   });
 
   it("after a reload the kept turn reads no run's input (its id is a turn's) and shows as it did live", () => {
-    // The gateway's view, read back: the kept turn's words (`agent_addressed: false`, its TURN id as
-    // run_id), then the entity's turn repeating them.
+    // The gateway's views, read back as served: the kept turn's own view marks it at its TOP level
+    // (`agent_addressed: false`, its TURN id as root; replay_view.py served_json), and the
+    // conversation's view holds its words (the TURN id as run_id), then the entity's turn repeating them.
+    const keptView = {
+      version: "replay_view_v1", root_run_id: "turn-7", status: "completed", agent_addressed: false, cursor: { token: "k", records: 1, runs: { "turn-7": 1 } }, runs: [], interaction: null,
+      messages: [{ id: "turn-7:p", role: "user", kind: "prompt", text: "Does the bridge hold?", run_id: "turn-7", order: ["2026-11-10T08:00:00Z", 1] }],
+      activities: [], artifacts: [],
+    };
     const view = {
       version: "replay_view_v1", root_run_id: "m", status: "completed", cursor: { token: "t", records: 3, runs: { m: 2 } }, runs: [], interaction: null,
       messages: [
-        { id: "turn-7:p", role: "user", kind: "prompt", text: "Does the bridge hold?", run_id: "turn-7", order: ["2026-11-10T08:00:00Z", 1], agent_addressed: false },
+        { id: "turn-7:p", role: "user", kind: "prompt", text: "Does the bridge hold?", run_id: "turn-7", order: ["2026-11-10T08:00:00Z", 1] },
         { id: "m:p", role: "user", kind: "prompt", text: "Does the bridge hold?", run_id: "m", order: ["2026-11-10T08:00:01Z", 2] },
         { id: "m:s2:answer_user", role: "assistant", kind: "answer", text: "The bridge holds.", run_id: "m", order: ["2026-11-10T08:00:05Z", 3], author: castor },
       ],
@@ -137,7 +143,7 @@ describe("a message the agent was not addressed in (operator 2026-11-10)", () =>
     };
     const repeats = new Map([["m", "turn-7"]]);
     const reloaded = conversationPresentation(projectReplayView(view as Parameters<typeof projectReplayView>[0]).messages as ChatMessage[],
-      { repeats, notAddressed: new Set(viewAgentNotAddressed(view)) }).conversation;
+      { repeats, notAddressed: new Set([...viewAgentNotAddressed(keptView), ...viewAgentNotAddressed(view)]) }).conversation;
     // The kit reads `GET runs/{id}/input_data` for each user message with a `runId` (its
     // attachments): none here, so no request for the turn (the gateway answers 404, it is no run).
     expect(reloaded.filter((m) => m.role === "user" && m.runId)).toEqual([]);

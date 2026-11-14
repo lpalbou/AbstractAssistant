@@ -16,6 +16,7 @@ struct AutomationInfoView: View {
     @State private var starting: Date?
     /// The gateway took the command: the run is on its way.
     @State private var accepted = false
+    @State private var runTask: Task<Void, Never>?
 
     private var current: AutomationSummary { model.automations.first { $0.id == automation.id } ?? automation }
     private var definition: AutomationDefinition? { model.definitions[automation.id] }
@@ -89,6 +90,7 @@ struct AutomationInfoView: View {
             .padding(.horizontal, 4)
         }
         .screen("")
+        .onDisappear { runTask?.cancel(); runTask = nil }
         .task { _ = try? await model.definition(of: automation.id) }
         // Read fresh: Run or Stop says what it is doing now (the list is read at most once a minute).
         .task { if let fresh = try? await model.client.automation(id: automation.id) { model.replaceAutomation(fresh) } }
@@ -114,26 +116,40 @@ struct AutomationInfoView: View {
     /// orb page, handed the run, which it follows from there (its steps, then its answer, spoken).
     private func runNow() {
         guard starting == nil else { return }
-        let tapped = Date(), before = current.lastOccurrence?.index ?? 0
+        let tapped = Date(), client = model.client, connection = model.connectionRevision
         error = nil; busy = true; accepted = false; starting = tapped
         WKInterfaceDevice.current().play(.click)
-        Task {
-            defer { busy = false; starting = nil; accepted = false }
+        runTask = Task {
+            defer { if starting == tapped { busy = false; starting = nil; accepted = false; runTask = nil } }
             do {
-                try await model.client.runAutomationNow(id: automation.id)
+                // A cached list row can predate a scheduled occurrence. Read the
+                // baseline immediately before Run; never guess from a failed read.
+                let latest = try await client.automation(id: automation.id)
+                guard !Task.isCancelled, connection == model.connectionRevision else { return }
+                model.replaceAutomation(latest)
+                let before = max(latest.lastOccurrence?.index ?? 0, latest.currentOccurrence?.index ?? 0)
+                try await client.runAutomationNow(id: automation.id)
+                guard !Task.isCancelled, connection == model.connectionRevision else { return }
                 accepted = true
                 WKInterfaceDevice.current().play(.start)
                 var row = current; row.currentOccurrence = row.currentOccurrence ?? CurrentOccurrence(runId: nil)
                 model.replaceAutomation(row)
-                if let run = await startedRun(after: before, tapped: tapped) { model.startedRuns[automation.id] = .init(runId: run, since: tapped) }
+                if let run = await startedRun(after: before, tapped: tapped, client: client, connection: connection) {
+                    guard !Task.isCancelled, connection == model.connectionRevision else { return }
+                    model.startedRuns[automation.id] = .init(runId: run, since: tapped)
+                }
+                guard !Task.isCancelled, connection == model.connectionRevision else { return }
                 // Back to its orb page, unless the person has already left these details.
                 if case .automationInfo(let i)? = model.path.last, i.id == automation.id,
                    case .automation(let a) = model.homeRoute, a.id == automation.id { model.goBack() }
             } catch GatewayError.http(let status, let body) where status == 409 && body.contains("automation_busy") {
                 // A run is already on its way: it is shown, with Stop.
+                guard !Task.isCancelled, connection == model.connectionRevision else { return }
                 self.error = "It is already running."
-                if let fresh = try? await model.client.automation(id: automation.id) { model.replaceAutomation(fresh) }
+                WKInterfaceDevice.current().play(.failure)
+                if let fresh = try? await client.automation(id: automation.id), !Task.isCancelled, connection == model.connectionRevision { model.replaceAutomation(fresh) }
             } catch {
+                guard !Task.isCancelled, connection == model.connectionRevision else { return }
                 self.error = "Couldn't start it. " + AppModel.say(error)
                 WKInterfaceDevice.current().play(.failure)
             }
@@ -143,14 +159,17 @@ struct AutomationInfoView: View {
     /// The run the gateway started for a Run: read every second until it is there (or a run past
     /// `before` has already ended: a very short run), for at most 20 s; nil then (the orb page goes
     /// on looking for it).
-    private func startedRun(after before: Int, tapped: Date) async -> String? {
+    private func startedRun(after before: Int, tapped: Date, client: any GatewayClient, connection: Int) async -> String? {
         let end = Date().addingTimeInterval(20)
-        while Date() < end, !Task.isCancelled {
-            if let fresh = try? await model.client.automation(id: automation.id) {
-                if let run = fresh.currentOccurrence?.runId { model.replaceAutomation(fresh); return run }
-                // (fired after the tap, give or take the clocks: never a run the row was too old to know)
-                if let last = fresh.lastOccurrence, (last.index ?? 0) > before, let run = last.runId,
-                   (last.firedAt.flatMap(ISO8601.date) ?? .distantPast) > tapped.addingTimeInterval(-60) {
+        while Date() < end, !Task.isCancelled, connection == model.connectionRevision {
+            if let fresh = try? await client.automation(id: automation.id) {
+                guard !Task.isCancelled, connection == model.connectionRevision else { return nil }
+                let known = Set((model.results[automation.id] ?? []).compactMap(\.runId))
+                if let run = automationRunToFollow(currentRun: fresh.currentOccurrence?.runId,
+                    currentIndex: fresh.currentOccurrence?.index, lastRun: fresh.lastOccurrence?.runId,
+                    lastIndex: fresh.lastOccurrence?.index,
+                    firedAt: fresh.lastOccurrence?.firedAt.flatMap(ISO8601.date),
+                    after: before, tapped: tapped, knownRuns: known) {
                     model.replaceAutomation(fresh); return run
                 }
             }

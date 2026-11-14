@@ -6,6 +6,17 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-14
+
+### Fixed
+
+- Each pending entity reply shows one set of working dots in its message body.
+- **A reloaded conversation shows a message to your entities as it did live.** After a reload, a
+  message you sent only to entities (without **Assistant**) no longer reads as still waiting for a
+  reply and no longer ends with "The run ended without a written reply."
+- Confirmed question-resolution badges open the resolved question while keeping private titles
+  hidden. A reply waiting for its first words shows working dots.
+
 ## [0.2.0] - 2026-11-10
 
 ### Changed (relock)
@@ -25,12 +36,13 @@ says "This gateway does not offer mentions yet."
 - **Mention an entity with `@`.** Type `@` in the message box and pick one of your entities (the
   ones your gateway lists for you); it becomes a chip. When you send, each entity you mentioned
   answers in turn, in the order you picked them, and its answer appears in the conversation under
-  its name. Your message shows once, and the answers to it appear in the order they came. The first
-  time you pick a name in a conversation, a line reminds you that it will read this conversation's
-  history. A name you already picked is not offered again, an entity picked twice is asked once, and
+  its name. Your message shows once, and the answers to it appear in the order they came. While an
+  entity's answer is on its way, a bubble with its name and moving dots stands where the answer
+  will appear; a sent message keeps its chips, and resting on one shows the entity's card. A name you already picked is not offered again, an entity picked twice is asked once, and
   the list spans the message box on a phone.
 - **When a mention cannot be answered, you are told.** An entity already in another conversation is
-  skipped with one sentence ("Castor is in another conversation.") and the next one is still asked.
+  skipped with one sentence ("Castor is in another conversation."), its waiting bubble goes at once,
+  and the next one is still asked.
   An entity that cannot answer says why, and your words go back to the message box with only the
   entities that did not answer still as chips. A gateway without mentions says "This gateway does
   not offer mentions yet" instead of listing names.
@@ -50,8 +62,8 @@ says "This gateway does not offer mentions yet."
 - **A message to your entities does not reach the Assistant; `@Assistant` asks it too.** A message
   that mentions entities goes to them only: the gateway keeps your words as a turn of the
   conversation and the Assistant does not answer (`agent: "not_addressed"` and the turn's `turn_id`
-  on `POST runs/start`; each entity is asked with `repeat_of` naming that turn). One line above the
-  message box says "The assistant stays out of this message.", and the conversation shows your words
+  on `POST runs/start`; each entity is asked with `repeat_of` naming that turn). Nothing is announced
+  above the message box; the conversation shows your words
   once, then the entities' answers, with no spinner, no empty reply and no "ended without a written
   reply" line (a turn marked `agent_addressed: false` in its view is never shown as waiting for a
   reply; after a reload its words show as they did live, from the turn's own fields, and the app
@@ -73,6 +85,13 @@ says "This gateway does not offer mentions yet."
   The per-toolset "Allow all … tools for this chat" choice is gone.
 - **Built on ui-kit 0.9.27 and panel-chat 0.9.11 from npm** (from ui-kit 0.9.16 and panel-chat
   0.8.2); the shared conversation bundled with the app is panel-chat 0.9.11's.
+
+### Fixed
+
+- **Automation titles are saved whole.** A new automation named after its task used to be saved
+  with the task's first line cut at 120 characters and "…"; it is now saved whole, and the list folds
+  a long name on screen only. Editing the task of an automation named after it keeps the name in step,
+  whole, including names an earlier version cut (the Apple apps are a separate change).
 
 ## [0.1.3] - 2026-11-07
 

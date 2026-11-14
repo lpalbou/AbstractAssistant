@@ -7,6 +7,11 @@ iPhone app); the Python package's history is in
 
 ## [Unreleased]
 
+### Fixed
+
+- Connectivity errors can suggest that the gateway's Mac is asleep. Offline-device, certificate, configuration and decoding failures keep their own error message.
+- Automation history preserves a received answer when an older read contains no answer or only an excerpt. Run reads a fresh occurrence baseline before starting and ignores older or already shown occurrences.
+
 ### Added
 
 - **An entity's orb is its digital identity (AbstractGateway 0.20).** Its design and colour come
