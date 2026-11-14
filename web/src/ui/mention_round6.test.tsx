@@ -5,7 +5,6 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { WorkingDots } from "@abstractframework/panel-chat";
 import { WorkflowChat, type ChatMessage } from "../vendor/abstractchat/conversation.js";
 import { pendingMentionsFor, PENDING_MENTION_ID, withPendingMentions } from "../lib/mentions";
 import { conversationPresentation } from "../lib/presentation";
@@ -44,18 +43,18 @@ describe("an answer on its way is a bubble with its dots", () => {
   it("the thread draws its author and its three dots", () => {
     const html = renderToStaticMarkup(
       <WorkflowChat messages={withPendingMentions([], pending.slice(0, 1))} draft="" onDraftChange={() => {}} onSend={async () => {}}
-        messageProps={{ renderFooter: (m) => (String(m.id || "").startsWith(PENDING_MENTION_ID) ? <WorkingDots label={`${m.author?.name} is answering`} /> : null) }} />,
+        messageProps={{ renderFooter: () => null }} />,
     );
     expect(html).toContain("Castor");
-    expect(html).toContain("pc-working-dots");
+    expect(html.match(/class="pc-working-dots"/g)?.length).toBe(1);
   });
 
-  it("the workspace: bubbles from the ask, marked as each answer shows, gone when delivery ends; dots in the footer", () => {
+  it("the workspace: bubbles from the ask, marked as each answer shows, gone when delivery ends; dots in the shared body", () => {
     expect(ws).toContain("setPendingAnswers({ anchor, entries: pendingMentionsFor(");
     expect(ws).toContain("forThis((entries) => entries.map((e) => (e.mention.id === mention.id && e.mention.index === mention.index ? { ...e, runId: answer.run_id } : e)));");
     expect(ws).toContain(".finally(() => setPendingAnswers((now) => (now && now.anchor === anchor ? null : now)));");
     expect(ws).toContain("messages={withPendingMentions(messages, pendingAnswers && pendingAnswers.anchor === props.runId ? pendingAnswers.entries : [])}");
-    expect(ws).toContain('if (String(m.id || "").startsWith(PENDING_MENTION_ID)) return <WorkingDots');
+    expect(ws).toContain('if (String(m.id || "").startsWith(PENDING_MENTION_ID)) return null;');
     expect(ws).not.toMatch(/is answering…/);
   });
 });

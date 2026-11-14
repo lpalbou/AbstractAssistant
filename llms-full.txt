@@ -8788,6 +8788,7 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 
 ### Fixed
 
+- Each pending entity reply shows one set of working dots in its message body.
 - **A reloaded conversation shows a message to your entities as it did live.** After a reload, a
   message you sent only to entities (without **Assistant**) no longer reads as still waiting for a
   reply and no longer ends with "The run ended without a written reply."

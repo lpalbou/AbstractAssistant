@@ -26,7 +26,6 @@ import {
   useAttachmentUploads,
   workflowPendingInteraction,
   workflowSourceLabel,
-  WorkingDots,
 } from "@abstractframework/panel-chat";
 import type { ChatMessage } from "../vendor/abstractchat/conversation.js";
 import {
@@ -609,8 +608,8 @@ export function Workspace(props: {
       messageProps={{
         renderMentionCard: (mention) => mentionCard(mention, entityCards.current),
         renderFooter: (m) => {
-          // An answer on its way: its three dots in its bubble.
-          if (String(m.id || "").startsWith(PENDING_MENTION_ID)) return <WorkingDots label={`${m.author?.name || "The entity"} is answering`} />;
+          // The shared card owns the pending reply's body indicator.
+          if (String(m.id || "").startsWith(PENDING_MENTION_ID)) return null;
           const status = m.runId === props.runId ? snapshot.status : props.sessionActivity?.content.find((c) => c.runId === m.runId)?.status;
           if (!status) return null;
           const target = sessionReadTarget(m.kind === "attachments" ? [...messages,m] : messages, m.runId || "", status);
