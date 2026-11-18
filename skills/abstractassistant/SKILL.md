@@ -3,7 +3,7 @@ name: abstractassistant
 description: Operate AbstractAssistant through its assistant or abstractassistant CLI and gateway connection. Use to run a terminal turn, choose the intended gateway, diagnose sign-in or connection failures, or understand how desktop, web and Apple clients use gateway workflows.
 license: MIT
 metadata:
-  package-version: "0.19.0"
+  package-version: "0.19.1"
 ---
 
 # AbstractAssistant

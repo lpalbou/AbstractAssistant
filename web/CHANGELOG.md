@@ -6,6 +6,18 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-18
+
+Built on `@abstractframework/panel-chat` 0.9.15 from npm; the vendored snapshots
+`src/vendor/abstractchat` and `src/vendor/abstractdocs` are synced from it.
+
+### Changed
+
+- **Pictures show as thumbnails.** A picture attached to a message shows as a small thumbnail
+  instead of a file chip; it loads only when it comes near the screen, so a long conversation does
+  not download every picture at once. Click it to open the picture at its actual size in the
+  preview, which scrolls for a larger picture. Other files keep their chip.
+
 ## [0.2.1] - 2026-11-14
 
 ### Fixed

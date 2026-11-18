@@ -81,8 +81,8 @@ its titles, the workflow choice and the run input (desktop parity ports).
 
 Published on npm as [`@abstractframework/assistant`](https://www.npmjs.com/package/@abstractframework/assistant)
 (release history: [CHANGELOG.md](CHANGELOG.md); design: [ADR 0007](../docs/adr/0007_web_assistant.md)).
-Version 0.2.1 preserves entity-only turns after reload and shows confirmed question-resolution
-badges, on ui-kit 0.9.28 and panel-chat 0.9.14 ([changelog](CHANGELOG.md#021---2026-11-14)).
+Version 0.2.2 shows picture attachments as thumbnails that open at actual size in the preview,
+on ui-kit 0.9.28 and panel-chat 0.9.15 ([changelog](CHANGELOG.md#022---2026-11-18)).
 Gateway's catalog and tray list it as **Assistant (web)**, next to the desktop Assistant.
 
 ## Install

@@ -194,6 +194,10 @@ repository version you use into your agent's skills directory.
 
 ## What's new
 
+0.19.1 shows a picture the assistant generated on its answer again when you reopen or reload a
+conversation (also generated video and audio). See the
+[0.19.1 release notes](CHANGELOG.md#0191---2026-11-18).
+
 0.19.0 lets you talk to your entities from the desktop Assistant, as in the web Assistant and the
 other AbstractFramework apps: type `@`, pick a name, and it becomes a chip in your sentence. Each
 entity you mention answers in the conversation, one after the other, under its own name and orb; a
@@ -3445,6 +3449,16 @@ All notable changes to AbstractAssistant are documented in this file. Entries de
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
 ## [Unreleased]
+
+## [0.19.1] - 2026-11-18
+
+A picture the assistant generated now shows on its answer when you reopen the conversation.
+
+### Fixed
+
+- **Generated pictures show again in a reopened conversation.** When you reopen or reload a
+  conversation, an answer that came with a picture the assistant generated shows that picture, as
+  it did live, instead of a plain file or nothing. The same holds for generated video and audio.
 
 ## [0.19.0] - 2026-11-14
 
@@ -8445,8 +8459,8 @@ its titles, the workflow choice and the run input (desktop parity ports).
 
 Published on npm as [`@abstractframework/assistant`](https://www.npmjs.com/package/@abstractframework/assistant)
 (release history: [CHANGELOG.md](CHANGELOG.md); design: [ADR 0007](../docs/adr/0007_web_assistant.md)).
-Version 0.2.1 preserves entity-only turns after reload and shows confirmed question-resolution
-badges, on ui-kit 0.9.28 and panel-chat 0.9.14 ([changelog](CHANGELOG.md#021---2026-11-14)).
+Version 0.2.2 shows picture attachments as thumbnails that open at actual size in the preview,
+on ui-kit 0.9.28 and panel-chat 0.9.15 ([changelog](CHANGELOG.md#022---2026-11-18)).
 Gateway's catalog and tray list it as **Assistant (web)**, next to the desktop Assistant.
 
 ## Install
@@ -8784,6 +8798,18 @@ in the repository [CHANGELOG](../CHANGELOG.md). Release tags for this package ar
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-18
+
+Built on `@abstractframework/panel-chat` 0.9.15 from npm; the vendored snapshots
+`src/vendor/abstractchat` and `src/vendor/abstractdocs` are synced from it.
+
+### Changed
+
+- **Pictures show as thumbnails.** A picture attached to a message shows as a small thumbnail
+  instead of a file chip; it loads only when it comes near the screen, so a long conversation does
+  not download every picture at once. Click it to open the picture at its actual size in the
+  preview, which scrolls for a larger picture. Other files keep their chip.
+
 ## [0.2.1] - 2026-11-14
 
 ### Fixed
@@ -8976,7 +9002,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.19.0"
+version = "0.19.1"
 description = "A gateway-native macOS menu-bar assistant for AbstractFramework: a compact palette, voice questions, automations and a small CLI over AbstractGateway"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -16716,8 +16742,14 @@ def _media_meta(meta: Dict[str, Any], artifact_ids: Any, arts: Dict[str, Dict[st
                 continue
             if entry.get("run_id"):
                 ref["run_id"] = str(entry["run_id"])
-        parts = re.split(r"[.\[\]]", path)
-        field = next((k for k in reversed(parts) if k and not k.isdigit()), "")
+        names = [k for k in re.split(r"[.\[\]]", path) if k and not k.isdigit()]
+        field = names[-1] if names else ""
+        if field not in _MEDIA_KEYS and len(names) >= 2 and names[0] == "outputs":
+            # The view names an artifact by its EARLIEST reference. A generated image is first
+            # referenced under the output's media list (`outputs.image[0].artifact_ref`), before
+            # `image_artifact`: the modality is in the path, and without it the image was
+            # attached as a plain file and the palette drew no picture on replay (2026-11-18).
+            field = f"{names[1]}_artifact"
         if field in _MEDIA_KEYS and field not in meta:
             meta[field] = ref
         elif "artifact" not in meta:

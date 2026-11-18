@@ -1214,14 +1214,21 @@ function useMessageArtifacts(messages, fetchGateway, scope2, run) {
   };
 }
 var ArtifactFetchContext = createContext(void 0);
+function artifactIsPicture(meta) {
+  const m = obj(meta);
+  const type = [m.content_type, obj(m.tags).content_type, obj(m.descriptor).content_type].find((v) => typeof v === "string" && v);
+  const mime = String(type || "").split(";", 1)[0].trim().toLowerCase();
+  return mime.startsWith("image/") && mime !== "image/svg+xml";
+}
 function MessageArtifactChip({ artifact }) {
-  const fetchGateway = useContext(ArtifactFetchContext), [name, setName] = useState6(artifact.name || "Attached file"), [error, setError] = useState6(""), [previewOpen, setPreviewOpen] = useState6(false), [internal, setInternal] = useState6(false), [metadataStatus, setMetadataStatus] = useState6("loading"), [metadataAttempt, retryMetadata] = useState6(0);
+  const fetchGateway = useContext(ArtifactFetchContext), [name, setName] = useState6(artifact.name || "Attached file"), [error, setError] = useState6(""), [previewOpen, setPreviewOpen] = useState6(false), [internal, setInternal] = useState6(false), [metadataStatus, setMetadataStatus] = useState6("loading"), [metadataAttempt, retryMetadata] = useState6(0), [isImage, setIsImage] = useState6(false), [nearView, setNearView] = useState6(false), [thumbnail, setThumbnail] = useState6(""), rootRef = useRef4(null);
   const path = gatewayApiPath3(`runs/${encodeURIComponent(artifact.runId)}/artifacts/${encodeURIComponent(artifact.id)}`);
   useEffect6(() => {
     const abort = new AbortController();
     setName(artifact.name || "Attached file");
     setError("");
     setInternal(false);
+    setIsImage(false);
     setMetadataStatus("loading");
     if (fetchGateway)
       void fetchGateway(path, { signal: abort.signal }).then(async (r) => {
@@ -1231,6 +1238,7 @@ function MessageArtifactChip({ artifact }) {
         const hidden = internalArtifactMetadata(meta);
         if (!abort.signal.aborted) {
           setInternal(hidden);
+          setIsImage(!hidden && artifactIsPicture(meta));
           setMetadataStatus("ready");
         }
         const value = meta.filename || meta.name || tags.filename || descriptor.name || envelope.name;
@@ -1250,9 +1258,44 @@ function MessageArtifactChip({ artifact }) {
     if (artifact.name)
       setName(artifact.name);
   }, [artifact.name]);
+  useEffect6(() => {
+    const el = rootRef.current;
+    if (!isImage || nearView || !el)
+      return;
+    if (typeof IntersectionObserver === "undefined")
+      return setNearView(true);
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting))
+        setNearView(true);
+    }, { rootMargin: "200px" });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isImage, nearView]);
+  useEffect6(() => {
+    if (!isImage || !nearView || !fetchGateway)
+      return;
+    const abort = new AbortController();
+    let url = "";
+    void fetchGateway(`${path}/content`, { signal: abort.signal }).then(async (r) => {
+      if (!r.ok)
+        throw await gatewayResponseError(r, "Picture unavailable");
+      const blob = await boundedPreviewBlob(r);
+      if (abort.signal.aborted)
+        return;
+      url = URL.createObjectURL(blob);
+      setThumbnail(url);
+    }).catch(() => {
+    });
+    return () => {
+      abort.abort();
+      setThumbnail("");
+      if (url)
+        URL.revokeObjectURL(url);
+    };
+  }, [isImage, nearView, fetchGateway, path]);
   if (internal)
     return _jsx6(_Fragment3, {});
-  return _jsxs4("span", { className: "pc-message-artifact", children: [_jsxs4("button", { type: "button", className: "pc-chat-attachment-chip", "aria-haspopup": "dialog", disabled: !fetchGateway || metadataStatus !== "ready", onClick: () => setPreviewOpen(true), children: [_jsx6(Icon3, { name: "paperclip", size: 14 }), _jsx6("span", { className: "pc-chat-attachment-name", children: name })] }), error && _jsxs4("span", { role: "status", className: "pc-message-artifact__error", children: [error, " ", _jsxs4("button", { type: "button", onClick: () => retryMetadata((n) => n + 1), children: ["Retry ", name] })] }), previewOpen && fetchGateway && _jsx6(ArtifactPreviewModal, { name, path, fetchGateway, onClose: () => setPreviewOpen(false) })] });
+  return _jsxs4("span", { className: "pc-message-artifact", ref: rootRef, children: [thumbnail ? _jsx6("button", { type: "button", className: "pc-message-artifact__thumbnail", "aria-haspopup": "dialog", title: name, onClick: () => setPreviewOpen(true), children: _jsx6("img", { src: thumbnail, alt: name }) }) : _jsxs4("button", { type: "button", className: "pc-chat-attachment-chip", "aria-haspopup": "dialog", disabled: !fetchGateway || metadataStatus !== "ready", onClick: () => setPreviewOpen(true), children: [_jsx6(Icon3, { name: "paperclip", size: 14 }), _jsx6("span", { className: "pc-chat-attachment-name", children: name })] }), error && _jsxs4("span", { role: "status", className: "pc-message-artifact__error", children: [error, " ", _jsxs4("button", { type: "button", onClick: () => retryMetadata((n) => n + 1), children: ["Retry ", name] })] }), previewOpen && fetchGateway && _jsx6(ArtifactPreviewModal, { name, path, fetchGateway, onClose: () => setPreviewOpen(false) })] });
 }
 function boundedArtifactFetch(fetchGateway) {
   let active = 0;

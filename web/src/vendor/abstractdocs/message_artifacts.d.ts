@@ -16,6 +16,8 @@ export declare function useMessageArtifacts(messages: ChatMessage[], fetchGatewa
     retry: () => void;
 };
 export declare const ArtifactFetchContext: React.Context<AfGatewayFetch | undefined>;
+/** A raster picture, by the artifact's own metadata (SVG is markup: it stays a file). */
+export declare function artifactIsPicture(meta: unknown): boolean;
 export declare function MessageArtifactChip({ artifact, }: {
     artifact: MessageArtifact;
 }): React.ReactElement;
