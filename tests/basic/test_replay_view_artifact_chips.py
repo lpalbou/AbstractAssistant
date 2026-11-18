@@ -96,3 +96,41 @@ def test_label_never_shows_the_id_and_names_kind_and_size():
     assert _artifact_label({"$artifact": "x", "content_type": "text/plain", "size_bytes": 4340}) == "Document · 4.2 KB"
     assert _artifact_label({"$artifact": "x", "content_type": "audio/wav"}) == "Audio"
     assert _artifact_label({"$artifact": "x", "filename": "tts.wav"}) == "tts.wav"
+
+
+def test_a_generated_image_first_referenced_in_the_output_media_list_is_an_image() -> None:
+    """2026-11-18 (Windows, FLUX.2 klein through the image-generation flow): the view names an
+    artifact by its EARLIEST reference, here `outputs.image[0].artifact_ref`. It was attached as
+    a plain file, so the replayed answer showed no picture (AbstractCode's web UI did)."""
+    from abstractassistant.gateway.replay_view import _media_meta
+
+    arts = {"img": {"id": "img", "run_id": "run-1", "path": "outputs.image[0].artifact_ref"},
+            "vid": {"id": "vid", "run_id": "run-1", "path": "outputs.video[0].artifact_ref"},
+            "doc": {"id": "doc", "run_id": "run-1", "path": "outputs.files[0].artifact_ref"}}
+    meta: dict = {}
+    _media_meta(meta, ["img", "vid", "doc"], arts, source="ledger")
+    assert meta["image_artifact"] == {"$artifact": "img", "run_id": "run-1"}
+    assert meta["video_artifact"] == {"$artifact": "vid", "run_id": "run-1"}
+    assert meta["artifact"] == {"$artifact": "doc", "run_id": "run-1"}  # not a medium: a file, as before
+
+
+def test_a_reopened_conversation_keeps_the_picture_its_answer_generated() -> None:
+    """2026-11-18: reopening a conversation rebuilds it from the gateway's session turns. A turn
+    lists every artifact of its run; the generated picture was dropped with the bookkeeping, so
+    the answer came back as text only (the web apps showed the picture)."""
+    from abstractassistant.gateway.history_seed import seed_messages_from_history_bundle
+
+    run = "be6bcfee-run"
+    bundle = {"root_run_id": run, "session": {"turns": [{
+        "run_id": run, "prompt": "generate an image of a ship", "answer": "Generating an image of a ship.",
+        "created_at": "2026-11-18T02:03:48+00:00", "updated_at": "2026-11-18T02:05:33+00:00",
+        "artifacts": [
+            {"artifact_id": "snap", "run_id": run, "content_type": "application/json", "tags": {"kind": "workflow_snapshot"}},
+            {"artifact_id": "trace", "run_id": run, "content_type": "application/json", "tags": {"kind": "json", "source": "run_output_offload"}},
+            {"artifact_id": "img", "run_id": run, "content_type": "image/png", "size_bytes": 1509739,
+             "tags": {"kind": "generated_media", "modality": "image", "task": "image_generation"}},
+        ],
+    }]}}
+    answer = next(m for m in seed_messages_from_history_bundle(bundle) if m["role"] == "assistant")
+    media = _message_media_artifacts(answer)
+    assert [(m["$artifact"], m["modality"], m["run_id"]) for m in media] == [("img", "image", run)]

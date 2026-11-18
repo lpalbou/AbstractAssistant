@@ -3063,6 +3063,11 @@ button.pc-ws__name:hover {
 
 .pc-message-artifact { display: inline-flex; flex-direction: column; gap: 4px; max-width: 100%; }
 .pc-message-artifact__error { color: var(--error); font-size: var(--font-size-sm); overflow-wrap: anywhere; }
+/* A picture is its own attachment: a thumbnail that opens the preview. */
+.pc-message-artifact__thumbnail { display: block; padding: 0; border: 1px solid var(--ui-border-1); border-radius: 10px; background: var(--ui-surface-2); overflow: hidden; cursor: zoom-in; line-height: 0; max-width: 100%; }
+.pc-message-artifact__thumbnail img { display: block; max-width: min(320px, 100%); max-height: 240px; width: auto; height: auto; object-fit: contain; }
+.pc-message-artifact__thumbnail:hover { border-color: var(--accent); }
+.pc-message-artifact__thumbnail:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .pc-tool-activity__output a, .pc-json-viewer a { overflow-wrap: anywhere; }
 
 .pc-artifact-preview__retry { border: 1px solid var(--ui-border-1); border-radius: 8px; background: var(--ui-surface-2); color: var(--text-primary); min-height: 36px; padding: 6px 12px; font: inherit; cursor: pointer; }
@@ -3079,9 +3084,12 @@ button.pc-ws__name:hover {
 .pc-artifact-preview .af-file-viewer__head > button { position: absolute; top: 14px; right: 58px; width: 32px; height: 32px; }
 .pc-artifact-preview .af-file-viewer__body { padding: 12px; }
 .pc-artifact-preview__content { width: min(76ch, 820px, calc(100vw - 32px)); }
-.pc-artifact-preview--image .pc-artifact-preview__content,
 .pc-artifact-preview--video .pc-artifact-preview__content { width: min(calc(var(--pc-media-width, 616px) + 24px), calc((100dvh - 128px) * var(--pc-media-aspect, 1) + 24px), calc(100vw - 32px)); }
-.pc-artifact-preview .af-file-viewer__image { display: block; width: auto; max-width: 100%; max-height: calc(100dvh - 128px); object-fit: contain; }
+/* A picture is shown 1:1, one image pixel per CSS pixel: the dialog takes its size up to the
+   window, and a larger picture scrolls inside it instead of being scaled down. */
+.pc-artifact-preview--image .pc-artifact-preview__content { width: min(calc(var(--pc-media-width, 616px) + 24px), calc(100vw - 32px)); }
+.pc-artifact-preview--image .af-file-viewer__body { overflow: auto; max-height: calc(100dvh - 128px); }
+.pc-artifact-preview .af-file-viewer__image { display: block; width: auto; max-width: none; max-height: none; }
 .pc-artifact-preview--audio .pc-artifact-preview__content { width: min(520px, calc(100vw - 32px)); }
 .pc-artifact-preview--binary .pc-artifact-preview__content { width: min(440px, calc(100vw - 32px)); }
 @media (max-width: 767.98px) {

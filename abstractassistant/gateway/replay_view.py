@@ -243,8 +243,14 @@ def _media_meta(meta: Dict[str, Any], artifact_ids: Any, arts: Dict[str, Dict[st
                 continue
             if entry.get("run_id"):
                 ref["run_id"] = str(entry["run_id"])
-        parts = re.split(r"[.\[\]]", path)
-        field = next((k for k in reversed(parts) if k and not k.isdigit()), "")
+        names = [k for k in re.split(r"[.\[\]]", path) if k and not k.isdigit()]
+        field = names[-1] if names else ""
+        if field not in _MEDIA_KEYS and len(names) >= 2 and names[0] == "outputs":
+            # The view names an artifact by its EARLIEST reference. A generated image is first
+            # referenced under the output's media list (`outputs.image[0].artifact_ref`), before
+            # `image_artifact`: the modality is in the path, and without it the image was
+            # attached as a plain file and the palette drew no picture on replay (2026-11-18).
+            field = f"{names[1]}_artifact"
         if field in _MEDIA_KEYS and field not in meta:
             meta[field] = ref
         elif "artifact" not in meta:

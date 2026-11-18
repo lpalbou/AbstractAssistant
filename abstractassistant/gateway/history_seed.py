@@ -65,6 +65,34 @@ def _attachment_metadata(attachments: Any) -> Optional[Dict[str, Any]]:
     return {"attachments": items, "media": items}
 
 
+_GENERATED_MEDIA_KEYS = {"image": "image_artifact", "video": "video_artifact", "audio": "audio_artifact", "music": "music_artifact"}
+
+
+def _generated_media_metadata(meta: Dict[str, Any], artifacts: Any) -> None:
+    """Put a turn's generated media on its answer, under the keys the transcript draws
+    (`image_artifact` -> a picture tile, as on a live answer).
+
+    A turn lists every artifact of its run, bookkeeping included; only what the run GENERATED
+    for the person is attached (`tags.kind == "generated_media"`, the runtime's own mark). The
+    answer of a reopened conversation showed no picture: these were dropped here (2026-11-18)."""
+    for art in artifacts or []:
+        if not isinstance(art, dict):
+            continue
+        tags = art.get("tags") if isinstance(art.get("tags"), dict) else {}
+        artifact_id = str(art.get("artifact_id") or "").strip()
+        if not artifact_id or str(tags.get("kind") or "") != "generated_media":
+            continue
+        ref: Dict[str, Any] = {"$artifact": artifact_id}
+        for field in ("run_id", "content_type", "size_bytes"):
+            if art.get(field):
+                ref[field] = art[field]
+        key = _GENERATED_MEDIA_KEYS.get(str(tags.get("modality") or "").strip().lower(), "artifact")
+        if key not in meta:
+            meta[key] = ref
+        else:
+            meta.setdefault("media", []).append(ref)
+
+
 def _when(ts: Any) -> Optional[float]:
     try:
         from datetime import datetime
@@ -159,6 +187,7 @@ def _seed_from_session_turns(bundle: Dict[str, Any]) -> List[Dict[str, Any]]:
             notices = [dict(n) for n in turn.get("notices") or [] if isinstance(n, dict)]
             if notices:
                 meta["notices"] = notices
+            _generated_media_metadata(meta, turn.get("artifacts"))
             _push_assistant(out, content=answer, ts=ts_asst, run_id=run_id, meta=meta)
     _order_answers_by_time(out, anchors, shown)
     return out

@@ -5,6 +5,16 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-11-18
+
+A picture the assistant generated now shows on its answer when you reopen the conversation.
+
+### Fixed
+
+- **Generated pictures show again in a reopened conversation.** When you reopen or reload a
+  conversation, an answer that came with a picture the assistant generated shows that picture, as
+  it did live, instead of a plain file or nothing. The same holds for generated video and audio.
+
 ## [0.19.0] - 2026-11-14
 
 Talk to your entities from the desktop Assistant: type `@`, pick a name, and each entity you mention

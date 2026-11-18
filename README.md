@@ -77,6 +77,10 @@ repository version you use into your agent's skills directory.
 
 ## What's new
 
+0.19.1 shows a picture the assistant generated on its answer again when you reopen or reload a
+conversation (also generated video and audio). See the
+[0.19.1 release notes](CHANGELOG.md#0191---2026-11-18).
+
 0.19.0 lets you talk to your entities from the desktop Assistant, as in the web Assistant and the
 other AbstractFramework apps: type `@`, pick a name, and it becomes a chip in your sentence. Each
 entity you mention answers in the conversation, one after the other, under its own name and orb; a
